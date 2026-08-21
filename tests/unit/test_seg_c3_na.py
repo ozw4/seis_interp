@@ -123,9 +123,9 @@ def test_download_resumes_and_writes_verifiable_lock(tmp_path: Path, monkeypatch
 
     lock = yaml.safe_load(lock_path.read_text(encoding="utf-8"))
     assert lock["dataset_id"] == "seg_c3_na"
-    assert {
-        record["name"]: record["sha256"] for record in lock["files"]
-    } == {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
+    assert {record["name"]: record["sha256"] for record in lock["files"]} == {
+        name: hashlib.sha256(content).hexdigest() for name, content in files.items()
+    }
 
     results = verify_seg_c3_na(manifest_path, data_root)
     assert all(result.ok for result in results)
