@@ -19,13 +19,34 @@ ${SEIS_INTERP_DATA_ROOT}/
 
 `download.lock.yaml` is generated outside Git. Its checksums are trust-on-first-use values calculated from the downloaded bytes, not checksums published by SEG. It records the exact byte count and SHA-256 checksum observed for each local file, plus the checksum of this tracked source manifest. It contains no absolute host path.
 
-## Download on the host
+## Download inside the Dev Container
 
-Install the package once, configure the external root, and run the thin script from the repository root:
+On the host, create the external data root and print its absolute path:
 
 ```bash
+mkdir -p "$HOME/seis_interp_data"
+realpath "$HOME/seis_interp_data"
+```
+
+Copy `.devcontainer/.env.example` to `.devcontainer/.env` and assign the printed path to `SEIS_INTERP_DATA_ROOT`. Rebuild the Dev Container so the directory is mounted writable at `/home/dcuser/data`.
+
+Inside the rebuilt container:
+
+```bash
+echo "$SEIS_INTERP_DATA_ROOT"
+./scripts/download_seg_c3_na.sh
+./scripts/verify_seg_c3_na.sh
+```
+
+The first command should print `/home/dcuser/data`.
+
+## Download directly on the host
+
+Install the package once and configure the external root:
+
+```bash
+export SEIS_INTERP_DATA_ROOT="$HOME/seis_interp_data"
 python -m pip install -e .
-export SEIS_INTERP_DATA_ROOT=/absolute/path/to/seis_interp_data
 ./scripts/download_seg_c3_na.sh
 ```
 
@@ -47,8 +68,6 @@ The equivalent CLI commands are:
 seis-interp data download seg_c3_na
 seis-interp data verify seg_c3_na
 ```
-
-The Dev Container mounts the configured external root read-only. Download on the host before opening or restarting the container.
 
 ## Source and use conditions
 
