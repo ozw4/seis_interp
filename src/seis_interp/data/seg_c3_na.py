@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.error import HTTPError
@@ -267,7 +267,7 @@ def _write_lock(
     payload = {
         "schema_version": 1,
         "dataset_id": DATASET_ID,
-        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_manifest": {
             "name": manifest.path.name,
             "sha256": manifest_sha256,
