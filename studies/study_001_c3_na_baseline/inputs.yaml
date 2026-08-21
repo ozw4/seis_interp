@@ -1,0 +1,14 @@
+datasets:
+  - dataset_id: seg_c3_na
+    manifest: ../../data/external/seg_c3_na/manifest.yaml
+    files: []
+    subset:
+      sail_lines: []
+      shot_range: null
+      cable_indices: all
+      receiver_indices: all
+      time_window_s: null
+
+references:
+  - id: li_et_al_2024_robust_unsupervised_5d_reconstruction
+    note: Paper-inspired method; exact reproduction is not required.

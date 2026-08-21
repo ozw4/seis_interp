@@ -1,0 +1,5 @@
+extends: ../../configs/default.yaml
+
+study:
+  status: draft
+  random_seed: 42

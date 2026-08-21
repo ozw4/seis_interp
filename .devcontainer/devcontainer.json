@@ -1,0 +1,54 @@
+{
+  "name": "seis_interp (NGC PyTorch)",
+  "service": "seis_interp",
+  "dockerComposeFile": "./compose-dev.yaml",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "dcuser",
+  "updateRemoteUserUID": false,
+  "postCreateCommand": "bash -lc \"uv pip install --system -e '.[dev,segy,data,visualization]'\"",
+  "postStartCommand": "bash -lc \"git config --global --add safe.directory /workspace && python -m seis_interp.cli doctor\"",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "files.insertFinalNewline": true,
+        "files.trimTrailingWhitespace": true,
+        "files.watcherExclude": {
+          "**/.git/objects/**": true,
+          "**/data/external/**": true,
+          "**/data/interim/**": true,
+          "**/data/processed/**": true,
+          "**/runs/**": true
+        },
+        "telemetry.telemetryLevel": "off",
+        "python.analysis.typeCheckingMode": "basic",
+        "editor.formatOnPaste": true,
+        "notebook.formatOnSave.enabled": true,
+        "[python]": {
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+          },
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+        "ruff.nativeServer": true,
+        "ruff.configuration": "/workspace/ruff.toml"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.debugpy",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-toolsai.jupyter",
+        "tamasfe.even-better-toml",
+        "usernamehw.errorlens",
+        "oderwat.indent-rainbow",
+        "gruntfuggly.todo-tree",
+        "christian-kohler.path-intellisense",
+        "eamodio.gitlens",
+        "github.copilot",
+        "openai.chatgpt"
+      ]
+    }
+  }
+}

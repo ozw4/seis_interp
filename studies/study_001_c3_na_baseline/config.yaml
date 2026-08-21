@@ -1,0 +1,18 @@
+extends: ../../configs/default.yaml
+
+study:
+  status: draft
+  random_seed: 42
+
+sampling:
+  random_trace_holdout_fraction: 0.20
+  validation_fraction_of_holdout: 0.25
+  structured_mask: receiver_decimation
+
+model:
+  omega_0: 10.0
+
+training:
+  loss: l1
+  learning_rate: 1.0e-5
+  batch_size: 1024

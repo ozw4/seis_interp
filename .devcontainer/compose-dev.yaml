@@ -1,0 +1,68 @@
+services:
+  seis_interp:
+    image: seis-interp:dev
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: develop
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        USERNAME: dcuser
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+        CODEX_VERSION: ${CODEX_VERSION:-latest}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GH_TOKEN: ${GH_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      NVIDIA_VISIBLE_DEVICES: all
+      PYTHONPATH: /workspace/src
+      SEIS_INTERP_DATA_ROOT: /home/dcuser/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    init: true
+    logging:
+      driver: local
+      options:
+        max-size: 3m
+        max-file: "3"
+    volumes:
+      - type: bind
+        source: ../
+        target: /workspace
+      - type: bind
+        source: /dev/shm
+        target: /dev/shm
+      - type: bind
+        source: ${SEISMIC_DATA_ROOT:-../data/external}
+        target: /home/dcuser/data
+        read_only: true
+      - type: bind
+        source: ${HOME}/.gitconfig
+        target: /home/dcuser/.gitconfig
+        read_only: true
+      - type: bind
+        source: ${HOME}/.config/gh
+        target: /home/dcuser/.config/gh
+      - type: bind
+        source: ${HOME}/.codex
+        target: /home/dcuser/.codex
+      - type: bind
+        source: ${HOME}/.claude
+        target: /home/dcuser/.claude
+    working_dir: /workspace
+    stdin_open: true
+    tty: true

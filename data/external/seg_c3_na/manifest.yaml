@@ -1,0 +1,9 @@
+dataset_id: seg_c3_na
+description: SEG C3 Narrow-Azimuth synthetic marine seismic dataset
+source: https://wiki.seg.org/wiki/SEG_C3_NA
+retrieved_at_utc: null
+version: null
+license: verify_from_source_before_use
+format: segy
+contains_personal_data: false
+files: []
