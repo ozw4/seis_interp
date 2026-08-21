@@ -8,11 +8,26 @@ The first target is a controlled experiment on the SEG C3 Narrow-Azimuth dataset
 
 The four SEG-Y files are stored outside this repository under `${SEIS_INTERP_DATA_ROOT}/external/seg_c3_na/`. The tracked manifest contains the public source URLs; a generated `download.lock.yaml` records trust-on-first-use local byte counts and SHA-256 checksums without storing an absolute path.
 
-Run the download on the host because the Dev Container mounts external data read-only:
+The downloader can run inside the Dev Container. First create a host directory and record its absolute path:
 
 ```bash
+mkdir -p "$HOME/seis_interp_data"
+realpath "$HOME/seis_interp_data"
+```
+
+Copy `.devcontainer/.env.example` to `.devcontainer/.env`, set `SEIS_INTERP_DATA_ROOT` to the printed host path, and rebuild the Dev Container. Inside the rebuilt container, the writable host directory is mounted at `/home/dcuser/data`:
+
+```bash
+echo "$SEIS_INTERP_DATA_ROOT"
+./scripts/download_seg_c3_na.sh
+./scripts/verify_seg_c3_na.sh
+```
+
+When running directly on the host instead, configure the same logical root explicitly:
+
+```bash
+export SEIS_INTERP_DATA_ROOT="$HOME/seis_interp_data"
 python -m pip install -e .
-export SEIS_INTERP_DATA_ROOT=/absolute/path/to/seis_interp_data
 ./scripts/download_seg_c3_na.sh
 ./scripts/verify_seg_c3_na.sh
 ```
@@ -30,7 +45,7 @@ cp .devcontainer/.env.example .devcontainer/.env
 mkdir -p ~/.config/gh ~/.codex ~/.claude
 ```
 
-Edit `.devcontainer/.env` and set `SEISMIC_DATA_ROOT` to the host data root that contains `external/seg_c3_na/`. Then open the repository in VS Code and run **Dev Containers: Reopen in Container**.
+Edit `.devcontainer/.env` and set `SEIS_INTERP_DATA_ROOT` to an existing writable host data root. Then open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**.
 
 Inside the container:
 
