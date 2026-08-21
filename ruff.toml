@@ -1,0 +1,16 @@
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+  "data",
+  "runs",
+  "results",
+]
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = []
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

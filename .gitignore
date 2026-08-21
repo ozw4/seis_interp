@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# Notebooks and editors
+.ipynb_checkpoints/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+.devcontainer/.env
+.claude/settings.local.json
+.codex/
+node_modules/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# External and generated seismic data
+*.sgy
+*.segy
+*.su
+*.zgy
+
+data/external/**
+!data/external/
+!data/external/seg_c3_na/
+!data/external/seg_c3_na/README.md
+!data/external/seg_c3_na/manifest.yaml
+
+data/interim/
+data/processed/
+
+# Machine-generated runs
+runs/**
+!runs/README.md
+
+# Large model artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Local vendor checkouts
+vendor/

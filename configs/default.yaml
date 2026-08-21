@@ -1,0 +1,35 @@
+project:
+  random_seed: 42
+
+data:
+  dataset_id: seg_c3_na
+  data_root_env: SEIS_INTERP_DATA_ROOT
+  coordinate_order:
+    - time_s
+    - cmp_x_m
+    - cmp_y_m
+    - offset_m
+    - azimuth_deg
+
+normalization:
+  coordinates: minmax_minus_one_to_one
+  amplitude: global_robust_scale
+
+model:
+  name: siren
+  input_features: 5
+  hidden_layers: 4
+  hidden_width: 256
+  omega_0: 10.0
+
+training:
+  loss: l1
+  optimizer: adam
+  learning_rate: 1.0e-5
+  batch_size: 1024
+
+evaluation:
+  metrics:
+    - signal_to_noise_ratio_db
+    - normalized_root_mean_squared_error
+    - correlation
