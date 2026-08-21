@@ -1,9 +1,36 @@
 dataset_id: seg_c3_na
 description: SEG C3 Narrow-Azimuth synthetic marine seismic dataset
-source: https://wiki.seg.org/wiki/SEG_C3_NA
-retrieved_at_utc: null
-version: null
+source:
+  provider: SEG open-data catalog
+  landing_page: https://wiki.seg.org/wiki/SEG_C3_NA
+version: seg_eage_salt_phase_c_narrow_azimuth_classic
 license: verify_from_source_before_use
-format: segy
+format: segy_rev1
 contains_personal_data: false
-files: []
+storage:
+  relative_directory: external/seg_c3_na
+files:
+  - name: SEG_C3NA_ffid_2-1200.sgy
+    url: https://s3.amazonaws.com/open.source.geoscience/open_data/seg_eage_salt/SEG_C3NA_ffid_2-1200.sgy
+    ffid_min: 2
+    ffid_max: 1200
+    size_bytes: null
+    sha256: null
+  - name: SEG_C3NA_ffid_1201-2400.sgy
+    url: https://s3.amazonaws.com/open.source.geoscience/open_data/seg_eage_salt/SEG_C3NA_ffid_1201-2400.sgy
+    ffid_min: 1201
+    ffid_max: 2400
+    size_bytes: null
+    sha256: null
+  - name: SEG_C3NA_ffid_2401-3600.sgy
+    url: https://s3.amazonaws.com/open.source.geoscience/open_data/seg_eage_salt/SEG_C3NA_ffid_2401-3600.sgy
+    ffid_min: 2401
+    ffid_max: 3600
+    size_bytes: null
+    sha256: null
+  - name: SEG_C3NA_ffid_3601-4781.sgy
+    url: https://s3.amazonaws.com/open.source.geoscience/open_data/seg_eage_salt/SEG_C3NA_ffid_3601-4781.sgy
+    ffid_min: 3601
+    ffid_max: 4781
+    size_bytes: null
+    sha256: null

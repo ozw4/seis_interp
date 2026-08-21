@@ -1,6 +1,6 @@
 # `seis_interp` リポジトリ フォルダ構成規約
 
-> POC向け / Version 0.1 / 2026-08-21
+> POC向け / Version 0.2 / 2026-08-21
 
 ## 目的
 
@@ -11,6 +11,7 @@ SEG C3 Narrow-Azimuthを用いる5D seismic interpolation POCで、コード、�
 | 対象 | 配置先 | 原則 |
 |---|---|---|
 | 再利用する実装 | `src/seis_interp/` | studyに依存しない処理を置く。結果へ影響するロジックはテスト可能にする。 |
+| 薄い実行補助 | `scripts/` | 環境変数とCLI呼び出しだけを扱う。データ処理ロジックは置かない。 |
 | 研究条件と判断記録 | `studies/<study>/` | 研究質問ごとに`README.md`、`config.yaml`、`inputs.yaml`を置く。 |
 | データ | `data/` | 由来と処理段階で`external`、`interim`、`processed`を分ける。 |
 | 実行履歴 | `runs/` | runごとの設定、入力、指標、ログ、成果物を機械生成し、手編集しない。 |
@@ -40,6 +41,10 @@ seis_interp/
 │       ├── evaluation/
 │       ├── visualization/
 │       └── pipelines/
+│
+├── scripts/
+│   ├── download_seg_c3_na.sh
+│   └── verify_seg_c3_na.sh
 │
 ├── configs/
 │   └── default.yaml
@@ -82,6 +87,7 @@ seis_interp/
 | 場所 | 置くもの／置かないもの |
 |---|---|
 | `src/` | SEG-Y I/O、座標計算、mask、正規化、SIREN、学習、評価、可視化、pipelineを置く。Notebook専用コードやstudy固有条件は置かない。 |
+| `scripts/` | CLIを呼ぶ薄いshell wrapperや環境セットアップ補助だけを置く。manifest解析、download、checksumなどの主要ロジックは`src/`へ置く。 |
 | `studies/` | 一つの研究質問を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
 | `data/` | C3 NAは外部公開データなので`external/`へ置く。実SEG-Yや大容量配列はGitに入れず、manifest、checksum、取得元、利用条件を記録する。 |
 | `runs/` | run IDにUTC時刻とGit SHAを含める。resolved config、input lock、metrics、logs、checkpoint、figuresを保存する。 |
@@ -153,6 +159,7 @@ POCの進行中も、次の境界を維持する。
 
 ```text
 src/      = 再利用する実装
+scripts/  = 薄い実行補助
 studies/  = 研究条件と判断記録
 runs/     = 実行履歴
 results/  = 採用した成果

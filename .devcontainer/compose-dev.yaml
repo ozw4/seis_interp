@@ -47,7 +47,7 @@ services:
         source: /dev/shm
         target: /dev/shm
       - type: bind
-        source: ${SEISMIC_DATA_ROOT:-../data/external}
+        source: ${SEISMIC_DATA_ROOT:?Set SEISMIC_DATA_ROOT in .devcontainer/.env}
         target: /home/dcuser/data
         read_only: true
       - type: bind
