@@ -14,6 +14,21 @@ def test_resolve_data_root_requires_configuration(monkeypatch) -> None:
         resolve_data_root()
 
 
+@pytest.mark.parametrize(
+    "configured_value",
+    [
+        "/absolute/path/to/seis_interp_data",
+        "/absolute/host/path/to/seis_interp_data",
+        "/replace/with/host/path/to/seis_interp_data",
+    ],
+)
+def test_resolve_data_root_rejects_example_paths(monkeypatch, configured_value: str) -> None:
+    monkeypatch.setenv("SEIS_INTERP_DATA_ROOT", configured_value)
+
+    with pytest.raises(DataRootError, match="example path"):
+        resolve_data_root(create=True)
+
+
 def test_resolve_data_root_uses_explicit_override(tmp_path: Path) -> None:
     data_root = resolve_data_root(tmp_path / "data", create=True)
 
