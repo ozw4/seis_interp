@@ -135,9 +135,7 @@ def _doctor(args: argparse.Namespace) -> int:
     if not args.strict:
         return 0
 
-    commands_ready = all(
-        report["commands"][name]["available"] for name in ("codex", "claude")
-    )
+    commands_ready = all(report["commands"][name]["available"] for name in ("codex", "claude"))
     return 0 if commands_ready and report["data_root"]["readable"] else 1
 
 
