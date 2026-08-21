@@ -47,9 +47,8 @@ services:
         source: /dev/shm
         target: /dev/shm
       - type: bind
-        source: ${SEISMIC_DATA_ROOT:?Set SEISMIC_DATA_ROOT in .devcontainer/.env}
+        source: ${SEIS_INTERP_DATA_ROOT:?Set SEIS_INTERP_DATA_ROOT in .devcontainer/.env}
         target: /home/dcuser/data
-        read_only: true
       - type: bind
         source: ${HOME}/.gitconfig
         target: /home/dcuser/.gitconfig
