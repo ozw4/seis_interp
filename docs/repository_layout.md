@@ -1,6 +1,6 @@
 # `seis_interp` リポジトリ フォルダ構成規約
 
-> POC向け / Version 0.2 / 2026-08-21
+> POC向け / Version 0.3 / 2026-08-22
 
 ## 目的
 
@@ -44,7 +44,8 @@ seis_interp/
 │
 ├── scripts/
 │   ├── download_seg_c3_na.sh
-│   └── verify_seg_c3_na.sh
+│   ├── verify_seg_c3_na.sh
+│   └── inspect_seg_c3_na.sh
 │
 ├── configs/
 │   └── default.yaml
@@ -64,7 +65,8 @@ seis_interp/
 │   ├── external/
 │   │   └── seg_c3_na/
 │   │       ├── README.md
-│   │       └── manifest.yaml
+│   │       ├── manifest.yaml
+│   │       └── <local SEG-Y files; ignored by Git>
 │   ├── interim/
 │   └── processed/
 │
@@ -82,14 +84,16 @@ seis_interp/
 
 `results/`と`reports/`は、採用成果または報告書が発生した時点で追加する。
 
+Dev Container内では`SEIS_INTERP_DATA_ROOT=/workspace/data`とし、SEG C3 NAの実体は`/workspace/data/external/seg_c3_na/`へ置く。実SEG-Yと生成された`download.lock.yaml`はGit管理対象外とする。
+
 ## 3. ディレクトリ境界
 
 | 場所 | 置くもの／置かないもの |
 |---|---|
 | `src/` | SEG-Y I/O、座標計算、mask、正規化、SIREN、学習、評価、可視化、pipelineを置く。Notebook専用コードやstudy固有条件は置かない。 |
-| `scripts/` | CLIを呼ぶ薄いshell wrapperや環境セットアップ補助だけを置く。manifest解析、download、checksumなどの主要ロジックは`src/`へ置く。 |
+| `scripts/` | CLIを呼ぶ薄いshell wrapperや環境セットアップ補助だけを置く。manifest解析、download、checksum、SEG-Y QCなどの主要ロジックは`src/`へ置く。 |
 | `studies/` | 一つの研究質問を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
-| `data/` | C3 NAは外部公開データなので`external/`へ置く。実SEG-Yや大容量配列はGitに入れず、manifest、checksum、取得元、利用条件を記録する。 |
+| `data/` | C3 NAは外部公開データなので`external/`へ置く。manifestと説明文書はGit管理し、実SEG-Y、大容量配列、download lockはGitへ入れない。 |
 | `runs/` | run IDにUTC時刻とGit SHAを含める。resolved config、input lock、metrics、logs、checkpoint、figuresを保存する。 |
 | `results/` | 採用判断後に追加する。全runのコピーではなく、正式採用した図表・モデル・評価結果だけを保持する。 |
 | `notebooks/` | 必要な場合だけstudy配下に置き、geometry QC、探索、結果レビューに限定する。主要ロジックは`src/`からimportする。 |
@@ -144,7 +148,7 @@ study_003_omega0_sensitivity
 | ルート直下の`train.py`、`plot.py`、`analysis.py` | 再利用コードは`src/`、単発条件はstudy、実行入口はCLIまたは薄いscriptへ分ける。 |
 | `utils.py`、`misc.py`、`common.py` | `coordinates.py`、`trace_masks.py`、`metrics.py`のように責務を名前で示す。 |
 | `latest`、`final2`、`temp`などの名称 | study ID、run ID、result IDで識別する。 |
-| 絶対パス、秘密情報、大容量データのcommit | `.env`、manifest、外部ストレージ参照、checksumを使用する。 |
+| 絶対パス、秘密情報、大容量データのcommit | `.env`、manifest、Git ignore、checksumを使用する。 |
 | run結果の手編集 | 条件を修正して再実行する。 |
 | Notebookだけにある主要ロジック | `src/`へ移し、Notebookからimportする。 |
 | 空の将来用ディレクトリ | 実際の責務または成果物が発生した時点で追加する。 |
