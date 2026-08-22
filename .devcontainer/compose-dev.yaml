@@ -24,7 +24,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       NVIDIA_VISIBLE_DEVICES: all
       PYTHONPATH: /workspace/src
-      SEIS_INTERP_DATA_ROOT: /home/dcuser/data
+      SEIS_INTERP_DATA_ROOT: /workspace/data
     deploy:
       resources:
         reservations:
@@ -46,9 +46,6 @@ services:
       - type: bind
         source: /dev/shm
         target: /dev/shm
-      - type: bind
-        source: ${SEIS_INTERP_DATA_ROOT:?Set SEIS_INTERP_DATA_ROOT in .devcontainer/.env}
-        target: /home/dcuser/data
       - type: bind
         source: ${HOME}/.gitconfig
         target: /home/dcuser/.gitconfig
