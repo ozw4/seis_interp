@@ -1,4 +1,4 @@
-"""Resolve the external data root without embedding machine-specific paths."""
+"""Resolve the configured data root without embedding machine-specific paths."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ EXAMPLE_PATH_PREFIXES = (
 
 
 class DataRootError(RuntimeError):
-    """Raised when the external data root is not configured."""
+    """Raised when the data root is not configured."""
 
 
 def _configured_value(value: str | Path | None) -> str:
@@ -28,7 +28,7 @@ def _configured_value(value: str | Path | None) -> str:
     if configured_value.startswith(EXAMPLE_PATH_PREFIXES):
         raise DataRootError(
             f"{DATA_ROOT_ENV} still contains an example path: {configured_value}. "
-            "Replace it with a writable data root outside the repository."
+            "Replace it with the configured writable data root."
         )
     return configured_value
 
@@ -46,7 +46,7 @@ def resolve_data_root(value: str | Path | None = None, *, create: bool = False) 
         except OSError as exc:
             raise DataRootError(
                 f"Cannot create data root {path}: {exc}. "
-                f"Set {DATA_ROOT_ENV} to a writable directory outside the repository."
+                f"Set {DATA_ROOT_ENV} to a writable directory."
             ) from exc
 
     return path
