@@ -42,7 +42,13 @@ cp .devcontainer/.env.example .devcontainer/.env
 mkdir -p ~/.config/gh ~/.codex ~/.claude
 ```
 
-Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**.
+Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**. The container creates `/workspace/.venv` and installs the project with the development, SEG-Y, data, and visualization extras.
+
+After pulling dependency changes into an already-running container, refresh the same environment without rebuilding:
+
+```bash
+./scripts/setup_dev_environment.sh
+```
 
 Inside the container:
 
@@ -52,7 +58,7 @@ codex
 claude
 ```
 
-The first invocation of each AI CLI may require interactive sign-in. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` may also be supplied through `.devcontainer/.env`. Do not commit credentials.
+The repository scripts automatically prefer `/workspace/.venv/bin/python`. The first invocation of each AI CLI may require interactive sign-in. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` may also be supplied through `.devcontainer/.env`. Do not commit credentials.
 
 ## Quality checks
 
