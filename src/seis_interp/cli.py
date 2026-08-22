@@ -23,6 +23,14 @@ from seis_interp.data.seg_c3_na import (
     download_seg_c3_na,
     verify_seg_c3_na,
 )
+from seis_interp.data.seg_c3_na_inspection import (
+    DEFAULT_SAMPLE_TRACE_COUNT,
+    SegyInspectionError,
+    format_seg_c3_na_inspection,
+    inspect_seg_c3_na,
+    seg_c3_na_inspection_ok,
+    seg_c3_na_inspection_to_dict,
+)
 
 
 def _distribution_version(name: str) -> str | None:
@@ -179,8 +187,26 @@ def _verify_data(args: argparse.Namespace) -> int:
     return 0 if all(result.ok for result in results) else 1
 
 
+def _inspect_data(args: argparse.Namespace) -> int:
+    try:
+        inspection = inspect_seg_c3_na(
+            args.manifest,
+            args.data_root,
+            sample_trace_count=args.sample_traces,
+        )
+    except (DataRootError, ManifestError, SegyInspectionError, OSError, ValueError) as exc:
+        print(f"Inspection failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(seg_c3_na_inspection_to_dict(inspection), indent=2, sort_keys=True))
+    else:
+        print(format_seg_c3_na_inspection(inspection))
+    return 0 if seg_c3_na_inspection_ok(inspection) else 1
+
+
 def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    data = subparsers.add_parser("data", help="Acquire and verify external datasets.")
+    data = subparsers.add_parser("data", help="Acquire, verify, and inspect external datasets.")
     data_commands = data.add_subparsers(dest="data_command", required=True)
 
     download = data_commands.add_parser("download", help="Download an external dataset.")
@@ -228,6 +254,28 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         help="Override SEIS_INTERP_DATA_ROOT for this command.",
     )
     verify.set_defaults(handler=_verify_data)
+
+    inspect = data_commands.add_parser("inspect", help="Inspect SEG-Y structure and content.")
+    inspect.add_argument("dataset", choices=(DATASET_ID,))
+    inspect.add_argument(
+        "--manifest",
+        type=Path,
+        default=default_manifest_path(),
+        help="Path to the tracked dataset manifest.",
+    )
+    inspect.add_argument(
+        "--data-root",
+        type=Path,
+        help="Override SEIS_INTERP_DATA_ROOT for this command.",
+    )
+    inspect.add_argument(
+        "--sample-traces",
+        type=int,
+        default=DEFAULT_SAMPLE_TRACE_COUNT,
+        help="Number of evenly spaced traces sampled per SEG-Y file.",
+    )
+    inspect.add_argument("--json", action="store_true", help="Print JSON output.")
+    inspect.set_defaults(handler=_inspect_data)
 
 
 def build_parser() -> argparse.ArgumentParser:
