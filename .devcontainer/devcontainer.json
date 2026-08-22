@@ -5,8 +5,12 @@
   "workspaceFolder": "/workspace",
   "remoteUser": "dcuser",
   "updateRemoteUserUID": false,
-  "postCreateCommand": "bash -lc \"uv pip install --system -e '.[dev,segy,data,visualization]'\"",
-  "postStartCommand": "bash -lc \"git config --global --add safe.directory /workspace && python -m seis_interp.cli doctor\"",
+  "remoteEnv": {
+    "VIRTUAL_ENV": "/workspace/.venv",
+    "PATH": "/workspace/.venv/bin:${containerEnv:PATH}"
+  },
+  "postCreateCommand": "bash -lc \"bash ./scripts/setup_dev_environment.sh\"",
+  "postStartCommand": "bash -lc \"git config --global --add safe.directory /workspace && /workspace/.venv/bin/python -m seis_interp.cli doctor\"",
   "customizations": {
     "vscode": {
       "settings": {
@@ -20,6 +24,7 @@
           "**/runs/**": true
         },
         "telemetry.telemetryLevel": "off",
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
         "python.analysis.typeCheckingMode": "basic",
         "editor.formatOnPaste": true,
         "notebook.formatOnSave.enabled": true,
