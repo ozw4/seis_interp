@@ -6,33 +6,30 @@ The first target is a controlled experiment on the SEG C3 Narrow-Azimuth dataset
 
 ## SEG C3 NA data
 
-The four SEG-Y files are stored outside this repository under `${SEIS_INTERP_DATA_ROOT}/external/seg_c3_na/`. The tracked manifest contains the public source URLs; a generated `download.lock.yaml` records trust-on-first-use local byte counts and SHA-256 checksums without storing an absolute path.
+The Dev Container uses the repository data tree as its data root:
 
-The downloader can run inside the Dev Container. First create a host directory and record its absolute path:
-
-```bash
-mkdir -p "$HOME/seis_interp_data"
-realpath "$HOME/seis_interp_data"
+```text
+SEIS_INTERP_DATA_ROOT=/workspace/data
 ```
 
-Copy `.devcontainer/.env.example` to `.devcontainer/.env`, set `SEIS_INTERP_DATA_ROOT` to the printed host path, and rebuild the Dev Container. Inside the rebuilt container, the writable host directory is mounted at `/home/dcuser/data`:
+The four SEG-Y files are stored locally under `/workspace/data/external/seg_c3_na/`. The manifest and documentation are tracked; raw SEG-Y files, `download.lock.yaml`, intermediate arrays, and processed datasets are ignored by Git.
+
+From the repository root:
 
 ```bash
-echo "$SEIS_INTERP_DATA_ROOT"
 ./scripts/download_seg_c3_na.sh
 ./scripts/verify_seg_c3_na.sh
+./scripts/inspect_seg_c3_na.sh
 ```
 
-When running directly on the host instead, configure the same logical root explicitly:
+The inspection script checks SEG-Y structure, FFID coverage, source and receiver geometry, midpoint, offset, azimuth, delay time, and sampled-amplitude statistics. It reads the large files incrementally and samples 32 evenly spaced traces per file by default.
 
 ```bash
-export SEIS_INTERP_DATA_ROOT="$HOME/seis_interp_data"
-python -m pip install -e .
-./scripts/download_seg_c3_na.sh
-./scripts/verify_seg_c3_na.sh
+./scripts/inspect_seg_c3_na.sh --sample-traces 64
+./scripts/inspect_seg_c3_na.sh --json > seg_c3_na_inspection.json
 ```
 
-Interrupted downloads resume from their `.part` files. Use `./scripts/download_seg_c3_na.sh --force` to discard existing complete and partial files. See [`data/external/seg_c3_na/README.md`](data/external/seg_c3_na/README.md) for the storage layout and direct CLI commands.
+Interrupted downloads resume from their `.part` files. Use `./scripts/download_seg_c3_na.sh --force` to discard existing complete and partial files. See [`data/external/seg_c3_na/README.md`](data/external/seg_c3_na/README.md) for details.
 
 ## Development environment
 
@@ -45,7 +42,7 @@ cp .devcontainer/.env.example .devcontainer/.env
 mkdir -p ~/.config/gh ~/.codex ~/.claude
 ```
 
-Edit `.devcontainer/.env` and set `SEIS_INTERP_DATA_ROOT` to an existing writable host data root. Then open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**.
+Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**.
 
 Inside the container:
 
@@ -71,8 +68,9 @@ The authoritative layout rules are in [`docs/repository_layout.md`](docs/reposit
 
 ```text
 src/       reusable implementation
-studies/   research questions, conditions, and decision records
-data/      external data manifests and reproducible processing stages
+scripts/   thin CLI wrappers
+a studies/ research questions, conditions, and decision records
+data/      external data and reproducible processing stages
 runs/      machine-generated execution records
 results/   accepted research outputs, added only when needed
 reports/   human-readable reports, added only when needed
