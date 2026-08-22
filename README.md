@@ -22,7 +22,7 @@ From the repository root:
 ./scripts/inspect_seg_c3_na.sh
 ```
 
-The inspection script checks SEG-Y structure, FFID coverage, source and receiver geometry, midpoint, offset, azimuth, delay time, and sampled-amplitude statistics. It reads the large files incrementally and samples 32 evenly spaced traces per file by default.
+The inspection script checks SEG-Y structure, FFID coverage, source and receiver geometry, midpoint, offset, azimuth, delay time, and sampled-amplitude statistics. It reads complete trace headers but samples only 32 evenly spaced trace amplitudes per file by default.
 
 ```bash
 ./scripts/inspect_seg_c3_na.sh --sample-traces 64
@@ -69,7 +69,7 @@ The authoritative layout rules are in [`docs/repository_layout.md`](docs/reposit
 ```text
 src/       reusable implementation
 scripts/   thin CLI wrappers
-a studies/ research questions, conditions, and decision records
+studies/   research questions, conditions, and decision records
 data/      external data and reproducible processing stages
 runs/      machine-generated execution records
 results/   accepted research outputs, added only when needed
