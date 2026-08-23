@@ -35,3 +35,4 @@ SEG C3 NA has narrow azimuth coverage and is synthetic. A successful POC does no
 ## Decision log
 
 - 2026-08-21: Use SEG C3 Narrow-Azimuth and prioritize proof of interpolation over exact paper reproduction.
+- 2026-08-23: Step 1 treats SEG-Y as a trace table instead of a fixed 5D array. The coordinate rules are documented in [`docs/coordinate_conventions.md`](../../docs/coordinate_conventions.md) and produced with `python -m seis_interp.cli prepare-c3-shot`. `inputs.yaml` is not locked yet.
