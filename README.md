@@ -12,7 +12,7 @@ Before opening the container:
 
 ```bash
 cp .devcontainer/.env.example .devcontainer/.env
-mkdir -p ~/.config/gh ~/.codex ~/.claude
+mkdir -p ~/.config/gh
 ```
 
 Edit `.devcontainer/.env` and set `SEISMIC_DATA_ROOT` to the host directory that contains the SEG C3 NA files. Then open the repository in VS Code and run **Dev Containers: Reopen in Container**.
@@ -26,6 +26,8 @@ claude
 ```
 
 The first invocation of each AI CLI may require interactive sign-in. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` may also be supplied through `.devcontainer/.env`. Do not commit credentials.
+
+Codex and Claude user state are stored in Docker named volumes. This keeps their local databases writable and preserves authentication across normal container rebuilds without sharing the host SQLite state files.
 
 ## Quality checks
 
