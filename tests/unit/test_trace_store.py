@@ -99,6 +99,29 @@ def test_metadata_records_basename_and_no_absolute_paths(tmp_path: Path) -> None
     assert json.loads(raw_metadata) == metadata
 
 
+def test_metadata_stores_the_selection_provenance(tmp_path: Path) -> None:
+    selection = {"ffid": 20, "expected_trace_count": 3}
+
+    metadata = write_default_dataset(tmp_path, selection=selection)
+
+    stored = json.loads((tmp_path / "out" / "dataset.json").read_text(encoding="utf-8"))
+    assert metadata["selection"] == selection
+    assert stored["selection"] == selection
+
+
+def test_metadata_selection_defaults_to_an_empty_mapping(tmp_path: Path) -> None:
+    metadata = write_default_dataset(tmp_path)
+
+    assert metadata["selection"] == {}
+
+
+def test_rejects_a_selection_that_cannot_be_serialised(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="JSON serialisable"):
+        write_default_dataset(tmp_path, selection={"ffid": object()})
+
+    assert not (tmp_path / "out").exists()
+
+
 def test_metadata_records_the_expected_fields(tmp_path: Path) -> None:
     metadata = write_default_dataset(tmp_path)
 

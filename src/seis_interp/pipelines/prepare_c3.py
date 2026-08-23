@@ -21,32 +21,33 @@ def prepare_c3_complete_shot(
     """Scan one SEG-Y file, select one FFID and write the interim dataset.
 
     With ``ffid=None`` the numerically smallest complete FFID is selected.
-    Returns the dataset metadata extended with the selection summary.
+    Returns exactly the metadata that was written to ``dataset.json``.
     """
     input_path = Path(input_path)
 
     trace_table = scan_segy_headers(input_path)
-    selection = select_ffid(
+    selected_traces = select_ffid(
         trace_table,
         ffid=ffid,
         expected_trace_count=expected_trace_count,
     )
 
-    amplitudes = read_trace_amplitudes(input_path, selection["trace_index"].tolist())
+    amplitudes = read_trace_amplitudes(input_path, selected_traces["trace_index"].tolist())
     time_s = build_time_axis(
-        int(selection["sample_count"].iloc[0]),
-        float(selection["sample_interval_s"].iloc[0]),
+        int(selected_traces["sample_count"].iloc[0]),
+        float(selected_traces["sample_interval_s"].iloc[0]),
     )
 
-    metadata = write_interim_trace_dataset(
+    return write_interim_trace_dataset(
         output_dir=Path(output_dir),
-        trace_table=selection,
+        trace_table=selected_traces,
         amplitudes=amplitudes,
         time_s=time_s,
         source_path=input_path,
         dataset_id=dataset_id,
+        selection={
+            "ffid": int(selected_traces["ffid"].iloc[0]),
+            "expected_trace_count": int(expected_trace_count),
+        },
         overwrite=overwrite,
     )
-    metadata["selected_ffid"] = int(selection["ffid"].iloc[0])
-    metadata["expected_trace_count"] = int(expected_trace_count)
-    return metadata

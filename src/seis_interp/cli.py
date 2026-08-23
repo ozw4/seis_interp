@@ -165,7 +165,7 @@ def _prepare_c3_shot(args: argparse.Namespace) -> int:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
         print(f"Source file: {args.input}")
-        print(f"Selected FFID: {summary['selected_ffid']}")
+        print(f"Selected FFID: {summary['selection']['ffid']}")
         print(f"Traces: {summary['trace_count']}")
         print(f"Samples per trace: {summary['sample_count']}")
         print(f"Sample interval: {summary['sample_interval_s']} s")

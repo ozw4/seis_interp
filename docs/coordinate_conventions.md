@@ -79,3 +79,18 @@ azimuth_deg
 ```
 
 `traces.parquet`の1行と`amplitudes.npy`の1行は`array_row`で対応する。
+
+## Selectionの記録
+
+どのtraceを、どの条件で抽出したかは`dataset.json`の`selection`に記録する。
+
+```json
+{
+  "selection": {
+    "ffid": 20,
+    "expected_trace_count": 544
+  }
+}
+```
+
+`expected_trace_count`はcomplete shotの判定に使った値である。後続stepが`dataset.json`だけを見て抽出条件を再現できるよう、CLIやpipelineの戻り値にだけ存在する項目を作らない。`prepare_c3_complete_shot()`の戻り値は`dataset.json`の内容と完全に一致する。

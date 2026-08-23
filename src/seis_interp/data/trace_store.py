@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,13 +58,17 @@ def write_interim_trace_dataset(
     time_s: np.ndarray,
     source_path: Path,
     dataset_id: str,
+    selection: Mapping[str, object] | None = None,
     overwrite: bool = False,
 ) -> dict[str, object]:
     """Write ``traces.parquet``, ``amplitudes.npy``, ``time_s.npy`` and ``dataset.json``.
 
     An ``array_row`` column is added to the trace table so that row ``i`` of
-    the Parquet table corresponds to ``amplitudes[i]``. Returns the metadata
-    dictionary that was written to ``dataset.json``.
+    the Parquet table corresponds to ``amplitudes[i]``. ``selection`` records
+    how the caller chose these traces and is stored under the ``selection``
+    key, so that the dataset can be reproduced from ``dataset.json`` alone.
+
+    Returns exactly the metadata that was written to ``dataset.json``.
     """
     directory = Path(output_dir)
     source = Path(source_path)
@@ -87,6 +92,7 @@ def write_interim_trace_dataset(
         "sample_count": int(amplitudes.shape[1]),
         "sample_interval_s": sample_interval_s,
         "ffids": sorted(int(value) for value in stored_table["ffid"].unique()),
+        "selection": _selection_metadata(selection),
         "coordinate_columns": list(COORDINATE_COLUMNS),
         "coordinate_units": COORDINATE_UNITS,
         "azimuth_convention": AZIMUTH_CONVENTION,
@@ -159,6 +165,24 @@ def _validate_trace_table(trace_table: pd.DataFrame) -> None:
     geometry = trace_table[list(_FINITE_COLUMNS)].to_numpy(dtype=np.float64)
     if not np.all(np.isfinite(geometry)):
         raise ValueError("trace table geometry columns contain non-finite values")
+
+
+def _selection_metadata(selection: Mapping[str, object] | None) -> dict[str, object]:
+    """Return the selection provenance as a JSON-serialisable dictionary."""
+    if selection is None:
+        return {}
+    if not isinstance(selection, Mapping):
+        raise ValueError(f"selection must be a mapping, got {type(selection).__name__}")
+
+    stored = dict(selection)
+    non_string_keys = [key for key in stored if not isinstance(key, str)]
+    if non_string_keys:
+        raise ValueError(f"selection keys must be strings, got {non_string_keys}")
+    try:
+        json.dumps(stored)
+    except TypeError as error:
+        raise ValueError(f"selection is not JSON serialisable: {error}") from error
+    return stored
 
 
 def _single_sample_interval_s(trace_table: pd.DataFrame) -> float:

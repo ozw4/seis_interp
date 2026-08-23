@@ -85,6 +85,10 @@ def test_metadata_describes_the_written_files(output_dir: Path, tiny_segy: TinyS
     assert metadata["source_file"] == "tiny.sgy"
     assert metadata["source_sha256"] == hashlib.sha256(tiny_segy.path.read_bytes()).hexdigest()
     assert metadata["ffids"] == [COMPLETE_FFID]
+    assert metadata["selection"] == {
+        "ffid": COMPLETE_FFID,
+        "expected_trace_count": EXPECTED_TRACE_COUNT,
+    }
     assert metadata["trace_count"] == EXPECTED_TRACE_COUNT
     assert metadata["sample_count"] == tiny_segy.sample_count
     assert metadata["files"]["amplitudes.npy"] == {

@@ -28,9 +28,44 @@ def test_selects_the_first_complete_ffid(tiny_segy: TinySegyFile, tmp_path: Path
         expected_trace_count=COMPLETE_TRACE_COUNT,
     )
 
-    assert summary["selected_ffid"] == COMPLETE_FFID
+    assert summary["selection"]["ffid"] == COMPLETE_FFID
     assert summary["ffids"] == [COMPLETE_FFID]
     assert summary["trace_count"] == COMPLETE_TRACE_COUNT
+
+
+def test_returned_summary_equals_the_written_metadata(
+    tiny_segy: TinySegyFile, tmp_path: Path
+) -> None:
+    output_dir = tmp_path / "out"
+
+    summary = prepare_c3_complete_shot(
+        input_path=tiny_segy.path,
+        output_dir=output_dir,
+        expected_trace_count=COMPLETE_TRACE_COUNT,
+    )
+
+    stored = json.loads((output_dir / "dataset.json").read_text(encoding="utf-8"))
+
+    assert stored == summary
+
+
+def test_metadata_records_how_the_traces_were_selected(
+    tiny_segy: TinySegyFile, tmp_path: Path
+) -> None:
+    output_dir = tmp_path / "out"
+
+    prepare_c3_complete_shot(
+        input_path=tiny_segy.path,
+        output_dir=output_dir,
+        expected_trace_count=COMPLETE_TRACE_COUNT,
+    )
+
+    stored = json.loads((output_dir / "dataset.json").read_text(encoding="utf-8"))
+
+    assert stored["selection"] == {
+        "ffid": COMPLETE_FFID,
+        "expected_trace_count": COMPLETE_TRACE_COUNT,
+    }
 
 
 def test_explicit_ffid_is_used(tiny_segy: TinySegyFile, tmp_path: Path) -> None:
@@ -41,7 +76,7 @@ def test_explicit_ffid_is_used(tiny_segy: TinySegyFile, tmp_path: Path) -> None:
         expected_trace_count=COMPLETE_TRACE_COUNT,
     )
 
-    assert summary["selected_ffid"] == COMPLETE_FFID
+    assert summary["selection"]["ffid"] == COMPLETE_FFID
 
 
 def test_incomplete_ffid_is_rejected(tiny_segy: TinySegyFile, tmp_path: Path) -> None:
@@ -127,7 +162,7 @@ def test_cli_json_output_is_parsable(
     summary = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert summary["selected_ffid"] == COMPLETE_FFID
+    assert summary["selection"]["ffid"] == COMPLETE_FFID
     assert summary["source_file"] == "tiny.sgy"
 
 
