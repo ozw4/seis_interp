@@ -23,19 +23,21 @@ OUTPUT_FILE_NAMES = (
     METADATA_FILE_NAME,
 )
 
-COORDINATE_COLUMNS = (
-    "time_s",
-    "cmp_x_m",
-    "cmp_y_m",
-    "offset_m",
-    "azimuth_deg",
-)
+# Coordinates a model reads for one sample, in order. time_s comes from
+# time_s.npy; the remaining four are columns of traces.parquet.
+MODEL_COORDINATE_UNITS = {
+    "time_s": "s",
+    "cmp_x_m": "m",
+    "cmp_y_m": "m",
+    "offset_m": "m",
+    "azimuth_deg": "deg",
+}
+MODEL_COORDINATE_ORDER = tuple(MODEL_COORDINATE_UNITS)
 
 AZIMUTH_CONVENTION = (
     "degrees(atan2(source_x-receiver_x, source_y-receiver_y)) wrapped to [0, 360)"
 )
 
-COORDINATE_UNITS = "metre"
 TIME_ORIGIN_S = 0.0
 
 _REQUIRED_COLUMNS = (
@@ -93,8 +95,8 @@ def write_interim_trace_dataset(
         "sample_interval_s": sample_interval_s,
         "ffids": sorted(int(value) for value in stored_table["ffid"].unique()),
         "selection": _selection_metadata(selection),
-        "coordinate_columns": list(COORDINATE_COLUMNS),
-        "coordinate_units": COORDINATE_UNITS,
+        "coordinate_order": list(MODEL_COORDINATE_ORDER),
+        "coordinate_units": dict(MODEL_COORDINATE_UNITS),
         "azimuth_convention": AZIMUTH_CONVENTION,
         "time_origin_s": TIME_ORIGIN_S,
         "files": {
