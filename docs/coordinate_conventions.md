@@ -70,19 +70,24 @@ time_s = np.arange(sample_count, dtype=np.float64) * sample_interval_s
 - `sample_count`はSEG-Y fileのsample数から取得する。
 - `sample_interval_s`はSEG-Y binary headerのsample interval（microsecond）から取得し、秒へ変換する。625 samplesや8 msのようなsurvey固有値をhard-codeしない。
 
-## Interim datasetのcoordinate columns
+## Model coordinates
 
-`dataset.json`の`coordinate_columns`は次の順序で記録する。
+model inputとして使うcoordinateの順序と単位は、`dataset.json`に次の形で記録する。
 
-```text
-time_s
-cmp_x_m
-cmp_y_m
-offset_m
-azimuth_deg
+```json
+{
+  "coordinate_order": ["time_s", "cmp_x_m", "cmp_y_m", "offset_m", "azimuth_deg"],
+  "coordinate_units": {
+    "time_s": "s",
+    "cmp_x_m": "m",
+    "cmp_y_m": "m",
+    "offset_m": "m",
+    "azimuth_deg": "deg"
+  }
+}
 ```
 
-`traces.parquet`の1行と`amplitudes.npy`の1行は`array_row`で対応する。
+`time_s`は`time_s.npy`、残り4つは`traces.parquet`の列である。`traces.parquet`の1行と`amplitudes.npy`の1行は`array_row`で対応する。
 
 ## Selectionの記録
 

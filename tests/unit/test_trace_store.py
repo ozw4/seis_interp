@@ -130,15 +130,21 @@ def test_metadata_records_the_expected_fields(tmp_path: Path) -> None:
     assert metadata["sample_count"] == 4
     assert metadata["sample_interval_s"] == SAMPLE_INTERVAL_S
     assert metadata["ffids"] == [20]
-    assert metadata["coordinate_units"] == "metre"
     assert metadata["time_origin_s"] == 0.0
-    assert metadata["coordinate_columns"] == [
+    assert metadata["coordinate_order"] == [
         "time_s",
         "cmp_x_m",
         "cmp_y_m",
         "offset_m",
         "azimuth_deg",
     ]
+    assert metadata["coordinate_units"] == {
+        "time_s": "s",
+        "cmp_x_m": "m",
+        "cmp_y_m": "m",
+        "offset_m": "m",
+        "azimuth_deg": "deg",
+    }
     assert metadata["azimuth_convention"] == (
         "degrees(atan2(source_x-receiver_x, source_y-receiver_y)) wrapped to [0, 360)"
     )
