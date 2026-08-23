@@ -57,12 +57,16 @@ services:
       - type: bind
         source: ${HOME}/.config/gh
         target: /home/dcuser/.config/gh
-      - type: bind
-        source: ${HOME}/.codex
+      - type: volume
+        source: codex_state
         target: /home/dcuser/.codex
-      - type: bind
-        source: ${HOME}/.claude
+      - type: volume
+        source: claude_state
         target: /home/dcuser/.claude
     working_dir: /workspace
     stdin_open: true
     tty: true
+
+volumes:
+  codex_state:
+  claude_state:
