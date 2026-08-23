@@ -11,6 +11,7 @@ import yaml
 
 from seis_interp.data.data_root import external_dataset_dir
 from seis_interp.data.seg_c3_na import DATASET_ID, default_manifest_path, load_manifest
+from seis_interp.processing.geometry import apply_coordinate_scalar, compute_trace_geometry
 
 DEFAULT_SAMPLE_TRACE_COUNT = 32
 EXPECTED_COMPLETE_SHOT_TRACE_COUNT = 544
@@ -118,16 +119,9 @@ def _read_attribute(segy_file: Any, field: int) -> np.ndarray:
     return np.asarray(segy_file.attributes(field)[:], dtype=np.int64)
 
 
-def _apply_coordinate_scalar(values: np.ndarray, scalars: np.ndarray) -> np.ndarray:
-    if values.shape != scalars.shape:
-        raise SegyInspectionError("Coordinate values and scalar arrays have different shapes")
-
-    result = values.astype(np.float64)
-    positive = scalars > 0
-    negative = scalars < 0
-    result[positive] *= scalars[positive]
-    result[negative] /= np.abs(scalars[negative])
-    return result
+def _scaled_coordinate(segy_file: Any, field: int, scalars: np.ndarray) -> np.ndarray:
+    """Read one coordinate header field and apply the SEG-Y coordinate scalar."""
+    return apply_coordinate_scalar(_read_attribute(segy_file, field), scalars)
 
 
 def _value_range(values: np.ndarray) -> ValueRange:
@@ -256,25 +250,24 @@ def _inspect_file(
             raise SegyInspectionError(f"No FFID values found in {path}")
 
         scalars = _read_attribute(segy_file, segyio_module.TraceField.SourceGroupScalar)
-        source_x_values = _apply_coordinate_scalar(
-            _read_attribute(segy_file, segyio_module.TraceField.SourceX), scalars
-        )
-        source_y_values = _apply_coordinate_scalar(
-            _read_attribute(segy_file, segyio_module.TraceField.SourceY), scalars
-        )
-        receiver_x_values = _apply_coordinate_scalar(
-            _read_attribute(segy_file, segyio_module.TraceField.GroupX), scalars
-        )
-        receiver_y_values = _apply_coordinate_scalar(
-            _read_attribute(segy_file, segyio_module.TraceField.GroupY), scalars
-        )
+        source_x_values = _scaled_coordinate(segy_file, segyio_module.TraceField.SourceX, scalars)
+        source_y_values = _scaled_coordinate(segy_file, segyio_module.TraceField.SourceY, scalars)
+        receiver_x_values = _scaled_coordinate(segy_file, segyio_module.TraceField.GroupX, scalars)
+        receiver_y_values = _scaled_coordinate(segy_file, segyio_module.TraceField.GroupY, scalars)
 
-        delta_x = receiver_x_values - source_x_values
-        delta_y = receiver_y_values - source_y_values
-        offset_values = np.hypot(delta_x, delta_y)
-        azimuth_values = (np.degrees(np.arctan2(delta_x, delta_y)) + 360.0) % 360.0
-        midpoint_x_values = 0.5 * (source_x_values + receiver_x_values)
-        midpoint_y_values = 0.5 * (source_y_values + receiver_y_values)
+        # Geometry comes from processing.geometry so that the values reported
+        # here are identical to the ones written into the interim trace table.
+        (
+            midpoint_x_values,
+            midpoint_y_values,
+            offset_values,
+            azimuth_values,
+        ) = compute_trace_geometry(
+            source_x_values,
+            source_y_values,
+            receiver_x_values,
+            receiver_y_values,
+        )
 
         source_x = _value_range(source_x_values)
         source_y = _value_range(source_y_values)
