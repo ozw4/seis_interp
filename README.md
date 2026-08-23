@@ -39,7 +39,7 @@ Before opening the container:
 
 ```bash
 cp .devcontainer/.env.example .devcontainer/.env
-mkdir -p ~/.config/gh ~/.codex ~/.claude
+mkdir -p ~/.config/gh
 ```
 
 Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**. The container creates `/workspace/.venv` and installs the project with the development, SEG-Y, data, and visualization extras.
@@ -59,6 +59,38 @@ claude
 ```
 
 The repository scripts automatically prefer `/workspace/.venv/bin/python`. The first invocation of each AI CLI may require interactive sign-in. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` may also be supplied through `.devcontainer/.env`. Do not commit credentials.
+
+Codex and Claude user state are stored in Docker named volumes. This keeps their local databases writable and preserves authentication across normal container rebuilds without sharing the host SQLite state files.
+
+## Prepare a complete SEG C3 NA shot
+
+Install the SEG-Y and table extras, then convert one shot of a SEG-Y file into an interim trace dataset:
+
+```bash
+python -m pip install -e ".[dev,data,segy]"
+
+python -m seis_interp.cli prepare-c3-shot \
+  --input "$SEIS_INTERP_DATA_ROOT/<file>.segy" \
+  --output data/interim/c3_na/complete_shot
+
+python -m seis_interp.cli prepare-c3-shot \
+  --input "$SEIS_INTERP_DATA_ROOT/<file>.segy" \
+  --output data/interim/c3_na/ffid_<id> \
+  --ffid <id>
+```
+
+Without `--ffid` the command selects the numerically smallest FFID whose trace count equals `--expected-traces` (544 by default). Each run writes four files into the output directory:
+
+```text
+traces.parquet   one row per selected trace, with an array_row column
+amplitudes.npy   float32 array of shape (n_traces, n_samples)
+time_s.npy       float64 zero-based time axis in seconds
+dataset.json     dataset metadata, including the source SHA-256
+```
+
+Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_row`. The coordinate rules are documented in [`docs/coordinate_conventions.md`](docs/coordinate_conventions.md).
+
+SEG-Y inputs and everything under `data/interim/` are generated or externally obtained data and must not be committed to Git.
 
 ## Quality checks
 
