@@ -139,6 +139,40 @@ def _doctor(args: argparse.Namespace) -> int:
     return 0 if commands_ready and report["data_root"]["readable"] else 1
 
 
+def _prepare_c3_shot(args: argparse.Namespace) -> int:
+    # Imported here so that `doctor` keeps working without the data and segy extras.
+    from seis_interp.pipelines.prepare_c3 import prepare_c3_complete_shot
+    from seis_interp.processing.ffid_selection import DEFAULT_EXPECTED_TRACE_COUNT
+
+    expected_traces = args.expected_traces
+    if expected_traces is None:
+        expected_traces = DEFAULT_EXPECTED_TRACE_COUNT
+
+    try:
+        summary = prepare_c3_complete_shot(
+            input_path=args.input,
+            output_dir=args.output,
+            ffid=args.ffid,
+            expected_trace_count=expected_traces,
+            dataset_id=args.dataset_id,
+            overwrite=args.overwrite,
+        )
+    except (FileNotFoundError, FileExistsError, ValueError) as error:
+        print(f"prepare-c3-shot failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"Source file: {args.input}")
+        print(f"Selected FFID: {summary['selected_ffid']}")
+        print(f"Traces: {summary['trace_count']}")
+        print(f"Samples per trace: {summary['sample_count']}")
+        print(f"Sample interval: {summary['sample_interval_s']} s")
+        print(f"Output directory: {args.output}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="seis-interp")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -151,6 +185,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fail when AI CLIs or the configured data root are unavailable.",
     )
     doctor.set_defaults(handler=_doctor)
+
+    prepare = subparsers.add_parser(
+        "prepare-c3-shot",
+        help="Write one complete SEG C3 NA shot as an interim trace dataset.",
+    )
+    prepare.add_argument("--input", type=Path, required=True, help="Input SEG-Y file.")
+    prepare.add_argument("--output", type=Path, required=True, help="Output directory.")
+    prepare.add_argument(
+        "--ffid",
+        type=int,
+        default=None,
+        help="FFID to select. Defaults to the smallest complete FFID.",
+    )
+    prepare.add_argument(
+        "--expected-traces",
+        type=int,
+        default=None,
+        help="Trace count that marks an FFID as complete (default: 544).",
+    )
+    prepare.add_argument(
+        "--dataset-id",
+        type=str,
+        default="seg_c3_na",
+        help="Dataset identifier stored in dataset.json.",
+    )
+    prepare.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the generated files in an existing output directory.",
+    )
+    prepare.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    prepare.set_defaults(handler=_prepare_c3_shot)
     return parser
 
 
