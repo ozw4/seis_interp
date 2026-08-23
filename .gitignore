@@ -49,6 +49,10 @@ data/external/**
 data/interim/
 data/processed/
 
+# Generated trace arrays and tables
+*.npy
+*.parquet
+
 # Machine-generated runs
 runs/**
 !runs/README.md
