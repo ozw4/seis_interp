@@ -50,11 +50,15 @@ offsetが0のtraceはerrorにしない。
 azimuth_deg = np.mod(np.degrees(np.arctan2(dx_m, dy_m)), 360.0)
 ```
 
-argument順は論文式に合わせて`atan2(dx, dy)`とし、`[0, 360)`へwrapする。SEG C3 NAの既存QCで使っている90～270°の表現と揃えるためのPOC上の決定である。`dataset.json`には次の文字列で記録する。
+vectorは`source - receiver`、argument順は`atan2(dx, dy)`、範囲は`[0, 360)`とする。0～180°へのfoldや`sin`/`cos`表現はStep 1では行わない。`dataset.json`には次の文字列で記録する。
 
 ```text
 degrees(atan2(source_x-receiver_x, source_y-receiver_y)) wrapped to [0, 360)
 ```
+
+## 実装の正本
+
+`apply_coordinate_scalar()`と`compute_trace_geometry()`（`src/seis_interp/processing/geometry.py`）を唯一の実装とする。QC・inspection・pipelineはこの2関数をimportして使い、再実装しない。
 
 ## Time axis
 
