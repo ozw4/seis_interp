@@ -34,6 +34,7 @@ def output_dir(tiny_segy: TinySegyFile, tmp_path: Path) -> Path:
     directory = tmp_path / "interim" / "complete_shot"
     exit_code = main(
         [
+            "data",
             "prepare-c3-shot",
             "--input",
             str(tiny_segy.path),
@@ -111,6 +112,7 @@ def test_metadata_contains_no_host_absolute_path(output_dir: Path, tiny_segy: Ti
 def test_cli_returns_non_zero_for_an_unknown_ffid(tiny_segy: TinySegyFile, tmp_path: Path) -> None:
     exit_code = main(
         [
+            "data",
             "prepare-c3-shot",
             "--input",
             str(tiny_segy.path),

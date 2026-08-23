@@ -129,6 +129,7 @@ def test_cli_returns_zero_and_prints_a_summary(
 ) -> None:
     exit_code = main(
         [
+            "data",
             "prepare-c3-shot",
             "--input",
             str(tiny_segy.path),
@@ -148,6 +149,7 @@ def test_cli_json_output_is_parsable(
 ) -> None:
     exit_code = main(
         [
+            "data",
             "prepare-c3-shot",
             "--input",
             str(tiny_segy.path),
@@ -171,6 +173,7 @@ def test_cli_reports_errors_and_returns_non_zero(
 ) -> None:
     exit_code = main(
         [
+            "data",
             "prepare-c3-shot",
             "--input",
             str(tiny_segy.path),
@@ -184,13 +187,14 @@ def test_cli_reports_errors_and_returns_non_zero(
     )
 
     assert exit_code == 1
-    assert "prepare-c3-shot failed" in capsys.readouterr().err
+    assert "data prepare-c3-shot failed" in capsys.readouterr().err
 
 
 def test_cli_overwrite_replaces_the_generated_files(
     tiny_segy: TinySegyFile, tmp_path: Path
 ) -> None:
     arguments = [
+        "data",
         "prepare-c3-shot",
         "--input",
         str(tiny_segy.path),

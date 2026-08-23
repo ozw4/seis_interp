@@ -64,17 +64,17 @@ Codex and Claude user state are stored in Docker named volumes. This keeps their
 
 ## Prepare a complete SEG C3 NA shot
 
-Install the SEG-Y and table extras, then convert one shot of a SEG-Y file into an interim trace dataset:
+Install the SEG-Y and table extras, then convert one shot of a downloaded SEG-Y file into an interim trace dataset:
 
 ```bash
 python -m pip install -e ".[dev,data,segy]"
 
-python -m seis_interp.cli prepare-c3-shot \
-  --input "$SEIS_INTERP_DATA_ROOT/<file>.segy" \
+python -m seis_interp.cli data prepare-c3-shot \
+  --input "$SEIS_INTERP_DATA_ROOT/external/seg_c3_na/<file>.sgy" \
   --output data/interim/c3_na/complete_shot
 
-python -m seis_interp.cli prepare-c3-shot \
-  --input "$SEIS_INTERP_DATA_ROOT/<file>.segy" \
+python -m seis_interp.cli data prepare-c3-shot \
+  --input "$SEIS_INTERP_DATA_ROOT/external/seg_c3_na/<file>.sgy" \
   --output data/interim/c3_na/ffid_<id> \
   --ffid <id>
 ```
