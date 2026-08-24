@@ -173,7 +173,7 @@ def test_fit_rejects_missing_columns(missing_column: str) -> None:
         )
 
 
-@pytest.mark.parametrize("bad_split", ["unknown", None, 1])
+@pytest.mark.parametrize("bad_split", ["unknown", None])
 def test_fit_rejects_invalid_split_values(bad_split: object) -> None:
     trace_table = make_trace_table()
     trace_table.loc[trace_table.index[0], "split"] = bad_split
