@@ -11,9 +11,16 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ -f "${venv_dir}/pyvenv.cfg" ]] \
+  && grep -q '^include-system-site-packages = false$' "${venv_dir}/pyvenv.cfg"; then
+  echo "Recreating outdated virtual environment: ${venv_dir}"
+  echo "It cannot see the PyTorch bundled with the NGC image."
+  rm -rf "${venv_dir}"
+fi
+
 if [[ ! -x "${venv_dir}/bin/python" ]]; then
   echo "Creating virtual environment: ${venv_dir}"
-  uv venv --python "${bootstrap_python}" "${venv_dir}"
+  uv venv --python "${bootstrap_python}" --system-site-packages "${venv_dir}"
 fi
 
 cd "${repo_root}"
@@ -25,6 +32,9 @@ uv pip install \
 from importlib.metadata import version
 
 import segyio  # noqa: F401
+import torch
 
 print(f"Environment ready: Python with segyio {version('segyio')}")
+print(f"torch {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
 PY

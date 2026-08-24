@@ -42,7 +42,7 @@ cp .devcontainer/.env.example .devcontainer/.env
 mkdir -p ~/.config/gh
 ```
 
-Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**. The container creates `/workspace/.venv` and installs the project with the development, SEG-Y, data, and visualization extras.
+Open the repository in VS Code and run **Dev Containers: Rebuild and Reopen in Container**. The container creates `/workspace/.venv` and installs the project with the development, SEG-Y, data, and visualization extras. The virtual environment is created with system site packages so it reuses the PyTorch bundled with the NGC image instead of installing a second copy. If an existing `.venv` cannot see the system PyTorch, the setup script recreates it automatically.
 
 After pulling dependency changes into an already-running container, refresh the same environment without rebuilding:
 
