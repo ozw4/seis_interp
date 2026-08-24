@@ -16,3 +16,7 @@ training:
   loss: l1
   learning_rate: 1.0e-5
   batch_size: 1024
+
+baselines:
+  idw_neighbors: 8
+  idw_power: 2.0

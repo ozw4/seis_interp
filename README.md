@@ -92,6 +92,19 @@ Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_ro
 
 SEG-Y inputs and everything under `data/interim/` are generated or externally obtained data and must not be committed to Git.
 
+Create the trace-level split and training-only normalization metadata used by the baseline study:
+
+```bash
+python -m seis_interp.cli data prepare-baseline \
+  --input data/interim/c3_na/ffid_2348 \
+  --output data/processed/c3_na/ffid_2348_random_split \
+  --holdout-fraction 0.20 \
+  --validation-fraction-of-holdout 0.25 \
+  --random-seed 42
+```
+
+The command writes only `trace_split.parquet`, `normalization.json`, and `preparation.json` to the processed dataset directory.
+
 ## Quality checks
 
 ```bash
