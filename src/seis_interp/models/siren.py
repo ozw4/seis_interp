@@ -54,6 +54,12 @@ class Siren(nn.Module):
 
     ``hidden_layers`` counts every sine-activated layer. Only the first
     sine layer applies ``omega_0``; later sine layers use ``omega=1.0``.
+
+    The constructor arguments define the function together with the
+    weights but are not part of ``state_dict()``. Loading weights into a
+    model built with a different ``omega_0`` therefore succeeds silently
+    and yields a different function, so whatever saves these weights must
+    store the constructor arguments next to them.
     """
 
     def __init__(
