@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from seis_interp.data.trace_store import MODEL_COORDINATE_ORDER
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.processing.normalization import (
     NormalizationParameters,
     denormalize_amplitudes,

@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, MODEL_COORDINATE_UNITS
+
 TRACES_FILE_NAME = "traces.parquet"
 AMPLITUDES_FILE_NAME = "amplitudes.npy"
 TIME_FILE_NAME = "time_s.npy"
@@ -22,17 +24,6 @@ OUTPUT_FILE_NAMES = (
     TIME_FILE_NAME,
     METADATA_FILE_NAME,
 )
-
-# Coordinates a model reads for one sample, in order. time_s comes from
-# time_s.npy; the remaining four are columns of traces.parquet.
-MODEL_COORDINATE_UNITS = {
-    "time_s": "s",
-    "cmp_x_m": "m",
-    "cmp_y_m": "m",
-    "offset_m": "m",
-    "azimuth_deg": "deg",
-}
-MODEL_COORDINATE_ORDER = tuple(MODEL_COORDINATE_UNITS)
 
 AZIMUTH_CONVENTION = (
     "degrees(atan2(source_x-receiver_x, source_y-receiver_y)) wrapped to [0, 360)"

@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_bool_dtype, is_integer_dtype, is_numeric_dtype
 
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, MODEL_COORDINATE_UNITS
 from seis_interp.data.trace_store import (
     AMPLITUDES_FILE_NAME,
     METADATA_FILE_NAME,
@@ -135,6 +136,8 @@ def _validate_metadata(
     amplitudes: np.ndarray,
     time_s: np.ndarray,
 ) -> None:
+    _validate_coordinate_schema(metadata)
+
     trace_count = _metadata_integer(metadata, "trace_count")
     sample_count = _metadata_integer(metadata, "sample_count")
     if trace_count != len(trace_table):
@@ -167,6 +170,22 @@ def _validate_metadata(
     time_record = _file_record(files, TIME_FILE_NAME)
     _require_record_dtype(time_record, time_s.dtype, TIME_FILE_NAME)
     _require_record_shape(time_record, time_s.shape, TIME_FILE_NAME)
+
+
+def _validate_coordinate_schema(metadata: Mapping[str, object]) -> None:
+    expected_order = list(MODEL_COORDINATE_ORDER)
+    coordinate_order = metadata.get("coordinate_order")
+    if coordinate_order != expected_order:
+        raise ValueError(
+            f"metadata coordinate_order is {coordinate_order!r} but expected {expected_order!r}"
+        )
+
+    expected_units = dict(MODEL_COORDINATE_UNITS)
+    coordinate_units = metadata.get("coordinate_units")
+    if coordinate_units != expected_units:
+        raise ValueError(
+            f"metadata coordinate_units is {coordinate_units!r} but expected {expected_units!r}"
+        )
 
 
 def _metadata_integer(metadata: Mapping[str, object], key: str) -> int:

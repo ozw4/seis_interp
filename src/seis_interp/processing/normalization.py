@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from seis_interp.data.trace_store import MODEL_COORDINATE_ORDER
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, SPATIAL_COORDINATE_ORDER
 from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
@@ -19,7 +19,6 @@ from seis_interp.processing.trace_splits import (
     _validated_array_rows,
 )
 
-_SPATIAL_COORDINATE_ORDER = MODEL_COORDINATE_ORDER[1:]
 _VALID_SPLITS = frozenset((TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT))
 _PARAMETER_KEYS = frozenset(
     ("coordinate_order", "coordinate_min", "coordinate_max", "amplitude_rms")
@@ -119,7 +118,7 @@ def fit_normalization_parameters(
         raise TypeError(f"trace_table must be a pandas DataFrame, got {type(trace_table).__name__}")
     if not isinstance(split_column, str) or not split_column:
         raise ValueError("split_column must be a non-empty string")
-    required_columns = ("array_row", split_column, *_SPATIAL_COORDINATE_ORDER)
+    required_columns = ("array_row", split_column, *SPATIAL_COORDINATE_ORDER)
     missing = [column for column in required_columns if column not in trace_table.columns]
     if missing:
         raise ValueError(f"trace table is missing required columns: {missing}")
@@ -149,9 +148,7 @@ def fit_normalization_parameters(
         raise ValueError("trace table contains no training rows")
 
     try:
-        spatial_coordinates = trace_table[list(_SPATIAL_COORDINATE_ORDER)].to_numpy(
-            dtype=np.float64
-        )
+        spatial_coordinates = trace_table[list(SPATIAL_COORDINATE_ORDER)].to_numpy(dtype=np.float64)
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError("spatial coordinates must be numeric") from error
     if not np.all(np.isfinite(spatial_coordinates)):
@@ -202,11 +199,11 @@ def normalize_spatial_coordinates(
     """Normalize four spatial coordinates while preserving trace row order."""
     if not isinstance(trace_table, pd.DataFrame):
         raise TypeError(f"trace_table must be a pandas DataFrame, got {type(trace_table).__name__}")
-    missing = [column for column in _SPATIAL_COORDINATE_ORDER if column not in trace_table.columns]
+    missing = [column for column in SPATIAL_COORDINATE_ORDER if column not in trace_table.columns]
     if missing:
         raise ValueError(f"trace table is missing spatial coordinate columns: {missing}")
     try:
-        coordinates = trace_table[list(_SPATIAL_COORDINATE_ORDER)].to_numpy(dtype=np.float64)
+        coordinates = trace_table[list(SPATIAL_COORDINATE_ORDER)].to_numpy(dtype=np.float64)
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError("spatial coordinates must be numeric") from error
     if not np.all(np.isfinite(coordinates)):

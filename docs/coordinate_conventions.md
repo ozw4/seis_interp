@@ -73,6 +73,7 @@ time_s = np.arange(sample_count, dtype=np.float64) * sample_interval_s
 ## Model coordinates
 
 model inputとして使うcoordinateの順序と単位は、`dataset.json`に次の形で記録する。
+コード上の正本は`src/seis_interp/data/trace_schema.py`の定数とし、保存、読み込み、正規化、学習処理から共通に参照する。
 
 ```json
 {

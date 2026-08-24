@@ -185,6 +185,36 @@ def test_rejects_a_metadata_file_shape_mismatch(tmp_path: Path) -> None:
         load_interim_trace_dataset(directory)
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("coordinate_order", ["time_s", "cmp_y_m", "cmp_x_m", "offset_m", "azimuth_deg"]),
+        (
+            "coordinate_units",
+            {
+                "time_s": "ms",
+                "cmp_x_m": "m",
+                "cmp_y_m": "m",
+                "offset_m": "m",
+                "azimuth_deg": "deg",
+            },
+        ),
+    ],
+)
+def test_rejects_a_coordinate_schema_mismatch(
+    tmp_path: Path,
+    key: str,
+    value: object,
+) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+    metadata = _read_metadata(directory)
+    metadata[key] = value
+    _write_metadata(directory, metadata)
+
+    with pytest.raises(ValueError, match=key):
+        load_interim_trace_dataset(directory)
+
+
 @pytest.mark.parametrize("target", ["amplitudes", "time", "geometry"])
 def test_rejects_non_finite_values(tmp_path: Path, target: str) -> None:
     directory, _ = _write_interim_dataset(tmp_path)
