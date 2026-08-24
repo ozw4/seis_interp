@@ -80,7 +80,6 @@ def prepare_baseline_dataset(
         for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
     }
     preparation: dict[str, object] = {
-        "schema_version": 2,
         "dataset_id": _metadata_text(dataset.metadata, "dataset_id"),
         "source_file": _relative_source_file(dataset.metadata),
         "source_sha256": _metadata_text(dataset.metadata, "source_sha256"),

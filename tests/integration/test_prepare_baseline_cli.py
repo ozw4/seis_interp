@@ -10,7 +10,6 @@ import yaml
 from seis_interp.cli import main
 
 SUMMARY: dict[str, object] = {
-    "schema_version": 2,
     "dataset_id": "synthetic",
     "source_file": "synthetic.sgy",
     "source_sha256": "a" * 64,

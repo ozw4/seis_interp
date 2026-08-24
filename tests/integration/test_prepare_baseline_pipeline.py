@@ -167,7 +167,6 @@ def test_preparation_records_relative_provenance_and_input_hashes(tmp_path: Path
         "coordinates": "train_minmax_minus_one_to_one",
         "amplitude": "train_global_rms",
     }
-    assert summary["schema_version"] == 2
     assert summary["input_files"] == expected_input_files
     assert "input_dataset_metadata_sha256" not in summary
     assert str(tmp_path) not in preparation_text
