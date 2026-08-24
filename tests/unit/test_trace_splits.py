@@ -91,22 +91,12 @@ def test_each_array_row_has_exactly_one_split() -> None:
     assert set(result[SPLIT_COLUMN]) == {TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT}
 
 
-def test_integer_convertible_array_rows_are_supported() -> None:
+@pytest.mark.parametrize("dtype", [str, float, object])
+def test_non_integer_array_row_dtype_is_rejected(dtype: type[object]) -> None:
     trace_table = make_trace_table()
-    trace_table["array_row"] = trace_table["array_row"].astype(str)
+    trace_table["array_row"] = trace_table["array_row"].astype(dtype)
 
-    result = assign(trace_table)
-
-    assert result["array_row"].dtype == object
-    assert len(result) == len(trace_table)
-
-
-def test_duplicate_array_rows_are_rejected_after_integer_conversion() -> None:
-    trace_table = make_trace_table()
-    trace_table["array_row"] = trace_table["array_row"].astype(object)
-    trace_table.loc[trace_table.index[1], "array_row"] = "100"
-
-    with pytest.raises(ValueError, match="duplicate array_row"):
+    with pytest.raises(ValueError, match="integer dtype"):
         assign(trace_table)
 
 

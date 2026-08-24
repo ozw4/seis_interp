@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 from numbers import Integral, Real
 
 import numpy as np
 import pandas as pd
+
+from seis_interp.data.trace_table import validated_array_rows
 
 SPLIT_COLUMN = "split"
 TRAIN_SPLIT = "train"
@@ -27,7 +28,7 @@ def assign_random_trace_splits(
     DataFrame index. Identifiers are sorted before permutation so membership
     remains stable when the same table is stored in a different row order.
     """
-    array_rows = _validated_array_rows(trace_table)
+    array_rows = validated_array_rows(trace_table)
     holdout = _validated_fraction("holdout_fraction", holdout_fraction)
     validation_of_holdout = _validated_fraction(
         "validation_fraction_of_holdout", validation_fraction_of_holdout
@@ -66,55 +67,6 @@ def assign_random_trace_splits(
     result = trace_table.copy()
     result[SPLIT_COLUMN] = [assignments[int(array_row)] for array_row in array_rows]
     return result
-
-
-def _validated_array_rows(trace_table: pd.DataFrame) -> np.ndarray:
-    """Return unique ``array_row`` values represented as signed integers."""
-    if not isinstance(trace_table, pd.DataFrame):
-        raise TypeError(f"trace_table must be a pandas DataFrame, got {type(trace_table).__name__}")
-    if trace_table.empty:
-        raise ValueError("trace table is empty")
-    if "array_row" not in trace_table.columns:
-        raise ValueError("trace table is missing required column: array_row")
-
-    values = trace_table["array_row"]
-    if values.isna().any():
-        raise ValueError("array_row must contain integers")
-    try:
-        converted = [_integer_array_row(value) for value in values]
-    except (TypeError, ValueError, OverflowError, InvalidOperation) as error:
-        raise ValueError("array_row must contain integers") from error
-    array_rows = np.asarray(converted, dtype=np.int64)
-    if len(np.unique(array_rows)) != len(array_rows):
-        raise ValueError("trace table contains duplicate array_row values")
-    return array_rows
-
-
-def _integer_array_row(value: object) -> int:
-    """Convert one integer-like identifier without losing large-value precision."""
-    if isinstance(value, (bool, np.bool_)):
-        raise ValueError("boolean array_row is not an integer identifier")
-    if isinstance(value, Integral):
-        converted = int(value)
-    elif isinstance(value, Real):
-        numeric = float(value)
-        if not np.isfinite(numeric) or not numeric.is_integer():
-            raise ValueError("array_row must be a finite integer value")
-        converted = int(numeric)
-    elif isinstance(value, (str, Decimal)):
-        numeric_decimal = Decimal(value)
-        if (
-            not numeric_decimal.is_finite()
-            or numeric_decimal != numeric_decimal.to_integral_value()
-        ):
-            raise ValueError("array_row must be a finite integer value")
-        converted = int(numeric_decimal)
-    else:
-        raise TypeError(f"unsupported array_row type: {type(value).__name__}")
-
-    if not -(2**63) <= converted < 2**63:
-        raise ValueError("array_row values must fit in int64")
-    return converted
 
 
 def _validated_fraction(name: str, value: float) -> float:

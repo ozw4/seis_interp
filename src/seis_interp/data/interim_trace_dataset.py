@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_bool_dtype, is_integer_dtype, is_numeric_dtype
+from pandas.api.types import is_numeric_dtype
 
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, MODEL_COORDINATE_UNITS
 from seis_interp.data.trace_store import (
@@ -19,6 +19,7 @@ from seis_interp.data.trace_store import (
     TIME_FILE_NAME,
     TRACES_FILE_NAME,
 )
+from seis_interp.data.trace_table import validated_array_rows
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ def load_interim_trace_dataset(directory: Path) -> InterimTraceDataset:
     amplitudes = np.load(paths[AMPLITUDES_FILE_NAME], allow_pickle=False)
     time_s = np.load(paths[TIME_FILE_NAME], allow_pickle=False)
 
-    _validate_array_rows(trace_table)
+    validated_array_rows(trace_table, require_contiguous=True)
     _validate_numeric_table_values(trace_table)
     _validate_arrays(trace_table, amplitudes, time_s)
     _validate_metadata(metadata, trace_table, amplitudes, time_s)
@@ -64,27 +65,6 @@ def _read_metadata(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError(f"{METADATA_FILE_NAME} must contain a JSON object")
     return payload
-
-
-def _validate_array_rows(trace_table: pd.DataFrame) -> None:
-    if "array_row" not in trace_table.columns:
-        raise ValueError(f"{TRACES_FILE_NAME} is missing required column: array_row")
-
-    array_rows = trace_table["array_row"]
-    if array_rows.isna().any():
-        raise ValueError("array_row contains missing values")
-    if is_bool_dtype(array_rows.dtype) or not is_integer_dtype(array_rows.dtype):
-        raise ValueError(f"array_row must have an integer dtype, got {array_rows.dtype}")
-    if array_rows.duplicated().any():
-        raise ValueError("array_row contains duplicate values")
-
-    actual = sorted(int(value) for value in array_rows.tolist())
-    expected = list(range(len(trace_table)))
-    if actual != expected:
-        raise ValueError(
-            "array_row must contain every integer from 0 through "
-            f"{len(trace_table) - 1} exactly once"
-        )
 
 
 def _validate_numeric_table_values(trace_table: pd.DataFrame) -> None:

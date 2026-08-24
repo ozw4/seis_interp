@@ -12,11 +12,11 @@ import numpy as np
 import pandas as pd
 
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, SPATIAL_COORDINATE_ORDER
+from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
-    _validated_array_rows,
 )
 
 _VALID_SPLITS = frozenset((TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT))
@@ -123,7 +123,7 @@ def fit_normalization_parameters(
     if missing:
         raise ValueError(f"trace table is missing required columns: {missing}")
 
-    array_rows = _validated_array_rows(trace_table)
+    array_rows = validated_array_rows(trace_table)
     amplitude_array = _validated_numeric_array(amplitudes, "amplitudes", dimensions=2)
     time_array = _validated_numeric_array(time_s, "time_s", dimensions=1).astype(
         np.float64, copy=False
