@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 
 from seis_interp.data import seg_c3_na_inspection as inspection
+from seis_interp.processing.geometry import compute_trace_geometry
 
 
 class FakeSegyFile:
@@ -92,13 +93,45 @@ def _write_manifest(tmp_path: Path) -> Path:
     return manifest_path
 
 
-def test_apply_coordinate_scalar() -> None:
-    values = np.array([10, 10, 10])
-    scalars = np.array([2, -2, 0])
+def _inspect_fake_file(tmp_path: Path, monkeypatch) -> inspection.SegyFileInspection:
+    manifest_path = _write_manifest(tmp_path)
+    data_root = tmp_path / "data"
+    dataset_dir = data_root / "external" / "seg_c3_na"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "part.sgy").write_bytes(b"fake")
+    monkeypatch.setattr(inspection, "_import_segyio", lambda: FakeSegyio)
 
-    actual = inspection._apply_coordinate_scalar(values, scalars)
+    return inspection.inspect_seg_c3_na(manifest_path, data_root, sample_trace_count=3).files[0]
 
-    np.testing.assert_allclose(actual, np.array([20.0, 5.0, 10.0]))
+
+def test_inspection_azimuth_follows_the_source_minus_receiver_convention(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Receivers sit east of the sources, so source - receiver points west: 270
+    # degrees. The opposite vector would report 90 degrees for the same traces.
+    file_report = _inspect_fake_file(tmp_path, monkeypatch)
+
+    assert file_report.azimuth_deg == inspection.ValueRange(270.0, 270.0)
+
+
+def test_inspection_geometry_matches_the_shared_implementation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    file_report = _inspect_fake_file(tmp_path, monkeypatch)
+    attributes = FakeSegyFile()._attributes
+    midpoint_x, midpoint_y, offset, azimuth = compute_trace_geometry(
+        attributes["source_x"].astype(np.float64),
+        attributes["source_y"].astype(np.float64),
+        attributes["group_x"].astype(np.float64),
+        attributes["group_y"].astype(np.float64),
+    )
+
+    assert file_report.midpoint_x == inspection.ValueRange(midpoint_x.min(), midpoint_x.max())
+    assert file_report.midpoint_y == inspection.ValueRange(midpoint_y.min(), midpoint_y.max())
+    assert file_report.offset == inspection.ValueRange(offset.min(), offset.max())
+    assert file_report.azimuth_deg == inspection.ValueRange(azimuth.min(), azimuth.max())
 
 
 def test_inspect_seg_c3_na_reports_structure_and_geometry(

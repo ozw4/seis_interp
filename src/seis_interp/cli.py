@@ -205,8 +205,46 @@ def _inspect_data(args: argparse.Namespace) -> int:
     return 0 if seg_c3_na_inspection_ok(inspection) else 1
 
 
+def _prepare_c3_shot(args: argparse.Namespace) -> int:
+    # Imported here so that `doctor` keeps working without the data and segy extras.
+    from seis_interp.pipelines.prepare_c3 import (
+        C3_COMPLETE_SHOT_TRACE_COUNT,
+        prepare_c3_complete_shot,
+    )
+
+    expected_traces = args.expected_traces
+    if expected_traces is None:
+        expected_traces = C3_COMPLETE_SHOT_TRACE_COUNT
+
+    try:
+        summary = prepare_c3_complete_shot(
+            input_path=args.input,
+            output_dir=args.output,
+            ffid=args.ffid,
+            expected_trace_count=expected_traces,
+            dataset_id=args.dataset_id,
+            overwrite=args.overwrite,
+        )
+    except (FileNotFoundError, FileExistsError, ValueError) as error:
+        print(f"data prepare-c3-shot failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"Source file: {args.input}")
+        print(f"Selected FFID: {summary['selection']['ffid']}")
+        print(f"Traces: {summary['trace_count']}")
+        print(f"Samples per trace: {summary['sample_count']}")
+        print(f"Sample interval: {summary['sample_interval_s']} s")
+        print(f"Output directory: {args.output}")
+    return 0
+
+
 def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    data = subparsers.add_parser("data", help="Acquire, verify, and inspect external datasets.")
+    data = subparsers.add_parser(
+        "data", help="Acquire, verify, inspect, and prepare external datasets."
+    )
     data_commands = data.add_subparsers(dest="data_command", required=True)
 
     download = data_commands.add_parser("download", help="Download an external dataset.")
@@ -276,6 +314,38 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     inspect.add_argument("--json", action="store_true", help="Print JSON output.")
     inspect.set_defaults(handler=_inspect_data)
+
+    prepare = data_commands.add_parser(
+        "prepare-c3-shot",
+        help="Write one complete SEG C3 NA shot as an interim trace dataset.",
+    )
+    prepare.add_argument("--input", type=Path, required=True, help="Input SEG-Y file.")
+    prepare.add_argument("--output", type=Path, required=True, help="Output directory.")
+    prepare.add_argument(
+        "--ffid",
+        type=int,
+        default=None,
+        help="FFID to select. Defaults to the smallest complete FFID.",
+    )
+    prepare.add_argument(
+        "--expected-traces",
+        type=int,
+        default=None,
+        help="Trace count that marks an FFID as complete (default: 544, a complete C3 NA shot).",
+    )
+    prepare.add_argument(
+        "--dataset-id",
+        type=str,
+        default=DATASET_ID,
+        help="Dataset identifier stored in dataset.json.",
+    )
+    prepare.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace the generated files in an existing output directory.",
+    )
+    prepare.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    prepare.set_defaults(handler=_prepare_c3_shot)
 
 
 def build_parser() -> argparse.ArgumentParser:

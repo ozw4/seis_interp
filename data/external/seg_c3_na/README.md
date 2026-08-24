@@ -53,10 +53,12 @@ The inspection reports, for every declared SEG-Y file:
 
 - file size, trace count, samples per trace, sample interval, record length, and sample format code
 - actual FFID range and traces per FFID, checked against the manifest range
-- source, receiver, midpoint, offset, and north-zero clockwise azimuth ranges
+- source, receiver, midpoint, offset, and azimuth ranges
 - coordinate units and coordinate scalar values
 - delay recording time
 - statistics from evenly spaced amplitude samples, including finite-value ratio, zero ratio, range, mean, standard deviation, and RMS
+
+Midpoint, offset, and azimuth come from `seis_interp.processing.geometry` and follow `docs/coordinate_conventions.md`.
 
 The default is 32 sampled traces per file. Increase or reduce it explicitly:
 
