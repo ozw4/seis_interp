@@ -19,7 +19,7 @@ def to_model_tensors(
     have shape ``(n_points, 1)`` so that they match the model output. Tensors
     are created on ``device``, or on the CPU when it is ``None``.
 
-    This is the boundary where the ``float64`` physical coordinates of
+    This is the boundary where the ``float64`` model features derived from
     ``data/interim`` become the ``float32`` the model parameters use;
     ``Siren.forward()`` performs no dtype conversion. The inputs are not
     modified, but an input that is already ``float32`` may share its memory

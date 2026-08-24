@@ -24,7 +24,7 @@ from seis_interp.processing.trace_splits import (
 TRACE_SPLIT_FILE_NAME = "trace_split.parquet"
 NORMALIZATION_FILE_NAME = "normalization.json"
 PREPARATION_FILE_NAME = "preparation.json"
-COORDINATE_NORMALIZATION_METHOD = "train_minmax_minus_one_to_one"
+COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
 AMPLITUDE_NORMALIZATION_METHOD = "train_global_rms"
 
 OUTPUT_FILE_NAMES = (

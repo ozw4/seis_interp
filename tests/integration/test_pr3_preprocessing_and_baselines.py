@@ -30,7 +30,7 @@ def _write_synthetic_interim_dataset(directory: Path, source_path: Path) -> None
             "cmp_x_m": 100.0 + 12.0 * trace_index,
             "cmp_y_m": 500.0 + np.square(trace_index),
             "offset_m": 50.0 + 3.0 * trace_index,
-            "azimuth_deg": 2.0 * trace_index,
+            "azimuth_deg": np.mod(350.0 + 2.0 * trace_index, 360.0),
             "sample_interval_s": np.full(trace_count, 0.008),
         }
     )
@@ -70,7 +70,16 @@ def test_pr3_preprocessing_outputs_feed_both_baselines(tmp_path: Path) -> None:
     normalized = normalize_spatial_coordinates(dataset.trace_table, parameters)
 
     assert split_table["array_row"].is_unique
-    assert normalized.shape == (len(dataset.trace_table), 4)
+    assert split_table["split"].value_counts().to_dict() == {
+        "train": 16,
+        "validation": 1,
+        "test": 3,
+    }
+    assert normalized.shape == (len(dataset.trace_table), 5)
+    assert np.all(np.isfinite(normalized))
+    assert np.all(normalized[:, 3:] >= -1.0)
+    assert np.all(normalized[:, 3:] <= 1.0)
+    np.testing.assert_allclose(np.sum(normalized[:, 3:] ** 2, axis=1), 1.0)
 
     train_rows = split_table.loc[split_table["split"] == TRAIN_SPLIT, "array_row"].to_numpy(
         dtype=np.int64
@@ -88,9 +97,11 @@ def test_pr3_preprocessing_outputs_feed_both_baselines(tmp_path: Path) -> None:
     held_out_coordinates = coordinates_by_array_row[held_out_rows]
     train_amplitudes = dataset.amplitudes[train_rows]
     expected_shape = dataset.amplitudes[held_out_rows].shape
+    expected_rms = float(np.sqrt(np.mean(train_amplitudes.astype(np.float64) ** 2)))
 
-    assert train_coordinates.shape[0] == len(train_rows)
-    assert held_out_coordinates.shape[0] == len(held_out_rows)
+    assert train_coordinates.shape == (len(train_rows), 5)
+    assert held_out_coordinates.shape == (len(held_out_rows), 5)
+    np.testing.assert_allclose(parameters.amplitude_rms, expected_rms)
 
     nearest = nearest_neighbor_predict(
         train_coordinates,

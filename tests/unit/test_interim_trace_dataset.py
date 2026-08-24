@@ -8,6 +8,12 @@ import pandas as pd
 import pytest
 
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
+from seis_interp.data.trace_schema import (
+    MODEL_COORDINATE_ORDER,
+    MODEL_COORDINATE_UNITS,
+    PHYSICAL_COORDINATE_ORDER,
+    PHYSICAL_COORDINATE_UNITS,
+)
 from seis_interp.data.trace_store import write_interim_trace_dataset
 
 TRACE_COUNT = 4
@@ -77,6 +83,17 @@ def test_loads_the_table_arrays_and_metadata(tmp_path: Path) -> None:
     np.testing.assert_array_equal(dataset.amplitudes, _amplitudes())
     np.testing.assert_array_equal(dataset.time_s, _time_axis())
     assert dataset.metadata == expected_metadata
+
+
+def test_interim_metadata_describes_physical_not_encoded_coordinates(tmp_path: Path) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+
+    dataset = load_interim_trace_dataset(directory)
+
+    assert dataset.metadata["coordinate_order"] == list(PHYSICAL_COORDINATE_ORDER)
+    assert dataset.metadata["coordinate_units"] == PHYSICAL_COORDINATE_UNITS
+    assert "azimuth_deg" in dataset.metadata["coordinate_order"]
+    assert "azimuth_sin" not in dataset.metadata["coordinate_order"]
 
 
 def test_accepts_array_rows_in_a_different_table_order(tmp_path: Path) -> None:
@@ -188,17 +205,8 @@ def test_rejects_a_metadata_file_shape_mismatch(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("coordinate_order", ["time_s", "cmp_y_m", "cmp_x_m", "offset_m", "azimuth_deg"]),
-        (
-            "coordinate_units",
-            {
-                "time_s": "ms",
-                "cmp_x_m": "m",
-                "cmp_y_m": "m",
-                "offset_m": "m",
-                "azimuth_deg": "deg",
-            },
-        ),
+        ("coordinate_order", list(MODEL_COORDINATE_ORDER)),
+        ("coordinate_units", MODEL_COORDINATE_UNITS),
     ],
 )
 def test_rejects_a_coordinate_schema_mismatch(

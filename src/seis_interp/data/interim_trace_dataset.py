@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, MODEL_COORDINATE_UNITS
+from seis_interp.data.trace_schema import PHYSICAL_COORDINATE_ORDER, PHYSICAL_COORDINATE_UNITS
 from seis_interp.data.trace_store import (
     AMPLITUDES_FILE_NAME,
     METADATA_FILE_NAME,
@@ -153,14 +153,14 @@ def _validate_metadata(
 
 
 def _validate_coordinate_schema(metadata: Mapping[str, object]) -> None:
-    expected_order = list(MODEL_COORDINATE_ORDER)
+    expected_order = list(PHYSICAL_COORDINATE_ORDER)
     coordinate_order = metadata.get("coordinate_order")
     if coordinate_order != expected_order:
         raise ValueError(
             f"metadata coordinate_order is {coordinate_order!r} but expected {expected_order!r}"
         )
 
-    expected_units = dict(MODEL_COORDINATE_UNITS)
+    expected_units = dict(PHYSICAL_COORDINATE_UNITS)
     coordinate_units = metadata.get("coordinate_units")
     if coordinate_units != expected_units:
         raise ValueError(

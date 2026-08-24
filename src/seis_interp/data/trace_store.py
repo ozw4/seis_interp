@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, MODEL_COORDINATE_UNITS
+from seis_interp.data.trace_schema import PHYSICAL_COORDINATE_ORDER, PHYSICAL_COORDINATE_UNITS
 
 TRACES_FILE_NAME = "traces.parquet"
 AMPLITUDES_FILE_NAME = "amplitudes.npy"
@@ -25,9 +25,7 @@ OUTPUT_FILE_NAMES = (
     METADATA_FILE_NAME,
 )
 
-AZIMUTH_CONVENTION = (
-    "degrees(atan2(source_x-receiver_x, source_y-receiver_y)) wrapped to [0, 360)"
-)
+AZIMUTH_CONVENTION = "degrees(atan2(source_x-receiver_x, source_y-receiver_y)) wrapped to [0, 360)"
 
 TIME_ORIGIN_S = 0.0
 
@@ -86,8 +84,8 @@ def write_interim_trace_dataset(
         "sample_interval_s": sample_interval_s,
         "ffids": sorted(int(value) for value in stored_table["ffid"].unique()),
         "selection": _selection_metadata(selection),
-        "coordinate_order": list(MODEL_COORDINATE_ORDER),
-        "coordinate_units": dict(MODEL_COORDINATE_UNITS),
+        "coordinate_order": list(PHYSICAL_COORDINATE_ORDER),
+        "coordinate_units": dict(PHYSICAL_COORDINATE_UNITS),
         "azimuth_convention": AZIMUTH_CONVENTION,
         "time_origin_s": TIME_ORIGIN_S,
         "files": {
@@ -128,8 +126,7 @@ def _validate_arrays(
         raise ValueError(f"time_s must be one-dimensional, got {time_s.ndim} dimensions")
     if len(trace_table) != amplitudes.shape[0]:
         raise ValueError(
-            f"trace table has {len(trace_table)} rows but amplitudes has "
-            f"{amplitudes.shape[0]} rows"
+            f"trace table has {len(trace_table)} rows but amplitudes has {amplitudes.shape[0]} rows"
         )
     if amplitudes.shape[1] != len(time_s):
         raise ValueError(

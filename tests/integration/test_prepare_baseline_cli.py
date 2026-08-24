@@ -9,6 +9,8 @@ import yaml
 
 from seis_interp.cli import main
 
+COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
+
 SUMMARY: dict[str, object] = {
     "dataset_id": "synthetic",
     "source_file": "synthetic.sgy",
@@ -23,7 +25,7 @@ SUMMARY: dict[str, object] = {
     "sample_count": 4,
     "config_source": "studies/study/config.yaml",
     "normalization": {
-        "coordinates": "train_minmax_minus_one_to_one",
+        "coordinates": COORDINATE_NORMALIZATION_METHOD,
         "amplitude": "train_global_rms",
     },
     "random_seed": 42,
@@ -59,7 +61,7 @@ def _write_study_config(
             {
                 "project": {"random_seed": base_seed},
                 "normalization": {
-                    "coordinates": "train_minmax_minus_one_to_one",
+                    "coordinates": COORDINATE_NORMALIZATION_METHOD,
                     "amplitude": "train_global_rms",
                 },
             }
@@ -124,7 +126,7 @@ def test_cli_passes_all_arguments_to_pipeline(
         "holdout_fraction": 0.2,
         "validation_fraction_of_holdout": 0.25,
         "random_seed": 42,
-        "coordinate_normalization": "train_minmax_minus_one_to_one",
+        "coordinate_normalization": COORDINATE_NORMALIZATION_METHOD,
         "amplitude_normalization": "train_global_rms",
         "config_source": "studies/study/config.yaml",
         "overwrite": True,

@@ -11,8 +11,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, SPATIAL_COORDINATE_ORDER
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.data.trace_table import validated_array_rows
+from seis_interp.processing.model_coordinates import build_spatial_model_coordinates
 from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
@@ -23,11 +24,14 @@ _VALID_SPLITS = frozenset((TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT))
 _PARAMETER_KEYS = frozenset(
     ("coordinate_order", "coordinate_min", "coordinate_max", "amplitude_rms")
 )
+_LINEAR_SPATIAL_FEATURE_COUNT = 3
+_AZIMUTH_FEATURE_MIN = (-1.0, -1.0)
+_AZIMUTH_FEATURE_MAX = (1.0, 1.0)
 
 
 @dataclass(frozen=True)
 class NormalizationParameters:
-    """Coordinate ranges and amplitude scale fitted from training traces."""
+    """Linear coordinate ranges, fixed azimuth bounds, and training amplitude scale."""
 
     coordinate_order: tuple[str, ...]
     coordinate_min: tuple[float, ...]
@@ -58,6 +62,10 @@ class NormalizationParameters:
             for minimum, maximum in zip(coordinate_min, coordinate_max, strict=True)
         ):
             raise ValueError("coordinate_min must not exceed coordinate_max")
+        if coordinate_min[-2:] != _AZIMUTH_FEATURE_MIN:
+            raise ValueError("azimuth sine/cosine coordinate_min must be (-1.0, -1.0)")
+        if coordinate_max[-2:] != _AZIMUTH_FEATURE_MAX:
+            raise ValueError("azimuth sine/cosine coordinate_max must be (1.0, 1.0)")
         amplitude_rms = _positive_finite_float(self.amplitude_rms, "amplitude_rms")
 
         object.__setattr__(self, "coordinate_order", coordinate_order)
@@ -118,7 +126,7 @@ def fit_normalization_parameters(
         raise TypeError(f"trace_table must be a pandas DataFrame, got {type(trace_table).__name__}")
     if not isinstance(split_column, str) or not split_column:
         raise ValueError("split_column must be a non-empty string")
-    required_columns = ("array_row", split_column, *SPATIAL_COORDINATE_ORDER)
+    required_columns = ("array_row", split_column)
     missing = [column for column in required_columns if column not in trace_table.columns]
     if missing:
         raise ValueError(f"trace table is missing required columns: {missing}")
@@ -147,21 +155,18 @@ def fit_normalization_parameters(
     if not np.any(train_mask):
         raise ValueError("trace table contains no training rows")
 
-    try:
-        spatial_coordinates = trace_table[list(SPATIAL_COORDINATE_ORDER)].to_numpy(dtype=np.float64)
-    except (TypeError, ValueError, OverflowError) as error:
-        raise ValueError("spatial coordinates must be numeric") from error
-    if not np.all(np.isfinite(spatial_coordinates)):
-        raise ValueError("spatial coordinates contain non-finite values")
+    spatial_coordinates = build_spatial_model_coordinates(trace_table)
 
-    train_spatial = spatial_coordinates[train_mask]
+    train_linear_spatial = spatial_coordinates[train_mask, :_LINEAR_SPATIAL_FEATURE_COUNT]
     coordinate_min = (
         float(np.min(time_array)),
-        *(float(value) for value in np.min(train_spatial, axis=0)),
+        *(float(value) for value in np.min(train_linear_spatial, axis=0)),
+        *_AZIMUTH_FEATURE_MIN,
     )
     coordinate_max = (
         float(np.max(time_array)),
-        *(float(value) for value in np.max(train_spatial, axis=0)),
+        *(float(value) for value in np.max(train_linear_spatial, axis=0)),
+        *_AZIMUTH_FEATURE_MAX,
     )
 
     train_array_rows = array_rows[train_mask]
@@ -196,27 +201,26 @@ def normalize_spatial_coordinates(
     trace_table: pd.DataFrame,
     parameters: NormalizationParameters,
 ) -> np.ndarray:
-    """Normalize four spatial coordinates while preserving trace row order."""
-    if not isinstance(trace_table, pd.DataFrame):
-        raise TypeError(f"trace_table must be a pandas DataFrame, got {type(trace_table).__name__}")
-    missing = [column for column in SPATIAL_COORDINATE_ORDER if column not in trace_table.columns]
-    if missing:
-        raise ValueError(f"trace table is missing spatial coordinate columns: {missing}")
-    try:
-        coordinates = trace_table[list(SPATIAL_COORDINATE_ORDER)].to_numpy(dtype=np.float64)
-    except (TypeError, ValueError, OverflowError) as error:
-        raise ValueError("spatial coordinates must be numeric") from error
-    if not np.all(np.isfinite(coordinates)):
-        raise ValueError("spatial coordinates contain non-finite values")
+    """Normalize linear spatial coordinates and preserve azimuth sine/cosine."""
+    coordinates = build_spatial_model_coordinates(trace_table)
 
-    minimum = np.asarray(parameters.coordinate_min[1:], dtype=np.float64)
-    maximum = np.asarray(parameters.coordinate_max[1:], dtype=np.float64)
+    minimum = np.asarray(
+        parameters.coordinate_min[1 : 1 + _LINEAR_SPATIAL_FEATURE_COUNT], dtype=np.float64
+    )
+    maximum = np.asarray(
+        parameters.coordinate_max[1 : 1 + _LINEAR_SPATIAL_FEATURE_COUNT], dtype=np.float64
+    )
     coordinate_range = maximum - minimum
     normalized = np.zeros(coordinates.shape, dtype=np.float64)
     varying = coordinate_range != 0.0
-    normalized[:, varying] = (
-        2.0 * (coordinates[:, varying] - minimum[varying]) / coordinate_range[varying] - 1.0
+    normalized_linear = normalized[:, :_LINEAR_SPATIAL_FEATURE_COUNT]
+    normalized_linear[:, varying] = (
+        2.0
+        * (coordinates[:, :_LINEAR_SPATIAL_FEATURE_COUNT][:, varying] - minimum[varying])
+        / coordinate_range[varying]
+        - 1.0
     )
+    normalized[:, _LINEAR_SPATIAL_FEATURE_COUNT:] = coordinates[:, _LINEAR_SPATIAL_FEATURE_COUNT:]
     return normalized
 
 

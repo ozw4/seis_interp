@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER, MODEL_COORDINATE_UNITS
+from seis_interp.data.trace_schema import PHYSICAL_COORDINATE_ORDER, PHYSICAL_COORDINATE_UNITS
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES, write_interim_trace_dataset
 
 SAMPLE_INTERVAL_S = 0.004
@@ -132,8 +132,8 @@ def test_metadata_records_the_expected_fields(tmp_path: Path) -> None:
     assert metadata["sample_interval_s"] == SAMPLE_INTERVAL_S
     assert metadata["ffids"] == [20]
     assert metadata["time_origin_s"] == 0.0
-    assert metadata["coordinate_order"] == list(MODEL_COORDINATE_ORDER)
-    assert metadata["coordinate_units"] == MODEL_COORDINATE_UNITS
+    assert metadata["coordinate_order"] == list(PHYSICAL_COORDINATE_ORDER)
+    assert metadata["coordinate_units"] == PHYSICAL_COORDINATE_UNITS
     assert metadata["azimuth_convention"] == (
         "degrees(atan2(source_x-receiver_x, source_y-receiver_y)) wrapped to [0, 360)"
     )

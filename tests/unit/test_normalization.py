@@ -59,8 +59,16 @@ def test_fit_uses_only_training_rows_for_spatial_ranges() -> None:
     parameters = fit_default()
 
     assert parameters.coordinate_order == MODEL_COORDINATE_ORDER
-    assert parameters.coordinate_min == (0.0, 10.0, 5.0, 100.0, 10.0)
-    assert parameters.coordinate_max == (2.0, 20.0, 5.0, 200.0, 20.0)
+    assert parameters.coordinate_order == (
+        "time_s",
+        "cmp_x_m",
+        "cmp_y_m",
+        "offset_m",
+        "azimuth_sin",
+        "azimuth_cos",
+    )
+    assert parameters.coordinate_min == (0.0, 10.0, 5.0, 100.0, -1.0, -1.0)
+    assert parameters.coordinate_max == (2.0, 20.0, 5.0, 200.0, 1.0, 1.0)
 
 
 def test_fit_uses_only_training_amplitudes_for_global_rms() -> None:
@@ -86,15 +94,17 @@ def test_fit_allows_trace_table_to_reference_subset_of_amplitude_rows() -> None:
 
     parameters = fit_normalization_parameters(trace_table, amplitudes, make_time_axis())
 
-    assert parameters.coordinate_min[1:] == (10.0, 5.0, 100.0, 10.0)
+    assert parameters.coordinate_min[1:4] == (10.0, 5.0, 100.0)
+    assert parameters.coordinate_min[4:] == (-1.0, -1.0)
+    assert parameters.coordinate_max[4:] == (1.0, 1.0)
 
 
 def test_training_extrema_map_to_minus_and_plus_one() -> None:
     trace_table = make_trace_table()
     normalized = normalize_spatial_coordinates(trace_table, fit_default())
 
-    np.testing.assert_array_equal(normalized[0, [0, 2, 3]], [1.0, 1.0, 1.0])
-    np.testing.assert_array_equal(normalized[1, [0, 2, 3]], [-1.0, -1.0, -1.0])
+    np.testing.assert_array_equal(normalized[0, [0, 2]], [1.0, 1.0])
+    np.testing.assert_array_equal(normalized[1, [0, 2]], [-1.0, -1.0])
 
 
 def test_constant_axis_maps_every_query_to_zero() -> None:
@@ -108,6 +118,88 @@ def test_queries_outside_training_range_are_not_clipped() -> None:
 
     assert normalized[2, 0] > 1.0
     assert normalized[3, 0] < -1.0
+
+
+def test_azimuth_is_encoded_as_sine_and_cosine_in_fixed_output_columns() -> None:
+    trace_table = make_trace_table()
+
+    normalized = normalize_spatial_coordinates(trace_table, fit_default())
+
+    radians = np.deg2rad(trace_table["azimuth_deg"].to_numpy(dtype=np.float64))
+    assert normalized.shape == (len(trace_table), 5)
+    np.testing.assert_allclose(normalized[:, 3], np.sin(radians), atol=1.0e-15)
+    np.testing.assert_allclose(normalized[:, 4], np.cos(radians), atol=1.0e-15)
+    assert np.all(normalized[:, 3:] >= -1.0)
+    assert np.all(normalized[:, 3:] <= 1.0)
+    np.testing.assert_allclose(np.sum(normalized[:, 3:] ** 2, axis=1), 1.0)
+
+
+def test_azimuth_encoding_does_not_depend_on_training_azimuth_range() -> None:
+    first_table = make_trace_table()
+    second_table = make_trace_table()
+    second_table.loc[second_table["split"] == "train", "azimuth_deg"] = [120.0, 240.0]
+    query = pd.DataFrame(
+        {
+            "cmp_x_m": [15.0],
+            "cmp_y_m": [5.0],
+            "offset_m": [150.0],
+            "azimuth_deg": [350.0],
+        }
+    )
+
+    first_parameters = fit_normalization_parameters(
+        first_table, make_amplitudes(), make_time_axis()
+    )
+    second_parameters = fit_normalization_parameters(
+        second_table, make_amplitudes(), make_time_axis()
+    )
+    first_normalized = normalize_spatial_coordinates(query, first_parameters)
+    second_normalized = normalize_spatial_coordinates(query, second_parameters)
+
+    assert first_parameters.coordinate_min[4:] == (-1.0, -1.0)
+    assert first_parameters.coordinate_max[4:] == (1.0, 1.0)
+    assert second_parameters.coordinate_min[4:] == (-1.0, -1.0)
+    assert second_parameters.coordinate_max[4:] == (1.0, 1.0)
+    np.testing.assert_allclose(first_normalized, second_normalized)
+    np.testing.assert_allclose(
+        first_normalized[0, 3:],
+        [np.sin(np.deg2rad(350.0)), np.cos(np.deg2rad(350.0))],
+    )
+
+
+def test_azimuth_encoding_is_periodic_across_degree_wraps() -> None:
+    query = pd.DataFrame(
+        {
+            "cmp_x_m": [15.0, 15.0, 15.0],
+            "cmp_y_m": [5.0, 5.0, 5.0],
+            "offset_m": [150.0, 150.0, 150.0],
+            "azimuth_deg": [-10.0, 350.0, 710.0],
+        }
+    )
+
+    normalized = normalize_spatial_coordinates(query, fit_default())
+
+    np.testing.assert_allclose(normalized[0, 3:], normalized[1, 3:], atol=1.0e-15)
+    np.testing.assert_allclose(normalized[1, 3:], normalized[2, 3:], atol=1.0e-15)
+
+
+def test_held_out_coordinates_do_not_change_fitted_parameters() -> None:
+    trace_table = make_trace_table()
+    changed_held_out = trace_table.copy()
+    held_out = changed_held_out["split"] != "train"
+    changed_held_out.loc[held_out, ["cmp_x_m", "cmp_y_m", "offset_m", "azimuth_deg"]] = [
+        [1.0e9, -1.0e9, 1.0e9, -720.0],
+        [-1.0e9, 1.0e9, 2.0e9, 1080.0],
+    ]
+
+    original = fit_normalization_parameters(trace_table, make_amplitudes(), make_time_axis())
+    changed = fit_normalization_parameters(
+        changed_held_out,
+        make_amplitudes(),
+        make_time_axis(),
+    )
+
+    assert changed == original
 
 
 def test_time_normalization_returns_float64_and_handles_constant_axis() -> None:
@@ -161,11 +253,28 @@ def test_from_dict_rejects_wrong_coordinate_order() -> None:
 
 
 @pytest.mark.parametrize(
+    ("field", "index", "value"), [("coordinate_min", 4, -0.5), ("coordinate_max", 5, 0.5)]
+)
+def test_from_dict_rejects_non_fixed_azimuth_feature_bounds(
+    field: str,
+    index: int,
+    value: float,
+) -> None:
+    payload = fit_default().to_dict()
+    bounds = payload[field]
+    assert isinstance(bounds, list)
+    bounds[index] = value
+
+    with pytest.raises(ValueError, match="azimuth"):
+        NormalizationParameters.from_dict(payload)
+
+
+@pytest.mark.parametrize(
     "missing_column",
     ["array_row", "split", "cmp_x_m", "cmp_y_m", "offset_m", "azimuth_deg"],
 )
 def test_fit_rejects_missing_columns(missing_column: str) -> None:
-    with pytest.raises(ValueError, match="missing required columns"):
+    with pytest.raises(ValueError, match=r"missing required (?:coordinate )?columns"):
         fit_normalization_parameters(
             make_trace_table().drop(columns=missing_column),
             make_amplitudes(),

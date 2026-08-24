@@ -19,6 +19,13 @@ HOLDOUT_FRACTION = 0.20
 VALIDATION_FRACTION_OF_HOLDOUT = 0.25
 RANDOM_SEED = 42
 CONFIG_SOURCE = "studies/synthetic/config.yaml"
+COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
+EXPECTED_TRAIN_ROWS = np.asarray(
+    [0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13, 16, 17, 18, 19],
+    dtype=np.int64,
+)
+EXPECTED_HELD_OUT_ROWS = np.asarray([7, 9, 14, 15], dtype=np.int64)
+EXPECTED_TRAIN_RMS = 11.792476415070755
 
 
 def _write_interim_dataset(tmp_path: Path) -> Path:
@@ -26,14 +33,22 @@ def _write_interim_dataset(tmp_path: Path) -> Path:
     source_path.write_bytes(b"synthetic SEG-Y placeholder for baseline preparation")
     interim_dir = tmp_path / "interim"
     trace_indices = np.arange(TRACE_COUNT, dtype=np.int64)
+    cmp_x_m = trace_indices.astype(np.float64)
+    cmp_y_m = trace_indices.astype(np.float64) * 2.0 + 100.0
+    offset_m = trace_indices.astype(np.float64) * 5.0 + 500.0
+    azimuth_deg = trace_indices.astype(np.float64) * 10.0
+    cmp_x_m[EXPECTED_HELD_OUT_ROWS] = 1.0e6
+    cmp_y_m[EXPECTED_HELD_OUT_ROWS] = -1.0e6
+    offset_m[EXPECTED_HELD_OUT_ROWS] = 2.0e6
+    azimuth_deg[EXPECTED_HELD_OUT_ROWS] = [0.0, 90.0, 180.0, 270.0]
     trace_table = pd.DataFrame(
         {
             "trace_index": trace_indices,
             "ffid": np.full(TRACE_COUNT, 2348, dtype=np.int64),
-            "cmp_x_m": trace_indices.astype(np.float64),
-            "cmp_y_m": trace_indices.astype(np.float64) * 2.0 + 100.0,
-            "offset_m": trace_indices.astype(np.float64) * 5.0 + 500.0,
-            "azimuth_deg": trace_indices.astype(np.float64) * 10.0,
+            "cmp_x_m": cmp_x_m,
+            "cmp_y_m": cmp_y_m,
+            "offset_m": offset_m,
+            "azimuth_deg": azimuth_deg,
             "sample_interval_s": np.full(TRACE_COUNT, 0.008),
         }
     )
@@ -42,6 +57,7 @@ def _write_interim_dataset(tmp_path: Path) -> Path:
         SAMPLE_COUNT,
         axis=1,
     )
+    amplitudes[EXPECTED_HELD_OUT_ROWS] = 1.0e6
     time_s = np.arange(SAMPLE_COUNT, dtype=np.float64) * 0.008
     write_interim_trace_dataset(
         output_dir=interim_dir,
@@ -123,26 +139,38 @@ def test_normalization_is_fit_from_training_rows_only(tmp_path: Path) -> None:
     amplitudes = np.load(interim_dir / "amplitudes.npy")
     split_table = pd.read_parquet(output_dir / "trace_split.parquet")
     training_rows = split_table.loc[split_table["split"] == "train", "array_row"].to_numpy()
+    held_out_rows = split_table.loc[split_table["split"] != "train", "array_row"].to_numpy()
     training_table = trace_table.set_index("array_row").loc[training_rows]
+    held_out_table = trace_table.set_index("array_row").loc[held_out_rows]
     parameters = read_normalization_parameters(output_dir / "normalization.json")
 
     expected_min = (
         0.0,
-        *(training_table[["cmp_x_m", "cmp_y_m", "offset_m", "azimuth_deg"]].min()),
+        *(training_table[["cmp_x_m", "cmp_y_m", "offset_m"]].min()),
+        -1.0,
+        -1.0,
     )
     expected_max = (
         (SAMPLE_COUNT - 1) * 0.008,
-        *(training_table[["cmp_x_m", "cmp_y_m", "offset_m", "azimuth_deg"]].max()),
+        *(training_table[["cmp_x_m", "cmp_y_m", "offset_m"]].max()),
+        1.0,
+        1.0,
     )
     expected_rms = float(np.sqrt(np.mean(amplitudes[training_rows].astype(np.float64) ** 2)))
 
+    np.testing.assert_array_equal(training_rows, EXPECTED_TRAIN_ROWS)
+    np.testing.assert_array_equal(held_out_rows, EXPECTED_HELD_OUT_ROWS)
     np.testing.assert_allclose(parameters.coordinate_min, expected_min)
     np.testing.assert_allclose(parameters.coordinate_max, expected_max)
     assert parameters.amplitude_rms == pytest.approx(expected_rms)
+    assert parameters.amplitude_rms == pytest.approx(EXPECTED_TRAIN_RMS)
     assert not np.isclose(
         expected_rms,
         np.sqrt(np.mean(amplitudes.astype(np.float64) ** 2)),
     )
+    assert held_out_table["cmp_x_m"].max() > training_table["cmp_x_m"].max()
+    assert held_out_table["cmp_y_m"].min() < training_table["cmp_y_m"].min()
+    assert held_out_table["offset_m"].max() > training_table["offset_m"].max()
 
 
 def test_preparation_records_relative_provenance_and_input_hashes(tmp_path: Path) -> None:
@@ -164,7 +192,7 @@ def test_preparation_records_relative_provenance_and_input_hashes(tmp_path: Path
     assert summary["source_file"] == "source.sgy"
     assert summary["config_source"] == CONFIG_SOURCE
     assert summary["normalization"] == {
-        "coordinates": "train_minmax_minus_one_to_one",
+        "coordinates": COORDINATE_NORMALIZATION_METHOD,
         "amplitude": "train_global_rms",
     }
     assert summary["input_files"] == expected_input_files
@@ -328,7 +356,7 @@ def test_cli_writes_final_resolved_config_values(
         "project:\n"
         "  random_seed: 7\n"
         "normalization:\n"
-        "  coordinates: train_minmax_minus_one_to_one\n"
+        "  coordinates: train_minmax_linear_plus_azimuth_sin_cos\n"
         "  amplitude: train_global_rms\n",
         encoding="utf-8",
     )
@@ -373,7 +401,7 @@ def test_cli_writes_final_resolved_config_values(
     assert summary["holdout_fraction"] == 0.3
     assert summary["validation_fraction_of_holdout"] == 0.5
     assert summary["normalization"] == {
-        "coordinates": "train_minmax_minus_one_to_one",
+        "coordinates": COORDINATE_NORMALIZATION_METHOD,
         "amplitude": "train_global_rms",
     }
     assert summary["split_counts"] == {"train": 14, "validation": 3, "test": 3}

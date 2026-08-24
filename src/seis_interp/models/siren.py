@@ -64,7 +64,7 @@ class Siren(nn.Module):
 
     def __init__(
         self,
-        input_features: int = 5,
+        input_features: int = 6,
         hidden_width: int = 256,
         hidden_layers: int = 4,
         output_features: int = 1,

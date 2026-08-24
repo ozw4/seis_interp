@@ -12,6 +12,7 @@ from seis_interp.configuration import (
     load_resolved_config,
     repository_relative_config_source,
 )
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 
 
 def write_config(path: Path, text: str) -> Path:
@@ -41,6 +42,9 @@ def test_tracked_study_resolves_default_and_study_values() -> None:
     assert get_required_config_value(resolved, "sampling.random_trace_holdout_fraction") == 0.2
     assert get_required_config_value(resolved, "sampling.validation_fraction_of_holdout") == 0.25
     assert get_required_config_value(resolved, "model.name") == "siren"
+    assert get_required_config_value(resolved, "model.input_features") == len(
+        MODEL_COORDINATE_ORDER
+    )
     assert get_required_config_value(resolved, "model.omega_0") == 10.0
     assert get_required_config_value(resolved, "training.optimizer") == "adam"
     assert get_required_config_value(resolved, "training.loss") == "l1"

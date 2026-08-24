@@ -6,6 +6,7 @@ import pytest
 import torch
 from torch import nn
 
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.models import SineLayer, Siren
 
 
@@ -29,6 +30,16 @@ def test_siren_output_shape() -> None:
     output = model(torch.randn(8, 5))
 
     assert output.shape == (8, 1)
+
+
+def test_siren_default_input_width_matches_model_coordinate_schema() -> None:
+    model = Siren(hidden_width=16, hidden_layers=2)
+    first_layer = model.network[0]
+
+    assert isinstance(first_layer, SineLayer)
+    assert len(MODEL_COORDINATE_ORDER) == 6
+    assert first_layer.linear.in_features == len(MODEL_COORDINATE_ORDER)
+    assert model(torch.randn(3, len(MODEL_COORDINATE_ORDER))).shape == (3, 1)
 
 
 def test_siren_final_layer_is_linear() -> None:
