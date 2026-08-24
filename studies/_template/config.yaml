@@ -2,4 +2,6 @@ extends: ../../configs/default.yaml
 
 study:
   status: draft
+
+project:
   random_seed: 42
