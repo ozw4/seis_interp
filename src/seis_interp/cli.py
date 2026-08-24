@@ -10,10 +10,19 @@ import platform
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
 
+from seis_interp.configuration import (
+    DEFAULT_CONFIG_PATH,
+    REPOSITORY_ROOT,
+    ConfigurationError,
+    get_required_config_value,
+    load_resolved_config,
+    repository_relative_config_source,
+)
 from seis_interp.data.data_root import DataRootError
 from seis_interp.data.seg_c3_na import (
     DATASET_ID,
@@ -243,15 +252,61 @@ def _prepare_c3_shot(args: argparse.Namespace) -> int:
 
 def _prepare_baseline(args: argparse.Namespace) -> int:
     # Imported here so that unrelated commands keep working without the data extras.
-    from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
+    from seis_interp.pipelines.prepare_baseline import (
+        AMPLITUDE_NORMALIZATION_METHOD,
+        COORDINATE_NORMALIZATION_METHOD,
+        prepare_baseline_dataset,
+    )
+
+    try:
+        config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
+        study_config = config.get("study")
+        if isinstance(study_config, Mapping) and "random_seed" in study_config:
+            raise ConfigurationError("study.random_seed is not supported; use project.random_seed")
+
+        random_seed = _config_value_or_override(
+            args.random_seed,
+            config,
+            "project.random_seed",
+        )
+        holdout_fraction = _config_value_or_override(
+            args.holdout_fraction,
+            config,
+            "sampling.random_trace_holdout_fraction",
+        )
+        validation_fraction = _config_value_or_override(
+            args.validation_fraction_of_holdout,
+            config,
+            "sampling.validation_fraction_of_holdout",
+        )
+        coordinate_normalization = _required_supported_config_value(
+            config,
+            "normalization.coordinates",
+            COORDINATE_NORMALIZATION_METHOD,
+        )
+        amplitude_normalization = _required_supported_config_value(
+            config,
+            "normalization.amplitude",
+            AMPLITUDE_NORMALIZATION_METHOD,
+        )
+        config_source = repository_relative_config_source(
+            args.config,
+            repository_root=REPOSITORY_ROOT,
+        )
+    except (OSError, ValueError) as error:
+        print(f"data prepare-baseline failed: {error}", file=sys.stderr)
+        return 1
 
     try:
         summary = prepare_baseline_dataset(
             interim_dir=args.input,
             output_dir=args.output,
-            holdout_fraction=args.holdout_fraction,
-            validation_fraction_of_holdout=args.validation_fraction_of_holdout,
-            random_seed=args.random_seed,
+            holdout_fraction=holdout_fraction,
+            validation_fraction_of_holdout=validation_fraction,
+            random_seed=random_seed,
+            coordinate_normalization=coordinate_normalization,
+            amplitude_normalization=amplitude_normalization,
+            config_source=config_source,
             overwrite=args.overwrite,
         )
     except (FileNotFoundError, FileExistsError, ValueError) as error:
@@ -262,6 +317,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
         split_counts = summary["split_counts"]
+        print(f"Configuration: {summary['config_source']}")
         print(f"Input dataset: {args.input}")
         print(f"Output directory: {args.output}")
         print(f"Traces: {summary['trace_count']}")
@@ -269,6 +325,27 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         print(f"Validation traces: {split_counts['validation']}")
         print(f"Test traces: {split_counts['test']}")
     return 0
+
+
+def _config_value_or_override(
+    override: object | None,
+    config: Mapping[str, object],
+    dotted_path: str,
+) -> object:
+    if override is not None:
+        return override
+    return get_required_config_value(config, dotted_path)
+
+
+def _required_supported_config_value(
+    config: Mapping[str, object],
+    dotted_path: str,
+    supported_value: str,
+) -> str:
+    value = get_required_config_value(config, dotted_path)
+    if value != supported_value:
+        raise ConfigurationError(f"{dotted_path} must be {supported_value!r}, got {value!r}")
+    return supported_value
 
 
 def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -388,22 +465,28 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "--output", type=Path, required=True, help="Output processed dataset directory."
     )
     prepare_baseline.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=(
+            "Configuration YAML to resolve, including its extends chain "
+            "(default: configs/default.yaml)."
+        ),
+    )
+    prepare_baseline.add_argument(
         "--holdout-fraction",
         type=float,
-        required=True,
-        help="Fraction of complete traces assigned to validation and test.",
+        help="Override sampling.random_trace_holdout_fraction.",
     )
     prepare_baseline.add_argument(
         "--validation-fraction-of-holdout",
         type=float,
-        required=True,
-        help="Fraction of held-out traces assigned to validation.",
+        help="Override sampling.validation_fraction_of_holdout.",
     )
     prepare_baseline.add_argument(
         "--random-seed",
         type=int,
-        required=True,
-        help="Seed for deterministic trace-level splitting.",
+        help="Override project.random_seed for deterministic trace-level splitting.",
     )
     prepare_baseline.add_argument(
         "--overwrite",

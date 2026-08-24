@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from seis_interp.cli import main
 
@@ -16,6 +17,11 @@ SUMMARY: dict[str, object] = {
     "input_dataset_metadata_sha256": "b" * 64,
     "trace_count": 20,
     "sample_count": 4,
+    "config_source": "studies/study/config.yaml",
+    "normalization": {
+        "coordinates": "train_minmax_minus_one_to_one",
+        "amplitude": "train_global_rms",
+    },
     "random_seed": 42,
     "holdout_fraction": 0.2,
     "validation_fraction_of_holdout": 0.25,
@@ -27,24 +33,132 @@ SUMMARY: dict[str, object] = {
 }
 
 
-def _arguments(tmp_path: Path) -> list[str]:
+def _write_study_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    base_seed: int = 7,
+    study_seed: int = 42,
+    holdout_fraction: float = 0.2,
+    validation_fraction: float = 0.25,
+    legacy_study_seed: bool = False,
+) -> Path:
+    repository = tmp_path / "repository"
+    monkeypatch.setattr("seis_interp.cli.REPOSITORY_ROOT", repository)
+    default_path = repository / "configs" / "default.yaml"
+    study_path = repository / "studies" / "study" / "config.yaml"
+    default_path.parent.mkdir(parents=True)
+    study_path.parent.mkdir(parents=True)
+    (repository / "pyproject.toml").write_text("[project]\nname = 'test'\n", encoding="utf-8")
+    default_path.write_text(
+        yaml.safe_dump(
+            {
+                "project": {"random_seed": base_seed},
+                "normalization": {
+                    "coordinates": "train_minmax_minus_one_to_one",
+                    "amplitude": "train_global_rms",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    study: dict[str, object] = {"status": "draft"}
+    if legacy_study_seed:
+        study["random_seed"] = study_seed
+    study_path.write_text(
+        yaml.safe_dump(
+            {
+                "extends": "../../configs/default.yaml",
+                "project": {"random_seed": study_seed},
+                "study": study,
+                "sampling": {
+                    "random_trace_holdout_fraction": holdout_fraction,
+                    "validation_fraction_of_holdout": validation_fraction,
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return study_path
+
+
+def _arguments(tmp_path: Path, config_path: Path) -> list[str]:
     return [
         "data",
         "prepare-baseline",
+        "--config",
+        str(config_path),
         "--input",
         str(tmp_path / "interim"),
         "--output",
         str(tmp_path / "processed"),
-        "--holdout-fraction",
-        "0.20",
-        "--validation-fraction-of-holdout",
-        "0.25",
-        "--random-seed",
-        "42",
     ]
 
 
 def test_cli_passes_all_arguments_to_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
+    received: dict[str, Any] = {}
+
+    def fake_prepare_baseline_dataset(**kwargs: Any) -> dict[str, object]:
+        received.update(kwargs)
+        return SUMMARY
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        fake_prepare_baseline_dataset,
+    )
+
+    exit_code = main([*_arguments(tmp_path, config_path), "--overwrite"])
+
+    assert exit_code == 0
+    assert received == {
+        "interim_dir": tmp_path / "interim",
+        "output_dir": tmp_path / "processed",
+        "holdout_fraction": 0.2,
+        "validation_fraction_of_holdout": 0.25,
+        "random_seed": 42,
+        "coordinate_normalization": "train_minmax_minus_one_to_one",
+        "amplitude_normalization": "train_global_rms",
+        "config_source": "studies/study/config.yaml",
+        "overwrite": True,
+    }
+
+
+def test_cli_overrides_config_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
+    received: dict[str, Any] = {}
+
+    def fake_prepare_baseline_dataset(**kwargs: Any) -> dict[str, object]:
+        received.update(kwargs)
+        return SUMMARY
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        fake_prepare_baseline_dataset,
+    )
+
+    exit_code = main(
+        [
+            *_arguments(tmp_path, config_path),
+            "--holdout-fraction",
+            "0.30",
+            "--validation-fraction-of-holdout",
+            "0.50",
+            "--random-seed",
+            "0",
+        ]
+    )
+
+    assert exit_code == 0
+    assert received["holdout_fraction"] == 0.3
+    assert received["validation_fraction_of_holdout"] == 0.5
+    assert received["random_seed"] == 0
+
+
+def test_cli_explicit_values_work_with_default_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     received: dict[str, Any] = {}
@@ -58,17 +172,31 @@ def test_cli_passes_all_arguments_to_pipeline(
         fake_prepare_baseline_dataset,
     )
 
-    exit_code = main([*_arguments(tmp_path), "--overwrite"])
+    exit_code = main(
+        [
+            "data",
+            "prepare-baseline",
+            "--input",
+            str(tmp_path / "interim"),
+            "--output",
+            str(tmp_path / "processed"),
+            "--holdout-fraction",
+            "0.20",
+            "--validation-fraction-of-holdout",
+            "0.25",
+            "--random-seed",
+            "42",
+        ]
+    )
 
     assert exit_code == 0
-    assert received == {
-        "interim_dir": tmp_path / "interim",
-        "output_dir": tmp_path / "processed",
-        "holdout_fraction": 0.2,
-        "validation_fraction_of_holdout": 0.25,
-        "random_seed": 42,
-        "overwrite": True,
-    }
+    assert received["config_source"] == "configs/default.yaml"
+    assert received["holdout_fraction"] == 0.2
+    assert received["validation_fraction_of_holdout"] == 0.25
+    assert received["random_seed"] == 42
+    assert received["coordinate_normalization"] == "train_minmax_minus_one_to_one"
+    assert received["amplitude_normalization"] == "train_global_rms"
+    assert received["overwrite"] is False
 
 
 def test_cli_json_output_is_parsable(
@@ -76,12 +204,13 @@ def test_cli_json_output_is_parsable(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
         lambda **kwargs: SUMMARY,
     )
 
-    exit_code = main([*_arguments(tmp_path), "--json"])
+    exit_code = main([*_arguments(tmp_path, config_path), "--json"])
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out) == SUMMARY
@@ -92,15 +221,17 @@ def test_cli_human_output_contains_split_counts(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
     monkeypatch.setattr(
         "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
         lambda **kwargs: SUMMARY,
     )
 
-    exit_code = main(_arguments(tmp_path))
+    exit_code = main(_arguments(tmp_path, config_path))
     output = capsys.readouterr().out
 
     assert exit_code == 0
+    assert "Configuration: studies/study/config.yaml" in output
     assert f"Input dataset: {tmp_path / 'interim'}" in output
     assert f"Output directory: {tmp_path / 'processed'}" in output
     assert "Traces: 20" in output
@@ -124,6 +255,8 @@ def test_cli_reports_input_errors(
     capsys: pytest.CaptureFixture[str],
     error: Exception,
 ) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
+
     def fail(**kwargs: Any) -> dict[str, object]:
         raise error
 
@@ -132,7 +265,7 @@ def test_cli_reports_input_errors(
         fail,
     )
 
-    exit_code = main(_arguments(tmp_path))
+    exit_code = main(_arguments(tmp_path, config_path))
 
     assert exit_code == 1
     assert capsys.readouterr().err == f"data prepare-baseline failed: {error}\n"
@@ -142,6 +275,8 @@ def test_cli_does_not_hide_unexpected_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
+
     def fail(**kwargs: Any) -> dict[str, object]:
         raise RuntimeError("unexpected failure")
 
@@ -151,4 +286,89 @@ def test_cli_does_not_hide_unexpected_errors(
     )
 
     with pytest.raises(RuntimeError, match="unexpected failure"):
-        main(_arguments(tmp_path))
+        main(_arguments(tmp_path, config_path))
+
+
+def test_cli_does_not_hide_unexpected_pipeline_io_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
+
+    def fail(**kwargs: Any) -> dict[str, object]:
+        raise OSError("unexpected output failure")
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        fail,
+    )
+
+    with pytest.raises(OSError, match="unexpected output failure"):
+        main(_arguments(tmp_path, config_path))
+
+
+def test_cli_reports_missing_config_value_without_calling_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    del config["sampling"]["validation_fraction_of_holdout"]
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    def unexpected_call(**kwargs: Any) -> dict[str, object]:
+        raise AssertionError("pipeline must not run with unresolved configuration")
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        unexpected_call,
+    )
+
+    exit_code = main(_arguments(tmp_path, config_path))
+
+    assert exit_code == 1
+    assert "sampling.validation_fraction_of_holdout" in capsys.readouterr().err
+
+
+def test_cli_rejects_legacy_study_seed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(
+        tmp_path,
+        monkeypatch,
+        legacy_study_seed=True,
+    )
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        lambda **kwargs: pytest.fail("pipeline must not run with study.random_seed"),
+    )
+
+    exit_code = main(_arguments(tmp_path, config_path))
+
+    assert exit_code == 1
+    assert "use project.random_seed" in capsys.readouterr().err
+
+
+def test_cli_rejects_unsupported_normalization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["normalization"] = {"amplitude": "per_trace_peak"}
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        lambda **kwargs: pytest.fail("pipeline must not run with unsupported normalization"),
+    )
+
+    exit_code = main(_arguments(tmp_path, config_path))
+
+    assert exit_code == 1
+    assert "normalization.amplitude" in capsys.readouterr().err

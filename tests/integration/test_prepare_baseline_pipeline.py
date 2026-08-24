@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from seis_interp.cli import main
 from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.processing.normalization import read_normalization_parameters
@@ -17,6 +18,7 @@ SAMPLE_COUNT = 4
 HOLDOUT_FRACTION = 0.20
 VALIDATION_FRACTION_OF_HOLDOUT = 0.25
 RANDOM_SEED = 42
+CONFIG_SOURCE = "studies/synthetic/config.yaml"
 
 
 def _write_interim_dataset(tmp_path: Path) -> Path:
@@ -60,6 +62,7 @@ def _prepare(interim_dir: Path, output_dir: Path, *, overwrite: bool = False) ->
         holdout_fraction=HOLDOUT_FRACTION,
         validation_fraction_of_holdout=VALIDATION_FRACTION_OF_HOLDOUT,
         random_seed=RANDOM_SEED,
+        config_source=CONFIG_SOURCE,
         overwrite=overwrite,
     )
 
@@ -151,6 +154,11 @@ def test_preparation_records_relative_provenance_and_metadata_hash(tmp_path: Pat
     preparation_text = (output_dir / "preparation.json").read_text(encoding="utf-8")
 
     assert summary["source_file"] == "source.sgy"
+    assert summary["config_source"] == CONFIG_SOURCE
+    assert summary["normalization"] == {
+        "coordinates": "train_minmax_minus_one_to_one",
+        "amplitude": "train_global_rms",
+    }
     assert summary["input_dataset_metadata_sha256"] == expected_metadata_hash
     assert str(tmp_path) not in preparation_text
 
@@ -217,3 +225,129 @@ def test_validation_failure_leaves_no_partial_output(tmp_path: Path) -> None:
         )
 
     assert not output_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "config_source",
+    [
+        "/absolute/config.yaml",
+        "../outside/config.yaml",
+        r"C:\\config.yaml",
+        "C:config.yaml",
+        r"\config.yaml",
+        r"studies\study\config.yaml",
+        ".",
+        " config.yaml",
+        "",
+    ],
+)
+def test_rejects_non_portable_config_source(tmp_path: Path, config_source: str) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    output_dir = tmp_path / "processed"
+
+    with pytest.raises(ValueError, match="config_source"):
+        prepare_baseline_dataset(
+            interim_dir,
+            output_dir,
+            holdout_fraction=HOLDOUT_FRACTION,
+            validation_fraction_of_holdout=VALIDATION_FRACTION_OF_HOLDOUT,
+            random_seed=RANDOM_SEED,
+            config_source=config_source,
+        )
+
+    assert not output_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "keyword,value",
+    [
+        ("coordinate_normalization", "zero_to_one"),
+        ("amplitude_normalization", "per_trace_rms"),
+    ],
+)
+def test_rejects_unsupported_normalization_methods(
+    tmp_path: Path,
+    keyword: str,
+    value: str,
+) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    output_dir = tmp_path / "processed"
+    arguments: dict[str, object] = {
+        "holdout_fraction": HOLDOUT_FRACTION,
+        "validation_fraction_of_holdout": VALIDATION_FRACTION_OF_HOLDOUT,
+        "random_seed": RANDOM_SEED,
+        keyword: value,
+    }
+
+    with pytest.raises(ValueError, match=keyword):
+        prepare_baseline_dataset(interim_dir, output_dir, **arguments)  # type: ignore[arg-type]
+
+    assert not output_dir.exists()
+
+
+def test_cli_writes_final_resolved_config_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repository = tmp_path / "repository"
+    monkeypatch.setattr("seis_interp.cli.REPOSITORY_ROOT", repository)
+    default_config = repository / "configs" / "default.yaml"
+    study_config = repository / "studies" / "study" / "config.yaml"
+    default_config.parent.mkdir(parents=True)
+    study_config.parent.mkdir(parents=True)
+    (repository / "pyproject.toml").write_text("[project]\nname = 'test'\n", encoding="utf-8")
+    default_config.write_text(
+        "project:\n"
+        "  random_seed: 7\n"
+        "normalization:\n"
+        "  coordinates: train_minmax_minus_one_to_one\n"
+        "  amplitude: train_global_rms\n",
+        encoding="utf-8",
+    )
+    study_config.write_text(
+        "extends: ../../configs/default.yaml\n"
+        "project:\n"
+        "  random_seed: 42\n"
+        "sampling:\n"
+        "  random_trace_holdout_fraction: 0.20\n"
+        "  validation_fraction_of_holdout: 0.25\n",
+        encoding="utf-8",
+    )
+    interim_dir = _write_interim_dataset(tmp_path)
+    output_dir = tmp_path / "processed"
+
+    exit_code = main(
+        [
+            "data",
+            "prepare-baseline",
+            "--config",
+            str(study_config),
+            "--input",
+            str(interim_dir),
+            "--output",
+            str(output_dir),
+            "--holdout-fraction",
+            "0.30",
+            "--validation-fraction-of-holdout",
+            "0.50",
+            "--random-seed",
+            "0",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    summary = json.loads(capsys.readouterr().out)
+    stored_text = (output_dir / "preparation.json").read_text(encoding="utf-8")
+    assert json.loads(stored_text) == summary
+    assert summary["config_source"] == "studies/study/config.yaml"
+    assert summary["random_seed"] == 0
+    assert summary["holdout_fraction"] == 0.3
+    assert summary["validation_fraction_of_holdout"] == 0.5
+    assert summary["normalization"] == {
+        "coordinates": "train_minmax_minus_one_to_one",
+        "amplitude": "train_global_rms",
+    }
+    assert summary["split_counts"] == {"train": 14, "validation": 3, "test": 3}
+    assert str(tmp_path) not in stored_text

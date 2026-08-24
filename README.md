@@ -96,14 +96,19 @@ Create the trace-level split and training-only normalization metadata used by th
 
 ```bash
 python -m seis_interp.cli data prepare-baseline \
+  --config studies/study_001_c3_na_baseline/config.yaml \
   --input data/interim/c3_na/ffid_2348 \
-  --output data/processed/c3_na/ffid_2348_random_split \
-  --holdout-fraction 0.20 \
-  --validation-fraction-of-holdout 0.25 \
-  --random-seed 42
+  --output data/processed/c3_na/ffid_2348_random_split
 ```
 
-The command writes only `trace_split.parquet`, `normalization.json`, and `preparation.json` to the processed dataset directory.
+Configuration values are resolved in this order: the file named by `extends`, the selected
+study config, then explicit CLI overrides. `--holdout-fraction`,
+`--validation-fraction-of-holdout`, and `--random-seed` override the corresponding
+`sampling.*` and `project.random_seed` values when supplied. The command writes only
+`trace_split.parquet`, `normalization.json`, and `preparation.json`; the latter records the
+resolved split values, supported normalization methods, and repository-relative config source.
+Legacy `study.random_seed` is rejected; study-specific seed overrides belong at
+`project.random_seed`.
 
 ## Quality checks
 
