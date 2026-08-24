@@ -12,8 +12,8 @@ data:
     - azimuth_deg
 
 normalization:
-  coordinates: minmax_minus_one_to_one
-  amplitude: global_robust_scale
+  coordinates: train_minmax_minus_one_to_one
+  amplitude: train_global_rms
 
 model:
   name: siren
