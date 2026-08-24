@@ -103,3 +103,5 @@ model inputとして使うcoordinateの順序と単位は、`dataset.json`に次
 ```
 
 `expected_trace_count`はcomplete shotの判定に使った値である。後続stepが`dataset.json`だけを見て抽出条件を再現できるよう、CLIやpipelineの戻り値にだけ存在する項目を作らない。`prepare_c3_complete_shot()`の戻り値は`dataset.json`の内容と完全に一致する。
+
+544はSEG C3 NA固有の値なので、`C3_COMPLETE_SHOT_TRACE_COUNT`として`seis_interp.pipelines.prepare_c3`に置く。survey非依存の`select_ffid()`・`annotate_ffid_quality()`は`expected_trace_count`を必須引数とし、既定値を持たない。

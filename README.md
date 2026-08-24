@@ -79,7 +79,7 @@ python -m seis_interp.cli data prepare-c3-shot \
   --ffid <id>
 ```
 
-Without `--ffid` the command selects the numerically smallest FFID whose trace count equals `--expected-traces` (544 by default). Each run writes four files into the output directory:
+Without `--ffid` the command selects the numerically smallest FFID whose trace count equals `--expected-traces` (544, the traces in a complete SEG C3 NA shot). Each run writes four files into the output directory:
 
 ```text
 traces.parquet   one row per selected trace, with an array_row column

@@ -48,7 +48,7 @@ def test_annotate_rejects_duplicate_trace_index() -> None:
 
 def test_annotate_rejects_empty_table() -> None:
     with pytest.raises(ValueError, match="empty"):
-        annotate_ffid_quality(pd.DataFrame({"trace_index": [], "ffid": []}))
+        annotate_ffid_quality(pd.DataFrame({"trace_index": [], "ffid": []}), expected_trace_count=3)
 
 
 def test_annotate_rejects_non_positive_expected_count() -> None:
@@ -115,4 +115,12 @@ def test_select_missing_ffid_is_an_error() -> None:
 
 def test_select_without_any_complete_ffid_is_an_error() -> None:
     with pytest.raises(ValueError, match="no FFID has the expected trace count"):
-        select_ffid(make_trace_table(), expected_trace_count=544)
+        select_ffid(make_trace_table(), expected_trace_count=4)
+
+
+def test_expected_trace_count_has_no_survey_specific_default() -> None:
+    with pytest.raises(TypeError, match="expected_trace_count"):
+        select_ffid(make_trace_table())  # type: ignore[call-arg]
+
+    with pytest.raises(TypeError, match="expected_trace_count"):
+        annotate_ffid_quality(make_trace_table())  # type: ignore[call-arg]

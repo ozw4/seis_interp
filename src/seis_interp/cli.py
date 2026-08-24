@@ -207,12 +207,14 @@ def _inspect_data(args: argparse.Namespace) -> int:
 
 def _prepare_c3_shot(args: argparse.Namespace) -> int:
     # Imported here so that `doctor` keeps working without the data and segy extras.
-    from seis_interp.pipelines.prepare_c3 import prepare_c3_complete_shot
-    from seis_interp.processing.ffid_selection import DEFAULT_EXPECTED_TRACE_COUNT
+    from seis_interp.pipelines.prepare_c3 import (
+        C3_COMPLETE_SHOT_TRACE_COUNT,
+        prepare_c3_complete_shot,
+    )
 
     expected_traces = args.expected_traces
     if expected_traces is None:
-        expected_traces = DEFAULT_EXPECTED_TRACE_COUNT
+        expected_traces = C3_COMPLETE_SHOT_TRACE_COUNT
 
     try:
         summary = prepare_c3_complete_shot(
@@ -329,7 +331,7 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "--expected-traces",
         type=int,
         default=None,
-        help="Trace count that marks an FFID as complete (default: 544).",
+        help="Trace count that marks an FFID as complete (default: 544, a complete C3 NA shot).",
     )
     prepare.add_argument(
         "--dataset-id",

@@ -1,17 +1,21 @@
-"""Annotate FFID completeness on a trace table and select one FFID."""
+"""Annotate FFID completeness on a trace table and select one FFID.
+
+These functions are survey independent: what makes a shot complete differs
+per dataset, so ``expected_trace_count`` is always supplied by the caller.
+The SEG C3 NA value lives in ``seis_interp.pipelines.prepare_c3``.
+"""
 
 from __future__ import annotations
 
 import pandas as pd
-
-DEFAULT_EXPECTED_TRACE_COUNT = 544
 
 _REQUIRED_COLUMNS = ("ffid", "trace_index")
 
 
 def annotate_ffid_quality(
     trace_table: pd.DataFrame,
-    expected_trace_count: int = DEFAULT_EXPECTED_TRACE_COUNT,
+    *,
+    expected_trace_count: int,
 ) -> pd.DataFrame:
     """Add per-FFID trace counts and a completeness flag to a trace table.
 
@@ -40,8 +44,9 @@ def annotate_ffid_quality(
 
 def select_ffid(
     trace_table: pd.DataFrame,
+    *,
+    expected_trace_count: int,
     ffid: int | None = None,
-    expected_trace_count: int = DEFAULT_EXPECTED_TRACE_COUNT,
     require_complete: bool = True,
 ) -> pd.DataFrame:
     """Select the traces of one FFID, sorted by ``trace_index``.

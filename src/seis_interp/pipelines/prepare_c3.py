@@ -7,14 +7,19 @@ from pathlib import Path
 from seis_interp.data.segy_index import scan_segy_headers
 from seis_interp.data.segy_reader import build_time_axis, read_trace_amplitudes
 from seis_interp.data.trace_store import write_interim_trace_dataset
-from seis_interp.processing.ffid_selection import DEFAULT_EXPECTED_TRACE_COUNT, select_ffid
+from seis_interp.processing.ffid_selection import select_ffid
+
+# Traces in a complete SEG C3 Narrow-Azimuth shot. Shots at the sail-line ends
+# have fewer. Other surveys have their own count, so this stays out of
+# seis_interp.processing.ffid_selection.
+C3_COMPLETE_SHOT_TRACE_COUNT = 544
 
 
 def prepare_c3_complete_shot(
     input_path: Path,
     output_dir: Path,
     ffid: int | None = None,
-    expected_trace_count: int = DEFAULT_EXPECTED_TRACE_COUNT,
+    expected_trace_count: int = C3_COMPLETE_SHOT_TRACE_COUNT,
     dataset_id: str = "seg_c3_na",
     overwrite: bool = False,
 ) -> dict[str, object]:
