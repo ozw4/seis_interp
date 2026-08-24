@@ -46,12 +46,9 @@ data/external/**
 !data/external/seg_c3_na/README.md
 !data/external/seg_c3_na/manifest.yaml
 
+# Generated trace tables and arrays are written here.
 data/interim/
 data/processed/
-
-# Generated trace arrays and tables
-*.npy
-*.parquet
 
 # Machine-generated runs
 runs/**
