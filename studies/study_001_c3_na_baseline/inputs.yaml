@@ -1,12 +1,15 @@
 datasets:
   - dataset_id: seg_c3_na
     manifest: ../../data/external/seg_c3_na/manifest.yaml
-    files: []
+    files:
+      - name: SEG_C3NA_ffid_1201-2400.sgy
+        sha256: 50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7
     subset:
-      sail_lines: []
-      shot_range: null
-      cable_indices: all
-      receiver_indices: all
+      # FFID 2348 is a complete 544-trace shot near the middle of the survey
+      # (FFID 2-4781) and away from the sail-line ends, where coverage ramps
+      # from 112 to 544 traces. The smallest complete FFID is not used.
+      ffid: 2348
+      expected_trace_count: 544
       time_window_s: null
 
 references:

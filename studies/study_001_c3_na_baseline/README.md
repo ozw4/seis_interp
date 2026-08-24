@@ -14,7 +14,7 @@ The INR model will improve held-out-trace S/N or NRMSE over the simple physical-
 
 ## Inputs
 
-The study uses a controlled subset of SEG C3 Narrow-Azimuth. Raw SEG-Y files remain outside Git. The selected sail lines, shots, time window, file checksums, and header conventions must be locked in `inputs.yaml` before the first formal run.
+The study uses a controlled subset of SEG C3 Narrow-Azimuth. Raw SEG-Y files remain outside Git. `inputs.yaml` locks the source file and its SHA-256 together with the selected shot: FFID 2348 of `SEG_C3NA_ffid_1201-2400.sgy`, 544 traces of 625 samples at 8 ms, no time window. Header conventions are in [`docs/coordinate_conventions.md`](../../docs/coordinate_conventions.md).
 
 ## Method
 
@@ -35,4 +35,5 @@ SEG C3 NA has narrow azimuth coverage and is synthetic. A successful POC does no
 ## Decision log
 
 - 2026-08-21: Use SEG C3 Narrow-Azimuth and prioritize proof of interpolation over exact paper reproduction.
-- 2026-08-23: Step 1 treats SEG-Y as a trace table instead of a fixed 5D array. The coordinate rules are documented in [`docs/coordinate_conventions.md`](../../docs/coordinate_conventions.md) and produced with `python -m seis_interp.cli data prepare-c3-shot`. `inputs.yaml` is not locked yet.
+- 2026-08-23: Step 1 treats SEG-Y as a trace table instead of a fixed 5D array. The coordinate rules are documented in [`docs/coordinate_conventions.md`](../../docs/coordinate_conventions.md) and produced with `python -m seis_interp.cli data prepare-c3-shot`.
+- 2026-08-24: Lock the formal input to FFID 2348 of `SEG_C3NA_ffid_1201-2400.sgy`. The shot was checked on the real SEG-Y: 544 traces, 625 samples, 8 ms, `time_s` 0.0-4.992 s, all geometry and amplitudes finite. Mid-survey shots away from the sail-line ends are used instead of the smallest complete FFID, which sits at the start of the first line.
