@@ -89,6 +89,17 @@ model inputとして使うcoordinateの順序と単位は、`dataset.json`に次
 
 `time_s`は`time_s.npy`、残り4つは`traces.parquet`の列である。`traces.parquet`の1行と`amplitudes.npy`の1行は`array_row`で対応する。
 
+## 数値精度の境界
+
+```text
+物理座標と時間軸はinterim段階ではfloat64で保持する。
+振幅はfloat32で保持する。
+正規化後のモデル入力と学習targetはtraining境界でfloat32へ変換する。
+Siren.forward()はdtype変換を行わない。
+```
+
+この変換は`to_model_tensors()`（`src/seis_interp/training/model_inputs.py`）を唯一の実装とする。
+
 ## Selectionの記録
 
 どのtraceを、どの条件で抽出したかは`dataset.json`の`selection`に記録する。
