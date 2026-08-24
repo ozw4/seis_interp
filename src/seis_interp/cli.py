@@ -1,4 +1,4 @@
-"""Command-line entry points for repository diagnostics."""
+"""Command-line entry points for repository diagnostics and data management."""
 
 from __future__ import annotations
 
@@ -12,6 +12,25 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+
+from seis_interp.data.data_root import DataRootError
+from seis_interp.data.seg_c3_na import (
+    DATASET_ID,
+    DataIntegrityError,
+    ManifestError,
+    default_manifest_path,
+    download_seg_c3_na,
+    verify_seg_c3_na,
+)
+from seis_interp.data.seg_c3_na_inspection import (
+    DEFAULT_SAMPLE_TRACE_COUNT,
+    SegyInspectionError,
+    format_seg_c3_na_inspection,
+    inspect_seg_c3_na,
+    seg_c3_na_inspection_ok,
+    seg_c3_na_inspection_to_dict,
+)
 
 
 def _distribution_version(name: str) -> str | None:
@@ -139,6 +158,126 @@ def _doctor(args: argparse.Namespace) -> int:
     return 0 if commands_ready and report["data_root"]["readable"] else 1
 
 
+def _download_data(args: argparse.Namespace) -> int:
+    try:
+        lock_path = download_seg_c3_na(
+            args.manifest,
+            args.data_root,
+            force=args.force,
+            resume=not args.no_resume,
+            timeout_s=args.timeout_s,
+        )
+    except (DataRootError, DataIntegrityError, ManifestError, OSError, URLError, ValueError) as exc:
+        print(f"Download failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Download lock written to: {lock_path}")
+    return 0
+
+
+def _verify_data(args: argparse.Namespace) -> int:
+    try:
+        results = verify_seg_c3_na(args.manifest, args.data_root)
+    except (DataRootError, DataIntegrityError, ManifestError, OSError, ValueError) as exc:
+        print(f"Verification failed: {exc}", file=sys.stderr)
+        return 1
+
+    for result in results:
+        print(f"{result.status.upper():>17}  {result.name}: {result.detail}")
+    return 0 if all(result.ok for result in results) else 1
+
+
+def _inspect_data(args: argparse.Namespace) -> int:
+    try:
+        inspection = inspect_seg_c3_na(
+            args.manifest,
+            args.data_root,
+            sample_trace_count=args.sample_traces,
+        )
+    except (DataRootError, ManifestError, SegyInspectionError, OSError, ValueError) as exc:
+        print(f"Inspection failed: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(seg_c3_na_inspection_to_dict(inspection), indent=2, sort_keys=True))
+    else:
+        print(format_seg_c3_na_inspection(inspection))
+    return 0 if seg_c3_na_inspection_ok(inspection) else 1
+
+
+def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    data = subparsers.add_parser("data", help="Acquire, verify, and inspect external datasets.")
+    data_commands = data.add_subparsers(dest="data_command", required=True)
+
+    download = data_commands.add_parser("download", help="Download an external dataset.")
+    download.add_argument("dataset", choices=(DATASET_ID,))
+    download.add_argument(
+        "--manifest",
+        type=Path,
+        default=default_manifest_path(),
+        help="Path to the tracked dataset manifest.",
+    )
+    download.add_argument(
+        "--data-root",
+        type=Path,
+        help="Override SEIS_INTERP_DATA_ROOT for this command.",
+    )
+    download.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete completed and partial files before downloading.",
+    )
+    download.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Discard partial files instead of issuing HTTP Range requests.",
+    )
+    download.add_argument(
+        "--timeout-s",
+        type=float,
+        default=60.0,
+        help="Per-request network timeout in seconds.",
+    )
+    download.set_defaults(handler=_download_data)
+
+    verify = data_commands.add_parser("verify", help="Verify an external dataset.")
+    verify.add_argument("dataset", choices=(DATASET_ID,))
+    verify.add_argument(
+        "--manifest",
+        type=Path,
+        default=default_manifest_path(),
+        help="Path to the tracked dataset manifest.",
+    )
+    verify.add_argument(
+        "--data-root",
+        type=Path,
+        help="Override SEIS_INTERP_DATA_ROOT for this command.",
+    )
+    verify.set_defaults(handler=_verify_data)
+
+    inspect = data_commands.add_parser("inspect", help="Inspect SEG-Y structure and content.")
+    inspect.add_argument("dataset", choices=(DATASET_ID,))
+    inspect.add_argument(
+        "--manifest",
+        type=Path,
+        default=default_manifest_path(),
+        help="Path to the tracked dataset manifest.",
+    )
+    inspect.add_argument(
+        "--data-root",
+        type=Path,
+        help="Override SEIS_INTERP_DATA_ROOT for this command.",
+    )
+    inspect.add_argument(
+        "--sample-traces",
+        type=int,
+        default=DEFAULT_SAMPLE_TRACE_COUNT,
+        help="Number of evenly spaced traces sampled per SEG-Y file.",
+    )
+    inspect.add_argument("--json", action="store_true", help="Print JSON output.")
+    inspect.set_defaults(handler=_inspect_data)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="seis-interp")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -151,6 +290,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fail when AI CLIs or the configured data root are unavailable.",
     )
     doctor.set_defaults(handler=_doctor)
+
+    _add_data_commands(subparsers)
     return parser
 
 

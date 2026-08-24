@@ -24,7 +24,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       NVIDIA_VISIBLE_DEVICES: all
       PYTHONPATH: /workspace/src
-      SEIS_INTERP_DATA_ROOT: /home/dcuser/data
+      SEIS_INTERP_DATA_ROOT: /workspace/data
     deploy:
       resources:
         reservations:
@@ -46,10 +46,6 @@ services:
       - type: bind
         source: /dev/shm
         target: /dev/shm
-      - type: bind
-        source: ${SEISMIC_DATA_ROOT:-../data/external}
-        target: /home/dcuser/data
-        read_only: true
       - type: bind
         source: ${HOME}/.gitconfig
         target: /home/dcuser/.gitconfig

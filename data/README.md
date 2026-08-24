@@ -6,4 +6,6 @@ Data are separated by origin and processing stage.
 - `interim/`: reproducible caches and intermediate conversions. This directory is generated locally and ignored by Git.
 - `processed/`: QC-approved inputs for training and evaluation. This directory is generated locally and ignored by Git.
 
-Do not commit raw SEG-Y files, large arrays, or machine-specific paths. Store the external data outside the repository and configure its host path through `.devcontainer/.env` or `SEIS_INTERP_DATA_ROOT`.
+In the Dev Container, `SEIS_INTERP_DATA_ROOT` is `/workspace/data`. SEG C3 NA is therefore stored at `/workspace/data/external/seg_c3_na/`.
+
+The manifest and documentation are tracked. Raw SEG-Y files, generated download locks, large arrays, and other local data products are ignored by Git and must not be committed.
