@@ -163,45 +163,30 @@ def test_cli_overrides_config_values(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert received["random_seed"] == 0
 
 
-def test_cli_explicit_values_work_with_default_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_cli_requires_study_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    received: dict[str, Any] = {}
-
-    def fake_prepare_baseline_dataset(**kwargs: Any) -> dict[str, object]:
-        received.update(kwargs)
-        return SUMMARY
-
     monkeypatch.setattr(
         "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
-        fake_prepare_baseline_dataset,
+        lambda **kwargs: pytest.fail("pipeline must not run without --config"),
     )
 
-    exit_code = main(
-        [
-            "data",
-            "prepare-baseline",
-            "--input",
-            str(tmp_path / "interim"),
-            "--output",
-            str(tmp_path / "processed"),
-            "--holdout-fraction",
-            "0.20",
-            "--validation-fraction-of-holdout",
-            "0.25",
-            "--random-seed",
-            "42",
-        ]
-    )
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "data",
+                "prepare-baseline",
+                "--input",
+                str(tmp_path / "interim"),
+                "--output",
+                str(tmp_path / "processed"),
+            ]
+        )
 
-    assert exit_code == 0
-    assert received["config_source"] == "configs/default.yaml"
-    assert received["holdout_fraction"] == 0.2
-    assert received["validation_fraction_of_holdout"] == 0.25
-    assert received["random_seed"] == 42
-    assert received["coordinate_normalization"] == "train_minmax_minus_one_to_one"
-    assert received["amplitude_normalization"] == "train_global_rms"
-    assert received["overwrite"] is False
+    assert error.value.code == 2
+    assert "the following arguments are required: --config" in capsys.readouterr().err
 
 
 def test_cli_json_output_is_parsable(

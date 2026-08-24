@@ -102,7 +102,8 @@ python -m seis_interp.cli data prepare-baseline \
 ```
 
 Configuration values are resolved in this order: the file named by `extends`, the selected
-study config, then explicit CLI overrides. `--holdout-fraction`,
+study config, then explicit CLI overrides. `--config` is required because the trace holdout
+design is a study condition. `--holdout-fraction`,
 `--validation-fraction-of-holdout`, and `--random-seed` override the corresponding
 `sampling.*` and `project.random_seed` values when supplied. The command writes only
 `trace_split.parquet`, `normalization.json`, and `preparation.json`; the latter records the

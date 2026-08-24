@@ -16,7 +16,6 @@ from typing import Any
 from urllib.error import URLError
 
 from seis_interp.configuration import (
-    DEFAULT_CONFIG_PATH,
     REPOSITORY_ROOT,
     ConfigurationError,
     get_required_config_value,
@@ -467,11 +466,8 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     prepare_baseline.add_argument(
         "--config",
         type=Path,
-        default=DEFAULT_CONFIG_PATH,
-        help=(
-            "Configuration YAML to resolve, including its extends chain "
-            "(default: configs/default.yaml)."
-        ),
+        required=True,
+        help="Study configuration YAML to resolve, including its extends chain.",
     )
     prepare_baseline.add_argument(
         "--holdout-fraction",
