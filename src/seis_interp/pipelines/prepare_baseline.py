@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
-from seis_interp.data.trace_store import METADATA_FILE_NAME
+from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.processing.normalization import (
     fit_normalization_parameters,
     write_normalization_parameters,
@@ -80,11 +80,14 @@ def prepare_baseline_dataset(
         for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
     }
     preparation: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "dataset_id": _metadata_text(dataset.metadata, "dataset_id"),
         "source_file": _relative_source_file(dataset.metadata),
         "source_sha256": _metadata_text(dataset.metadata, "source_sha256"),
-        "input_dataset_metadata_sha256": _file_sha256(input_directory / METADATA_FILE_NAME),
+        "input_files": {
+            file_name: {"sha256": _file_sha256(input_directory / file_name)}
+            for file_name in INTERIM_FILE_NAMES
+        },
         "trace_count": int(dataset.metadata["trace_count"]),
         "sample_count": int(dataset.metadata["sample_count"]),
         "config_source": stored_config_source,

@@ -145,10 +145,18 @@ def test_normalization_is_fit_from_training_rows_only(tmp_path: Path) -> None:
     )
 
 
-def test_preparation_records_relative_provenance_and_metadata_hash(tmp_path: Path) -> None:
+def test_preparation_records_relative_provenance_and_input_hashes(tmp_path: Path) -> None:
     interim_dir = _write_interim_dataset(tmp_path)
     output_dir = tmp_path / "processed"
-    expected_metadata_hash = hashlib.sha256((interim_dir / "dataset.json").read_bytes()).hexdigest()
+    expected_input_files = {
+        file_name: {"sha256": hashlib.sha256((interim_dir / file_name).read_bytes()).hexdigest()}
+        for file_name in (
+            "traces.parquet",
+            "amplitudes.npy",
+            "time_s.npy",
+            "dataset.json",
+        )
+    }
 
     summary = _prepare(interim_dir, output_dir)
     preparation_text = (output_dir / "preparation.json").read_text(encoding="utf-8")
@@ -159,8 +167,28 @@ def test_preparation_records_relative_provenance_and_metadata_hash(tmp_path: Pat
         "coordinates": "train_minmax_minus_one_to_one",
         "amplitude": "train_global_rms",
     }
-    assert summary["input_dataset_metadata_sha256"] == expected_metadata_hash
+    assert summary["schema_version"] == 2
+    assert summary["input_files"] == expected_input_files
+    assert "input_dataset_metadata_sha256" not in summary
     assert str(tmp_path) not in preparation_text
+
+
+def test_input_hash_detects_array_changes_without_metadata_changes(tmp_path: Path) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    first_summary = _prepare(interim_dir, tmp_path / "processed_first")
+
+    amplitude_path = interim_dir / "amplitudes.npy"
+    amplitudes = np.load(amplitude_path, allow_pickle=False)
+    amplitudes[0, 0] += 1.0
+    np.save(amplitude_path, amplitudes)
+
+    second_summary = _prepare(interim_dir, tmp_path / "processed_second")
+    first_input_files = first_summary["input_files"]
+    second_input_files = second_summary["input_files"]
+    assert isinstance(first_input_files, dict)
+    assert isinstance(second_input_files, dict)
+    assert first_input_files["dataset.json"] == second_input_files["dataset.json"]
+    assert first_input_files["amplitudes.npy"] != second_input_files["amplitudes.npy"]
 
 
 def test_rejects_a_non_empty_output_without_overwrite(tmp_path: Path) -> None:

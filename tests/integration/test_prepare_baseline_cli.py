@@ -10,11 +10,16 @@ import yaml
 from seis_interp.cli import main
 
 SUMMARY: dict[str, object] = {
-    "schema_version": 1,
+    "schema_version": 2,
     "dataset_id": "synthetic",
     "source_file": "synthetic.sgy",
     "source_sha256": "a" * 64,
-    "input_dataset_metadata_sha256": "b" * 64,
+    "input_files": {
+        "traces.parquet": {"sha256": "b" * 64},
+        "amplitudes.npy": {"sha256": "c" * 64},
+        "time_s.npy": {"sha256": "d" * 64},
+        "dataset.json": {"sha256": "e" * 64},
+    },
     "trace_count": 20,
     "sample_count": 4,
     "config_source": "studies/study/config.yaml",
