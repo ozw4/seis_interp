@@ -77,6 +77,12 @@ class Siren(nn.Module):
         _validate_positive_int("output_features", output_features)
         _validate_positive_finite("omega_0", omega_0)
 
+        self.input_features = input_features
+        self.hidden_width = hidden_width
+        self.hidden_layers = hidden_layers
+        self.output_features = output_features
+        self.omega_0 = omega_0
+
         layers: list[nn.Module] = [
             SineLayer(input_features, hidden_width, omega=omega_0, is_first=True)
         ]
