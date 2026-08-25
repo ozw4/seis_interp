@@ -17,10 +17,11 @@ from seis_interp.configuration import (
     ConfigurationError,
     get_required_config_value,
     load_resolved_config,
-    repository_relative_config_source,
 )
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
+from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.models.siren import Siren
 from seis_interp.pipelines.prepare_baseline import (
@@ -48,6 +49,11 @@ CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
 CHECKPOINT_RELATIVE_PATH = Path("artifacts") / "best.pt"
+PROCESSED_INPUT_FILE_NAMES = (
+    TRACE_SPLIT_FILE_NAME,
+    NORMALIZATION_FILE_NAME,
+    PREPARATION_FILE_NAME,
+)
 
 
 def train_siren_run(
@@ -66,11 +72,21 @@ def train_siren_run(
     device = device_override or get_required_config_value(config, "training.device")
     resolved_config = deepcopy(config)
     resolved_config["training"]["device"] = device
-    dataset = load_interim_trace_dataset(Path(interim_dir))
-    split_table, normalization, preparation = _load_processed_dataset(Path(processed_dir))
+    interim_directory = Path(interim_dir)
+    processed_directory = Path(processed_dir)
+    dataset = load_interim_trace_dataset(interim_directory)
+    split_table, normalization, preparation = _load_processed_dataset(processed_directory)
+    interim_files = _file_hashes(interim_directory, INTERIM_FILE_NAMES)
+    processed_files = _file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
     split_rows = _validate_split_table(split_table, len(dataset.trace_table))
     split_counts = _split_counts(split_table)
-    _validate_preparation(preparation, dataset.metadata, split_counts)
+    _validate_preparation_data(
+        preparation,
+        dataset.metadata,
+        split_counts,
+        interim_files,
+    )
+    preparation_contract = _validated_preparation_contract(preparation, resolved_config)
 
     normalized_time = normalize_time(dataset.time_s, normalization)
     normalized_spatial = normalize_spatial_coordinates(dataset.trace_table, normalization)
@@ -124,11 +140,9 @@ def train_siren_run(
     metrics = asdict(result)
     metrics["history"] = list(result.history)
     inputs_lock = _build_inputs_lock(
-        preparation,
-        config_path=Path(config_path),
-        trace_count=len(dataset.trace_table),
-        sample_count=dataset.amplitudes.shape[1],
-        split_counts=split_counts,
+        interim_files=interim_files,
+        processed_files=processed_files,
+        preparation_contract=preparation_contract,
     )
     _write_run_metadata(output_directory, resolved_config, inputs_lock, metrics)
     return metrics
@@ -137,8 +151,7 @@ def train_siren_run(
 def _load_processed_dataset(
     directory: Path,
 ) -> tuple[pd.DataFrame, NormalizationParameters, dict[str, object]]:
-    required = (TRACE_SPLIT_FILE_NAME, NORMALIZATION_FILE_NAME, PREPARATION_FILE_NAME)
-    missing = [name for name in required if not (directory / name).is_file()]
+    missing = [name for name in PROCESSED_INPUT_FILE_NAMES if not (directory / name).is_file()]
     if missing:
         raise FileNotFoundError(
             f"processed dataset is missing required files in {directory}: {missing}"
@@ -176,10 +189,18 @@ def _split_counts(split_table: pd.DataFrame) -> dict[str, int]:
     }
 
 
-def _validate_preparation(
+def _file_hashes(
+    directory: Path,
+    file_names: tuple[str, ...],
+) -> dict[str, dict[str, str]]:
+    return {file_name: {"sha256": file_sha256(directory / file_name)} for file_name in file_names}
+
+
+def _validate_preparation_data(
     preparation: Mapping[str, object],
     dataset_metadata: Mapping[str, object],
     split_counts: Mapping[str, int],
+    interim_files: Mapping[str, object],
 ) -> None:
     expected_values = {
         "dataset_id": dataset_metadata.get("dataset_id"),
@@ -199,6 +220,37 @@ def _validate_preparation(
     input_files = preparation.get("input_files")
     if not isinstance(input_files, Mapping):
         raise ValueError(f"{PREPARATION_FILE_NAME} input_files must be an object")
+    if dict(input_files) != dict(interim_files):
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} interim file checksums do not match the current files"
+        )
+
+
+def _validated_preparation_contract(
+    preparation: Mapping[str, object],
+    config: Mapping[str, object],
+) -> dict[str, object]:
+    expected = {
+        "random_seed": get_required_config_value(config, "project.random_seed"),
+        "holdout_fraction": get_required_config_value(
+            config, "sampling.random_trace_holdout_fraction"
+        ),
+        "validation_fraction_of_holdout": get_required_config_value(
+            config, "sampling.validation_fraction_of_holdout"
+        ),
+        "normalization": {
+            "coordinates": get_required_config_value(config, "normalization.coordinates"),
+            "amplitude": get_required_config_value(config, "normalization.amplitude"),
+        },
+    }
+    mismatched = [
+        key for key, expected_value in expected.items() if preparation.get(key) != expected_value
+    ]
+    if mismatched:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} does not match the resolved configuration: {mismatched}"
+        )
+    return expected
 
 
 def _build_model(config: Mapping[str, object]) -> Siren:
@@ -228,37 +280,16 @@ def _validate_training_contract(config: Mapping[str, object]) -> None:
 
 
 def _build_inputs_lock(
-    preparation: Mapping[str, object],
     *,
-    config_path: Path,
-    trace_count: int,
-    sample_count: int,
-    split_counts: Mapping[str, int],
+    interim_files: Mapping[str, object],
+    processed_files: Mapping[str, object],
+    preparation_contract: Mapping[str, object],
 ) -> dict[str, object]:
     return {
-        "dataset_id": preparation["dataset_id"],
-        "source_file": preparation["source_file"],
-        "source_sha256": preparation["source_sha256"],
-        "interim_input_files": dict(preparation["input_files"]),
-        "trace_count": trace_count,
-        "sample_count": sample_count,
-        "split_counts": dict(split_counts),
-        "config_source": _portable_config_source(config_path, preparation),
+        "interim_files": dict(interim_files),
+        "processed_files": dict(processed_files),
+        "preparation": dict(preparation_contract),
     }
-
-
-def _portable_config_source(config_path: Path, preparation: Mapping[str, object]) -> str:
-    try:
-        return repository_relative_config_source(config_path)
-    except ConfigurationError:
-        prepared_source = preparation.get("config_source")
-        if (
-            isinstance(prepared_source, str)
-            and prepared_source
-            and not Path(prepared_source).is_absolute()
-        ):
-            return prepared_source
-        return config_path.name
 
 
 def _write_run_metadata(

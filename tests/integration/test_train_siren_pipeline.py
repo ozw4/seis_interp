@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,14 @@ def _build_training_fixture(tmp_path: Path, *, configured_device: str = "cpu") -
         yaml.safe_dump(
             {
                 "project": {"random_seed": 5},
+                "sampling": {
+                    "random_trace_holdout_fraction": 0.4,
+                    "validation_fraction_of_holdout": 0.5,
+                },
+                "normalization": {
+                    "coordinates": "train_minmax_linear_plus_azimuth_sin_cos",
+                    "amplitude": "train_global_rms",
+                },
                 "model": {
                     "name": "siren",
                     "input_features": 6,
@@ -116,7 +125,34 @@ def test_pipeline_trains_on_cpu_and_writes_minimal_run(tmp_path: Path) -> None:
     inputs_lock_text = (output / "inputs.lock.json").read_text(encoding="utf-8")
     inputs_lock = json.loads(inputs_lock_text)
     assert str(tmp_path) not in inputs_lock_text
-    assert inputs_lock["split_counts"] == {"train": 6, "validation": 2, "test": 2}
+    assert inputs_lock == {
+        "interim_files": {
+            file_name: {"sha256": hashlib.sha256((interim / file_name).read_bytes()).hexdigest()}
+            for file_name in (
+                "traces.parquet",
+                "amplitudes.npy",
+                "time_s.npy",
+                "dataset.json",
+            )
+        },
+        "processed_files": {
+            file_name: {"sha256": hashlib.sha256((processed / file_name).read_bytes()).hexdigest()}
+            for file_name in (
+                "trace_split.parquet",
+                "normalization.json",
+                "preparation.json",
+            )
+        },
+        "preparation": {
+            "random_seed": 5,
+            "holdout_fraction": 0.4,
+            "validation_fraction_of_holdout": 0.5,
+            "normalization": {
+                "coordinates": "train_minmax_linear_plus_azimuth_sin_cos",
+                "amplitude": "train_global_rms",
+            },
+        },
+    }
     loaded = load_siren_checkpoint(output / "artifacts" / "best.pt")
     assert loaded.model.input_features == 6
     assert loaded.normalization.coordinate_min[-2:] == (-1.0, -1.0)
@@ -169,4 +205,56 @@ def test_pipeline_rejects_nonempty_output_without_overwrite(tmp_path: Path) -> N
             interim_dir=interim,
             processed_dir=processed,
             output_dir=output,
+        )
+
+
+def test_pipeline_rejects_interim_file_changed_after_preparation(tmp_path: Path) -> None:
+    config, interim, processed = _build_training_fixture(tmp_path)
+    amplitude_path = interim / "amplitudes.npy"
+    amplitudes = np.load(amplitude_path, allow_pickle=False)
+    amplitudes[0, 0] += 1.0
+    np.save(amplitude_path, amplitudes)
+
+    with pytest.raises(ValueError, match="interim file checksums"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "changed_value", "mismatched_field"),
+    [
+        ("project", "random_seed", 6, "random_seed"),
+        ("sampling", "random_trace_holdout_fraction", 0.3, "holdout_fraction"),
+        (
+            "sampling",
+            "validation_fraction_of_holdout",
+            0.25,
+            "validation_fraction_of_holdout",
+        ),
+        ("normalization", "coordinates", "changed_coordinates", "normalization"),
+        ("normalization", "amplitude", "changed_amplitude", "normalization"),
+    ],
+)
+def test_pipeline_rejects_config_that_does_not_match_preparation(
+    tmp_path: Path,
+    section: str,
+    key: str,
+    changed_value: object,
+    mismatched_field: str,
+) -> None:
+    config, interim, processed = _build_training_fixture(tmp_path)
+    config_data = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_data[section][key] = changed_value
+    config.write_text(yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=mismatched_field):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
         )
