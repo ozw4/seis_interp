@@ -326,6 +326,34 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _train_siren(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.train_siren import CHECKPOINT_RELATIVE_PATH, train_siren_run
+
+    try:
+        summary = train_siren_run(
+            config_path=args.config,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            output_dir=args.output,
+            device_override=args.device,
+            overwrite=args.overwrite,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"train siren failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"Output directory: {args.output}")
+        print(f"Best epoch: {summary['best_epoch']}")
+        print(f"Best validation S/N: {summary['best_validation_snr_db']} dB")
+        print(f"Epochs completed: {summary['epochs_completed']}")
+        print(f"Stopped early: {summary['stopped_early']}")
+        print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
+    return 0
+
+
 def _config_value_or_override(
     override: object | None,
     config: Mapping[str, object],
@@ -493,6 +521,20 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     prepare_baseline.set_defaults(handler=_prepare_baseline)
 
 
+def _add_train_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    train = subparsers.add_parser("train", help="Train coordinate-based interpolation models.")
+    train_commands = train.add_subparsers(dest="train_command", required=True)
+    siren = train_commands.add_parser("siren", help="Train a SIREN on prepared trace splits.")
+    siren.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
+    siren.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
+    siren.add_argument("--processed", type=Path, required=True, help="Prepared split dataset.")
+    siren.add_argument("--output", type=Path, required=True, help="Run output directory.")
+    siren.add_argument("--device", help="Override training.device for this environment.")
+    siren.add_argument("--overwrite", action="store_true", help="Replace generated run files.")
+    siren.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+    siren.set_defaults(handler=_train_siren)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="seis-interp")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -507,6 +549,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(handler=_doctor)
 
     _add_data_commands(subparsers)
+    _add_train_commands(subparsers)
     return parser
 
 

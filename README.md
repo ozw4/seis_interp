@@ -111,6 +111,36 @@ resolved split values, supported normalization methods, and repository-relative 
 Legacy `study.random_seed` is rejected; study-specific seed overrides belong at
 `project.random_seed`.
 
+Regenerate that processed dataset after changing the coordinate representation or split
+conditions, then train the SIREN:
+
+```bash
+python -m seis_interp.cli data prepare-baseline \
+  --config studies/study_001_c3_na_baseline/config.yaml \
+  --input data/interim/c3_na/ffid_2348 \
+  --output data/processed/c3_na/ffid_2348_random_split \
+  --overwrite
+
+python -m seis_interp.cli train siren \
+  --config studies/study_001_c3_na_baseline/config.yaml \
+  --interim data/interim/c3_na/ffid_2348 \
+  --processed data/processed/c3_na/ffid_2348_random_split \
+  --output runs/study_001_c3_na_baseline/<run-id>
+```
+
+The interim table retains the physical five-dimensional mapping with `azimuth_deg`. Model
+inputs derive sine and cosine from azimuth, so the numerical SIREN input has six features; see
+[`docs/coordinate_conventions.md`](docs/coordinate_conventions.md). A training run writes only:
+
+```text
+config.resolved.yaml
+inputs.lock.json
+metrics.json
+artifacts/best.pt
+```
+
+The run directory and checkpoint are generated outputs and must not be committed to Git.
+
 ## Quality checks
 
 ```bash
