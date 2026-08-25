@@ -15,9 +15,9 @@ model:
   omega_0: 10.0
 
 training:
-  loss: l1
+  loss: l2
   optimizer: adam
-  learning_rate: 1.0e-5
+  learning_rate: 1.0e-4
   batch_size: 1024
   steps_per_epoch: 500
   max_epochs: 100

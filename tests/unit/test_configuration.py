@@ -47,7 +47,8 @@ def test_tracked_study_resolves_default_and_study_values() -> None:
     )
     assert get_required_config_value(resolved, "model.omega_0") == 10.0
     assert get_required_config_value(resolved, "training.optimizer") == "adam"
-    assert get_required_config_value(resolved, "training.loss") == "l1"
+    assert get_required_config_value(resolved, "training.loss") == "l2"
+    assert get_required_config_value(resolved, "training.learning_rate") == 1.0e-4
     assert repository_relative_config_source(
         study_config,
         repository_root=REPOSITORY_ROOT,

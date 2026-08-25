@@ -1,4 +1,4 @@
-"""Minimal Adam and L1 training loop for SIREN."""
+"""Minimal Adam training loop for SIREN with a configurable loss."""
 
 from __future__ import annotations
 
@@ -31,6 +31,15 @@ class TrainingResult:
     history: tuple[dict[str, int | float], ...]
 
 
+def build_loss(name: str) -> torch.nn.Module:
+    """Return the training loss selected by a configuration name."""
+    if name == "l1":
+        return torch.nn.L1Loss()
+    if name == "l2":
+        return torch.nn.MSELoss()
+    raise ValueError(f"unsupported loss: {name}")
+
+
 def train_siren(
     model: Siren,
     sampler: RandomPointSampler,
@@ -39,6 +48,7 @@ def train_siren(
     normalization: NormalizationParameters,
     *,
     device: torch.device | str,
+    loss: str,
     learning_rate: float,
     batch_size: int,
     steps_per_epoch: int,
@@ -48,6 +58,7 @@ def train_siren(
     checkpoint_path: Path,
 ) -> TrainingResult:
     """Train a SIREN and save only improvements in whole-validation-trace S/N."""
+    loss_function = build_loss(loss)
     learning_rate_value = _positive_finite_float(learning_rate, "learning_rate")
     batch_size_value = _positive_integer(batch_size, "batch_size")
     steps_value = _positive_integer(steps_per_epoch, "steps_per_epoch")
@@ -60,7 +71,6 @@ def train_siren(
 
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate_value)
-    loss_function = torch.nn.L1Loss()
     history: list[dict[str, int | float]] = []
     global_steps = 0
     best_epoch = 0
@@ -95,7 +105,7 @@ def train_siren(
             {
                 "epoch": epoch,
                 "global_step": global_steps,
-                "train_l1": float(np.mean(training_losses, dtype=np.float64)),
+                "train_loss": float(np.mean(training_losses, dtype=np.float64)),
                 "validation_snr_db": validation_snr_db,
             }
         )

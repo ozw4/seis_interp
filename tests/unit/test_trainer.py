@@ -10,8 +10,9 @@ from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
 from seis_interp.training.checkpoints import load_siren_checkpoint
+from seis_interp.training.model_inputs import to_model_tensors
 from seis_interp.training.point_sampler import RandomPointSampler, build_trace_points
-from seis_interp.training.trainer import train_siren
+from seis_interp.training.trainer import build_loss, train_siren
 
 
 def _normalization() -> NormalizationParameters:
@@ -37,6 +38,21 @@ def _training_inputs() -> tuple[RandomPointSampler, np.ndarray, np.ndarray]:
     return sampler, validation_coordinates, validation_targets
 
 
+@pytest.mark.parametrize(
+    ("name", "expected_type"),
+    [("l1", torch.nn.L1Loss), ("l2", torch.nn.MSELoss)],
+)
+def test_build_loss_selects_the_configured_objective(
+    name: str, expected_type: type[torch.nn.Module]
+) -> None:
+    assert isinstance(build_loss(name), expected_type)
+
+
+def test_build_loss_rejects_an_unsupported_name() -> None:
+    with pytest.raises(ValueError, match="unsupported loss: huber"):
+        build_loss("huber")
+
+
 def test_trains_and_saves_best_checkpoint_from_whole_trace_points(tmp_path: Path) -> None:
     torch.manual_seed(4)
     model = Siren(hidden_width=8, hidden_layers=1)
@@ -51,6 +67,7 @@ def test_trains_and_saves_best_checkpoint_from_whole_trace_points(tmp_path: Path
         targets,
         _normalization(),
         device="cpu",
+        loss="l1",
         learning_rate=1e-3,
         batch_size=8,
         steps_per_epoch=2,
@@ -87,6 +104,7 @@ def test_early_stopping_counts_consecutive_non_improvements(
         targets,
         _normalization(),
         device="cpu",
+        loss="l2",
         learning_rate=1e-3,
         batch_size=2,
         steps_per_epoch=1,
@@ -100,3 +118,33 @@ def test_early_stopping_counts_consecutive_non_improvements(
     assert result.epochs_completed == 4
     assert result.best_epoch == 2
     assert result.global_steps == 4
+
+
+def test_history_records_the_configured_loss(tmp_path: Path) -> None:
+    torch.manual_seed(7)
+    model = Siren(hidden_width=8, hidden_layers=1)
+    sampler, coordinates, targets = _training_inputs()
+    replayed_sampler, _, _ = _training_inputs()
+    batch_coordinates, batch_targets = replayed_sampler.sample(8)
+    coordinate_tensor, target_tensor = to_model_tensors(batch_coordinates, batch_targets)
+    with torch.no_grad():
+        expected_loss = float(torch.nn.MSELoss()(model(coordinate_tensor), target_tensor))
+
+    result = train_siren(
+        model,
+        sampler,
+        coordinates,
+        targets,
+        _normalization(),
+        device="cpu",
+        loss="l2",
+        learning_rate=1e-3,
+        batch_size=8,
+        steps_per_epoch=1,
+        max_epochs=1,
+        early_stopping_patience=1,
+        validation_batch_size=3,
+        checkpoint_path=tmp_path / "best.pt",
+    )
+
+    assert result.history[0]["train_loss"] == pytest.approx(expected_loss)

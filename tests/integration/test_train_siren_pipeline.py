@@ -83,7 +83,7 @@ def _build_training_fixture(tmp_path: Path, *, configured_device: str = "cpu") -
                     "omega_0": 10.0,
                 },
                 "training": {
-                    "loss": "l1",
+                    "loss": "l2",
                     "optimizer": "adam",
                     "learning_rate": 1e-3,
                     "batch_size": 8,
@@ -243,6 +243,21 @@ def test_pipeline_rejects_interim_file_changed_after_preparation(tmp_path: Path)
     np.save(amplitude_path, amplitudes)
 
     with pytest.raises(ValueError, match="interim file checksums"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+def test_pipeline_rejects_an_unsupported_loss(tmp_path: Path) -> None:
+    config, interim, processed = _build_training_fixture(tmp_path)
+    config_data = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_data["training"]["loss"] = "huber"
+    config.write_text(yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported loss: huber"):
         train_siren_run(
             config_path=config,
             interim_dir=interim,

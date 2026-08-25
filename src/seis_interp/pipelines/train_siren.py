@@ -130,6 +130,7 @@ def train_siren_run(
         validation_targets,
         normalization,
         device=device,
+        loss=get_required_config_value(resolved_config, "training.loss"),
         learning_rate=get_required_config_value(resolved_config, "training.learning_rate"),
         batch_size=get_required_config_value(resolved_config, "training.batch_size"),
         steps_per_epoch=get_required_config_value(resolved_config, "training.steps_per_epoch"),
@@ -294,11 +295,9 @@ def _build_model(config: Mapping[str, object]) -> Siren:
 
 
 def _validate_training_contract(config: Mapping[str, object]) -> None:
-    supported = {"training.loss": "l1", "training.optimizer": "adam"}
-    for path, expected in supported.items():
-        value = get_required_config_value(config, path)
-        if value != expected:
-            raise ConfigurationError(f"{path} must be {expected!r}, got {value!r}")
+    optimizer = get_required_config_value(config, "training.optimizer")
+    if optimizer != "adam":
+        raise ConfigurationError(f"training.optimizer must be 'adam', got {optimizer!r}")
 
 
 def _build_inputs_lock(
