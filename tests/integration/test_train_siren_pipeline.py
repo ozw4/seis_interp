@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 import yaml
 
+from seis_interp.configuration import REPOSITORY_ROOT
 from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.train_siren import train_siren_run
@@ -114,6 +119,7 @@ def test_pipeline_trains_on_cpu_and_writes_minimal_run(tmp_path: Path) -> None:
         "config.resolved.yaml",
         "inputs.lock.json",
         "metrics.json",
+        "run.json",
     ]
     assert json.loads((output / "metrics.json").read_text(encoding="utf-8")) == metrics
     assert (
@@ -157,6 +163,28 @@ def test_pipeline_trains_on_cpu_and_writes_minimal_run(tmp_path: Path) -> None:
     assert loaded.model.input_features == 6
     assert loaded.normalization.coordinate_min[-2:] == (-1.0, -1.0)
     assert loaded.normalization.coordinate_max[-2:] == (1.0, 1.0)
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert run_metadata == {
+        "git_commit": subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip(),
+        "started_at_utc": run_metadata["started_at_utc"],
+        "finished_at_utc": run_metadata["finished_at_utc"],
+        "status": "success",
+        "device": "cpu",
+        "python_version": platform.python_version(),
+        "torch_version": str(torch.__version__),
+        "random_seed": 5,
+    }
+    started_at = datetime.fromisoformat(run_metadata["started_at_utc"].replace("Z", "+00:00"))
+    finished_at = datetime.fromisoformat(run_metadata["finished_at_utc"].replace("Z", "+00:00"))
+    assert started_at.tzinfo == timezone.utc
+    assert finished_at.tzinfo == timezone.utc
+    assert started_at <= finished_at
 
 
 def test_pipeline_routes_only_train_and_validation_rows(

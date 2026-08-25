@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import platform
+import subprocess
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +17,7 @@ import torch
 import yaml
 
 from seis_interp.configuration import (
+    REPOSITORY_ROOT,
     ConfigurationError,
     get_required_config_value,
     load_resolved_config,
@@ -48,6 +52,7 @@ from seis_interp.training.trainer import train_siren
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
+RUN_FILE_NAME = "run.json"
 CHECKPOINT_RELATIVE_PATH = Path("artifacts") / "best.pt"
 PROCESSED_INPUT_FILE_NAMES = (
     TRACE_SPLIT_FILE_NAME,
@@ -68,6 +73,8 @@ def train_siren_run(
     """Train from one prepared split and write the minimal reproducible run outputs."""
     output_directory = Path(output_dir)
     _check_output_directory(output_directory, overwrite=overwrite)
+    started_at_utc = _utc_timestamp()
+    git_commit = _git_commit()
     config = load_resolved_config(Path(config_path))
     device = device_override or get_required_config_value(config, "training.device")
     resolved_config = deepcopy(config)
@@ -139,12 +146,28 @@ def train_siren_run(
 
     metrics = asdict(result)
     metrics["history"] = list(result.history)
+    run_metadata = {
+        "git_commit": git_commit,
+        "started_at_utc": started_at_utc,
+        "finished_at_utc": _utc_timestamp(),
+        "status": "success",
+        "device": str(device),
+        "python_version": platform.python_version(),
+        "torch_version": str(torch.__version__),
+        "random_seed": random_seed,
+    }
     inputs_lock = _build_inputs_lock(
         interim_files=interim_files,
         processed_files=processed_files,
         preparation_contract=preparation_contract,
     )
-    _write_run_metadata(output_directory, resolved_config, inputs_lock, metrics)
+    _write_run_outputs(
+        output_directory,
+        resolved_config,
+        inputs_lock,
+        metrics,
+        run_metadata,
+    )
     return metrics
 
 
@@ -292,11 +315,12 @@ def _build_inputs_lock(
     }
 
 
-def _write_run_metadata(
+def _write_run_outputs(
     output_directory: Path,
     config: Mapping[str, object],
     inputs_lock: Mapping[str, object],
     metrics: Mapping[str, object],
+    run_metadata: Mapping[str, object],
 ) -> None:
     output_directory.mkdir(parents=True, exist_ok=True)
     (output_directory / CONFIG_FILE_NAME).write_text(
@@ -308,6 +332,10 @@ def _write_run_metadata(
     )
     (output_directory / METRICS_FILE_NAME).write_text(
         json.dumps(metrics, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    (output_directory / RUN_FILE_NAME).write_text(
+        json.dumps(run_metadata, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
 
@@ -323,3 +351,25 @@ def _check_output_directory(directory: Path, *, overwrite: bool) -> None:
     artifact_path = directory / CHECKPOINT_RELATIVE_PATH
     if artifact_path.exists() and not artifact_path.is_file():
         raise FileExistsError(f"checkpoint output path is not a file: {artifact_path}")
+
+
+def _git_commit() -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError("could not determine the current Git commit") from error
+    commit = completed.stdout.strip()
+    if not commit:
+        raise RuntimeError("git rev-parse HEAD returned an empty commit")
+    return commit
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")

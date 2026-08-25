@@ -130,16 +130,19 @@ python -m seis_interp.cli train siren \
 
 The interim table retains the physical five-dimensional mapping with `azimuth_deg`. Model
 inputs derive sine and cosine from azimuth, so the numerical SIREN input has six features; see
-[`docs/coordinate_conventions.md`](docs/coordinate_conventions.md). A training run writes only:
+[`docs/coordinate_conventions.md`](docs/coordinate_conventions.md). A training run writes:
 
 ```text
 config.resolved.yaml
 inputs.lock.json
 metrics.json
+run.json
 artifacts/best.pt
 ```
 
-The run directory and checkpoint are generated outputs and must not be committed to Git.
+`run.json` records the Git commit, UTC start and finish times, success status, effective device,
+Python and PyTorch versions, and random seed. The run directory and checkpoint are generated
+outputs and must not be committed to Git.
 
 ## Quality checks
 
