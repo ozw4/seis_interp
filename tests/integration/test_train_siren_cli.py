@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from seis_interp.cli import main
 from seis_interp.training.checkpoints import load_siren_checkpoint
@@ -37,6 +38,8 @@ def test_cli_runs_training_with_device_override_and_json_output(
     assert exit_code == 0
     summary = json.loads(capsys.readouterr().out)
     assert summary == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    saved_config = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert saved_config["training"]["device"] == "cpu"
     assert load_siren_checkpoint(output / "artifacts" / "best.pt").model.input_features == 6
 
 

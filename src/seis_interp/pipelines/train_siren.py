@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 
@@ -62,6 +63,9 @@ def train_siren_run(
     output_directory = Path(output_dir)
     _check_output_directory(output_directory, overwrite=overwrite)
     config = load_resolved_config(Path(config_path))
+    device = device_override or get_required_config_value(config, "training.device")
+    resolved_config = deepcopy(config)
+    resolved_config["training"]["device"] = device
     dataset = load_interim_trace_dataset(Path(interim_dir))
     split_table, normalization, preparation = _load_processed_dataset(Path(processed_dir))
     split_rows = _validate_split_table(split_table, len(dataset.trace_table))
@@ -79,7 +83,7 @@ def train_siren_run(
     validation_rows = split_rows[
         split_table[SPLIT_COLUMN].eq(VALIDATION_SPLIT).to_numpy(dtype=bool)
     ]
-    random_seed = get_required_config_value(config, "project.random_seed")
+    random_seed = get_required_config_value(resolved_config, "project.random_seed")
     sampler = RandomPointSampler(
         normalized_time,
         spatial_by_array_row,
@@ -95,9 +99,8 @@ def train_siren_run(
     )
 
     torch.manual_seed(random_seed)
-    model = _build_model(config)
-    device = device_override or get_required_config_value(config, "training.device")
-    _validate_training_contract(config)
+    model = _build_model(resolved_config)
+    _validate_training_contract(resolved_config)
     result = train_siren(
         model,
         sampler,
@@ -105,14 +108,16 @@ def train_siren_run(
         validation_targets,
         normalization,
         device=device,
-        learning_rate=get_required_config_value(config, "training.learning_rate"),
-        batch_size=get_required_config_value(config, "training.batch_size"),
-        steps_per_epoch=get_required_config_value(config, "training.steps_per_epoch"),
-        max_epochs=get_required_config_value(config, "training.max_epochs"),
+        learning_rate=get_required_config_value(resolved_config, "training.learning_rate"),
+        batch_size=get_required_config_value(resolved_config, "training.batch_size"),
+        steps_per_epoch=get_required_config_value(resolved_config, "training.steps_per_epoch"),
+        max_epochs=get_required_config_value(resolved_config, "training.max_epochs"),
         early_stopping_patience=get_required_config_value(
-            config, "training.early_stopping_patience"
+            resolved_config, "training.early_stopping_patience"
         ),
-        validation_batch_size=get_required_config_value(config, "training.validation_batch_size"),
+        validation_batch_size=get_required_config_value(
+            resolved_config, "training.validation_batch_size"
+        ),
         checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
     )
 
@@ -125,7 +130,7 @@ def train_siren_run(
         sample_count=dataset.amplitudes.shape[1],
         split_counts=split_counts,
     )
-    _write_run_metadata(output_directory, config, inputs_lock, metrics)
+    _write_run_metadata(output_directory, resolved_config, inputs_lock, metrics)
     return metrics
 
 
