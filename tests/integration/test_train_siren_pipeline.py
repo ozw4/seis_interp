@@ -221,13 +221,12 @@ def test_pipeline_routes_only_train_and_validation_rows(
     assert received == {"train": expected_train, "validation": expected_validation}
 
 
-def test_pipeline_rejects_nonempty_output_without_overwrite(tmp_path: Path) -> None:
+def test_pipeline_rejects_an_existing_run_directory(tmp_path: Path) -> None:
     config, interim, processed = _build_training_fixture(tmp_path)
     output = tmp_path / "run"
     output.mkdir()
-    (output / "marker").write_text("keep", encoding="utf-8")
 
-    with pytest.raises(FileExistsError, match="not empty"):
+    with pytest.raises(FileExistsError, match="already exists"):
         train_siren_run(
             config_path=config,
             interim_dir=interim,

@@ -66,3 +66,24 @@ def test_cli_reports_nonempty_output(tmp_path: Path, capsys: pytest.CaptureFixtu
 
     assert exit_code == 1
     assert "train siren failed" in capsys.readouterr().err
+
+
+def test_cli_does_not_offer_training_overwrite(tmp_path: Path) -> None:
+    config, interim, processed = _build_training_fixture(tmp_path)
+
+    with pytest.raises(SystemExit, match="2"):
+        main(
+            [
+                "train",
+                "siren",
+                "--config",
+                str(config),
+                "--interim",
+                str(interim),
+                "--processed",
+                str(processed),
+                "--output",
+                str(tmp_path / "run"),
+                "--overwrite",
+            ]
+        )

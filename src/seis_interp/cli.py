@@ -336,7 +336,6 @@ def _train_siren(args: argparse.Namespace) -> int:
             processed_dir=args.processed,
             output_dir=args.output,
             device_override=args.device,
-            overwrite=args.overwrite,
         )
     except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
         print(f"train siren failed: {error}", file=sys.stderr)
@@ -530,7 +529,6 @@ def _add_train_commands(subparsers: argparse._SubParsersAction[argparse.Argument
     siren.add_argument("--processed", type=Path, required=True, help="Prepared split dataset.")
     siren.add_argument("--output", type=Path, required=True, help="Run output directory.")
     siren.add_argument("--device", help="Override training.device for this environment.")
-    siren.add_argument("--overwrite", action="store_true", help="Replace generated run files.")
     siren.add_argument("--json", action="store_true", help="Print metrics as JSON.")
     siren.set_defaults(handler=_train_siren)
 

@@ -68,11 +68,10 @@ def train_siren_run(
     processed_dir: Path,
     output_dir: Path,
     device_override: str | None = None,
-    overwrite: bool = False,
 ) -> dict[str, object]:
     """Train from one prepared split and write the minimal reproducible run outputs."""
     output_directory = Path(output_dir)
-    _check_output_directory(output_directory, overwrite=overwrite)
+    _check_new_output_directory(output_directory)
     started_at_utc = _utc_timestamp()
     git_commit = _git_commit()
     config = load_resolved_config(Path(config_path))
@@ -340,17 +339,9 @@ def _write_run_outputs(
     )
 
 
-def _check_output_directory(directory: Path, *, overwrite: bool) -> None:
-    if directory.exists() and not directory.is_dir():
-        raise FileExistsError(f"output path is not a directory: {directory}")
-    if directory.exists() and not overwrite and any(directory.iterdir()):
-        raise FileExistsError(
-            f"output directory is not empty: {directory}; pass overwrite=True to replace "
-            "the generated files"
-        )
-    artifact_path = directory / CHECKPOINT_RELATIVE_PATH
-    if artifact_path.exists() and not artifact_path.is_file():
-        raise FileExistsError(f"checkpoint output path is not a file: {artifact_path}")
+def _check_new_output_directory(directory: Path) -> None:
+    if directory.exists():
+        raise FileExistsError(f"run output path already exists: {directory}")
 
 
 def _git_commit() -> str:

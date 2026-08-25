@@ -141,8 +141,9 @@ artifacts/best.pt
 ```
 
 `run.json` records the Git commit, UTC start and finish times, success status, effective device,
-Python and PyTorch versions, and random seed. The run directory and checkpoint are generated
-outputs and must not be committed to Git.
+Python and PyTorch versions, and random seed. Training run directories are immutable: choose a
+new run ID for every invocation. The run directory and checkpoint are generated outputs and must
+not be committed to Git.
 
 ## Quality checks
 
