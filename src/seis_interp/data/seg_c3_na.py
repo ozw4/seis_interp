@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,6 +14,7 @@ from urllib.request import Request, urlopen
 import yaml
 
 from seis_interp.data.data_root import external_dataset_dir, resolve_data_root
+from seis_interp.data.file_checksums import file_sha256
 
 DATASET_ID = "seg_c3_na"
 LOCK_FILENAME = "download.lock.yaml"
@@ -143,9 +143,7 @@ def _parse_file_spec(raw_file: Any, index: int) -> FileSpec:
         expected_size_bytes=_optional_positive_int(
             file_mapping.get("size_bytes"), f"{field_prefix}.size_bytes"
         ),
-        expected_sha256=_optional_sha256(
-            file_mapping.get("sha256"), f"{field_prefix}.sha256"
-        ),
+        expected_sha256=_optional_sha256(file_mapping.get("sha256"), f"{field_prefix}.sha256"),
     )
 
 
@@ -176,21 +174,12 @@ def load_manifest(path: str | Path) -> DatasetManifest:
     return DatasetManifest(path=manifest_path, files=files)
 
 
-def sha256_file(path: Path) -> str:
-    """Calculate a SHA-256 digest without loading the full file into memory."""
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(CHUNK_SIZE_BYTES), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _record_file(path: Path, file_spec: FileSpec) -> FileRecord:
     return FileRecord(
         name=file_spec.name,
         url=file_spec.url,
         size_bytes=path.stat().st_size,
-        sha256=sha256_file(path),
+        sha256=file_sha256(path),
     )
 
 
@@ -211,7 +200,7 @@ def _validate_record(
 
 
 def _manifest_sha256(manifest: DatasetManifest) -> str:
-    return sha256_file(manifest.path)
+    return file_sha256(manifest.path)
 
 
 def _read_lock(lock_path: Path, manifest_sha256: str) -> dict[str, FileRecord] | None:
@@ -244,9 +233,7 @@ def _read_lock(lock_path: Path, manifest_sha256: str) -> dict[str, FileRecord] |
         name = _required_string(file_mapping.get("name"), f"download lock files[{index}].name")
         records[name] = FileRecord(
             name=name,
-            url=_required_string(
-                file_mapping.get("url"), f"download lock files[{index}].url"
-            ),
+            url=_required_string(file_mapping.get("url"), f"download lock files[{index}].url"),
             size_bytes=_required_positive_int(
                 file_mapping.get("size_bytes"),
                 f"download lock files[{index}].size_bytes",
@@ -416,9 +403,7 @@ def _download_file(
                 f"{expected_response_bytes} bytes, received {copied_bytes}"
             )
         if content_range is not None and part_path.stat().st_size != content_range[1]:
-            raise OSError(
-                f"{file_spec.name}: resumed file size does not match Content-Range total"
-            )
+            raise OSError(f"{file_spec.name}: resumed file size does not match Content-Range total")
 
     part_path.replace(destination)
 
@@ -516,7 +501,7 @@ def _verification_result(
             f"expected {expected_size} bytes, got {actual_size}",
         )
 
-    actual_sha256 = sha256_file(destination)
+    actual_sha256 = file_sha256(destination)
     if actual_sha256 != expected_sha256:
         return VerificationResult(
             file_spec.name,

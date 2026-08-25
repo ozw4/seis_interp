@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -11,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.trace_schema import PHYSICAL_COORDINATE_ORDER, PHYSICAL_COORDINATE_UNITS
 
 TRACES_FILE_NAME = "traces.parquet"
@@ -39,7 +39,6 @@ _REQUIRED_COLUMNS = (
     "sample_interval_s",
 )
 _FINITE_COLUMNS = ("cmp_x_m", "cmp_y_m", "offset_m", "azimuth_deg")
-_SHA256_CHUNK_BYTES = 1024 * 1024
 
 
 def write_interim_trace_dataset(
@@ -78,7 +77,7 @@ def write_interim_trace_dataset(
         "dataset_id": dataset_id,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_file": source.name,
-        "source_sha256": _file_sha256(source),
+        "source_sha256": file_sha256(source),
         "trace_count": int(len(stored_table)),
         "sample_count": int(amplitudes.shape[1]),
         "sample_interval_s": sample_interval_s,
@@ -192,12 +191,3 @@ def _check_output_directory(directory: Path, overwrite: bool) -> None:
             f"output directory is not empty: {directory}; pass overwrite=True to replace "
             f"the generated files"
         )
-
-
-def _file_sha256(path: Path) -> str:
-    """Return the SHA-256 hex digest of a file, read in fixed-size chunks."""
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(_SHA256_CHUNK_BYTES):
-            digest.update(chunk)
-    return digest.hexdigest()

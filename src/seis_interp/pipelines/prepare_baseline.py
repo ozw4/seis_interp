@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.processing.normalization import (
@@ -84,7 +84,7 @@ def prepare_baseline_dataset(
         "source_file": _relative_source_file(dataset.metadata),
         "source_sha256": _metadata_text(dataset.metadata, "source_sha256"),
         "input_files": {
-            file_name: {"sha256": _file_sha256(input_directory / file_name)}
+            file_name: {"sha256": file_sha256(input_directory / file_name)}
             for file_name in INTERIM_FILE_NAMES
         },
         "trace_count": int(dataset.metadata["trace_count"]),
@@ -182,7 +182,3 @@ def _check_output_directory(directory: Path, *, overwrite: bool) -> None:
             raise FileExistsError(
                 f"generated output paths are not files in {directory}: {invalid_targets}"
             )
-
-
-def _file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
