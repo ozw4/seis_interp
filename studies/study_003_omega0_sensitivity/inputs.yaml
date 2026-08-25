@@ -1,0 +1,17 @@
+datasets:
+  - dataset_id: seg_c3_na
+    manifest: ../../data/external/seg_c3_na/manifest.yaml
+    files:
+      - name: SEG_C3NA_ffid_1201-2400.sgy
+        sha256: 50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7
+    subset:
+      # Same formal input as study_001_c3_na_baseline: FFID 2348 is a complete
+      # 544-trace shot near the middle of the survey. The sensitivity study
+      # compares training conditions on identical data.
+      ffid: 2348
+      expected_trace_count: 544
+      time_window_s: null
+
+references:
+  - id: li_et_al_2024_robust_unsupervised_5d_reconstruction
+    note: Paper-inspired sensitivity study; exact reproduction is not required.
