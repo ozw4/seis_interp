@@ -16,8 +16,14 @@ model:
 
 training:
   loss: l1
+  optimizer: adam
   learning_rate: 1.0e-5
   batch_size: 1024
+  steps_per_epoch: 500
+  max_epochs: 100
+  early_stopping_patience: 10
+  validation_batch_size: 65536
+  device: cuda
 
 baselines:
   idw_neighbors: 8
