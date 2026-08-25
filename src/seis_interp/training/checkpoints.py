@@ -19,7 +19,8 @@ class LoadedSirenCheckpoint:
     normalization: NormalizationParameters
     epoch: int
     global_step: int
-    validation_snr_db: float
+    validation_median_trace_snr_db: float
+    validation_global_snr_db: float
 
 
 def save_siren_checkpoint(
@@ -29,7 +30,8 @@ def save_siren_checkpoint(
     *,
     epoch: int,
     global_step: int,
-    validation_snr_db: float,
+    validation_median_trace_snr_db: float,
+    validation_global_snr_db: float,
 ) -> None:
     """Save constructor values, CPU weights, normalization, and best-epoch metadata."""
     checkpoint_path = Path(path)
@@ -49,7 +51,8 @@ def save_siren_checkpoint(
         "training": {
             "epoch": epoch,
             "global_step": global_step,
-            "validation_snr_db": validation_snr_db,
+            "validation_median_trace_snr_db": validation_median_trace_snr_db,
+            "validation_global_snr_db": validation_global_snr_db,
         },
     }
     torch.save(payload, checkpoint_path)
@@ -74,5 +77,6 @@ def load_siren_checkpoint(
         normalization=normalization,
         epoch=training["epoch"],
         global_step=training["global_step"],
-        validation_snr_db=training["validation_snr_db"],
+        validation_median_trace_snr_db=training["validation_median_trace_snr_db"],
+        validation_global_snr_db=training["validation_global_snr_db"],
     )

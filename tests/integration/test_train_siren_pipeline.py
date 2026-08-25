@@ -159,7 +159,21 @@ def test_pipeline_trains_on_cpu_and_writes_minimal_run(tmp_path: Path) -> None:
             },
         },
     }
+    assert metrics["best_validation_median_trace_snr_db"] == pytest.approx(
+        metrics["history"][metrics["best_epoch"] - 1]["validation_median_trace_snr_db"]
+    )
+    assert metrics["best_validation_global_snr_db"] == pytest.approx(
+        metrics["history"][metrics["best_epoch"] - 1]["validation_global_snr_db"]
+    )
+    assert "best_validation_snr_db" not in metrics
+    assert all("validation_snr_db" not in item for item in metrics["history"])
     loaded = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert loaded.validation_median_trace_snr_db == pytest.approx(
+        metrics["best_validation_median_trace_snr_db"]
+    )
+    assert loaded.validation_global_snr_db == pytest.approx(
+        metrics["best_validation_global_snr_db"]
+    )
     assert loaded.model.input_features == 6
     assert loaded.normalization.coordinate_min[-2:] == (-1.0, -1.0)
     assert loaded.normalization.coordinate_max[-2:] == (1.0, 1.0)
@@ -219,6 +233,30 @@ def test_pipeline_routes_only_train_and_validation_rows(
     )
 
     assert received == {"train": expected_train, "validation": expected_validation}
+
+
+def test_pipeline_passes_the_common_trace_sample_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, interim, processed = _build_training_fixture(tmp_path)
+    expected_sample_count = len(np.load(interim / "time_s.npy", allow_pickle=False))
+    received: dict[str, Any] = {}
+    from seis_interp.training.trainer import train_siren as actual_train
+
+    def recording_train(*args: Any, **kwargs: Any) -> Any:
+        received["validation_samples_per_trace"] = kwargs["validation_samples_per_trace"]
+        return actual_train(*args, **kwargs)
+
+    monkeypatch.setattr("seis_interp.pipelines.train_siren.train_siren", recording_train)
+
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=tmp_path / "run",
+    )
+
+    assert received == {"validation_samples_per_trace": expected_sample_count}
 
 
 def test_pipeline_rejects_an_existing_run_directory(tmp_path: Path) -> None:

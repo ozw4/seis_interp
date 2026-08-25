@@ -141,6 +141,7 @@ def train_siren_run(
         validation_batch_size=get_required_config_value(
             resolved_config, "training.validation_batch_size"
         ),
+        validation_samples_per_trace=len(normalized_time),
         checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
     )
 

@@ -43,6 +43,40 @@ def test_cli_runs_training_with_device_override_and_json_output(
     assert load_siren_checkpoint(output / "artifacts" / "best.pt").model.input_features == 6
 
 
+def test_cli_labels_both_validation_metrics(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, interim, processed = _build_training_fixture(tmp_path)
+    output = tmp_path / "run"
+
+    exit_code = main(
+        [
+            "train",
+            "siren",
+            "--config",
+            str(config),
+            "--interim",
+            str(interim),
+            "--processed",
+            str(processed),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert exit_code == 0
+    metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    printed = capsys.readouterr().out
+    assert (
+        f"Best validation median trace S/N: {metrics['best_validation_median_trace_snr_db']} dB"
+        in printed
+    )
+    assert (
+        f"Global validation S/N at best epoch: {metrics['best_validation_global_snr_db']} dB"
+        in printed
+    )
+
+
 def test_cli_reports_nonempty_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     config, interim, processed = _build_training_fixture(tmp_path)
     output = tmp_path / "run"

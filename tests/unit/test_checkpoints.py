@@ -32,7 +32,8 @@ def test_checkpoint_round_trip_restores_function_config_and_metadata(tmp_path: P
         _normalization(),
         epoch=3,
         global_step=21,
-        validation_snr_db=4.5,
+        validation_median_trace_snr_db=4.5,
+        validation_global_snr_db=11.25,
     )
     loaded = load_siren_checkpoint(checkpoint_path)
 
@@ -43,4 +44,9 @@ def test_checkpoint_round_trip_restores_function_config_and_metadata(tmp_path: P
     assert loaded.model.output_features == 1
     assert loaded.model.omega_0 == 13.0
     assert loaded.normalization == _normalization()
-    assert (loaded.epoch, loaded.global_step, loaded.validation_snr_db) == (3, 21, 4.5)
+    assert (
+        loaded.epoch,
+        loaded.global_step,
+        loaded.validation_median_trace_snr_db,
+        loaded.validation_global_snr_db,
+    ) == (3, 21, 4.5, 11.25)

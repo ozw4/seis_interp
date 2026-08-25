@@ -346,7 +346,10 @@ def _train_siren(args: argparse.Namespace) -> int:
     else:
         print(f"Output directory: {args.output}")
         print(f"Best epoch: {summary['best_epoch']}")
-        print(f"Best validation S/N: {summary['best_validation_snr_db']} dB")
+        print(
+            f"Best validation median trace S/N: {summary['best_validation_median_trace_snr_db']} dB"
+        )
+        print(f"Global validation S/N at best epoch: {summary['best_validation_global_snr_db']} dB")
         print(f"Epochs completed: {summary['epochs_completed']}")
         print(f"Stopped early: {summary['stopped_early']}")
         print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
