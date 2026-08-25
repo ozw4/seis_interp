@@ -6,6 +6,20 @@ import numpy as np
 import torch
 
 
+def to_model_coordinate_tensor(
+    coordinates: np.ndarray,
+    *,
+    device: torch.device | str | None = None,
+) -> torch.Tensor:
+    """Return coordinates as a contiguous ``float32`` model input tensor."""
+    coordinate_array = np.asarray(coordinates)
+    if coordinate_array.ndim != 2:
+        raise ValueError(
+            f"coordinates must be two-dimensional, got {coordinate_array.ndim} dimensions"
+        )
+    return torch.as_tensor(coordinate_array, dtype=torch.float32, device=device).contiguous()
+
+
 def to_model_tensors(
     coordinates: np.ndarray,
     targets: np.ndarray,
@@ -25,23 +39,18 @@ def to_model_tensors(
     modified, but an input that is already ``float32`` may share its memory
     with the returned tensor.
     """
-    coordinate_array = np.asarray(coordinates)
     target_array = np.asarray(targets)
 
-    if coordinate_array.ndim != 2:
-        raise ValueError(
-            f"coordinates must be two-dimensional, got {coordinate_array.ndim} dimensions"
-        )
+    coordinate_tensor = to_model_coordinate_tensor(coordinates, device=device)
     if target_array.ndim not in (1, 2) or (target_array.ndim == 2 and target_array.shape[1] != 1):
         raise ValueError(
             f"targets must have shape (n_points,) or (n_points, 1), got {target_array.shape}"
         )
-    if coordinate_array.shape[0] != target_array.shape[0]:
+    if coordinate_tensor.shape[0] != target_array.shape[0]:
         raise ValueError(
             f"coordinates and targets must cover the same number of points, got "
-            f"{coordinate_array.shape[0]} and {target_array.shape[0]}"
+            f"{coordinate_tensor.shape[0]} and {target_array.shape[0]}"
         )
 
-    coordinate_tensor = torch.as_tensor(coordinate_array, dtype=torch.float32, device=device)
     target_tensor = torch.as_tensor(target_array, dtype=torch.float32, device=device)
-    return coordinate_tensor.contiguous(), target_tensor.reshape(-1, 1).contiguous()
+    return coordinate_tensor, target_tensor.reshape(-1, 1).contiguous()
