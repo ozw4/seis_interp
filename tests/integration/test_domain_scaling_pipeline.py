@@ -50,7 +50,7 @@ def test_study_004_config_locks_the_fixed_experiment_a_conditions() -> None:
     assert {path: get_required_config_value(config, path) for path in expected} == expected
 
 
-def _build_experiment_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+def build_experiment_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     source = tmp_path / "source.sgy"
     source.write_bytes(b"synthetic seismic source")
     interim = tmp_path / "interim"
@@ -133,7 +133,7 @@ def _build_experiment_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
 def test_experiment_a_writes_nested_immutable_training_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, interim, processed = _build_experiment_fixture(tmp_path)
+    config, interim, processed = build_experiment_fixture(tmp_path)
     output_root = tmp_path / "runs" / "study_004_domain_scaling"
     monkeypatch.setattr(
         "seis_interp.pipelines.domain_scaling._run_id_timestamp",
@@ -268,7 +268,7 @@ def test_experiment_a_writes_nested_immutable_training_runs(
 def test_experiment_a_requires_the_final_subset_to_cover_all_training_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config, interim, processed = _build_experiment_fixture(tmp_path)
+    config, interim, processed = build_experiment_fixture(tmp_path)
     config_data = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_data["experiment_a"]["trace_counts"] = [1]
     config.write_text(yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8")

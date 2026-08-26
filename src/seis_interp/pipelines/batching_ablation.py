@@ -1,4 +1,4 @@
-"""Run the exact-coverage versus random-replacement batching ablation."""
+"""Run focused training-fit batching diagnostics."""
 
 from __future__ import annotations
 
@@ -56,8 +56,10 @@ from seis_interp.processing.trace_splits import (
 )
 from seis_interp.training.model_inputs import to_model_tensors
 from seis_interp.training.point_sampler import RandomPointSampler, build_trace_points
+from seis_interp.training.prediction import predict_points
 
 STUDY_ID = "study_006_batching_ablation"
+FULL_FFID_STUDY_ID = "study_007_full_ffid_large_batch"
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
@@ -68,6 +70,7 @@ PROCESSED_INPUT_FILE_NAMES = (
     PREPARATION_FILE_NAME,
 )
 _SELECTION_METHOD = "sorted_training_rows_single_numpy_permutation_prefix"
+_ALL_TRAINING_ROWS_METHOD = "all_training_rows_sorted_by_array_row"
 _EXACT_LABEL = "exact_full_batch"
 _RANDOM_LABEL = "random_replacement_5000"
 _EXPECTED_CONDITIONS = (
@@ -143,7 +146,7 @@ def run_batching_ablation(
     summary_runs: list[dict[str, object]] = []
     for label, batch_mode, full_batch, replacement in experiment["conditions"]:
         started_at_utc = _utc_timestamp()
-        metrics = _run_condition(
+        metrics = run_training_fit_condition(
             config=resolved_config,
             label=label,
             batch_mode=batch_mode,
@@ -158,32 +161,30 @@ def run_batching_ablation(
             selected_array_rows=selected_rows,
             all_coordinate_tensor=all_coordinate_tensor,
             all_target_tensor=all_target_tensor,
+            training_coordinates=training_coordinates,
             training_targets=training_targets,
             sample_count=sample_count,
+            prediction_batch_size=point_count,
             device=device,
             random_seed=random_seed,
         )
-        run_metadata = {
-            "study_id": STUDY_ID,
-            "condition": label,
-            "batch_mode": batch_mode,
-            "batch_size": experiment["batch_size"],
-            "trace_count": trace_count,
-            "sample_count": sample_count,
-            "point_count": point_count,
-            "point_evaluations": point_evaluations,
-            "full_batch": full_batch,
-            "replacement": replacement,
-            "git_commit": git_commit,
-            "started_at_utc": started_at_utc,
-            "finished_at_utc": _utc_timestamp(),
-            "status": "success",
-            "device": device,
-            "python_version": platform.python_version(),
-            "torch_version": str(torch.__version__),
-            "random_seed": random_seed,
-            "updates_completed": metrics["updates_completed"],
-        }
+        run_metadata = _build_run_metadata(
+            study_id=STUDY_ID,
+            condition=label,
+            batch_mode=batch_mode,
+            batch_size=experiment["batch_size"],
+            trace_count=trace_count,
+            sample_count=sample_count,
+            point_count=point_count,
+            point_evaluations=point_evaluations,
+            full_batch=full_batch,
+            replacement=replacement,
+            git_commit=git_commit,
+            started_at_utc=started_at_utc,
+            device=device,
+            random_seed=random_seed,
+            updates_completed=metrics["updates_completed"],
+        )
         inputs_lock = _build_inputs_lock(
             interim_files=experiment_data["interim_files"],
             processed_files=experiment_data["processed_files"],
@@ -224,7 +225,142 @@ def run_batching_ablation(
     return summary
 
 
-def _run_condition(
+def run_full_ffid_large_batch(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run one random-replacement fit probe over every training trace."""
+    config = load_resolved_config(Path(config_path))
+    device = device_override or get_required_config_value(config, "training.device")
+    if not isinstance(device, str) or not device:
+        raise ConfigurationError("training.device must be a non-empty string")
+    resolved_config = deepcopy(config)
+    training_config = resolved_config.get("training")
+    if not isinstance(training_config, dict):
+        raise ConfigurationError("training configuration must be a mapping")
+    training_config["device"] = device
+
+    experiment = _validated_full_ffid_experiment_config(resolved_config)
+    random_seed = _validated_random_seed(
+        get_required_config_value(resolved_config, "project.random_seed")
+    )
+    git_commit = _git_commit()
+    run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
+    condition_label = f"random{experiment['batch_size']}_trace{experiment['trace_count']}"
+    output_directory = Path(output_root)
+    run_path = output_directory / f"{run_prefix}_{condition_label}"
+    summary_path = output_directory / f"{run_prefix}_summary.json"
+    _preflight_output_paths(output_directory, (run_path, summary_path))
+
+    experiment_data = _load_experiment_data(
+        Path(interim_dir),
+        Path(processed_dir),
+        resolved_config,
+    )
+    selected_rows = np.sort(experiment_data["training_array_rows"]).astype(np.int64, copy=False)
+    available_training_rows = len(selected_rows)
+    trace_count = experiment["trace_count"]
+    if trace_count != available_training_rows:
+        raise ValueError(
+            f"configured trace count {trace_count} must equal all "
+            f"{available_training_rows} available training rows"
+        )
+    training_coordinates, training_targets = build_trace_points(
+        experiment_data["normalized_time"],
+        experiment_data["normalized_spatial_by_array_row"],
+        experiment_data["normalized_amplitudes"],
+        selected_rows,
+    )
+    sample_count = experiment_data["sample_count"]
+    point_count = trace_count * sample_count
+    point_evaluations = experiment["batch_size"] * experiment["total_updates"]
+
+    started_at_utc = _utc_timestamp()
+    metrics = run_training_fit_condition(
+        config=resolved_config,
+        label=condition_label,
+        batch_mode=experiment["batch_mode"],
+        full_batch=False,
+        replacement=experiment["replacement"],
+        total_updates=experiment["total_updates"],
+        report_interval=experiment["report_interval"],
+        batch_size=experiment["batch_size"],
+        normalized_time=experiment_data["normalized_time"],
+        normalized_spatial_by_array_row=experiment_data["normalized_spatial_by_array_row"],
+        normalized_amplitudes=experiment_data["normalized_amplitudes"],
+        selected_array_rows=selected_rows,
+        all_coordinate_tensor=None,
+        all_target_tensor=None,
+        training_coordinates=training_coordinates,
+        training_targets=training_targets,
+        sample_count=sample_count,
+        prediction_batch_size=experiment["prediction_batch_size"],
+        device=device,
+        random_seed=random_seed,
+    )
+    run_metadata = _build_run_metadata(
+        study_id=FULL_FFID_STUDY_ID,
+        condition=condition_label,
+        batch_mode=experiment["batch_mode"],
+        batch_size=experiment["batch_size"],
+        trace_count=trace_count,
+        sample_count=sample_count,
+        point_count=point_count,
+        point_evaluations=point_evaluations,
+        full_batch=False,
+        replacement=experiment["replacement"],
+        git_commit=git_commit,
+        started_at_utc=started_at_utc,
+        device=device,
+        random_seed=random_seed,
+        updates_completed=metrics["updates_completed"],
+    )
+    inputs_lock = _build_inputs_lock(
+        interim_files=experiment_data["interim_files"],
+        processed_files=experiment_data["processed_files"],
+        preparation_contract=experiment_data["preparation_contract"],
+        selected_array_rows=selected_rows,
+        trace_count=trace_count,
+        sample_count=sample_count,
+        point_count=point_count,
+        random_seed=random_seed,
+        selection_method=_ALL_TRAINING_ROWS_METHOD,
+        split_counts=experiment_data["split_counts"],
+        training_contract={
+            "batch_mode": experiment["batch_mode"],
+            "replacement": experiment["replacement"],
+            "batch_size": experiment["batch_size"],
+            "total_updates": experiment["total_updates"],
+            "point_evaluations": point_evaluations,
+        },
+    )
+    _write_condition_outputs(
+        run_path,
+        resolved_config,
+        inputs_lock,
+        metrics,
+        run_metadata,
+    )
+
+    summary_run = _summary_run(run_path.name, metrics)
+    decision = full_ffid_summary_decision(str(metrics["classification"]))
+    summary: dict[str, object] = {
+        "study_id": FULL_FFID_STUDY_ID,
+        "git_commit": git_commit,
+        "generated_at_utc": _utc_timestamp(),
+        "point_evaluations": point_evaluations,
+        "decision": decision,
+        "runs": [summary_run],
+    }
+    _write_json(summary_path, summary)
+    return summary
+
+
+def run_training_fit_condition(
     *,
     config: Mapping[str, object],
     label: str,
@@ -238,14 +374,31 @@ def _run_condition(
     normalized_spatial_by_array_row: np.ndarray,
     normalized_amplitudes: np.ndarray,
     selected_array_rows: np.ndarray,
-    all_coordinate_tensor: torch.Tensor,
-    all_target_tensor: torch.Tensor,
+    all_coordinate_tensor: torch.Tensor | None,
+    all_target_tensor: torch.Tensor | None,
+    training_coordinates: np.ndarray,
     training_targets: np.ndarray,
     sample_count: int,
+    prediction_batch_size: int,
     device: torch.device | str,
     random_seed: int,
 ) -> dict[str, object]:
     """Train one fresh model under one fixed batching condition."""
+    total_updates = _positive_integer(total_updates, "total_updates")
+    report_interval = _positive_integer(report_interval, "report_interval")
+    batch_size = _positive_integer(batch_size, "batch_size")
+    prediction_batch_size = _positive_integer(prediction_batch_size, "prediction_batch_size")
+    if total_updates % report_interval != 0:
+        raise ValueError("total_updates must be divisible by report_interval")
+    if batch_mode == "random_replacement":
+        if full_batch or replacement is not True:
+            raise ValueError("random_replacement requires full_batch=false and replacement=true")
+    elif batch_mode == "exact_full_batch":
+        if full_batch is not True or replacement:
+            raise ValueError("exact_full_batch requires full_batch=true and replacement=false")
+    else:
+        raise ValueError(f"unknown batch mode: {batch_mode!r}")
+
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)
     if torch.cuda.is_available():
@@ -278,6 +431,8 @@ def _run_condition(
     model.train()
     for step in range(1, total_updates + 1):
         if sampler is None:
+            if all_coordinate_tensor is None or all_target_tensor is None:
+                raise RuntimeError("exact full-batch training tensors are required")
             coordinate_tensor = all_coordinate_tensor
             target_tensor = all_target_tensor
         else:
@@ -305,11 +460,12 @@ def _run_condition(
             "mean_train_loss_since_last_report": mean_loss,
             **_evaluate_training_fit(
                 model,
-                coordinate_tensor=all_coordinate_tensor,
-                target_tensor=all_target_tensor,
+                training_coordinates=training_coordinates,
                 training_targets=training_targets,
                 trace_count=trace_count,
                 sample_count=sample_count,
+                prediction_batch_size=prediction_batch_size,
+                device=device,
                 step=step,
             ),
         }
@@ -358,35 +514,33 @@ def _run_condition(
 def _evaluate_training_fit(
     model: Siren,
     *,
-    coordinate_tensor: torch.Tensor,
-    target_tensor: torch.Tensor,
+    training_coordinates: np.ndarray,
     training_targets: np.ndarray,
     trace_count: int,
     sample_count: int,
+    prediction_batch_size: int,
+    device: torch.device | str,
     step: int,
 ) -> dict[str, float]:
-    """Evaluate both conditions on the complete selected training subset."""
-    model.eval()
-    try:
-        with torch.no_grad():
-            predictions = (
-                model(coordinate_tensor)
-                .reshape(-1)
-                .detach()
-                .to(device="cpu", dtype=torch.float32)
-                .numpy()
-                .copy()
-            )
-    finally:
-        model.train()
+    """Evaluate one condition on the complete selected training subset."""
+    predictions = predict_points(
+        model,
+        training_coordinates,
+        batch_size=prediction_batch_size,
+        device=device,
+    )
 
     expected_points = trace_count * sample_count
     if training_targets.shape != (expected_points,):
         raise ValueError(
             f"training_targets must have shape ({expected_points},), got {training_targets.shape}"
         )
-    if target_tensor.numel() != expected_points:
-        raise RuntimeError("full training target tensor has an unexpected point count")
+    if training_coordinates.shape != (expected_points, len(MODEL_COORDINATE_ORDER)):
+        raise ValueError(
+            "training_coordinates must have shape "
+            f"({expected_points}, {len(MODEL_COORDINATE_ORDER)}), "
+            f"got {training_coordinates.shape}"
+        )
     trace_targets = training_targets.reshape(trace_count, sample_count)
     trace_predictions = predictions.reshape(trace_count, sample_count)
     target_float = training_targets.astype(np.float64, copy=False)
@@ -411,7 +565,7 @@ def _evaluate_training_fit(
 
 
 def classify_condition(metrics: Mapping[str, object]) -> str:
-    """Classify one condition using the fixed Study 006 thresholds."""
+    """Classify one condition using the fixed training-fit thresholds."""
     median_snr = float(metrics["best_training_median_trace_snr_db"])
     rms_ratio = float(metrics["best_training_prediction_target_rms_ratio"])
     if not math.isfinite(median_snr) or not math.isfinite(rms_ratio):
@@ -421,6 +575,19 @@ def classify_condition(metrics: Mapping[str, object]) -> str:
     if median_snr > 1.0 and rms_ratio > 0.1:
         return "escaped_zero_predictor"
     return "near_zero"
+
+
+def full_ffid_summary_decision(classification: str) -> str:
+    """Map one fit classification to the fixed Study 007 summary decision."""
+    decisions = {
+        "strong_fit": "full_ffid_strong_fit",
+        "escaped_zero_predictor": "full_ffid_escaped_zero_predictor",
+        "near_zero": "full_ffid_near_zero",
+    }
+    try:
+        return decisions[classification]
+    except KeyError as error:
+        raise ValueError(f"unknown training-fit classification: {classification!r}") from error
 
 
 def batching_summary_decision(summary_runs: Sequence[Mapping[str, object]]) -> str:
@@ -475,6 +642,7 @@ def _load_experiment_data(
         "interim_files": interim_files,
         "processed_files": processed_files,
         "preparation_contract": preparation_contract,
+        "split_counts": split_counts,
     }
 
 
@@ -577,15 +745,7 @@ def _validated_preparation_contract(
 
 
 def _validated_experiment_config(config: Mapping[str, object]) -> dict[str, object]:
-    if get_required_config_value(config, "model.name") != "siren":
-        raise ConfigurationError("model.name must be 'siren'")
-    input_features = get_required_config_value(config, "model.input_features")
-    if input_features != len(MODEL_COORDINATE_ORDER):
-        raise ConfigurationError(f"model.input_features must be {len(MODEL_COORDINATE_ORDER)}")
-    if get_required_config_value(config, "training.loss") != "l2":
-        raise ConfigurationError("training.loss must be 'l2'")
-    if get_required_config_value(config, "training.optimizer") != "adam":
-        raise ConfigurationError("training.optimizer must be 'adam'")
+    _validate_common_training_fit_config(config)
 
     total_updates = _positive_integer(
         get_required_config_value(config, "training.updates"),
@@ -597,10 +757,6 @@ def _validated_experiment_config(config: Mapping[str, object]) -> dict[str, obje
     )
     if total_updates % report_interval != 0:
         raise ConfigurationError("training.updates must be divisible by training.report_interval")
-    _positive_finite_float(
-        get_required_config_value(config, "training.learning_rate"),
-        "training.learning_rate",
-    )
     return {
         "trace_count": _positive_integer(
             get_required_config_value(config, "experiment.trace_count"),
@@ -616,6 +772,64 @@ def _validated_experiment_config(config: Mapping[str, object]) -> dict[str, obje
             get_required_config_value(config, "experiment.conditions")
         ),
     }
+
+
+def _validated_full_ffid_experiment_config(
+    config: Mapping[str, object],
+) -> dict[str, object]:
+    _validate_common_training_fit_config(config)
+    total_updates = _positive_integer(
+        get_required_config_value(config, "training.total_updates"),
+        "training.total_updates",
+    )
+    report_interval = _positive_integer(
+        get_required_config_value(config, "training.report_interval"),
+        "training.report_interval",
+    )
+    if total_updates % report_interval != 0:
+        raise ConfigurationError(
+            "training.total_updates must be divisible by training.report_interval"
+        )
+    batch_mode = get_required_config_value(config, "experiment.batch_mode")
+    if batch_mode != "random_replacement":
+        raise ConfigurationError("experiment.batch_mode must be 'random_replacement'")
+    replacement = get_required_config_value(config, "experiment.replacement")
+    if replacement is not True:
+        raise ConfigurationError("experiment.replacement must be true")
+    return {
+        "trace_count": _positive_integer(
+            get_required_config_value(config, "experiment.trace_count"),
+            "experiment.trace_count",
+        ),
+        "total_updates": total_updates,
+        "report_interval": report_interval,
+        "batch_size": _positive_integer(
+            get_required_config_value(config, "training.batch_size"),
+            "training.batch_size",
+        ),
+        "prediction_batch_size": _positive_integer(
+            get_required_config_value(config, "training.prediction_batch_size"),
+            "training.prediction_batch_size",
+        ),
+        "batch_mode": batch_mode,
+        "replacement": replacement,
+    }
+
+
+def _validate_common_training_fit_config(config: Mapping[str, object]) -> None:
+    if get_required_config_value(config, "model.name") != "siren":
+        raise ConfigurationError("model.name must be 'siren'")
+    input_features = get_required_config_value(config, "model.input_features")
+    if input_features != len(MODEL_COORDINATE_ORDER):
+        raise ConfigurationError(f"model.input_features must be {len(MODEL_COORDINATE_ORDER)}")
+    if get_required_config_value(config, "training.loss") != "l2":
+        raise ConfigurationError("training.loss must be 'l2'")
+    if get_required_config_value(config, "training.optimizer") != "adam":
+        raise ConfigurationError("training.optimizer must be 'adam'")
+    _positive_finite_float(
+        get_required_config_value(config, "training.learning_rate"),
+        "training.learning_rate",
+    )
 
 
 def _validated_conditions(value: object) -> tuple[tuple[str, str, bool, bool], ...]:
@@ -681,14 +895,17 @@ def _build_inputs_lock(
     sample_count: int,
     point_count: int,
     random_seed: int,
+    selection_method: str = _SELECTION_METHOD,
+    split_counts: Mapping[str, object] | None = None,
+    training_contract: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    inputs_lock: dict[str, object] = {
         "interim_files": dict(interim_files),
         "processed_files": dict(processed_files),
         "preparation": dict(preparation_contract),
         "selection": {
             "source_split": TRAIN_SPLIT,
-            "method": _SELECTION_METHOD,
+            "method": selection_method,
             "random_seed": random_seed,
             "trace_count": trace_count,
             "sample_count": sample_count,
@@ -697,6 +914,14 @@ def _build_inputs_lock(
             "selected_array_rows": [int(value) for value in selected_array_rows],
         },
     }
+    if training_contract is not None:
+        inputs_lock["training"] = dict(training_contract)
+    if split_counts is not None:
+        inputs_lock["split"] = {
+            "counts": dict(split_counts),
+            "training_source": TRAIN_SPLIT,
+        }
+    return inputs_lock
 
 
 def _resolved_condition_config(
@@ -727,6 +952,8 @@ def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object
         "batch_size",
         "full_batch",
         "replacement",
+        "trace_count",
+        "sample_count",
         "point_count",
         "point_evaluations",
         "updates_completed",
@@ -742,6 +969,47 @@ def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object
         "classification",
     )
     return {"run_id": run_id, **{key: metrics[key] for key in keys}}
+
+
+def _build_run_metadata(
+    *,
+    study_id: str,
+    condition: str,
+    batch_mode: str,
+    batch_size: int,
+    trace_count: int,
+    sample_count: int,
+    point_count: int,
+    point_evaluations: int,
+    full_batch: bool,
+    replacement: bool,
+    git_commit: str,
+    started_at_utc: str,
+    device: str,
+    random_seed: int,
+    updates_completed: int,
+) -> dict[str, object]:
+    return {
+        "study_id": study_id,
+        "condition": condition,
+        "batch_mode": batch_mode,
+        "batch_size": batch_size,
+        "trace_count": trace_count,
+        "sample_count": sample_count,
+        "point_count": point_count,
+        "point_evaluations": point_evaluations,
+        "full_batch": full_batch,
+        "replacement": replacement,
+        "git_commit": git_commit,
+        "started_at_utc": started_at_utc,
+        "finished_at_utc": _utc_timestamp(),
+        "status": "success",
+        "device": device,
+        "python_version": platform.python_version(),
+        "torch_version": str(torch.__version__),
+        "random_seed": random_seed,
+        "updates_completed": updates_completed,
+    }
 
 
 def _write_condition_outputs(
