@@ -55,11 +55,16 @@ from seis_interp.processing.trace_splits import (
     VALIDATION_SPLIT,
 )
 from seis_interp.training.model_inputs import to_model_tensors
-from seis_interp.training.point_sampler import RandomPointSampler, build_trace_points
+from seis_interp.training.point_sampler import (
+    RandomPointSampler,
+    RandomTraceBatchSampler,
+    build_trace_points,
+)
 from seis_interp.training.prediction import predict_points
 
 STUDY_ID = "study_006_batching_ablation"
 FULL_FFID_STUDY_ID = "study_007_full_ffid_large_batch"
+FULL_FFID_TRACE_BATCH_STUDY_ID = "study_008_full_ffid_trace_batches"
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
@@ -234,6 +239,48 @@ def run_full_ffid_large_batch(
     device_override: str | None = None,
 ) -> dict[str, object]:
     """Run one random-replacement fit probe over every training trace."""
+    return _run_full_ffid_fit_probe(
+        config_path=config_path,
+        interim_dir=interim_dir,
+        processed_dir=processed_dir,
+        output_root=output_root,
+        device_override=device_override,
+        study_id=FULL_FFID_STUDY_ID,
+        expected_batch_mode="random_replacement",
+    )
+
+
+def run_full_ffid_trace_batches(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run one complete-trace mini-batch fit probe over every training trace."""
+    return _run_full_ffid_fit_probe(
+        config_path=config_path,
+        interim_dir=interim_dir,
+        processed_dir=processed_dir,
+        output_root=output_root,
+        device_override=device_override,
+        study_id=FULL_FFID_TRACE_BATCH_STUDY_ID,
+        expected_batch_mode="random_complete_traces",
+    )
+
+
+def _run_full_ffid_fit_probe(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None,
+    study_id: str,
+    expected_batch_mode: str,
+) -> dict[str, object]:
+    """Run one configured full-training fit probe and write immutable records."""
     config = load_resolved_config(Path(config_path))
     device = device_override or get_required_config_value(config, "training.device")
     if not isinstance(device, str) or not device:
@@ -244,13 +291,21 @@ def run_full_ffid_large_batch(
         raise ConfigurationError("training configuration must be a mapping")
     training_config["device"] = device
 
-    experiment = _validated_full_ffid_experiment_config(resolved_config)
+    experiment = _validated_full_ffid_experiment_config(
+        resolved_config,
+        expected_batch_mode=expected_batch_mode,
+    )
     random_seed = _validated_random_seed(
         get_required_config_value(resolved_config, "project.random_seed")
     )
     git_commit = _git_commit()
     run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
-    condition_label = f"random{experiment['batch_size']}_trace{experiment['trace_count']}"
+    if experiment["batch_mode"] == "random_replacement":
+        condition_label = f"random{experiment['batch_size']}_trace{experiment['trace_count']}"
+    else:
+        condition_label = (
+            f"tracebatch{experiment['traces_per_update']}_trace{experiment['trace_count']}"
+        )
     output_directory = Path(output_root)
     run_path = output_directory / f"{run_prefix}_{condition_label}"
     summary_path = output_directory / f"{run_prefix}_summary.json"
@@ -277,6 +332,16 @@ def run_full_ffid_large_batch(
     )
     sample_count = experiment_data["sample_count"]
     point_count = trace_count * sample_count
+    traces_per_update = experiment["traces_per_update"]
+    if (
+        traces_per_update is not None
+        and experiment["batch_size"] != traces_per_update * sample_count
+    ):
+        raise ConfigurationError(
+            "training.batch_size must equal "
+            "experiment.traces_per_update * sample_count "
+            f"({traces_per_update * sample_count})"
+        )
     point_evaluations = experiment["batch_size"] * experiment["total_updates"]
 
     started_at_utc = _utc_timestamp()
@@ -301,9 +366,10 @@ def run_full_ffid_large_batch(
         prediction_batch_size=experiment["prediction_batch_size"],
         device=device,
         random_seed=random_seed,
+        traces_per_update=traces_per_update,
     )
     run_metadata = _build_run_metadata(
-        study_id=FULL_FFID_STUDY_ID,
+        study_id=study_id,
         condition=condition_label,
         batch_mode=experiment["batch_mode"],
         batch_size=experiment["batch_size"],
@@ -318,7 +384,17 @@ def run_full_ffid_large_batch(
         device=device,
         random_seed=random_seed,
         updates_completed=metrics["updates_completed"],
+        traces_per_update=traces_per_update,
     )
+    training_contract = {
+        "batch_mode": experiment["batch_mode"],
+        "replacement": experiment["replacement"],
+        "batch_size": experiment["batch_size"],
+        "total_updates": experiment["total_updates"],
+        "point_evaluations": point_evaluations,
+    }
+    if traces_per_update is not None:
+        training_contract["traces_per_update"] = traces_per_update
     inputs_lock = _build_inputs_lock(
         interim_files=experiment_data["interim_files"],
         processed_files=experiment_data["processed_files"],
@@ -330,13 +406,7 @@ def run_full_ffid_large_batch(
         random_seed=random_seed,
         selection_method=_ALL_TRAINING_ROWS_METHOD,
         split_counts=experiment_data["split_counts"],
-        training_contract={
-            "batch_mode": experiment["batch_mode"],
-            "replacement": experiment["replacement"],
-            "batch_size": experiment["batch_size"],
-            "total_updates": experiment["total_updates"],
-            "point_evaluations": point_evaluations,
-        },
+        training_contract=training_contract,
     )
     _write_condition_outputs(
         run_path,
@@ -349,7 +419,7 @@ def run_full_ffid_large_batch(
     summary_run = _summary_run(run_path.name, metrics)
     decision = full_ffid_summary_decision(str(metrics["classification"]))
     summary: dict[str, object] = {
-        "study_id": FULL_FFID_STUDY_ID,
+        "study_id": study_id,
         "git_commit": git_commit,
         "generated_at_utc": _utc_timestamp(),
         "point_evaluations": point_evaluations,
@@ -382,20 +452,48 @@ def run_training_fit_condition(
     prediction_batch_size: int,
     device: torch.device | str,
     random_seed: int,
+    traces_per_update: int | None = None,
 ) -> dict[str, object]:
     """Train one fresh model under one fixed batching condition."""
     total_updates = _positive_integer(total_updates, "total_updates")
     report_interval = _positive_integer(report_interval, "report_interval")
     batch_size = _positive_integer(batch_size, "batch_size")
+    sample_count = _positive_integer(sample_count, "sample_count")
     prediction_batch_size = _positive_integer(prediction_batch_size, "prediction_batch_size")
     if total_updates % report_interval != 0:
         raise ValueError("total_updates must be divisible by report_interval")
+    validated_traces_per_update = (
+        None
+        if traces_per_update is None
+        else _positive_integer(traces_per_update, "traces_per_update")
+    )
     if batch_mode == "random_replacement":
         if full_batch or replacement is not True:
             raise ValueError("random_replacement requires full_batch=false and replacement=true")
+        if validated_traces_per_update is not None:
+            raise ValueError("random_replacement does not accept traces_per_update")
+    elif batch_mode == "random_complete_traces":
+        if full_batch or replacement:
+            raise ValueError(
+                "random_complete_traces requires full_batch=false and replacement=false"
+            )
+        if validated_traces_per_update is None:
+            raise ValueError("random_complete_traces requires traces_per_update")
+        if validated_traces_per_update > len(selected_array_rows):
+            raise ValueError(
+                "traces_per_update must not exceed the number of selected training rows "
+                f"({len(selected_array_rows)})"
+            )
+        expected_batch_size = validated_traces_per_update * sample_count
+        if batch_size != expected_batch_size:
+            raise ValueError(
+                f"batch_size must equal traces_per_update * sample_count ({expected_batch_size})"
+            )
     elif batch_mode == "exact_full_batch":
         if full_batch is not True or replacement:
             raise ValueError("exact_full_batch requires full_batch=true and replacement=false")
+        if validated_traces_per_update is not None:
+            raise ValueError("exact_full_batch does not accept traces_per_update")
     else:
         raise ValueError(f"unknown batch mode: {batch_mode!r}")
 
@@ -414,6 +512,7 @@ def run_training_fit_condition(
         ),
     )
     sampler = None
+    sampler_batch_size = batch_size
     if batch_mode == "random_replacement":
         sampler = RandomPointSampler(
             normalized_time,
@@ -422,6 +521,15 @@ def run_training_fit_condition(
             selected_array_rows,
             random_seed=random_seed,
         )
+    elif batch_mode == "random_complete_traces":
+        sampler = RandomTraceBatchSampler(
+            normalized_time,
+            normalized_spatial_by_array_row,
+            normalized_amplitudes,
+            selected_array_rows,
+            random_seed=random_seed,
+        )
+        sampler_batch_size = validated_traces_per_update
 
     interval_loss_sum = torch.zeros((), dtype=torch.float64, device=device)
     history: list[dict[str, int | float]] = []
@@ -436,7 +544,7 @@ def run_training_fit_condition(
             coordinate_tensor = all_coordinate_tensor
             target_tensor = all_target_tensor
         else:
-            batch_coordinates, batch_targets = sampler.sample(batch_size)
+            batch_coordinates, batch_targets = sampler.sample(sampler_batch_size)
             coordinate_tensor, target_tensor = to_model_tensors(
                 batch_coordinates,
                 batch_targets,
@@ -507,6 +615,8 @@ def run_training_fit_condition(
         ],
         "history": history,
     }
+    if validated_traces_per_update is not None:
+        metrics["traces_per_update"] = validated_traces_per_update
     metrics["classification"] = classify_condition(metrics)
     return metrics
 
@@ -578,7 +688,7 @@ def classify_condition(metrics: Mapping[str, object]) -> str:
 
 
 def full_ffid_summary_decision(classification: str) -> str:
-    """Map one fit classification to the fixed Study 007 summary decision."""
+    """Map one fit classification to the shared full-FFID summary decision."""
     decisions = {
         "strong_fit": "full_ffid_strong_fit",
         "escaped_zero_predictor": "full_ffid_escaped_zero_predictor",
@@ -776,6 +886,8 @@ def _validated_experiment_config(config: Mapping[str, object]) -> dict[str, obje
 
 def _validated_full_ffid_experiment_config(
     config: Mapping[str, object],
+    *,
+    expected_batch_mode: str = "random_replacement",
 ) -> dict[str, object]:
     _validate_common_training_fit_config(config)
     total_updates = _positive_integer(
@@ -791,11 +903,22 @@ def _validated_full_ffid_experiment_config(
             "training.total_updates must be divisible by training.report_interval"
         )
     batch_mode = get_required_config_value(config, "experiment.batch_mode")
-    if batch_mode != "random_replacement":
-        raise ConfigurationError("experiment.batch_mode must be 'random_replacement'")
+    if expected_batch_mode not in {"random_replacement", "random_complete_traces"}:
+        raise ValueError(f"unsupported expected batch mode: {expected_batch_mode!r}")
+    if batch_mode != expected_batch_mode:
+        raise ConfigurationError(f"experiment.batch_mode must be {expected_batch_mode!r}")
     replacement = get_required_config_value(config, "experiment.replacement")
-    if replacement is not True:
-        raise ConfigurationError("experiment.replacement must be true")
+    expected_replacement = batch_mode == "random_replacement"
+    if replacement is not expected_replacement:
+        raise ConfigurationError(
+            f"experiment.replacement must be {str(expected_replacement).lower()}"
+        )
+    traces_per_update = None
+    if batch_mode == "random_complete_traces":
+        traces_per_update = _positive_integer(
+            get_required_config_value(config, "experiment.traces_per_update"),
+            "experiment.traces_per_update",
+        )
     return {
         "trace_count": _positive_integer(
             get_required_config_value(config, "experiment.trace_count"),
@@ -813,6 +936,7 @@ def _validated_full_ffid_experiment_config(
         ),
         "batch_mode": batch_mode,
         "replacement": replacement,
+        "traces_per_update": traces_per_update,
     }
 
 
@@ -968,7 +1092,10 @@ def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object
         "final_training_prediction_target_rms_ratio",
         "classification",
     )
-    return {"run_id": run_id, **{key: metrics[key] for key in keys}}
+    summary = {"run_id": run_id, **{key: metrics[key] for key in keys}}
+    if "traces_per_update" in metrics:
+        summary["traces_per_update"] = metrics["traces_per_update"]
+    return summary
 
 
 def _build_run_metadata(
@@ -988,8 +1115,9 @@ def _build_run_metadata(
     device: str,
     random_seed: int,
     updates_completed: int,
+    traces_per_update: int | None = None,
 ) -> dict[str, object]:
-    return {
+    metadata: dict[str, object] = {
         "study_id": study_id,
         "condition": condition,
         "batch_mode": batch_mode,
@@ -1010,6 +1138,9 @@ def _build_run_metadata(
         "random_seed": random_seed,
         "updates_completed": updates_completed,
     }
+    if traces_per_update is not None:
+        metadata["traces_per_update"] = traces_per_update
+    return metadata
 
 
 def _write_condition_outputs(

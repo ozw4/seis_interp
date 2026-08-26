@@ -51,6 +51,59 @@ class RandomPointSampler:
         return coordinates, targets
 
 
+class RandomTraceBatchSampler:
+    """Uniformly sample distinct training traces and keep every time sample."""
+
+    def __init__(
+        self,
+        normalized_time: np.ndarray,
+        normalized_spatial_by_array_row: np.ndarray,
+        normalized_amplitudes: np.ndarray,
+        training_array_rows: np.ndarray,
+        *,
+        random_seed: int,
+    ) -> None:
+        time, spatial, amplitudes = _validated_point_arrays(
+            normalized_time,
+            normalized_spatial_by_array_row,
+            normalized_amplitudes,
+        )
+        rows = _validated_array_rows(training_array_rows, spatial.shape[0], "training_array_rows")
+        if len(np.unique(rows)) != len(rows):
+            raise ValueError("training_array_rows must contain unique values")
+        if isinstance(random_seed, bool) or not isinstance(random_seed, Integral):
+            raise ValueError("random_seed must be an integer")
+        if int(random_seed) < 0:
+            raise ValueError("random_seed must be non-negative")
+
+        self._time = time
+        self._spatial = spatial
+        self._amplitudes = amplitudes
+        self._training_array_rows = rows
+        self._rng = np.random.default_rng(int(random_seed))
+
+    def sample(self, traces_per_update: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return all points from one random batch of distinct training traces."""
+        trace_count = _positive_integer(traces_per_update, "traces_per_update")
+        available_trace_count = len(self._training_array_rows)
+        if trace_count > available_trace_count:
+            raise ValueError(
+                "traces_per_update must not exceed the number of available training rows "
+                f"({available_trace_count})"
+            )
+        array_rows = self._rng.choice(
+            self._training_array_rows,
+            size=trace_count,
+            replace=False,
+        )
+        return build_trace_points(
+            self._time,
+            self._spatial,
+            self._amplitudes,
+            array_rows,
+        )
+
+
 def build_trace_points(
     normalized_time: np.ndarray,
     normalized_spatial_by_array_row: np.ndarray,
