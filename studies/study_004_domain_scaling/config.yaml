@@ -1,0 +1,36 @@
+extends: ../../configs/default.yaml
+
+study:
+  status: active
+
+project:
+  random_seed: 42
+
+sampling:
+  random_trace_holdout_fraction: 0.20
+  validation_fraction_of_holdout: 0.25
+  structured_mask: receiver_decimation
+
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
+
+model:
+  name: siren
+  input_features: 6
+  hidden_width: 256
+  hidden_layers: 4
+  omega_0: 300.0
+
+training:
+  loss: l2
+  optimizer: adam
+  learning_rate: 1.0e-3
+  batch_size: 1024
+  steps_per_epoch: 500
+  max_epochs: 100
+  validation_batch_size: 65536
+  device: cuda:0
+
+experiment_a:
+  trace_counts: [1, 8, 32, 128, 435]
