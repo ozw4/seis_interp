@@ -1,7 +1,7 @@
 extends: ../../configs/default.yaml
 
 study:
-  status: active
+  status: completed
 
 project:
   random_seed: 42
