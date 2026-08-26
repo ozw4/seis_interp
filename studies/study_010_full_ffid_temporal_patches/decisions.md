@@ -26,3 +26,22 @@ batch-structure condition, and the terminal start 561 preserves coverage through
 the full training split at a nearly matched point budget. It does not isolate the effects of
 patch length, trace count per update, overlap, or the small point-budget difference, and it does
 not justify broader causal claims or change production training.
+
+## 2026-08-26 — Shared temporal patches remain near zero
+
+**Context:** The single fixed condition completed all 50,000 updates and 249,600,000 point
+evaluations. Each update used 78 distinct training traces and one shared 64-sample window from
+the 19 predefined starts. All 100 full-training report points were finite.
+
+**Decision:** Record `full_ffid_near_zero`. The best report occurred at step 10,000 with
+-0.001837 dB median training-trace S/N, -0.000147 dB global S/N, 0.000669 median trace
+correlation, and a 0.007035 prediction/target RMS ratio. Final median training-trace S/N was
+-0.146711 dB.
+
+**Evidence:** Run `20260826T074127Z_b7bfe87_patch64_trace78_trace435`; summary
+`20260826T074127Z_b7bfe87_summary.json`.
+
+**Impact:** This shared temporal-patch condition did not make the full training split fit under
+the fixed seed and update budget. The result does not isolate patch length, trace count,
+overlap, or point-budget effects and does not establish that other patch sampling strategies
+will fail.

@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -70,5 +70,11 @@ condition changes temporal coverage per trace and the number of traces per updat
 Studies 008 and 009, while also reducing the point budget slightly, so any observed difference
 cannot be attributed to one of those factors alone. The fixed patching contract remains a POC
 condition rather than a complete reproduction of the paper's 5D experiment.
+
+## Current conclusion
+
+Shared 64-sample temporal-patch batches did not escape the near-zero predictor on all 435
+training traces. The best median training-trace S/N was -0.00184 dB with a 0.00704
+prediction/target RMS ratio, yielding `full_ffid_near_zero` under this one-seed fixed budget.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).
