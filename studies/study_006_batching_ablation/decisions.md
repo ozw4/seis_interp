@@ -19,3 +19,21 @@ batch size and point budget fixed isolates whether exact coverage is necessary.
 median training-trace S/N.
 
 **Impact:** Production training remains unchanged while the batching cause is diagnosed.
+
+## 2026-08-26 — Random replacement succeeds at matched batch size
+
+**Status:** active
+
+**Decision:** Record `random_replacement_succeeds`; exact point coverage is not required for the
+fixed eight-trace fit when both conditions use 5,000 points per update.
+
+**Reason:** Both conditions reached `strong_fit` with the same 250,000,000 training point
+evaluations. This points to the former 1,024-point batch size or its gradient variance, rather
+than exact coverage, as the likely batching cause.
+
+**Evidence:** Summary `20260826T045538Z_55b4b9d_summary.json`; best median training-trace S/N was
+32.48 dB for `20260826T045538Z_55b4b9d_exact_full_batch` and 30.14 dB for
+`20260826T045538Z_55b4b9d_random_replacement_5000`.
+
+**Impact:** The next study candidate is 435-trace training with random-replacement batch size
+5,000. No production setting or model artifact is selected here.

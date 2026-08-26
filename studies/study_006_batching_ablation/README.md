@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -34,6 +34,12 @@ The summary decision distinguishes whether random replacement succeeds, partiall
 leaves exact coverage necessary. If the exact control does not reach `strong_fit`, the result is
 `control_failed_unexpected`. This diagnostic does not select a production model or batching
 strategy.
+
+## Current conclusion
+
+Random replacement at 5,000 points per update also achieved a strong fit, so exact point coverage
+is not required for this eight-trace setup. The earlier 1,024-point batch was likely too small or
+had excessive gradient variance under the fixed training conditions.
 
 ## Reproduction
 
