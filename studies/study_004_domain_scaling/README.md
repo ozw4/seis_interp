@@ -51,3 +51,7 @@ python scripts/run_study_004_experiment_a.py \
 - 2026-08-26: Keep the complete 625-sample time domain and vary only deterministic nested
   training-trace counts. Temporal patching and interpolation evaluation remain outside
   Experiment A because this probe measures training fit only.
+- 2026-08-26: The 1-trace condition achieved `strong_fit` at 37.36 dB best median training-trace
+  S/N, while 8, 32, 128, and 435 traces remained `near_zero`. Under this fixed setup, the
+  empirical scaling boundary lies between 1 and 8 traces; the experiment does not identify its
+  cause.
