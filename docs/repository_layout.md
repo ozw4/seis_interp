@@ -12,7 +12,7 @@ SEG C3 Narrow-Azimuthを用いる5D seismic interpolation POCで、コード、�
 |---|---|---|
 | 再利用する実装 | `src/seis_interp/` | studyに依存しない処理を置く。結果へ影響するロジックはテスト可能にする。 |
 | 薄い実行補助 | `scripts/` | 環境変数とCLI呼び出しだけを扱う。データ処理ロジックは置かない。 |
-| 研究条件と判断記録 | `studies/<study>/` | 研究質問ごとに`README.md`、`config.yaml`、`inputs.yaml`を置く。 |
+| 現在の研究契約と必要な判断理由 | `studies/<study>/` | 研究質問ごとに、現在の契約を`README.md`、実行条件を`config.yaml`、入力契約を`inputs.yaml`へ置く。重要な判断理由がある場合だけ`decisions.md`を置く。 |
 | データ | `data/` | 由来と処理段階で`external`、`interim`、`processed`を分ける。 |
 | 実行履歴 | `runs/` | runごとの設定、入力、指標、ログ、成果物を機械生成し、手編集しない。 |
 | 採用した成果 | `results/` | 採用した図表・モデルのみを置き、生成元runを記録する。 |
@@ -54,11 +54,13 @@ seis_interp/
 │   ├── _template/
 │   │   ├── README.md
 │   │   ├── config.yaml
-│   │   └── inputs.yaml
+│   │   ├── inputs.yaml
+│   │   └── decisions.md
 │   └── study_001_c3_na_baseline/
 │       ├── README.md
 │       ├── config.yaml
-│       └── inputs.yaml
+│       ├── inputs.yaml
+│       └── decisions.md
 │
 ├── data/
 │   ├── README.md
@@ -82,9 +84,17 @@ seis_interp/
     └── repository_layout.md
 ```
 
+`decisions.md`は全studyで必須ではなく、重要な判断理由が存在する場合に置く。
+
 `results/`と`reports/`は、採用成果または報告書が発生した時点で追加する。
 
 Dev Container内では`SEIS_INTERP_DATA_ROOT=/workspace/data`とし、SEG C3 NAの実体は`/workspace/data/external/seg_c3_na/`へ置く。実SEG-Yと生成された`download.lock.yaml`はGit管理対象外とする。
+
+### Study文書の役割
+
+`README.md`には現在の研究質問、入力、方法、採否基準、制約、現在の結果を書く。`config.yaml`は実行可能な条件、`inputs.yaml`は実行可能な入力契約である。重要な判断理由があるstudyでは`decisions.md`を置き、現行条件を選んだ理由、supersededとなった判断、将来の変更時に必要な証拠を記録する。`decisions.md`は、条件または評価規則を変更するときに参照する。
+
+PRごとの実装説明、現在のclass/function contract、test件数、全epoch履歴、terminal log、全run metadataは`decisions.md`へ置かない。これらの正本はcode/tests、Git/PR、`runs/`である。
 
 ## 3. ディレクトリ境界
 
@@ -92,7 +102,7 @@ Dev Container内では`SEIS_INTERP_DATA_ROOT=/workspace/data`とし、SEG C3 NA�
 |---|---|
 | `src/` | SEG-Y I/O、座標計算、mask、正規化、SIREN、学習、評価、可視化、pipelineを置く。Notebook専用コードやstudy固有条件は置かない。 |
 | `scripts/` | CLIを呼ぶ薄いshell wrapperや環境セットアップ補助だけを置く。manifest解析、download、checksum、SEG-Y QCなどの主要ロジックは`src/`へ置く。 |
-| `studies/` | 一つの研究質問を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
+| `studies/` | 一つの研究質問について現在の研究契約と必要な判断理由を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
 | `data/` | C3 NAは外部公開データなので`external/`へ置く。manifestと説明文書はGit管理し、実SEG-Y、大容量配列、download lockはGitへ入れない。 |
 | `runs/` | run IDにUTC時刻とGit SHAを含める。resolved config、input lock、metrics、logs、checkpoint、figuresを保存する。 |
 | `results/` | 採用判断後に追加する。全runのコピーではなく、正式採用した図表・モデル・評価結果だけを保持する。 |
@@ -164,7 +174,7 @@ POCの進行中も、次の境界を維持する。
 ```text
 src/      = 再利用する実装
 scripts/  = 薄い実行補助
-studies/  = 研究条件と判断記録
+studies/  = 現在の研究契約と選択的な判断理由
 runs/     = 実行履歴
 results/  = 採用した成果
 ```

@@ -36,6 +36,4 @@ Define the go/no-go thresholds before running the experiment.
 
 State data, methodological, and generalization limitations.
 
-## Decision log
-
-- YYYY-MM-DD: Record decisions and their rationale.
+Historical rationale, when needed, belongs in [`decisions.md`](decisions.md).
