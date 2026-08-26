@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -58,5 +58,12 @@ This one-seed diagnostic measures training fit only. It does not evaluate interp
 validation/test performance, temporal patches, or alternative optimizers and batches. Because
 both batch size and total point budget differ from the earlier 1,024-point experiment, this run
 cannot isolate their causal effects and is not a complete reproduction of the paper's 5D setup.
+
+## Current conclusion
+
+The 5,000-point random-replacement batch that strongly fit eight traces did not scale to all 435
+training traces under this fixed setup. The best median training-trace S/N was -0.0181 dB with a
+0.02225 prediction/target RMS ratio, yielding `full_ffid_near_zero`; this run does not isolate the
+effects of batch size and total point budget.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).
