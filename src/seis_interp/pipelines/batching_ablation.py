@@ -54,6 +54,7 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
+from seis_interp.training.correlation_loss import trace_correlation_loss
 from seis_interp.training.model_inputs import to_model_tensors
 from seis_interp.training.point_sampler import (
     RandomPointSampler,
@@ -65,6 +66,7 @@ from seis_interp.training.prediction import predict_points
 STUDY_ID = "study_006_batching_ablation"
 FULL_FFID_STUDY_ID = "study_007_full_ffid_large_batch"
 FULL_FFID_TRACE_BATCH_STUDY_ID = "study_008_full_ffid_trace_batches"
+FULL_FFID_TRACE_BATCH_CORRELATION_STUDY_ID = "study_009_full_ffid_trace_batch_correlation"
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
@@ -78,6 +80,9 @@ _SELECTION_METHOD = "sorted_training_rows_single_numpy_permutation_prefix"
 _ALL_TRAINING_ROWS_METHOD = "all_training_rows_sorted_by_array_row"
 _EXACT_LABEL = "exact_full_batch"
 _RANDOM_LABEL = "random_replacement_5000"
+_MSE_PLUS_TRACE_CORRELATION = "mse_plus_trace_correlation"
+_STUDY_005_CORRELATION_WEIGHT = 0.1
+_STUDY_005_CORRELATION_EPS = 1.0e-4
 _EXPECTED_CONDITIONS = (
     (_EXACT_LABEL, "exact_full_batch", True, False),
     (_RANDOM_LABEL, "random_replacement", False, True),
@@ -270,6 +275,27 @@ def run_full_ffid_trace_batches(
     )
 
 
+def run_full_ffid_trace_batch_correlation(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run one complete-trace mini-batch probe with trace correlation loss."""
+    return _run_full_ffid_fit_probe(
+        config_path=config_path,
+        interim_dir=interim_dir,
+        processed_dir=processed_dir,
+        output_root=output_root,
+        device_override=device_override,
+        study_id=FULL_FFID_TRACE_BATCH_CORRELATION_STUDY_ID,
+        expected_batch_mode="random_complete_traces",
+        require_trace_correlation_loss=True,
+    )
+
+
 def _run_full_ffid_fit_probe(
     *,
     config_path: Path,
@@ -279,6 +305,7 @@ def _run_full_ffid_fit_probe(
     device_override: str | None,
     study_id: str,
     expected_batch_mode: str,
+    require_trace_correlation_loss: bool = False,
 ) -> dict[str, object]:
     """Run one configured full-training fit probe and write immutable records."""
     config = load_resolved_config(Path(config_path))
@@ -294,6 +321,7 @@ def _run_full_ffid_fit_probe(
     experiment = _validated_full_ffid_experiment_config(
         resolved_config,
         expected_batch_mode=expected_batch_mode,
+        require_trace_correlation_loss=require_trace_correlation_loss,
     )
     random_seed = _validated_random_seed(
         get_required_config_value(resolved_config, "project.random_seed")
@@ -302,6 +330,10 @@ def _run_full_ffid_fit_probe(
     run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
     if experiment["batch_mode"] == "random_replacement":
         condition_label = f"random{experiment['batch_size']}_trace{experiment['trace_count']}"
+    elif experiment["correlation_weight"] > 0.0:
+        condition_label = (
+            f"tracebatch{experiment['traces_per_update']}_corr0p1_trace{experiment['trace_count']}"
+        )
     else:
         condition_label = (
             f"tracebatch{experiment['traces_per_update']}_trace{experiment['trace_count']}"
@@ -367,6 +399,8 @@ def _run_full_ffid_fit_probe(
         device=device,
         random_seed=random_seed,
         traces_per_update=traces_per_update,
+        correlation_weight=experiment["correlation_weight"],
+        correlation_eps=experiment["correlation_eps"],
     )
     run_metadata = _build_run_metadata(
         study_id=study_id,
@@ -385,6 +419,11 @@ def _run_full_ffid_fit_probe(
         random_seed=random_seed,
         updates_completed=metrics["updates_completed"],
         traces_per_update=traces_per_update,
+        correlation_weight=(
+            experiment["correlation_weight"] if require_trace_correlation_loss else None
+        ),
+        correlation_eps=(experiment["correlation_eps"] if require_trace_correlation_loss else None),
+        loss_semantics=(_MSE_PLUS_TRACE_CORRELATION if require_trace_correlation_loss else None),
     )
     training_contract = {
         "batch_mode": experiment["batch_mode"],
@@ -395,6 +434,14 @@ def _run_full_ffid_fit_probe(
     }
     if traces_per_update is not None:
         training_contract["traces_per_update"] = traces_per_update
+    if require_trace_correlation_loss:
+        training_contract.update(
+            {
+                "correlation_weight": experiment["correlation_weight"],
+                "correlation_eps": experiment["correlation_eps"],
+                "loss_semantics": _MSE_PLUS_TRACE_CORRELATION,
+            }
+        )
     inputs_lock = _build_inputs_lock(
         interim_files=experiment_data["interim_files"],
         processed_files=experiment_data["processed_files"],
@@ -426,6 +473,14 @@ def _run_full_ffid_fit_probe(
         "decision": decision,
         "runs": [summary_run],
     }
+    if require_trace_correlation_loss:
+        summary.update(
+            {
+                "correlation_weight": experiment["correlation_weight"],
+                "correlation_eps": experiment["correlation_eps"],
+                "loss_semantics": _MSE_PLUS_TRACE_CORRELATION,
+            }
+        )
     _write_json(summary_path, summary)
     return summary
 
@@ -453,6 +508,8 @@ def run_training_fit_condition(
     device: torch.device | str,
     random_seed: int,
     traces_per_update: int | None = None,
+    correlation_weight: float = 0.0,
+    correlation_eps: float = _STUDY_005_CORRELATION_EPS,
 ) -> dict[str, object]:
     """Train one fresh model under one fixed batching condition."""
     total_updates = _positive_integer(total_updates, "total_updates")
@@ -460,6 +517,15 @@ def run_training_fit_condition(
     batch_size = _positive_integer(batch_size, "batch_size")
     sample_count = _positive_integer(sample_count, "sample_count")
     prediction_batch_size = _positive_integer(prediction_batch_size, "prediction_batch_size")
+    validated_correlation_weight = _nonnegative_finite_float(
+        correlation_weight,
+        "correlation_weight",
+    )
+    validated_correlation_eps = _positive_finite_float(
+        correlation_eps,
+        "correlation_eps",
+    )
+    uses_trace_correlation_loss = validated_correlation_weight > 0.0
     if total_updates % report_interval != 0:
         raise ValueError("total_updates must be divisible by report_interval")
     validated_traces_per_update = (
@@ -496,6 +562,8 @@ def run_training_fit_condition(
             raise ValueError("exact_full_batch does not accept traces_per_update")
     else:
         raise ValueError(f"unknown batch mode: {batch_mode!r}")
+    if uses_trace_correlation_loss and batch_mode != "random_complete_traces":
+        raise ValueError("trace correlation loss requires random_complete_traces batches")
 
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)
@@ -532,6 +600,8 @@ def run_training_fit_condition(
         sampler_batch_size = validated_traces_per_update
 
     interval_loss_sum = torch.zeros((), dtype=torch.float64, device=device)
+    interval_mse_loss_sum = torch.zeros((), dtype=torch.float64, device=device)
+    interval_correlation_loss_sum = torch.zeros((), dtype=torch.float64, device=device)
     history: list[dict[str, int | float]] = []
     best_row: dict[str, int | float] | None = None
     trace_count = len(selected_array_rows)
@@ -553,7 +623,21 @@ def run_training_fit_condition(
 
         optimizer.zero_grad(set_to_none=True)
         prediction = model(coordinate_tensor)
-        loss = torch_functional.mse_loss(prediction, target_tensor)
+        mse_loss = torch_functional.mse_loss(prediction, target_tensor)
+        if uses_trace_correlation_loss:
+            if validated_traces_per_update is None:
+                raise RuntimeError("trace correlation loss requires traces_per_update")
+            # RandomTraceBatchSampler returns complete traces in trace-major order.
+            correlation_loss = trace_correlation_loss(
+                prediction.reshape(validated_traces_per_update, sample_count),
+                target_tensor.reshape(validated_traces_per_update, sample_count),
+                eps=validated_correlation_eps,
+            )
+            loss = mse_loss + validated_correlation_weight * correlation_loss
+            interval_mse_loss_sum += mse_loss.detach().to(dtype=torch.float64)
+            interval_correlation_loss_sum += correlation_loss.detach().to(dtype=torch.float64)
+        else:
+            loss = mse_loss
         loss.backward()
         optimizer.step()
         interval_loss_sum += loss.detach().to(dtype=torch.float64)
@@ -577,6 +661,19 @@ def run_training_fit_condition(
                 step=step,
             ),
         }
+        if uses_trace_correlation_loss:
+            mean_mse_loss = float((interval_mse_loss_sum / report_interval).cpu().item())
+            mean_correlation_loss = float(
+                (interval_correlation_loss_sum / report_interval).cpu().item()
+            )
+            if not math.isfinite(mean_mse_loss) or not math.isfinite(mean_correlation_loss):
+                raise ValueError(f"mean loss component is non-finite at step {step}")
+            row.update(
+                {
+                    "mean_train_mse_loss_since_last_report": mean_mse_loss,
+                    "mean_train_correlation_loss_since_last_report": (mean_correlation_loss),
+                }
+            )
         history.append(row)
         if (
             best_row is None
@@ -584,6 +681,8 @@ def run_training_fit_condition(
         ):
             best_row = dict(row)
         interval_loss_sum.zero_()
+        interval_mse_loss_sum.zero_()
+        interval_correlation_loss_sum.zero_()
 
     if best_row is None or not history:
         raise RuntimeError(f"condition {label!r} produced no report points")
@@ -617,6 +716,14 @@ def run_training_fit_condition(
     }
     if validated_traces_per_update is not None:
         metrics["traces_per_update"] = validated_traces_per_update
+    if uses_trace_correlation_loss:
+        metrics.update(
+            {
+                "correlation_weight": validated_correlation_weight,
+                "correlation_eps": validated_correlation_eps,
+                "loss_semantics": _MSE_PLUS_TRACE_CORRELATION,
+            }
+        )
     metrics["classification"] = classify_condition(metrics)
     return metrics
 
@@ -888,6 +995,7 @@ def _validated_full_ffid_experiment_config(
     config: Mapping[str, object],
     *,
     expected_batch_mode: str = "random_replacement",
+    require_trace_correlation_loss: bool = False,
 ) -> dict[str, object]:
     _validate_common_training_fit_config(config)
     total_updates = _positive_integer(
@@ -919,6 +1027,25 @@ def _validated_full_ffid_experiment_config(
             get_required_config_value(config, "experiment.traces_per_update"),
             "experiment.traces_per_update",
         )
+    correlation_weight = 0.0
+    correlation_eps = _STUDY_005_CORRELATION_EPS
+    if require_trace_correlation_loss:
+        if batch_mode != "random_complete_traces":
+            raise ConfigurationError(
+                "trace correlation loss requires experiment.batch_mode 'random_complete_traces'"
+            )
+        correlation_weight = _positive_finite_float(
+            get_required_config_value(config, "experiment.correlation_weight"),
+            "experiment.correlation_weight",
+        )
+        correlation_eps = _positive_finite_float(
+            get_required_config_value(config, "experiment.correlation_eps"),
+            "experiment.correlation_eps",
+        )
+        if correlation_weight != _STUDY_005_CORRELATION_WEIGHT:
+            raise ConfigurationError("experiment.correlation_weight must be 0.1")
+        if correlation_eps != _STUDY_005_CORRELATION_EPS:
+            raise ConfigurationError("experiment.correlation_eps must be 1.0e-4")
     return {
         "trace_count": _positive_integer(
             get_required_config_value(config, "experiment.trace_count"),
@@ -937,6 +1064,8 @@ def _validated_full_ffid_experiment_config(
         "batch_mode": batch_mode,
         "replacement": replacement,
         "traces_per_update": traces_per_update,
+        "correlation_weight": correlation_weight,
+        "correlation_eps": correlation_eps,
     }
 
 
@@ -1095,6 +1224,14 @@ def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object
     summary = {"run_id": run_id, **{key: metrics[key] for key in keys}}
     if "traces_per_update" in metrics:
         summary["traces_per_update"] = metrics["traces_per_update"]
+    if "correlation_weight" in metrics:
+        summary.update(
+            {
+                "correlation_weight": metrics["correlation_weight"],
+                "correlation_eps": metrics["correlation_eps"],
+                "loss_semantics": metrics["loss_semantics"],
+            }
+        )
     return summary
 
 
@@ -1116,6 +1253,9 @@ def _build_run_metadata(
     random_seed: int,
     updates_completed: int,
     traces_per_update: int | None = None,
+    correlation_weight: float | None = None,
+    correlation_eps: float | None = None,
+    loss_semantics: str | None = None,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {
         "study_id": study_id,
@@ -1140,6 +1280,19 @@ def _build_run_metadata(
     }
     if traces_per_update is not None:
         metadata["traces_per_update"] = traces_per_update
+    correlation_metadata = (correlation_weight, correlation_eps, loss_semantics)
+    if any(value is not None for value in correlation_metadata):
+        if any(value is None for value in correlation_metadata):
+            raise ValueError(
+                "correlation_weight, correlation_eps, and loss_semantics must be provided together"
+            )
+        metadata.update(
+            {
+                "correlation_weight": correlation_weight,
+                "correlation_eps": correlation_eps,
+                "loss_semantics": loss_semantics,
+            }
+        )
     return metadata
 
 
@@ -1203,6 +1356,15 @@ def _positive_finite_float(value: object, name: str) -> float:
     converted = float(value)
     if not math.isfinite(converted) or converted <= 0.0:
         raise ValueError(f"{name} must be a positive finite number")
+    return converted
+
+
+def _nonnegative_finite_float(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a non-negative finite number")
+    converted = float(value)
+    if not math.isfinite(converted) or converted < 0.0:
+        raise ValueError(f"{name} must be a non-negative finite number")
     return converted
 
 

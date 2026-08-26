@@ -1,0 +1,12 @@
+datasets:
+  - dataset_id: seg_c3_na
+    manifest: ../../data/external/seg_c3_na/manifest.yaml
+    files:
+      - name: SEG_C3NA_ffid_1201-2400.sgy
+        sha256: 50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7
+    subset:
+      ffid: 2348
+      expected_trace_count: 544
+      time_window_s: null
+    interim: ../../data/interim/c3_na/ffid_2348
+    processed: ../../data/processed/c3_na/ffid_2348_random_split
