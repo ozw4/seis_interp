@@ -26,7 +26,7 @@ def test_study_006_config_locks_the_fixed_conditions() -> None:
         repository_root=REPOSITORY_ROOT,
     )
     expected = {
-        "study.status": "active",
+        "study.status": "completed",
         "project.random_seed": 42,
         "sampling.random_trace_holdout_fraction": 0.20,
         "sampling.validation_fraction_of_holdout": 0.25,
