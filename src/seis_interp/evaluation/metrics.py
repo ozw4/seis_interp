@@ -39,6 +39,37 @@ def median_trace_signal_to_noise_ratio_db(reference: np.ndarray, prediction: np.
     return float(np.median(trace_signal_to_noise_ratio_db(reference, prediction)))
 
 
+def trace_correlation_coefficient(
+    reference: np.ndarray,
+    prediction: np.ndarray,
+) -> np.ndarray:
+    """Return one centered correlation coefficient per trace."""
+    reference_float, prediction_float = _validated_metric_arrays(reference, prediction)
+    if reference_float.ndim != 2:
+        raise ValueError(
+            f"reference and prediction must be two-dimensional, got {reference_float.shape}"
+        )
+
+    reference_centered = reference_float - reference_float.mean(axis=1, keepdims=True)
+    prediction_centered = prediction_float - prediction_float.mean(axis=1, keepdims=True)
+    numerator = np.sum(reference_centered * prediction_centered, axis=1, dtype=np.float64)
+    reference_norm = np.sqrt(np.sum(np.square(reference_centered), axis=1, dtype=np.float64))
+    prediction_norm = np.sqrt(np.sum(np.square(prediction_centered), axis=1, dtype=np.float64))
+    denominator = reference_norm * prediction_norm
+    correlation = np.zeros(reference_float.shape[0], dtype=np.float64)
+    nonconstant = denominator > 0.0
+    correlation[nonconstant] = numerator[nonconstant] / denominator[nonconstant]
+    return np.clip(correlation, -1.0, 1.0)
+
+
+def median_trace_correlation_coefficient(
+    reference: np.ndarray,
+    prediction: np.ndarray,
+) -> float:
+    """Return the median per-trace centered correlation coefficient."""
+    return float(np.median(trace_correlation_coefficient(reference, prediction)))
+
+
 def _validated_metric_arrays(
     reference: np.ndarray,
     prediction: np.ndarray,

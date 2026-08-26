@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 
 from seis_interp.evaluation.metrics import (
+    median_trace_correlation_coefficient,
     median_trace_signal_to_noise_ratio_db,
     signal_to_noise_ratio_db,
+    trace_correlation_coefficient,
     trace_signal_to_noise_ratio_db,
 )
 
@@ -66,3 +68,48 @@ def test_trace_ratio_rejects_one_dimensional_input_and_a_zero_energy_trace() -> 
         trace_signal_to_noise_ratio_db(np.ones(2), np.ones(2))
     with pytest.raises(ValueError, match="trace energy"):
         trace_signal_to_noise_ratio_db(np.array([[1.0, -1.0], [0.0, 0.0]]), np.ones((2, 2)))
+
+
+def test_trace_correlation_matches_identical_and_sign_reversed_traces() -> None:
+    reference = np.array([[1.0, -1.0, 2.0], [-2.0, 0.0, 1.0]])
+
+    assert trace_correlation_coefficient(reference, reference) == pytest.approx([1.0, 1.0])
+    assert trace_correlation_coefficient(reference, -reference) == pytest.approx([-1.0, -1.0])
+
+
+def test_trace_correlation_ignores_positive_scale_and_offset() -> None:
+    reference = np.array([[1.0, -1.0, 2.0], [-2.0, 0.0, 1.0]])
+    scale = np.array([[3.0], [5.0]])
+    offset = np.array([[4.0], [-7.0]])
+    prediction = scale * reference + offset
+
+    assert trace_correlation_coefficient(reference, prediction) == pytest.approx([1.0, 1.0])
+
+
+def test_trace_correlation_is_zero_for_constant_prediction() -> None:
+    reference = np.array([[1.0, -1.0, 2.0], [-2.0, 0.0, 1.0]])
+
+    assert trace_correlation_coefficient(reference, np.ones_like(reference)) == pytest.approx(
+        [0.0, 0.0]
+    )
+
+
+def test_median_trace_correlation_matches_known_value() -> None:
+    reference = np.array([[1.0, 0.0, -1.0]] * 3)
+    prediction = np.array(
+        [
+            [1.0, 0.0, -1.0],
+            [0.0, 0.0, 0.0],
+            [-1.0, 0.0, 1.0],
+        ]
+    )
+
+    correlation = trace_correlation_coefficient(reference, prediction)
+
+    assert correlation == pytest.approx([1.0, 0.0, -1.0])
+    assert median_trace_correlation_coefficient(reference, prediction) == pytest.approx(0.0)
+
+
+def test_trace_correlation_rejects_one_dimensional_input() -> None:
+    with pytest.raises(ValueError, match="two-dimensional"):
+        trace_correlation_coefficient(np.ones(3), np.ones(3))
