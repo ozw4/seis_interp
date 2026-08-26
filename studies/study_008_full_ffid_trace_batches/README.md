@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -64,5 +64,11 @@ validation/test performance, temporal patches, correlation loss, or alternative 
 batches. It changes the within-update sampling structure relative to Study 007 but does not
 isolate every possible effect of trace-complete batching and is not a complete reproduction of
 the paper's 5D setup.
+
+## Current conclusion
+
+Random complete-trace batches did not escape the near-zero predictor on all 435 training traces.
+The best median training-trace S/N was -0.00116 dB with a 0.00548 prediction/target RMS ratio,
+yielding `full_ffid_near_zero`; this one-seed result does not test temporal patching.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).

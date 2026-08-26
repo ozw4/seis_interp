@@ -23,3 +23,21 @@ dB best median training-trace S/N. Study 005 run `20260826T020640Z_b550db8_mse_c
 **Impact:** This diagnostic tests whether preserving complete trace structure within each update
 changes full-FFID training fit at the same 5,000-point batch size and 250,000,000 point budget.
 It does not change production training or evaluate interpolation performance.
+
+## 2026-08-26 — Random complete-trace batches remain near zero
+
+**Context:** The fixed single condition completed all 50,000 updates and 250,000,000 point
+evaluations over the 435-trace training pool. Every update used all 625 samples from eight
+distinct randomly selected training traces, and all 100 full-training reports were finite.
+
+**Decision:** Record `full_ffid_near_zero`. The best report occurred at step 3,500 with -0.001160
+dB median training-trace S/N, -0.00001113 dB global S/N, 0.002370 median trace correlation, and a
+0.005476 prediction/target RMS ratio. Final median training-trace S/N was -0.04134 dB.
+
+**Evidence:** Run `20260826T065417Z_fa548ba_tracebatch8_trace435`; summary
+`20260826T065417Z_fa548ba_summary.json`.
+
+**Impact:** Preserving complete traces within each 5,000-point update did not make the full
+training split fit under this one-seed, pure-MSE setup. The result does not test shorter temporal
+patches, interpolation performance, or correlation loss, and it does not establish that every
+trace-structured batching strategy will fail.

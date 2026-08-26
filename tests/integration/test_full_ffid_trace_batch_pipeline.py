@@ -28,7 +28,7 @@ def test_study_008_config_locks_complete_trace_batches_with_pure_l2() -> None:
         repository_root=REPOSITORY_ROOT,
     )
     expected = {
-        "study.status": "active",
+        "study.status": "completed",
         "project.random_seed": 42,
         "sampling.random_trace_holdout_fraction": 0.20,
         "sampling.validation_fraction_of_holdout": 0.25,
