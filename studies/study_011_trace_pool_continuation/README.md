@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -80,5 +80,12 @@ interpolation, alternative pool schedules, or alternative optimizers and losses.
 350,000-update fresh full-pool control. A successful result would therefore show that this
 fixed continuation path can fit the training set, but would not separate continuation from
 additional compute or establish a general causal advantage.
+
+## Current conclusion
+
+The eight-trace anchor was reproduced, and continuation retained `strong_fit` through 64
+traces. Training collapsed to `near_zero` at the 128-trace stage and did not recover at 256 or
+435 traces; the final full-pool decision is `full_ffid_near_zero`. This one-seed run does not
+separate the continuation schedule from its larger compute budget.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).

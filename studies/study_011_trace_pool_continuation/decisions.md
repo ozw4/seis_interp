@@ -31,3 +31,26 @@ while preserving the Study 006/007 random-point batching contract. Its 1,750,000
 evaluations are seven times the Study 007 budget, and no compute-matched fresh full-pool control
 is included, so a positive result cannot by itself establish that continuation rather than
 additional compute caused the difference. Production training remains unchanged.
+
+## 2026-08-26 — Continuation loses the strong fit at 128 traces
+
+**Context:** The fixed continuation run completed all seven stages, 350,000 updates, and
+1,750,000,000 sampled point evaluations. The eight-trace final state reproduced the Study 006
+anchor at 26.8248 dB median training-trace S/N. The 16-, 32-, and 64-trace stages remained
+`strong_fit`, with final median S/N values of 30.0633, 21.1843, and 20.9149 dB.
+
+**Decision:** Record `full_ffid_near_zero`. At the 128-trace stage, entry median S/N was 6.1350
+dB, but the best post-update report was -0.02026 dB and the final state was -0.03638 dB. The
+256- and 435-trace stages also remained `near_zero`. The final 435-trace stage's best report was
+at cumulative step 307,000, with -0.02189 dB median trace S/N, -0.00235 dB global S/N,
+-0.00234 median trace correlation, and a 0.02230 prediction/target RMS ratio; final median trace
+S/N was -0.06302 dB.
+
+**Evidence:** Run `20260826T232352Z_1aa9755_continuation8to435_random5000`; summary
+`20260826T232352Z_1aa9755_summary.json`. All seven stages completed, all 700 report points were
+finite, and the generated run contains only the four contracted files.
+
+**Impact:** This fixed continuation path did not fit all 435 training traces. It localized the
+observed loss of fit to the expansion from 64 to 128 traces under this schedule, seed, optimizer
+state, and per-stage budget. It does not establish why the collapse occurred or separate
+continuation effects from the seven-times-larger point budget relative to Study 007.
