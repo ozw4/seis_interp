@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -72,5 +72,11 @@ comparison with Study 008 targets the added correlation term, but this single ru
 establish broad causal behavior across seeds or batching strategies. The auxiliary correlation
 loss is a POC-specific objective and is outside the source paper's reported L1, L2, and Huber
 losses.
+
+## Current conclusion
+
+Trace-wise correlation loss did not make Study 008-style complete-trace batches escape the
+near-zero predictor on all 435 training traces. The best median training-trace S/N was
+-0.01773 dB with a 0.01802 prediction/target RMS ratio, yielding `full_ffid_near_zero`.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).
