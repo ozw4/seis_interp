@@ -59,7 +59,9 @@ from seis_interp.training.model_inputs import to_model_tensors
 from seis_interp.training.point_sampler import (
     RandomPointSampler,
     RandomTraceBatchSampler,
+    RandomTracePatchSampler,
     build_trace_points,
+    overlapping_patch_starts,
 )
 from seis_interp.training.prediction import predict_points
 
@@ -67,6 +69,7 @@ STUDY_ID = "study_006_batching_ablation"
 FULL_FFID_STUDY_ID = "study_007_full_ffid_large_batch"
 FULL_FFID_TRACE_BATCH_STUDY_ID = "study_008_full_ffid_trace_batches"
 FULL_FFID_TRACE_BATCH_CORRELATION_STUDY_ID = "study_009_full_ffid_trace_batch_correlation"
+FULL_FFID_TEMPORAL_PATCH_STUDY_ID = "study_010_full_ffid_temporal_patches"
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
@@ -296,6 +299,26 @@ def run_full_ffid_trace_batch_correlation(
     )
 
 
+def run_full_ffid_temporal_patches(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run one shared temporal-patch mini-batch probe over every training trace."""
+    return _run_full_ffid_fit_probe(
+        config_path=config_path,
+        interim_dir=interim_dir,
+        processed_dir=processed_dir,
+        output_root=output_root,
+        device_override=device_override,
+        study_id=FULL_FFID_TEMPORAL_PATCH_STUDY_ID,
+        expected_batch_mode="random_shared_temporal_patch",
+    )
+
+
 def _run_full_ffid_fit_probe(
     *,
     config_path: Path,
@@ -330,6 +353,11 @@ def _run_full_ffid_fit_probe(
     run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
     if experiment["batch_mode"] == "random_replacement":
         condition_label = f"random{experiment['batch_size']}_trace{experiment['trace_count']}"
+    elif experiment["batch_mode"] == "random_shared_temporal_patch":
+        condition_label = (
+            f"patch{experiment['samples_per_trace']}_"
+            f"trace{experiment['traces_per_update']}_trace{experiment['trace_count']}"
+        )
     elif experiment["correlation_weight"] > 0.0:
         condition_label = (
             f"tracebatch{experiment['traces_per_update']}_corr0p1_trace{experiment['trace_count']}"
@@ -365,15 +393,38 @@ def _run_full_ffid_fit_probe(
     sample_count = experiment_data["sample_count"]
     point_count = trace_count * sample_count
     traces_per_update = experiment["traces_per_update"]
-    if (
-        traces_per_update is not None
-        and experiment["batch_size"] != traces_per_update * sample_count
-    ):
-        raise ConfigurationError(
-            "training.batch_size must equal "
-            "experiment.traces_per_update * sample_count "
-            f"({traces_per_update * sample_count})"
+    samples_per_trace = experiment["samples_per_trace"]
+    patch_starts = experiment["patch_starts"]
+    if experiment["batch_mode"] == "random_shared_temporal_patch":
+        if samples_per_trace is None or patch_starts is None:
+            raise RuntimeError("temporal-patch configuration is incomplete")
+        expected_patch_starts = overlapping_patch_starts(
+            sample_count,
+            samples_per_trace,
+            experiment["temporal_patch_overlap_fraction"],
         )
+        if patch_starts != expected_patch_starts:
+            raise ConfigurationError(
+                "experiment.patch_starts must equal the predefined overlapping starts "
+                f"{list(expected_patch_starts)}"
+            )
+        expected_batch_size = traces_per_update * samples_per_trace
+    elif traces_per_update is not None:
+        expected_batch_size = traces_per_update * sample_count
+    else:
+        expected_batch_size = None
+    if expected_batch_size is not None and experiment["batch_size"] != expected_batch_size:
+        if samples_per_trace is None:
+            message = (
+                "training.batch_size must equal experiment.traces_per_update * sample_count "
+                f"({expected_batch_size})"
+            )
+        else:
+            message = (
+                "training.batch_size must equal experiment.traces_per_update * "
+                f"experiment.samples_per_trace ({expected_batch_size})"
+            )
+        raise ConfigurationError(message)
     point_evaluations = experiment["batch_size"] * experiment["total_updates"]
 
     started_at_utc = _utc_timestamp()
@@ -399,6 +450,9 @@ def _run_full_ffid_fit_probe(
         device=device,
         random_seed=random_seed,
         traces_per_update=traces_per_update,
+        samples_per_trace=samples_per_trace,
+        patch_starts=patch_starts,
+        temporal_patch_overlap_fraction=experiment["temporal_patch_overlap_fraction"],
         correlation_weight=experiment["correlation_weight"],
         correlation_eps=experiment["correlation_eps"],
     )
@@ -419,6 +473,10 @@ def _run_full_ffid_fit_probe(
         random_seed=random_seed,
         updates_completed=metrics["updates_completed"],
         traces_per_update=traces_per_update,
+        samples_per_trace=samples_per_trace,
+        temporal_patch_overlap_fraction=experiment["temporal_patch_overlap_fraction"],
+        patch_starts=patch_starts,
+        shared_temporal_patch=experiment["shared_temporal_patch"],
         correlation_weight=(
             experiment["correlation_weight"] if require_trace_correlation_loss else None
         ),
@@ -434,6 +492,15 @@ def _run_full_ffid_fit_probe(
     }
     if traces_per_update is not None:
         training_contract["traces_per_update"] = traces_per_update
+    if samples_per_trace is not None:
+        training_contract.update(
+            {
+                "samples_per_trace": samples_per_trace,
+                "temporal_patch_overlap_fraction": experiment["temporal_patch_overlap_fraction"],
+                "patch_starts": list(patch_starts),
+                "shared_temporal_patch": experiment["shared_temporal_patch"],
+            }
+        )
     if require_trace_correlation_loss:
         training_contract.update(
             {
@@ -508,6 +575,9 @@ def run_training_fit_condition(
     device: torch.device | str,
     random_seed: int,
     traces_per_update: int | None = None,
+    samples_per_trace: int | None = None,
+    patch_starts: Sequence[int] | None = None,
+    temporal_patch_overlap_fraction: float | None = None,
     correlation_weight: float = 0.0,
     correlation_eps: float = _STUDY_005_CORRELATION_EPS,
 ) -> dict[str, object]:
@@ -533,11 +603,31 @@ def run_training_fit_condition(
         if traces_per_update is None
         else _positive_integer(traces_per_update, "traces_per_update")
     )
+    validated_samples_per_trace = (
+        None
+        if samples_per_trace is None
+        else _positive_integer(samples_per_trace, "samples_per_trace")
+    )
+    validated_patch_starts = None if patch_starts is None else _validated_patch_starts(patch_starts)
+    validated_patch_overlap = (
+        None
+        if temporal_patch_overlap_fraction is None
+        else _validated_overlap_fraction(
+            temporal_patch_overlap_fraction,
+            "temporal_patch_overlap_fraction",
+        )
+    )
     if batch_mode == "random_replacement":
         if full_batch or replacement is not True:
             raise ValueError("random_replacement requires full_batch=false and replacement=true")
         if validated_traces_per_update is not None:
             raise ValueError("random_replacement does not accept traces_per_update")
+        if (
+            validated_samples_per_trace is not None
+            or validated_patch_starts is not None
+            or validated_patch_overlap is not None
+        ):
+            raise ValueError("random_replacement does not accept temporal-patch parameters")
     elif batch_mode == "random_complete_traces":
         if full_batch or replacement:
             raise ValueError(
@@ -555,11 +645,49 @@ def run_training_fit_condition(
             raise ValueError(
                 f"batch_size must equal traces_per_update * sample_count ({expected_batch_size})"
             )
+        if (
+            validated_samples_per_trace is not None
+            or validated_patch_starts is not None
+            or validated_patch_overlap is not None
+        ):
+            raise ValueError("random_complete_traces does not accept temporal-patch parameters")
+    elif batch_mode == "random_shared_temporal_patch":
+        if full_batch or replacement:
+            raise ValueError(
+                "random_shared_temporal_patch requires full_batch=false and replacement=false"
+            )
+        if validated_traces_per_update is None:
+            raise ValueError("random_shared_temporal_patch requires traces_per_update")
+        if validated_samples_per_trace is None:
+            raise ValueError("random_shared_temporal_patch requires samples_per_trace")
+        if validated_patch_starts is None:
+            raise ValueError("random_shared_temporal_patch requires patch_starts")
+        if validated_patch_overlap is None:
+            raise ValueError(
+                "random_shared_temporal_patch requires temporal_patch_overlap_fraction"
+            )
+        if validated_traces_per_update > len(selected_array_rows):
+            raise ValueError(
+                "traces_per_update must not exceed the number of selected training rows "
+                f"({len(selected_array_rows)})"
+            )
+        expected_batch_size = validated_traces_per_update * validated_samples_per_trace
+        if batch_size != expected_batch_size:
+            raise ValueError(
+                "batch_size must equal traces_per_update * samples_per_trace "
+                f"({expected_batch_size})"
+            )
     elif batch_mode == "exact_full_batch":
         if full_batch is not True or replacement:
             raise ValueError("exact_full_batch requires full_batch=true and replacement=false")
         if validated_traces_per_update is not None:
             raise ValueError("exact_full_batch does not accept traces_per_update")
+        if (
+            validated_samples_per_trace is not None
+            or validated_patch_starts is not None
+            or validated_patch_overlap is not None
+        ):
+            raise ValueError("exact_full_batch does not accept temporal-patch parameters")
     else:
         raise ValueError(f"unknown batch mode: {batch_mode!r}")
     if uses_trace_correlation_loss and batch_mode != "random_complete_traces":
@@ -595,6 +723,17 @@ def run_training_fit_condition(
             normalized_spatial_by_array_row,
             normalized_amplitudes,
             selected_array_rows,
+            random_seed=random_seed,
+        )
+        sampler_batch_size = validated_traces_per_update
+    elif batch_mode == "random_shared_temporal_patch":
+        sampler = RandomTracePatchSampler(
+            normalized_time,
+            normalized_spatial_by_array_row,
+            normalized_amplitudes,
+            selected_array_rows,
+            patch_size=validated_samples_per_trace,
+            patch_starts=validated_patch_starts,
             random_seed=random_seed,
         )
         sampler_batch_size = validated_traces_per_update
@@ -716,6 +855,15 @@ def run_training_fit_condition(
     }
     if validated_traces_per_update is not None:
         metrics["traces_per_update"] = validated_traces_per_update
+    if validated_samples_per_trace is not None:
+        metrics.update(
+            {
+                "samples_per_trace": validated_samples_per_trace,
+                "temporal_patch_overlap_fraction": validated_patch_overlap,
+                "patch_starts": list(validated_patch_starts),
+                "shared_temporal_patch": True,
+            }
+        )
     if uses_trace_correlation_loss:
         metrics.update(
             {
@@ -998,6 +1146,14 @@ def _validated_full_ffid_experiment_config(
     require_trace_correlation_loss: bool = False,
 ) -> dict[str, object]:
     _validate_common_training_fit_config(config)
+    experiment_config = config.get("experiment")
+    if not isinstance(experiment_config, Mapping):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    correlation_keys = {"correlation_weight", "correlation_eps"}
+    if not require_trace_correlation_loss and correlation_keys.intersection(experiment_config):
+        raise ConfigurationError(
+            "pure-MSE full-FFID experiments must not define correlation_weight or correlation_eps"
+        )
     total_updates = _positive_integer(
         get_required_config_value(config, "training.total_updates"),
         "training.total_updates",
@@ -1011,7 +1167,11 @@ def _validated_full_ffid_experiment_config(
             "training.total_updates must be divisible by training.report_interval"
         )
     batch_mode = get_required_config_value(config, "experiment.batch_mode")
-    if expected_batch_mode not in {"random_replacement", "random_complete_traces"}:
+    if expected_batch_mode not in {
+        "random_replacement",
+        "random_complete_traces",
+        "random_shared_temporal_patch",
+    }:
         raise ValueError(f"unsupported expected batch mode: {expected_batch_mode!r}")
     if batch_mode != expected_batch_mode:
         raise ConfigurationError(f"experiment.batch_mode must be {expected_batch_mode!r}")
@@ -1022,11 +1182,33 @@ def _validated_full_ffid_experiment_config(
             f"experiment.replacement must be {str(expected_replacement).lower()}"
         )
     traces_per_update = None
-    if batch_mode == "random_complete_traces":
+    if batch_mode in {"random_complete_traces", "random_shared_temporal_patch"}:
         traces_per_update = _positive_integer(
             get_required_config_value(config, "experiment.traces_per_update"),
             "experiment.traces_per_update",
         )
+    samples_per_trace = None
+    temporal_patch_overlap_fraction = None
+    patch_starts = None
+    shared_temporal_patch = None
+    if batch_mode == "random_shared_temporal_patch":
+        samples_per_trace = _positive_integer(
+            get_required_config_value(config, "experiment.samples_per_trace"),
+            "experiment.samples_per_trace",
+        )
+        temporal_patch_overlap_fraction = _validated_overlap_fraction(
+            get_required_config_value(config, "experiment.temporal_patch_overlap_fraction"),
+            "experiment.temporal_patch_overlap_fraction",
+        )
+        patch_starts = _validated_patch_starts(
+            get_required_config_value(config, "experiment.patch_starts")
+        )
+        shared_temporal_patch = get_required_config_value(
+            config,
+            "experiment.shared_temporal_patch",
+        )
+        if shared_temporal_patch is not True:
+            raise ConfigurationError("experiment.shared_temporal_patch must be true")
     correlation_weight = 0.0
     correlation_eps = _STUDY_005_CORRELATION_EPS
     if require_trace_correlation_loss:
@@ -1064,6 +1246,10 @@ def _validated_full_ffid_experiment_config(
         "batch_mode": batch_mode,
         "replacement": replacement,
         "traces_per_update": traces_per_update,
+        "samples_per_trace": samples_per_trace,
+        "temporal_patch_overlap_fraction": temporal_patch_overlap_fraction,
+        "patch_starts": patch_starts,
+        "shared_temporal_patch": shared_temporal_patch,
         "correlation_weight": correlation_weight,
         "correlation_eps": correlation_eps,
     }
@@ -1224,6 +1410,15 @@ def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object
     summary = {"run_id": run_id, **{key: metrics[key] for key in keys}}
     if "traces_per_update" in metrics:
         summary["traces_per_update"] = metrics["traces_per_update"]
+    if "samples_per_trace" in metrics:
+        summary.update(
+            {
+                "samples_per_trace": metrics["samples_per_trace"],
+                "temporal_patch_overlap_fraction": metrics["temporal_patch_overlap_fraction"],
+                "patch_starts": metrics["patch_starts"],
+                "shared_temporal_patch": metrics["shared_temporal_patch"],
+            }
+        )
     if "correlation_weight" in metrics:
         summary.update(
             {
@@ -1253,6 +1448,10 @@ def _build_run_metadata(
     random_seed: int,
     updates_completed: int,
     traces_per_update: int | None = None,
+    samples_per_trace: int | None = None,
+    temporal_patch_overlap_fraction: float | None = None,
+    patch_starts: Sequence[int] | None = None,
+    shared_temporal_patch: bool | None = None,
     correlation_weight: float | None = None,
     correlation_eps: float | None = None,
     loss_semantics: str | None = None,
@@ -1280,6 +1479,26 @@ def _build_run_metadata(
     }
     if traces_per_update is not None:
         metadata["traces_per_update"] = traces_per_update
+    patch_metadata = (
+        samples_per_trace,
+        temporal_patch_overlap_fraction,
+        patch_starts,
+        shared_temporal_patch,
+    )
+    if any(value is not None for value in patch_metadata):
+        if any(value is None for value in patch_metadata):
+            raise ValueError(
+                "samples_per_trace, temporal_patch_overlap_fraction, patch_starts, and "
+                "shared_temporal_patch must be provided together"
+            )
+        metadata.update(
+            {
+                "samples_per_trace": samples_per_trace,
+                "temporal_patch_overlap_fraction": temporal_patch_overlap_fraction,
+                "patch_starts": list(patch_starts),
+                "shared_temporal_patch": shared_temporal_patch,
+            }
+        )
     correlation_metadata = (correlation_weight, correlation_eps, loss_semantics)
     if any(value is not None for value in correlation_metadata):
         if any(value is None for value in correlation_metadata):
@@ -1348,6 +1567,28 @@ def _positive_integer(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
         raise ValueError(f"{name} must be a positive integer")
     return int(value)
+
+
+def _validated_patch_starts(value: object) -> tuple[int, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or not value:
+        raise ValueError("patch_starts must be a non-empty sequence")
+    starts: list[int] = []
+    for start in value:
+        if isinstance(start, bool) or not isinstance(start, Integral) or int(start) < 0:
+            raise ValueError("patch_starts must contain non-negative integers")
+        starts.append(int(start))
+    if starts != sorted(set(starts)):
+        raise ValueError("patch_starts must be strictly increasing and unique")
+    return tuple(starts)
+
+
+def _validated_overlap_fraction(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a finite number within [0, 1)")
+    converted = float(value)
+    if not math.isfinite(converted) or not 0.0 <= converted < 1.0:
+        raise ValueError(f"{name} must be a finite number within [0, 1)")
+    return converted
 
 
 def _positive_finite_float(value: object, name: str) -> float:
