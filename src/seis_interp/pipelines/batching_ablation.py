@@ -70,6 +70,7 @@ FULL_FFID_STUDY_ID = "study_007_full_ffid_large_batch"
 FULL_FFID_TRACE_BATCH_STUDY_ID = "study_008_full_ffid_trace_batches"
 FULL_FFID_TRACE_BATCH_CORRELATION_STUDY_ID = "study_009_full_ffid_trace_batch_correlation"
 FULL_FFID_TEMPORAL_PATCH_STUDY_ID = "study_010_full_ffid_temporal_patches"
+TRACE_POOL_CONTINUATION_STUDY_ID = "study_011_trace_pool_continuation"
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
@@ -317,6 +318,311 @@ def run_full_ffid_temporal_patches(
         study_id=FULL_FFID_TEMPORAL_PATCH_STUDY_ID,
         expected_batch_mode="random_shared_temporal_patch",
     )
+
+
+def run_trace_pool_continuation(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Train one model through nested random-replacement trace pools."""
+    config = load_resolved_config(Path(config_path))
+    device = device_override or get_required_config_value(config, "training.device")
+    if not isinstance(device, str) or not device:
+        raise ConfigurationError("training.device must be a non-empty string")
+    resolved_config = deepcopy(config)
+    training_config = resolved_config.get("training")
+    if not isinstance(training_config, dict):
+        raise ConfigurationError("training configuration must be a mapping")
+    training_config["device"] = device
+
+    experiment = _validated_continuation_experiment_config(resolved_config)
+    random_seed = _validated_random_seed(
+        get_required_config_value(resolved_config, "project.random_seed")
+    )
+    _validated_random_seed(random_seed + len(experiment["trace_counts"]) - 1)
+    git_commit = _git_commit()
+    run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
+    trace_counts = experiment["trace_counts"]
+    condition_label = (
+        f"continuation{trace_counts[0]}to{trace_counts[-1]}_random{experiment['batch_size']}"
+    )
+    output_directory = Path(output_root)
+    run_path = output_directory / f"{run_prefix}_{condition_label}"
+    summary_path = output_directory / f"{run_prefix}_summary.json"
+    _preflight_output_paths(output_directory, (run_path, summary_path))
+
+    experiment_data = _load_experiment_data(
+        Path(interim_dir),
+        Path(processed_dir),
+        resolved_config,
+    )
+    available_training_rows = len(experiment_data["training_array_rows"])
+    if trace_counts[-1] != available_training_rows:
+        raise ValueError(
+            f"largest configured trace count {trace_counts[-1]} must equal all "
+            f"{available_training_rows} available training rows"
+        )
+    subsets = deterministic_nested_trace_subsets(
+        experiment_data["training_array_rows"],
+        trace_counts,
+        random_seed=random_seed,
+    )
+
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(random_seed)
+    model = _build_model(resolved_config)
+    model.to(device)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=_positive_finite_float(
+            get_required_config_value(resolved_config, "training.learning_rate"),
+            "training.learning_rate",
+        ),
+    )
+
+    started_at_utc = _utc_timestamp()
+    sample_count = experiment_data["sample_count"]
+    stages: list[dict[str, object]] = []
+    cumulative_updates = 0
+    anchor_reproduced = False
+    for stage_index, trace_count in enumerate(trace_counts):
+        selected_rows = subsets[trace_count]
+        training_coordinates, training_targets = build_trace_points(
+            experiment_data["normalized_time"],
+            experiment_data["normalized_spatial_by_array_row"],
+            experiment_data["normalized_amplitudes"],
+            selected_rows,
+        )
+        entry_metrics = _evaluate_training_fit(
+            model,
+            training_coordinates=training_coordinates,
+            training_targets=training_targets,
+            trace_count=trace_count,
+            sample_count=sample_count,
+            prediction_batch_size=experiment["prediction_batch_size"],
+            device=device,
+            step=cumulative_updates,
+        )
+        sampler_seed = _validated_random_seed(random_seed + stage_index)
+        stage_metrics = run_training_fit_condition(
+            config=resolved_config,
+            label=f"stage{stage_index + 1:02d}_trace{trace_count}",
+            batch_mode=experiment["batch_mode"],
+            full_batch=False,
+            replacement=experiment["replacement"],
+            total_updates=experiment["updates_per_stage"],
+            report_interval=experiment["report_interval"],
+            batch_size=experiment["batch_size"],
+            normalized_time=experiment_data["normalized_time"],
+            normalized_spatial_by_array_row=experiment_data["normalized_spatial_by_array_row"],
+            normalized_amplitudes=experiment_data["normalized_amplitudes"],
+            selected_array_rows=selected_rows,
+            all_coordinate_tensor=None,
+            all_target_tensor=None,
+            training_coordinates=training_coordinates,
+            training_targets=training_targets,
+            sample_count=sample_count,
+            prediction_batch_size=experiment["prediction_batch_size"],
+            device=device,
+            random_seed=sampler_seed,
+            model=model,
+            optimizer=optimizer,
+        )
+        _add_continuation_stage_context(
+            stage_metrics,
+            stage_index=stage_index,
+            sampler_seed=sampler_seed,
+            cumulative_updates_before_stage=cumulative_updates,
+            entry_metrics=entry_metrics,
+        )
+        cumulative_updates += experiment["updates_per_stage"]
+        stages.append(stage_metrics)
+
+        if stage_index == 0:
+            anchor_reproduced = (
+                float(stage_metrics["final_training_median_trace_snr_db"])
+                >= experiment["first_stage_final_min_median_trace_snr_db"]
+            )
+            if not anchor_reproduced:
+                break
+
+    completed_stage = stages[-1]
+    point_evaluations = experiment["batch_size"] * cumulative_updates
+    planned_total_updates = experiment["updates_per_stage"] * len(trace_counts)
+    planned_point_evaluations = experiment["batch_size"] * planned_total_updates
+    metrics = _summary_run(condition_label, completed_stage)
+    metrics.pop("run_id")
+    metrics.update(
+        {
+            "condition": condition_label,
+            "planned_stage_trace_counts": list(trace_counts),
+            "completed_stage_trace_counts": [int(stage["trace_count"]) for stage in stages],
+            "stages_completed": len(stages),
+            "updates_per_stage": experiment["updates_per_stage"],
+            "planned_total_updates": planned_total_updates,
+            "updates_completed": cumulative_updates,
+            "planned_point_evaluations": planned_point_evaluations,
+            "point_evaluations": point_evaluations,
+            "anchor_reproduced": anchor_reproduced,
+            "first_stage_final_min_median_trace_snr_db": experiment[
+                "first_stage_final_min_median_trace_snr_db"
+            ],
+            "stages": stages,
+        }
+    )
+    final_full_ffid_classification = str(metrics["classification"]) if anchor_reproduced else None
+    metrics.update(
+        {
+            "classification_scope": (
+                "final_full_ffid_stage" if anchor_reproduced else "completed_anchor_stage"
+            ),
+            "final_full_ffid_classification": final_full_ffid_classification,
+        }
+    )
+    decision = continuation_summary_decision(
+        anchor_reproduced=anchor_reproduced,
+        final_classification=str(metrics["classification"]),
+    )
+
+    training_contract = {
+        "batch_mode": experiment["batch_mode"],
+        "replacement": experiment["replacement"],
+        "batch_size": experiment["batch_size"],
+        "updates_per_stage": experiment["updates_per_stage"],
+        "report_interval": experiment["report_interval"],
+        "prediction_batch_size": experiment["prediction_batch_size"],
+        "planned_stage_trace_counts": list(trace_counts),
+        "completed_stage_trace_counts": [int(stage["trace_count"]) for stage in stages],
+        "sampler_seed_policy": experiment["sampler_seed_policy"],
+        "planned_sampler_seeds": [random_seed + index for index in range(len(trace_counts))],
+        "completed_sampler_seeds": [int(stage["sampler_seed"]) for stage in stages],
+        "carry_model_state": experiment["carry_model_state"],
+        "carry_optimizer_state": experiment["carry_optimizer_state"],
+        "reset_optimizer_between_stages": experiment["reset_optimizer_between_stages"],
+        "rewind_to_best": experiment["rewind_to_best"],
+        "checkpoint": experiment["checkpoint"],
+        "first_stage_final_min_median_trace_snr_db": experiment[
+            "first_stage_final_min_median_trace_snr_db"
+        ],
+        "planned_total_updates": planned_total_updates,
+        "planned_point_evaluations": planned_point_evaluations,
+        "updates_completed": cumulative_updates,
+        "point_evaluations": point_evaluations,
+    }
+    completed_trace_count = int(completed_stage["trace_count"])
+    completed_rows = subsets[completed_trace_count]
+    inputs_lock = _build_inputs_lock(
+        interim_files=experiment_data["interim_files"],
+        processed_files=experiment_data["processed_files"],
+        preparation_contract=experiment_data["preparation_contract"],
+        selected_array_rows=completed_rows,
+        trace_count=completed_trace_count,
+        sample_count=sample_count,
+        point_count=completed_trace_count * sample_count,
+        random_seed=random_seed,
+        split_counts=experiment_data["split_counts"],
+        training_contract=training_contract,
+    )
+    selection = inputs_lock["selection"]
+    if not isinstance(selection, dict):
+        raise RuntimeError("continuation input selection lock must be a mapping")
+    selection.update(
+        {
+            "planned_trace_counts": list(trace_counts),
+            "planned_nested_selected_array_rows": {
+                str(trace_count): [int(value) for value in subsets[trace_count]]
+                for trace_count in trace_counts
+            },
+        }
+    )
+
+    run_metadata = _build_run_metadata(
+        study_id=TRACE_POOL_CONTINUATION_STUDY_ID,
+        condition=condition_label,
+        batch_mode=experiment["batch_mode"],
+        batch_size=experiment["batch_size"],
+        trace_count=int(completed_stage["trace_count"]),
+        sample_count=sample_count,
+        point_count=int(completed_stage["point_count"]),
+        point_evaluations=point_evaluations,
+        full_batch=False,
+        replacement=experiment["replacement"],
+        git_commit=git_commit,
+        started_at_utc=started_at_utc,
+        device=device,
+        random_seed=random_seed,
+        updates_completed=cumulative_updates,
+    )
+    run_metadata.update(
+        {
+            "planned_stage_trace_counts": list(trace_counts),
+            "completed_stage_trace_counts": [int(stage["trace_count"]) for stage in stages],
+            "stages_completed": len(stages),
+            "updates_per_stage": experiment["updates_per_stage"],
+            "planned_total_updates": planned_total_updates,
+            "planned_point_evaluations": planned_point_evaluations,
+            "sampler_seed_policy": experiment["sampler_seed_policy"],
+            "planned_sampler_seeds": [random_seed + index for index in range(len(trace_counts))],
+            "completed_sampler_seeds": [int(stage["sampler_seed"]) for stage in stages],
+            "carry_model_state": experiment["carry_model_state"],
+            "carry_optimizer_state": experiment["carry_optimizer_state"],
+            "reset_optimizer_between_stages": experiment["reset_optimizer_between_stages"],
+            "rewind_to_best": experiment["rewind_to_best"],
+            "checkpoint": experiment["checkpoint"],
+            "anchor_reproduced": anchor_reproduced,
+            "classification_scope": metrics["classification_scope"],
+            "final_full_ffid_classification": final_full_ffid_classification,
+            "first_stage_final_min_median_trace_snr_db": experiment[
+                "first_stage_final_min_median_trace_snr_db"
+            ],
+        }
+    )
+    _write_condition_outputs(
+        run_path,
+        resolved_config,
+        inputs_lock,
+        metrics,
+        run_metadata,
+    )
+
+    summary_run = _summary_run(run_path.name, metrics)
+    summary_run.update(
+        {
+            "planned_stage_trace_counts": list(trace_counts),
+            "completed_stage_trace_counts": [int(stage["trace_count"]) for stage in stages],
+            "stages_completed": len(stages),
+            "updates_per_stage": experiment["updates_per_stage"],
+            "planned_total_updates": planned_total_updates,
+            "planned_point_evaluations": planned_point_evaluations,
+            "anchor_reproduced": anchor_reproduced,
+            "classification_scope": metrics["classification_scope"],
+            "final_full_ffid_classification": final_full_ffid_classification,
+        }
+    )
+    summary: dict[str, object] = {
+        "study_id": TRACE_POOL_CONTINUATION_STUDY_ID,
+        "git_commit": git_commit,
+        "generated_at_utc": _utc_timestamp(),
+        "planned_total_updates": planned_total_updates,
+        "updates_completed": cumulative_updates,
+        "planned_point_evaluations": planned_point_evaluations,
+        "point_evaluations": point_evaluations,
+        "anchor_reproduced": anchor_reproduced,
+        "first_stage_final_min_median_trace_snr_db": experiment[
+            "first_stage_final_min_median_trace_snr_db"
+        ],
+        "final_full_ffid_classification": final_full_ffid_classification,
+        "decision": decision,
+        "runs": [summary_run],
+    }
+    _write_json(summary_path, summary)
+    return summary
 
 
 def _run_full_ffid_fit_probe(
@@ -580,8 +886,10 @@ def run_training_fit_condition(
     temporal_patch_overlap_fraction: float | None = None,
     correlation_weight: float = 0.0,
     correlation_eps: float = _STUDY_005_CORRELATION_EPS,
+    model: Siren | None = None,
+    optimizer: torch.optim.Optimizer | None = None,
 ) -> dict[str, object]:
-    """Train one fresh model under one fixed batching condition."""
+    """Train one model under one fixed batching condition, freshly initialized by default."""
     total_updates = _positive_integer(total_updates, "total_updates")
     report_interval = _positive_integer(report_interval, "report_interval")
     batch_size = _positive_integer(batch_size, "batch_size")
@@ -693,20 +1001,26 @@ def run_training_fit_condition(
     if uses_trace_correlation_loss and batch_mode != "random_complete_traces":
         raise ValueError("trace correlation loss requires random_complete_traces batches")
 
-    np.random.seed(random_seed)
-    torch.manual_seed(random_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(random_seed)
-
-    model = _build_model(config)
-    model.to(device)
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=_positive_finite_float(
-            get_required_config_value(config, "training.learning_rate"),
-            "training.learning_rate",
-        ),
-    )
+    if (model is None) != (optimizer is None):
+        raise ValueError("model and optimizer must either both be provided or both be omitted")
+    if model is None:
+        np.random.seed(random_seed)
+        torch.manual_seed(random_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(random_seed)
+        model = _build_model(config)
+        model.to(device)
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=_positive_finite_float(
+                get_required_config_value(config, "training.learning_rate"),
+                "training.learning_rate",
+            ),
+        )
+    else:
+        model.to(device)
+    if optimizer is None:
+        raise RuntimeError("training optimizer was not initialized")
     sampler = None
     sampler_batch_size = batch_size
     if batch_mode == "random_replacement":
@@ -942,6 +1256,19 @@ def classify_condition(metrics: Mapping[str, object]) -> str:
     return "near_zero"
 
 
+def continuation_summary_decision(
+    *,
+    anchor_reproduced: bool,
+    final_classification: str,
+) -> str:
+    """Return the staged-continuation outcome after applying its anchor gate."""
+    if not isinstance(anchor_reproduced, bool):
+        raise ValueError("anchor_reproduced must be a boolean")
+    if not anchor_reproduced:
+        return "stage8_anchor_failed"
+    return full_ffid_summary_decision(final_classification)
+
+
 def full_ffid_summary_decision(classification: str) -> str:
     """Map one fit classification to the shared full-FFID summary decision."""
     decisions = {
@@ -953,6 +1280,42 @@ def full_ffid_summary_decision(classification: str) -> str:
         return decisions[classification]
     except KeyError as error:
         raise ValueError(f"unknown training-fit classification: {classification!r}") from error
+
+
+def _add_continuation_stage_context(
+    metrics: dict[str, object],
+    *,
+    stage_index: int,
+    sampler_seed: int,
+    cumulative_updates_before_stage: int,
+    entry_metrics: Mapping[str, float],
+) -> None:
+    """Annotate local stage metrics with immutable continuation coordinates."""
+    history = metrics.get("history")
+    if not isinstance(history, list):
+        raise RuntimeError("continuation stage history must be a list")
+    best_stage_step = int(metrics["best_step"])
+    for row in history:
+        if not isinstance(row, dict):
+            raise RuntimeError("continuation stage history rows must be mappings")
+        stage_step = int(row["step"])
+        cumulative_step = cumulative_updates_before_stage + stage_step
+        row["stage_step"] = stage_step
+        row["cumulative_step"] = cumulative_step
+        row["step"] = cumulative_step
+    metrics.update(
+        {
+            "stage_index": stage_index + 1,
+            "sampler_seed": sampler_seed,
+            "cumulative_updates_start": cumulative_updates_before_stage,
+            "cumulative_updates_end": (
+                cumulative_updates_before_stage + int(metrics["updates_completed"])
+            ),
+            "best_stage_step": best_stage_step,
+            "best_step": cumulative_updates_before_stage + best_stage_step,
+            **{f"entry_{key}": value for key, value in entry_metrics.items()},
+        }
+    )
 
 
 def batching_summary_decision(summary_runs: Sequence[Mapping[str, object]]) -> str:
@@ -1255,6 +1618,90 @@ def _validated_full_ffid_experiment_config(
     }
 
 
+def _validated_continuation_experiment_config(
+    config: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate the focused nested trace-pool continuation contract."""
+    _validate_common_training_fit_config(config)
+    experiment_config = config.get("experiment")
+    if not isinstance(experiment_config, Mapping):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    training_config = config.get("training")
+    if not isinstance(training_config, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    correlation_keys = {"correlation_weight", "correlation_eps", "loss_semantics"}
+    if correlation_keys.intersection(experiment_config) or correlation_keys.intersection(
+        training_config
+    ):
+        raise ConfigurationError("pure-MSE continuation must not define correlation-loss keys")
+
+    trace_counts = _validated_continuation_trace_counts(
+        get_required_config_value(config, "experiment.trace_counts")
+    )
+    updates_per_stage = _positive_integer(
+        get_required_config_value(config, "training.updates_per_stage"),
+        "training.updates_per_stage",
+    )
+    report_interval = _positive_integer(
+        get_required_config_value(config, "training.report_interval"),
+        "training.report_interval",
+    )
+    if updates_per_stage % report_interval != 0:
+        raise ConfigurationError(
+            "training.updates_per_stage must be divisible by training.report_interval"
+        )
+    batch_mode = get_required_config_value(config, "experiment.batch_mode")
+    if batch_mode != "random_replacement":
+        raise ConfigurationError("experiment.batch_mode must be 'random_replacement'")
+    replacement = get_required_config_value(config, "experiment.replacement")
+    if replacement is not True:
+        raise ConfigurationError("experiment.replacement must be true")
+    sampler_seed_policy = get_required_config_value(config, "experiment.sampler_seed_policy")
+    if sampler_seed_policy != "base_seed_plus_stage_index":
+        raise ConfigurationError(
+            "experiment.sampler_seed_policy must be 'base_seed_plus_stage_index'"
+        )
+
+    required_flags = {
+        "carry_model_state": True,
+        "carry_optimizer_state": True,
+        "reset_optimizer_between_stages": False,
+        "rewind_to_best": False,
+        "checkpoint": False,
+    }
+    validated_flags: dict[str, bool] = {}
+    for key, expected in required_flags.items():
+        value = get_required_config_value(config, f"experiment.{key}")
+        if value is not expected:
+            raise ConfigurationError(f"experiment.{key} must be {str(expected).lower()}")
+        validated_flags[key] = expected
+
+    return {
+        "trace_counts": trace_counts,
+        "updates_per_stage": updates_per_stage,
+        "report_interval": report_interval,
+        "batch_size": _positive_integer(
+            get_required_config_value(config, "training.batch_size"),
+            "training.batch_size",
+        ),
+        "prediction_batch_size": _positive_integer(
+            get_required_config_value(config, "training.prediction_batch_size"),
+            "training.prediction_batch_size",
+        ),
+        "batch_mode": batch_mode,
+        "replacement": replacement,
+        "sampler_seed_policy": sampler_seed_policy,
+        "first_stage_final_min_median_trace_snr_db": _finite_float(
+            get_required_config_value(
+                config,
+                "experiment.first_stage_final_min_median_trace_snr_db",
+            ),
+            "experiment.first_stage_final_min_median_trace_snr_db",
+        ),
+        **validated_flags,
+    }
+
+
 def _validate_common_training_fit_config(config: Mapping[str, object]) -> None:
     if get_required_config_value(config, "model.name") != "siren":
         raise ConfigurationError("model.name must be 'siren'")
@@ -1295,6 +1742,15 @@ def _validated_conditions(value: object) -> tuple[tuple[str, str, bool, bool], .
             "experiment.conditions must contain the fixed exact and random-replacement conditions"
         )
     return converted
+
+
+def _validated_continuation_trace_counts(value: object) -> tuple[int, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or not value:
+        raise ConfigurationError("experiment.trace_counts must be a non-empty sequence")
+    counts = tuple(_positive_integer(item, "experiment.trace_counts item") for item in value)
+    if tuple(sorted(set(counts))) != counts:
+        raise ConfigurationError("experiment.trace_counts must be strictly increasing and unique")
+    return counts
 
 
 def _validate_full_batch_tensors(
@@ -1606,6 +2062,15 @@ def _nonnegative_finite_float(value: object, name: str) -> float:
     converted = float(value)
     if not math.isfinite(converted) or converted < 0.0:
         raise ValueError(f"{name} must be a non-negative finite number")
+    return converted
+
+
+def _finite_float(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a finite number")
+    converted = float(value)
+    if not math.isfinite(converted):
+        raise ValueError(f"{name} must be a finite number")
     return converted
 
 
