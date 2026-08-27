@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -99,5 +99,17 @@ package, so the result cannot identify an individual causal contribution. Study 
 full-training random-replacement run remained near zero, while Study 011's continuation run
 collapsed at 128 traces; this paired experiment tests a new parameterization under the Study
 007 training budget but does not establish generality beyond that setting.
+
+## Current conclusion
+
+| Condition | Classification | Best step | Best median S/N | Best global S/N | Best median correlation | Best RMS ratio |
+|---|---|---:|---:|---:|---:|---:|
+| `legacy_control` | `near_zero` | 19,000 | -0.018082 dB | -0.001365 dB | 0.001756 | 0.022250 |
+| `official_siren_30` | `near_zero` | 19,000 | -0.020534 dB | -0.002343 dB | 0.000955 | 0.023597 |
+
+The legacy control reproduced Study 007's near-zero result, validating the paired comparison.
+The official 30/30 frequency and initialization package also remained near zero, yielding
+`official_siren_near_zero`; this single paired run does not isolate individual components or
+establish behavior for other seeds or training regimes.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).

@@ -77,3 +77,28 @@ traces and their 625 samples.
 
 **Impact:** The result cannot support claims about validation/test interpolation, but directly
 answers the scoped training-optimization question without held-out leakage.
+
+## 2026-08-27 — Official SIREN package remains near zero
+
+**Context:** The paired full-training run completed both 50,000-update conditions on all 435
+training traces. The legacy control reproduced Study 007's near-zero result, so the comparison
+validity gate passed.
+
+**Decision:** Record `official_siren_near_zero`. The official 30/30 frequency and
+initialization package did not escape the near-zero predictor under the fixed Study 007
+training conditions.
+
+**Evidence:** Runs `20260827T004311Z_fcfeec9_legacy_control` and
+`20260827T004311Z_fcfeec9_official_siren_30`; summary
+`20260827T004311Z_fcfeec9_summary.json`. The legacy control's best report was step 19,000 with
+-0.018082 dB median trace S/N, -0.001365 dB global S/N, 0.001756 median correlation, and a
+0.022250 RMS ratio; its final median trace S/N was -0.039974 dB. The official condition's best
+report was also step 19,000 with -0.020534 dB median trace S/N, -0.002343 dB global S/N,
+0.000955 median correlation, and a 0.023597 RMS ratio; its final median trace S/N was -0.040617
+dB. Both conditions were `near_zero`; each completed 250,000,000 point evaluations and 100
+finite reports.
+
+**Impact:** Switching to the complete official parameterization package was not sufficient to
+fit the full training set in this paired seed-42 run. This result does not identify the effect
+of any individual frequency or initialization component and does not establish behavior for
+other seeds, batching schemes, or training budgets.
