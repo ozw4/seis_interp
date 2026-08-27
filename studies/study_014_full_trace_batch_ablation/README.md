@@ -2,7 +2,7 @@
 
 ## Status
 
-`in_progress`
+`completed`
 
 ## Research question
 
@@ -121,6 +121,35 @@ parameterization, and one update budget.
 
 ## Current conclusion
 
-The study is running; results will be recorded here.
+Run `20260827T041050Z_925e8e4_*`; decision `full_trace_batch_escaped_zero_predictor`.
+
+| Condition | Classification | Best step | Best median S/N | Best median correlation | Best RMS ratio |
+|---|---|---:|---:|---:|---:|
+| `small_batch_control` | `near_zero` | 14,000 | 0.0039 dB | 0.0395 | 0.0177 |
+| `full_trace_batch` | `escaped_zero_predictor` | 45,500 | 8.91 dB | 0.9349 | 0.9226 |
+| `full_trace_batch_correlation` | `escaped_zero_predictor` | 2,000 | 8.19 dB | 0.9272 | 0.6074 |
+| `full_trace_batch_per_trace_rms` | `escaped_zero_predictor` | 44,500 | 16.14 dB | 0.9878 | 0.9857 |
+| `full_trace_batch_correlation_per_trace_rms` | `escaped_zero_predictor` | 47,500 | 16.39 dB | 0.9885 | 0.9874 |
+
+Both gates held: the control reproduced the near-zero baseline under this exact model and
+learning rate, and the combined condition reproduced the informal escape exactly (best median
+S/N 16.3882 dB at step 47,500, matching the scratch run to four decimals, as expected from the
+shared seed and settings).
+
+The full complete-trace batch alone is sufficient to escape the near-zero predictor: with no
+auxiliary ingredient it reached 8.91 dB (median trace correlation 0.935, RMS ratio 0.92) and
+was still improving at 50,000 updates. This is the first attribution of the 435-trace escape
+and confirms the per-trace sample-density hypothesis that survived Studies 004-013.
+
+The ingredient attribution is clean. Per-trace RMS balancing roughly doubles the fit quality
+under the full-trace batch (16.14 dB versus 8.91 dB), even though Study 013 showed it does
+nothing under small random batches — amplitude imbalance is an amplifier of the small-batch
+failure, not its cause. The correlation loss contributes almost nothing: it slightly hurt the
+global-RMS condition (best 8.19 dB at step 2,000, final 7.07 dB versus 8.74 dB without) and
+added only 0.25 dB on top of per-trace balancing (16.39 versus 16.14 dB). The recommended
+recipe going forward is the full complete-trace batch plus per-trace RMS balancing, with no
+correlation loss. None of the conditions reached the 20 dB `strong_fit` bar within 50,000
+updates, but the two per-trace conditions were still climbing at budget exhaustion; a longer
+budget is the natural follow-up, alongside separating batch size from trace completeness.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).
