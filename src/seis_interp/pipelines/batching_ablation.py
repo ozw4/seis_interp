@@ -1262,6 +1262,22 @@ def _run_full_ffid_fit_probe(
     return summary
 
 
+def _print_training_progress(
+    label: str,
+    total_updates: int,
+    row: Mapping[str, int | float],
+) -> None:
+    """Emit one flushed stdout line per report so long runs are observable while training."""
+    print(
+        f"[{label}] step {row['step']}/{total_updates} "
+        f"loss={row['mean_train_loss_since_last_report']:.6f} "
+        f"median_snr_db={row['training_median_trace_snr_db']:.4f} "
+        f"median_corr={row['training_median_trace_correlation']:.4f} "
+        f"rms_ratio={row['training_prediction_target_rms_ratio']:.4f}",
+        flush=True,
+    )
+
+
 def run_training_fit_condition(
     *,
     config: Mapping[str, object],
@@ -1475,6 +1491,11 @@ def run_training_fit_condition(
     best_row: dict[str, int | float] | None = None
     trace_count = len(selected_array_rows)
 
+    print(
+        f"[{label}] start: total_updates={total_updates} batch_mode={batch_mode} "
+        f"batch_size={batch_size} traces={trace_count} device={device}",
+        flush=True,
+    )
     model.train()
     for step in range(1, total_updates + 1):
         if sampler is None:
@@ -1551,6 +1572,7 @@ def run_training_fit_condition(
                 }
             )
         history.append(row)
+        _print_training_progress(label, total_updates, row)
         if (
             best_row is None
             or row["training_median_trace_snr_db"] > best_row["training_median_trace_snr_db"]
