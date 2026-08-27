@@ -27,6 +27,7 @@ _PARAMETER_KEYS = frozenset(
 _LINEAR_SPATIAL_FEATURE_COUNT = 3
 _AZIMUTH_FEATURE_MIN = (-1.0, -1.0)
 _AZIMUTH_FEATURE_MAX = (1.0, 1.0)
+_AMPLITUDE_ROW_CHUNK_SIZE = 4096
 
 
 @dataclass(frozen=True)
@@ -132,7 +133,7 @@ def fit_normalization_parameters(
         raise ValueError(f"trace table is missing required columns: {missing}")
 
     array_rows = validated_array_rows(trace_table)
-    amplitude_array = _validated_numeric_array(amplitudes, "amplitudes", dimensions=2)
+    amplitude_array = _validated_amplitude_array(amplitudes)
     time_array = _validated_numeric_array(time_s, "time_s", dimensions=1).astype(
         np.float64, copy=False
     )
@@ -169,10 +170,8 @@ def fit_normalization_parameters(
         *_AZIMUTH_FEATURE_MAX,
     )
 
-    train_array_rows = array_rows[train_mask]
-    train_amplitudes = amplitude_array[train_array_rows].astype(np.float64, copy=False)
-    with np.errstate(over="ignore", invalid="ignore"):
-        amplitude_rms = float(np.sqrt(np.mean(np.square(train_amplitudes), dtype=np.float64)))
+    train_array_rows = np.sort(array_rows[train_mask])
+    amplitude_rms = _training_amplitude_rms(amplitude_array, train_array_rows)
     if not np.isfinite(amplitude_rms) or amplitude_rms <= 0.0:
         raise ValueError(f"training amplitude RMS must be positive and finite, got {amplitude_rms}")
 
@@ -276,6 +275,39 @@ def _validated_numeric_array(
     if not np.all(np.isfinite(array)):
         raise ValueError(f"{name} contains non-finite values")
     return array
+
+
+def _validated_amplitude_array(values: np.ndarray) -> np.ndarray:
+    """Validate a 2-D amplitude array using bounded row-wise finite checks."""
+    array = np.asarray(values)
+    if array.ndim != 2:
+        raise ValueError(f"amplitudes must be 2-dimensional, got shape {array.shape}")
+    if array.size == 0:
+        raise ValueError("amplitudes must not be empty")
+    if array.dtype.kind not in "iuf":
+        raise ValueError("amplitudes must contain real numeric values")
+
+    for start in range(0, array.shape[0], _AMPLITUDE_ROW_CHUNK_SIZE):
+        chunk = array[start : start + _AMPLITUDE_ROW_CHUNK_SIZE]
+        if not np.all(np.isfinite(chunk)):
+            raise ValueError("amplitudes contains non-finite values")
+    return array
+
+
+def _training_amplitude_rms(
+    amplitudes: np.ndarray,
+    training_array_rows: np.ndarray,
+) -> float:
+    """Accumulate training sum-of-squares in float64 over bounded row chunks."""
+    sum_squares = 0.0
+    sample_count = 0
+    with np.errstate(over="ignore", invalid="ignore"):
+        for start in range(0, len(training_array_rows), _AMPLITUDE_ROW_CHUNK_SIZE):
+            rows = training_array_rows[start : start + _AMPLITUDE_ROW_CHUNK_SIZE]
+            chunk = amplitudes[rows].astype(np.float64, copy=False)
+            sum_squares += float(np.sum(np.square(chunk), dtype=np.float64))
+            sample_count += int(chunk.size)
+        return float(np.sqrt(sum_squares / sample_count))
 
 
 def _finite_float_tuple(values: object, name: str, length: int) -> tuple[float, ...]:

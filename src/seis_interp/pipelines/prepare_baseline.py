@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
+from seis_interp.data.trace_store import canonical_source_files
 from seis_interp.processing.normalization import (
     fit_normalization_parameters,
     write_normalization_parameters,
@@ -19,6 +20,7 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
     assign_random_trace_splits,
+    assign_random_trace_splits_by_ffid,
 )
 
 TRACE_SPLIT_FILE_NAME = "trace_split.parquet"
@@ -26,6 +28,9 @@ NORMALIZATION_FILE_NAME = "normalization.json"
 PREPARATION_FILE_NAME = "preparation.json"
 COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
 AMPLITUDE_NORMALIZATION_METHOD = "train_global_rms"
+GLOBAL_SPLIT_SCOPE = "global"
+PER_FFID_SPLIT_SCOPE = "per_ffid"
+SPLIT_SCOPES = frozenset((GLOBAL_SPLIT_SCOPE, PER_FFID_SPLIT_SCOPE))
 
 OUTPUT_FILE_NAMES = (
     TRACE_SPLIT_FILE_NAME,
@@ -43,6 +48,7 @@ def prepare_baseline_dataset(
     random_seed: int,
     coordinate_normalization: str = COORDINATE_NORMALIZATION_METHOD,
     amplitude_normalization: str = AMPLITUDE_NORMALIZATION_METHOD,
+    split_scope: str = GLOBAL_SPLIT_SCOPE,
     config_source: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, object]:
@@ -60,14 +66,23 @@ def prepare_baseline_dataset(
         AMPLITUDE_NORMALIZATION_METHOD,
     )
     stored_config_source = _validated_config_source(config_source)
+    stored_split_scope = _validated_split_scope(split_scope)
 
-    dataset = load_interim_trace_dataset(input_directory)
-    split_table = assign_random_trace_splits(
-        dataset.trace_table,
-        holdout_fraction=holdout_fraction,
-        validation_fraction_of_holdout=validation_fraction_of_holdout,
-        random_seed=random_seed,
-    )
+    dataset = load_interim_trace_dataset(input_directory, memory_map_amplitudes=True)
+    if stored_split_scope == GLOBAL_SPLIT_SCOPE:
+        split_table = assign_random_trace_splits(
+            dataset.trace_table,
+            holdout_fraction=holdout_fraction,
+            validation_fraction_of_holdout=validation_fraction_of_holdout,
+            random_seed=random_seed,
+        )
+    else:
+        split_table = assign_random_trace_splits_by_ffid(
+            dataset.trace_table,
+            holdout_fraction=holdout_fraction,
+            validation_fraction_of_holdout=validation_fraction_of_holdout,
+            random_seed=random_seed,
+        )
     normalization = fit_normalization_parameters(
         split_table,
         dataset.amplitudes,
@@ -79,10 +94,10 @@ def prepare_baseline_dataset(
         split: int((stored_splits[SPLIT_COLUMN] == split).sum())
         for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
     }
+    source_provenance = _source_provenance(dataset.metadata)
     preparation: dict[str, object] = {
         "dataset_id": _metadata_text(dataset.metadata, "dataset_id"),
-        "source_file": _relative_source_file(dataset.metadata),
-        "source_sha256": _metadata_text(dataset.metadata, "source_sha256"),
+        **source_provenance,
         "input_files": {
             file_name: {"sha256": file_sha256(input_directory / file_name)}
             for file_name in INTERIM_FILE_NAMES
@@ -97,6 +112,8 @@ def prepare_baseline_dataset(
         "random_seed": int(random_seed),
         "holdout_fraction": float(holdout_fraction),
         "validation_fraction_of_holdout": float(validation_fraction_of_holdout),
+        "split_scope": stored_split_scope,
+        "ffid_count": int(dataset.trace_table["ffid"].nunique()),
         "split_counts": split_counts,
         "files": {
             "trace_split": TRACE_SPLIT_FILE_NAME,
@@ -126,11 +143,16 @@ def _metadata_text(metadata: Mapping[str, object], key: str) -> str:
     return value
 
 
-def _relative_source_file(metadata: Mapping[str, object]) -> str:
-    source_file = _metadata_text(metadata, "source_file")
-    if Path(source_file).is_absolute() or PureWindowsPath(source_file).is_absolute():
-        raise ValueError("input dataset metadata source_file must not be an absolute path")
-    return source_file
+def _source_provenance(metadata: Mapping[str, object]) -> dict[str, object]:
+    """Preserve legacy source keys and use the canonical list for multi-source data."""
+    source_files = canonical_source_files(metadata)
+    if len(source_files) == 1:
+        source_file = source_files[0]
+        return {
+            "source_file": source_file["name"],
+            "source_sha256": source_file["sha256"],
+        }
+    return {"source_files": [dict(source_file) for source_file in source_files]}
 
 
 def _validated_config_source(value: str | None) -> str | None:
@@ -161,6 +183,12 @@ def _validated_normalization_method(name: str, value: str, expected: str) -> str
     if value != expected:
         raise ValueError(f"{name} must be {expected!r}, got {value!r}")
     return expected
+
+
+def _validated_split_scope(value: str) -> str:
+    if not isinstance(value, str) or value not in SPLIT_SCOPES:
+        raise ValueError(f"split_scope must be one of {sorted(SPLIT_SCOPES)}, got {value!r}")
+    return value
 
 
 def _check_output_directory(directory: Path, *, overwrite: bool) -> None:

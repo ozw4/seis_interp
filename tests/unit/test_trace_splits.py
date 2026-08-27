@@ -10,6 +10,7 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
     assign_random_trace_splits,
+    assign_random_trace_splits_by_ffid,
 )
 
 
@@ -34,6 +35,26 @@ def assign(trace_table: pd.DataFrame, *, seed: int = 42) -> pd.DataFrame:
 
 def assignments_by_array_row(trace_table: pd.DataFrame) -> dict[int, str]:
     return dict(zip(trace_table["array_row"], trace_table[SPLIT_COLUMN], strict=True))
+
+
+def make_multi_ffid_trace_table(trace_counts: tuple[int, ...] = (20, 20)) -> pd.DataFrame:
+    ffids = tuple(100 + index for index in range(len(trace_counts)))
+    return pd.DataFrame(
+        {
+            "array_row": np.arange(sum(trace_counts), dtype=np.int64),
+            "trace_index": np.arange(sum(trace_counts), dtype=np.int64),
+            "ffid": np.repeat(ffids, trace_counts).astype(np.int64),
+        }
+    )
+
+
+def assign_by_ffid(trace_table: pd.DataFrame, *, seed: int = 42) -> pd.DataFrame:
+    return assign_random_trace_splits_by_ffid(
+        trace_table,
+        holdout_fraction=0.20,
+        validation_fraction_of_holdout=0.25,
+        random_seed=seed,
+    )
 
 
 def test_assigns_expected_split_counts() -> None:
@@ -179,3 +200,118 @@ def test_does_not_read_or_change_numpy_global_rng_state() -> None:
     actual = np.random.random(5)
 
     np.testing.assert_array_equal(actual, expected)
+
+
+def test_per_ffid_split_assigns_all_three_splits_within_every_ffid() -> None:
+    result = assign_by_ffid(make_multi_ffid_trace_table())
+
+    counts = result.groupby(["ffid", SPLIT_COLUMN]).size().unstack(fill_value=0)
+
+    assert counts.to_dict(orient="index") == {
+        100: {TEST_SPLIT: 3, TRAIN_SPLIT: 16, VALIDATION_SPLIT: 1},
+        101: {TEST_SPLIT: 3, TRAIN_SPLIT: 16, VALIDATION_SPLIT: 1},
+    }
+
+
+@pytest.mark.parametrize(
+    ("trace_count", "expected_counts"),
+    [
+        (544, {TRAIN_SPLIT: 435, VALIDATION_SPLIT: 27, TEST_SPLIT: 82}),
+        (112, {TRAIN_SPLIT: 90, VALIDATION_SPLIT: 6, TEST_SPLIT: 16}),
+    ],
+)
+def test_per_ffid_split_uses_the_established_count_rule(
+    trace_count: int,
+    expected_counts: dict[str, int],
+) -> None:
+    result = assign_by_ffid(make_multi_ffid_trace_table((trace_count,)))
+
+    assert result[SPLIT_COLUMN].value_counts().to_dict() == expected_counts
+
+
+def test_per_ffid_membership_is_independent_of_table_order_and_index() -> None:
+    trace_table = make_multi_ffid_trace_table().sample(frac=1.0, random_state=7)
+    reordered = trace_table.iloc[::-1].copy()
+    reordered.index = np.arange(1000, 1000 + len(reordered))
+
+    assert assignments_by_array_row(assign_by_ffid(trace_table)) == assignments_by_array_row(
+        assign_by_ffid(reordered)
+    )
+
+
+def test_adding_an_ffid_does_not_change_existing_per_ffid_membership() -> None:
+    original = make_multi_ffid_trace_table((20, 20))
+    extended = make_multi_ffid_trace_table((20, 20, 20))
+
+    original_assignments = assignments_by_array_row(assign_by_ffid(original))
+    extended_assignments = assignments_by_array_row(assign_by_ffid(extended))
+
+    assert {row: extended_assignments[row] for row in original_assignments} == original_assignments
+
+
+def test_per_ffid_seed_changes_membership() -> None:
+    trace_table = make_multi_ffid_trace_table()
+
+    assert assignments_by_array_row(
+        assign_by_ffid(trace_table, seed=1)
+    ) != assignments_by_array_row(assign_by_ffid(trace_table, seed=2))
+
+
+def test_per_ffid_split_error_identifies_too_small_ffid_and_counts() -> None:
+    trace_table = make_multi_ffid_trace_table((20, 3))
+
+    with pytest.raises(ValueError, match=r"FFID 101.*counts="):
+        assign_by_ffid(trace_table)
+
+
+@pytest.mark.parametrize(
+    "ffids",
+    [
+        pd.Series([100.0] * 20 + [101.0] * 20, dtype=np.float64),
+        pd.Series([100] * 39 + [None], dtype="Int64"),
+        pd.Series([True] * 20 + [False] * 20, dtype=bool),
+    ],
+)
+def test_per_ffid_split_rejects_invalid_ffid_values(ffids: pd.Series) -> None:
+    trace_table = make_multi_ffid_trace_table()
+    trace_table["ffid"] = ffids
+
+    with pytest.raises(ValueError, match="ffid"):
+        assign_by_ffid(trace_table)
+
+
+def test_per_ffid_split_accepts_signed_integer_ffids_deterministically() -> None:
+    trace_table = make_multi_ffid_trace_table()
+    trace_table["ffid"] = np.repeat([-100, 101], 20).astype(np.int64)
+
+    first = assignments_by_array_row(assign_by_ffid(trace_table))
+    second = assignments_by_array_row(assign_by_ffid(trace_table))
+
+    assert first == second
+
+
+def test_global_exact_membership_remains_unchanged() -> None:
+    result = assignments_by_array_row(assign(make_trace_table()))
+
+    assert result == {
+        100: TRAIN_SPLIT,
+        101: TRAIN_SPLIT,
+        102: TRAIN_SPLIT,
+        103: TRAIN_SPLIT,
+        104: TRAIN_SPLIT,
+        105: TRAIN_SPLIT,
+        106: TRAIN_SPLIT,
+        107: TEST_SPLIT,
+        108: TRAIN_SPLIT,
+        109: TEST_SPLIT,
+        110: TRAIN_SPLIT,
+        111: TRAIN_SPLIT,
+        112: TRAIN_SPLIT,
+        113: TRAIN_SPLIT,
+        114: TEST_SPLIT,
+        115: VALIDATION_SPLIT,
+        116: TRAIN_SPLIT,
+        117: TRAIN_SPLIT,
+        118: TRAIN_SPLIT,
+        119: TRAIN_SPLIT,
+    }

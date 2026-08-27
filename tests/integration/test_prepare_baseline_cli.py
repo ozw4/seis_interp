@@ -47,6 +47,7 @@ def _write_study_config(
     study_seed: int = 42,
     holdout_fraction: float = 0.2,
     validation_fraction: float = 0.25,
+    split_scope: str | None = None,
     legacy_study_seed: bool = False,
 ) -> Path:
     repository = tmp_path / "repository"
@@ -71,16 +72,19 @@ def _write_study_config(
     study: dict[str, object] = {"status": "draft"}
     if legacy_study_seed:
         study["random_seed"] = study_seed
+    sampling: dict[str, object] = {
+        "random_trace_holdout_fraction": holdout_fraction,
+        "validation_fraction_of_holdout": validation_fraction,
+    }
+    if split_scope is not None:
+        sampling["split_scope"] = split_scope
     study_path.write_text(
         yaml.safe_dump(
             {
                 "extends": "../../configs/default.yaml",
                 "project": {"random_seed": study_seed},
                 "study": study,
-                "sampling": {
-                    "random_trace_holdout_fraction": holdout_fraction,
-                    "validation_fraction_of_holdout": validation_fraction,
-                },
+                "sampling": sampling,
             },
             sort_keys=False,
         ),
@@ -126,6 +130,7 @@ def test_cli_passes_all_arguments_to_pipeline(
         "holdout_fraction": 0.2,
         "validation_fraction_of_holdout": 0.25,
         "random_seed": 42,
+        "split_scope": "global",
         "coordinate_normalization": COORDINATE_NORMALIZATION_METHOD,
         "amplitude_normalization": "train_global_rms",
         "config_source": "studies/study/config.yaml",
@@ -162,6 +167,27 @@ def test_cli_overrides_config_values(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert received["holdout_fraction"] == 0.3
     assert received["validation_fraction_of_holdout"] == 0.5
     assert received["random_seed"] == 0
+
+
+def test_cli_resolves_split_scope_from_config_and_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch, split_scope="per_ffid")
+    received: list[str] = []
+
+    def fake_prepare_baseline_dataset(**kwargs: Any) -> dict[str, object]:
+        received.append(kwargs["split_scope"])
+        return SUMMARY
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        fake_prepare_baseline_dataset,
+    )
+
+    assert main(_arguments(tmp_path, config_path)) == 0
+    assert main([*_arguments(tmp_path, config_path), "--split-scope", "global"]) == 0
+    assert received == ["per_ffid", "global"]
 
 
 def test_cli_requires_study_config(

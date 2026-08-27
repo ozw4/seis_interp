@@ -353,6 +353,12 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             config,
             "sampling.validation_fraction_of_holdout",
         )
+        split_scope = _config_value_or_optional_default(
+            args.split_scope,
+            config,
+            "sampling.split_scope",
+            "global",
+        )
         coordinate_normalization = _required_supported_config_value(
             config,
             "normalization.coordinates",
@@ -378,6 +384,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             holdout_fraction=holdout_fraction,
             validation_fraction_of_holdout=validation_fraction,
             random_seed=random_seed,
+            split_scope=split_scope,
             coordinate_normalization=coordinate_normalization,
             amplitude_normalization=amplitude_normalization,
             config_source=config_source,
@@ -395,6 +402,8 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         print(f"Input dataset: {args.input}")
         print(f"Output directory: {args.output}")
         print(f"Traces: {summary['trace_count']}")
+        print(f"Split scope: {summary.get('split_scope', 'global')}")
+        print(f"FFIDs: {summary.get('ffid_count', 1)}")
         print(f"Train traces: {split_counts['train']}")
         print(f"Validation traces: {split_counts['validation']}")
         print(f"Test traces: {split_counts['test']}")
@@ -439,6 +448,23 @@ def _config_value_or_override(
     if override is not None:
         return override
     return get_required_config_value(config, dotted_path)
+
+
+def _config_value_or_optional_default(
+    override: object | None,
+    config: Mapping[str, object],
+    dotted_path: str,
+    default: object,
+) -> object:
+    """Resolve an optional config value below a CLI override."""
+    if override is not None:
+        return override
+    current: object = config
+    for part in dotted_path.split("."):
+        if not isinstance(current, Mapping) or part not in current:
+            return default
+        current = current[part]
+    return current
 
 
 def _required_supported_config_value(
@@ -618,6 +644,11 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "--random-seed",
         type=int,
         help="Override project.random_seed for deterministic trace-level splitting.",
+    )
+    prepare_baseline.add_argument(
+        "--split-scope",
+        choices=("global", "per_ffid"),
+        help="Override sampling.split_scope (default: global).",
     )
     prepare_baseline.add_argument(
         "--overwrite",
