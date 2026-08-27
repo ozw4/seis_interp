@@ -118,6 +118,16 @@ _FULL_TRACE_BATCH_ABLATION_CONDITIONS = (
         _PER_TRACE_RMS_SCALING,
     ),
 )
+STRONG_FIT_BUDGET_EXTENSION_STUDY_ID = "study_015_strong_fit_budget_extension"
+_STRONG_FIT_BUDGET_EXTENSION_CONDITIONS = (
+    (
+        "full_trace_batch_per_trace_rms",
+        "random_complete_traces",
+        False,
+        _PER_TRACE_RMS_SCALING,
+    ),
+)
+_STRONG_FIT_MEDIAN_TRACE_SNR_DB = 20.0
 
 
 def run_batching_ablation(
@@ -950,6 +960,201 @@ def run_full_trace_batch_ablation(
         "correlation_eps": experiment["correlation_eps"],
         "per_trace_scale_stats": dict(per_trace_scale_stats),
         "conditions": condition_summaries,
+    }
+    _write_json(summary_path, summary)
+    return summary
+
+
+def run_strong_fit_budget_extension(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run the Study 015 extended-budget strong-fit check for the recommended recipe."""
+    config = load_resolved_config(Path(config_path))
+    device = device_override or get_required_config_value(config, "training.device")
+    if not isinstance(device, str) or not device:
+        raise ConfigurationError("training.device must be a non-empty string")
+    resolved_config = deepcopy(config)
+    training_config = resolved_config.get("training")
+    if not isinstance(training_config, dict):
+        raise ConfigurationError("training configuration must be a mapping")
+    training_config["device"] = device
+
+    experiment = _validated_strong_fit_budget_extension_experiment_config(resolved_config)
+    random_seed = _validated_random_seed(
+        get_required_config_value(resolved_config, "project.random_seed")
+    )
+    git_commit = _git_commit()
+    run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
+    output_directory = Path(output_root)
+    ((label, batch_mode, _, amplitude_scaling),) = experiment["conditions"]
+    condition_path = output_directory / f"{run_prefix}_{label}"
+    summary_path = output_directory / f"{run_prefix}_summary.json"
+    _preflight_output_paths(output_directory, (condition_path, summary_path))
+
+    experiment_data = _load_experiment_data(
+        Path(interim_dir),
+        Path(processed_dir),
+        resolved_config,
+    )
+    selected_rows = np.sort(experiment_data["training_array_rows"]).astype(np.int64, copy=False)
+    available_training_rows = len(selected_rows)
+    trace_count = experiment["trace_count"]
+    if trace_count != available_training_rows:
+        raise ValueError(
+            f"configured trace count {trace_count} must equal all "
+            f"{available_training_rows} available training rows"
+        )
+    per_trace_amplitudes, per_trace_scales = per_trace_rms_scaled_amplitudes(
+        experiment_data["normalized_amplitudes"],
+        selected_rows,
+    )
+    training_coordinates, training_targets = build_trace_points(
+        experiment_data["normalized_time"],
+        experiment_data["normalized_spatial_by_array_row"],
+        per_trace_amplitudes,
+        selected_rows,
+    )
+    sample_count = experiment_data["sample_count"]
+    point_count = trace_count * sample_count
+    if experiment["batch_size"] != point_count:
+        raise ValueError(
+            f"training.batch_size {experiment['batch_size']} must equal the "
+            f"{point_count} points of the full complete-trace batch"
+        )
+    per_trace_scale_stats = {
+        "min": float(np.min(per_trace_scales)),
+        "median": float(np.median(per_trace_scales)),
+        "max": float(np.max(per_trace_scales)),
+    }
+    point_evaluations = point_count * experiment["total_updates"]
+
+    condition_config = _resolved_full_trace_batch_condition_config(
+        resolved_config,
+        label=label,
+        batch_mode=batch_mode,
+        correlation_weight=0.0,
+        amplitude_scaling=amplitude_scaling,
+    )
+    started_at_utc = _utc_timestamp()
+    metrics = run_training_fit_condition(
+        config=condition_config,
+        label=label,
+        batch_mode=batch_mode,
+        full_batch=False,
+        replacement=False,
+        total_updates=experiment["total_updates"],
+        report_interval=experiment["report_interval"],
+        batch_size=point_count,
+        normalized_time=experiment_data["normalized_time"],
+        normalized_spatial_by_array_row=experiment_data["normalized_spatial_by_array_row"],
+        normalized_amplitudes=per_trace_amplitudes,
+        selected_array_rows=selected_rows,
+        all_coordinate_tensor=None,
+        all_target_tensor=None,
+        training_coordinates=training_coordinates,
+        training_targets=training_targets,
+        sample_count=sample_count,
+        prediction_batch_size=experiment["prediction_batch_size"],
+        device=device,
+        random_seed=random_seed,
+        traces_per_update=trace_count,
+    )
+    metrics["amplitude_scaling"] = amplitude_scaling
+    metrics["per_trace_scale_stats"] = dict(per_trace_scale_stats)
+    history = metrics["history"]
+    baseline_observed = best_median_trace_snr_within(
+        history,
+        max_step=experiment["baseline_window_updates"],
+    )
+    baseline_reproduced = (
+        abs(baseline_observed - experiment["baseline_best_median_trace_snr_db"])
+        <= experiment["baseline_tolerance_db"]
+    )
+    first_strong_fit_step = first_step_reaching_median_trace_snr(
+        history,
+        threshold_db=_STRONG_FIT_MEDIAN_TRACE_SNR_DB,
+    )
+
+    run_metadata = _build_run_metadata(
+        study_id=STRONG_FIT_BUDGET_EXTENSION_STUDY_ID,
+        condition=label,
+        batch_mode=batch_mode,
+        batch_size=point_count,
+        trace_count=trace_count,
+        sample_count=sample_count,
+        point_count=point_count,
+        point_evaluations=point_evaluations,
+        full_batch=False,
+        replacement=False,
+        git_commit=git_commit,
+        started_at_utc=started_at_utc,
+        device=device,
+        random_seed=random_seed,
+        updates_completed=metrics["updates_completed"],
+        traces_per_update=trace_count,
+    )
+    run_metadata["amplitude_scaling"] = amplitude_scaling
+    training_contract: dict[str, object] = {
+        "condition": label,
+        "batch_mode": batch_mode,
+        "replacement": False,
+        "batch_size": point_count,
+        "total_updates": experiment["total_updates"],
+        "point_evaluations": point_evaluations,
+        "amplitude_scaling": amplitude_scaling,
+        "traces_per_update": trace_count,
+    }
+    inputs_lock = _build_inputs_lock(
+        interim_files=experiment_data["interim_files"],
+        processed_files=experiment_data["processed_files"],
+        preparation_contract=experiment_data["preparation_contract"],
+        selected_array_rows=selected_rows,
+        trace_count=trace_count,
+        sample_count=sample_count,
+        point_count=point_count,
+        random_seed=random_seed,
+        selection_method=_ALL_TRAINING_ROWS_METHOD,
+        split_counts=experiment_data["split_counts"],
+        training_contract=training_contract,
+    )
+    _write_condition_outputs(
+        condition_path,
+        condition_config,
+        inputs_lock,
+        metrics,
+        run_metadata,
+    )
+    condition_summary = _full_trace_batch_condition_summary(
+        condition_path.name,
+        batch_mode=batch_mode,
+        correlation_weight=0.0,
+        amplitude_scaling=amplitude_scaling,
+        metrics=metrics,
+    )
+
+    summary: dict[str, object] = {
+        "study_id": STRONG_FIT_BUDGET_EXTENSION_STUDY_ID,
+        "git_commit": git_commit,
+        "generated_at_utc": _utc_timestamp(),
+        "decision": strong_fit_budget_extension_summary_decision(
+            baseline_reproduced=baseline_reproduced,
+            extension_classification=str(metrics["classification"]),
+        ),
+        "baseline_reproduced": baseline_reproduced,
+        "baseline_window_updates": experiment["baseline_window_updates"],
+        "baseline_expected_best_median_trace_snr_db": (
+            experiment["baseline_best_median_trace_snr_db"]
+        ),
+        "baseline_observed_best_median_trace_snr_db": baseline_observed,
+        "baseline_tolerance_db": experiment["baseline_tolerance_db"],
+        "first_strong_fit_step": first_strong_fit_step,
+        "per_trace_scale_stats": dict(per_trace_scale_stats),
+        "conditions": [condition_summary],
     }
     _write_json(summary_path, summary)
     return summary
@@ -2028,6 +2233,55 @@ def full_trace_batch_ablation_summary_decision(
     return decisions[full_trace_batch_classification]
 
 
+def strong_fit_budget_extension_summary_decision(
+    *,
+    baseline_reproduced: bool,
+    extension_classification: str,
+) -> str:
+    """Return the extended-budget outcome after applying its baseline-reproduction gate."""
+    if not isinstance(baseline_reproduced, bool):
+        raise ValueError("baseline_reproduced must be a boolean")
+    known_classifications = {"strong_fit", "escaped_zero_predictor", "near_zero"}
+    if extension_classification not in known_classifications:
+        raise ValueError(f"unknown extension classification: {extension_classification!r}")
+    if not baseline_reproduced:
+        return "baseline_not_reproduced"
+    decisions = {
+        "strong_fit": "extended_budget_strong_fit",
+        "escaped_zero_predictor": "extended_budget_escaped_zero_predictor",
+        "near_zero": "extended_budget_near_zero",
+    }
+    return decisions[extension_classification]
+
+
+def best_median_trace_snr_within(
+    history: Sequence[Mapping[str, object]],
+    *,
+    max_step: int,
+) -> float:
+    """Return the best median training-trace S/N among reports at or before ``max_step``."""
+    values = [
+        float(row["training_median_trace_snr_db"])
+        for row in history
+        if int(row["step"]) <= max_step
+    ]
+    if not values:
+        raise ValueError(f"no history reports at or before step {max_step}")
+    return max(values)
+
+
+def first_step_reaching_median_trace_snr(
+    history: Sequence[Mapping[str, object]],
+    *,
+    threshold_db: float,
+) -> int | None:
+    """Return the first report step whose median training-trace S/N reaches the threshold."""
+    for row in history:
+        if float(row["training_median_trace_snr_db"]) >= threshold_db:
+            return int(row["step"])
+    return None
+
+
 def _add_continuation_stage_context(
     metrics: dict[str, object],
     *,
@@ -2544,6 +2798,76 @@ def _validated_full_trace_batch_ablation_experiment_config(
     }
 
 
+def _validated_strong_fit_budget_extension_experiment_config(
+    config: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate the Study 015 extended-budget strong-fit contract."""
+    _validate_common_training_fit_config(config)
+    experiment_config = config.get("experiment")
+    if not isinstance(experiment_config, Mapping):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    training_config = config.get("training")
+    if not isinstance(training_config, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    correlation_keys = {"correlation_weight", "correlation_eps", "loss_semantics"}
+    if correlation_keys.intersection(experiment_config) or correlation_keys.intersection(
+        training_config
+    ):
+        raise ConfigurationError("pure-MSE budget extension must not define correlation-loss keys")
+    total_updates = _positive_integer(
+        get_required_config_value(config, "training.total_updates"),
+        "training.total_updates",
+    )
+    report_interval = _positive_integer(
+        get_required_config_value(config, "training.report_interval"),
+        "training.report_interval",
+    )
+    if total_updates % report_interval != 0:
+        raise ConfigurationError(
+            "training.total_updates must be divisible by training.report_interval"
+        )
+    baseline_window_updates = _positive_integer(
+        get_required_config_value(config, "experiment.baseline_window_updates"),
+        "experiment.baseline_window_updates",
+    )
+    if baseline_window_updates % report_interval != 0:
+        raise ConfigurationError(
+            "experiment.baseline_window_updates must be divisible by training.report_interval"
+        )
+    if baseline_window_updates >= total_updates:
+        raise ConfigurationError(
+            "training.total_updates must exceed experiment.baseline_window_updates"
+        )
+    return {
+        "trace_count": _positive_integer(
+            get_required_config_value(config, "experiment.trace_count"),
+            "experiment.trace_count",
+        ),
+        "total_updates": total_updates,
+        "report_interval": report_interval,
+        "batch_size": _positive_integer(
+            get_required_config_value(config, "training.batch_size"),
+            "training.batch_size",
+        ),
+        "prediction_batch_size": _positive_integer(
+            get_required_config_value(config, "training.prediction_batch_size"),
+            "training.prediction_batch_size",
+        ),
+        "baseline_window_updates": baseline_window_updates,
+        "baseline_best_median_trace_snr_db": _positive_finite_float(
+            get_required_config_value(config, "experiment.baseline_best_median_trace_snr_db"),
+            "experiment.baseline_best_median_trace_snr_db",
+        ),
+        "baseline_tolerance_db": _positive_finite_float(
+            get_required_config_value(config, "experiment.baseline_tolerance_db"),
+            "experiment.baseline_tolerance_db",
+        ),
+        "conditions": _validated_strong_fit_budget_extension_conditions(
+            get_required_config_value(config, "experiment.conditions")
+        ),
+    }
+
+
 def _validated_continuation_experiment_config(
     config: Mapping[str, object],
 ) -> dict[str, object]:
@@ -2742,8 +3066,11 @@ def _validated_amplitude_balancing_conditions(
     return _AMPLITUDE_BALANCING_CONDITIONS
 
 
-def _validated_full_trace_batch_conditions(
+def _validated_fixed_condition_set(
     value: object,
+    *,
+    expected: tuple[tuple[str, str, bool, str], ...],
+    mismatch_message: str,
 ) -> tuple[tuple[str, str, bool, str], ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise ConfigurationError("experiment.conditions must be a sequence")
@@ -2754,7 +3081,7 @@ def _validated_full_trace_batch_conditions(
             raise ConfigurationError("each experiment condition must be a mapping")
         if set(item) != expected_keys:
             raise ConfigurationError(
-                "each full-trace-batch condition must define only label, batch_mode, "
+                "each condition must define only label, batch_mode, "
                 "correlation, and amplitude_scaling"
             )
         label = item["label"]
@@ -2772,17 +3099,38 @@ def _validated_full_trace_batch_conditions(
         by_label[label] = (batch_mode, correlation, amplitude_scaling)
     expected_by_label = {
         label: (batch_mode, correlation, amplitude_scaling)
-        for label, batch_mode, correlation, amplitude_scaling in (
-            _FULL_TRACE_BATCH_ABLATION_CONDITIONS
-        )
+        for label, batch_mode, correlation, amplitude_scaling in expected
     }
     if by_label != expected_by_label:
-        raise ConfigurationError(
+        raise ConfigurationError(mismatch_message)
+    return expected
+
+
+def _validated_full_trace_batch_conditions(
+    value: object,
+) -> tuple[tuple[str, str, bool, str], ...]:
+    return _validated_fixed_condition_set(
+        value,
+        expected=_FULL_TRACE_BATCH_ABLATION_CONDITIONS,
+        mismatch_message=(
             "experiment.conditions must contain exactly the five fixed Study 014 conditions: "
             "small_batch_control, full_trace_batch, full_trace_batch_correlation, "
             "full_trace_batch_per_trace_rms, and full_trace_batch_correlation_per_trace_rms"
-        )
-    return _FULL_TRACE_BATCH_ABLATION_CONDITIONS
+        ),
+    )
+
+
+def _validated_strong_fit_budget_extension_conditions(
+    value: object,
+) -> tuple[tuple[str, str, bool, str], ...]:
+    return _validated_fixed_condition_set(
+        value,
+        expected=_STRONG_FIT_BUDGET_EXTENSION_CONDITIONS,
+        mismatch_message=(
+            "experiment.conditions must contain exactly the single fixed Study 015 "
+            "condition: full_trace_batch_per_trace_rms"
+        ),
+    )
 
 
 def _validated_continuation_trace_counts(value: object) -> tuple[int, ...]:
