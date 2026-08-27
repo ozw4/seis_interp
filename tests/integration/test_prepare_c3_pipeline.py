@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ import pandas as pd
 import pytest
 
 from seis_interp.cli import main
+from seis_interp.data import segy_reader as segy_reader_module
 from seis_interp.pipelines import prepare_c3 as prepare_c3_module
 from seis_interp.pipelines.prepare_c3 import prepare_c3_complete_shot, prepare_c3_survey
 from tests.fixtures.tiny_segy import TinySegyFile, TinyTraceHeader, write_tiny_segy
@@ -294,20 +296,76 @@ def test_survey_combines_sources_in_declared_local_trace_order(tmp_path: Path) -
     assert incomplete_rows["is_complete_ffid"].tolist() == [False]
 
 
+def test_survey_reuses_preverified_source_sha256_without_rehashing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, second = _write_survey_sources(tmp_path)
+    expected = ("a" * 64, "b" * 64)
+    monkeypatch.setattr(
+        prepare_c3_module,
+        "file_sha256",
+        lambda _path: pytest.fail("preverified sources must not be hashed again"),
+    )
+
+    summary = prepare_c3_survey(
+        [first.path, second.path],
+        tmp_path / "survey",
+        expected_complete_trace_count=2,
+        source_sha256=expected,
+    )
+
+    assert summary["source_files"] == [
+        {"name": "first.sgy", "sha256": expected[0]},
+        {"name": "second.sgy", "sha256": expected[1]},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_sha256", "message"),
+    [
+        (("a" * 64,), "entries for 2 input paths"),
+        (("a" * 64, "not-a-digest"), r"source_sha256\[1\]"),
+    ],
+)
+def test_survey_rejects_invalid_preverified_source_sha256(
+    tmp_path: Path,
+    source_sha256: tuple[str, ...],
+    message: str,
+) -> None:
+    first, second = _write_survey_sources(tmp_path)
+
+    with pytest.raises(ValueError, match=message):
+        prepare_c3_survey(
+            [first.path, second.path],
+            tmp_path / "survey",
+            expected_complete_trace_count=2,
+            source_sha256=source_sha256,
+        )
+
+
 def test_survey_reads_amplitudes_in_bounded_chunks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first, second = _write_survey_sources(tmp_path)
     calls: list[tuple[str, list[int]]] = []
-    original_reader = prepare_c3_module.read_trace_amplitudes
+    original_reader = prepare_c3_module.iter_trace_amplitude_chunks
 
-    def recording_reader(path: Path, trace_indices: Sequence[int]) -> np.ndarray:
+    def recording_reader(
+        path: Path,
+        trace_indices: Sequence[int],
+        *,
+        chunk_size: int,
+    ) -> Iterator[np.ndarray]:
         indices = [int(value) for value in trace_indices]
-        calls.append((Path(path).name, indices))
-        return original_reader(path, indices)
+        start = 0
+        for chunk in original_reader(path, indices, chunk_size=chunk_size):
+            calls.append((Path(path).name, indices[start : start + len(chunk)]))
+            start += len(chunk)
+            yield chunk
 
     monkeypatch.setattr(prepare_c3_module, "_SURVEY_AMPLITUDE_CHUNK_ROWS", 2)
-    monkeypatch.setattr(prepare_c3_module, "read_trace_amplitudes", recording_reader)
+    monkeypatch.setattr(prepare_c3_module, "iter_trace_amplitude_chunks", recording_reader)
 
     prepare_c3_survey(
         [first.path, second.path],
@@ -321,6 +379,36 @@ def test_survey_reads_amplitudes_in_bounded_chunks(
         ("second.sgy", [0, 1]),
     ]
     assert max(len(indices) for _, indices in calls) == 2
+
+
+def test_survey_opens_each_source_once_for_all_amplitude_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, second = _write_survey_sources(tmp_path)
+    scanned_tables = {
+        path: prepare_c3_module.scan_segy_headers(path) for path in (first.path, second.path)
+    }
+    open_counts: Counter[str] = Counter()
+    original_open = segy_reader_module.segyio.open
+
+    def stored_scan(path: Path) -> pd.DataFrame:
+        return scanned_tables[Path(path)].copy()
+
+    def recording_open(*args: object, **kwargs: object):
+        open_counts[Path(str(args[0])).name] += 1
+        return original_open(*args, **kwargs)
+
+    monkeypatch.setattr(prepare_c3_module, "scan_segy_headers", stored_scan)
+    monkeypatch.setattr(prepare_c3_module, "_SURVEY_AMPLITUDE_CHUNK_ROWS", 2)
+    monkeypatch.setattr(segy_reader_module.segyio, "open", recording_open)
+
+    prepare_c3_survey(
+        [first.path, second.path],
+        tmp_path / "survey",
+        expected_complete_trace_count=2,
+    )
+
+    assert open_counts == {"first.sgy": 1, "second.sgy": 1}
 
 
 @pytest.mark.parametrize(
@@ -383,10 +471,15 @@ def test_survey_failure_does_not_leave_dataset_metadata(
     first, second = _write_survey_sources(tmp_path)
     output_dir = tmp_path / "survey"
 
-    def fail_reader(path: Path, trace_indices: object) -> np.ndarray:
+    def fail_reader(
+        path: Path,
+        trace_indices: object,
+        *,
+        chunk_size: int,
+    ) -> Iterator[np.ndarray]:
         raise ValueError("synthetic amplitude read failure")
 
-    monkeypatch.setattr(prepare_c3_module, "read_trace_amplitudes", fail_reader)
+    monkeypatch.setattr(prepare_c3_module, "iter_trace_amplitude_chunks", fail_reader)
 
     with pytest.raises(ValueError, match="synthetic amplitude"):
         prepare_c3_survey(

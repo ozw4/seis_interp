@@ -30,6 +30,7 @@ from seis_interp.data.seg_c3_na import (
     default_manifest_path,
     download_seg_c3_na,
     load_manifest,
+    verified_source_sha256,
     verify_seg_c3_na,
 )
 from seis_interp.data.seg_c3_na_inspection import (
@@ -267,13 +268,11 @@ def _prepare_c3_survey(args: argparse.Namespace) -> int:
                 f"{result.name}: {result.status} ({result.detail})" for result in failed
             )
             raise DataIntegrityError(f"source verification failed: {details}")
-        expected_verification_names = [file_spec.name for file_spec in manifest.files]
-        observed_verification_names = [result.name for result in verification]
-        if observed_verification_names != expected_verification_names:
-            raise DataIntegrityError(
-                "source verification results do not match manifest order: "
-                f"expected {expected_verification_names}, got {observed_verification_names}"
-            )
+
+        data_root = resolve_data_root(args.data_root)
+        source_directory = data_root / "external" / DATASET_ID
+        input_paths = [source_directory / file_spec.name for file_spec in manifest.files]
+        source_sha256 = verified_source_sha256(manifest, input_paths, verification)
 
         missing_ranges = [
             file_spec.name
@@ -282,9 +281,6 @@ def _prepare_c3_survey(args: argparse.Namespace) -> int:
         ]
         if missing_ranges:
             raise ManifestError(f"manifest files are missing FFID ranges: {missing_ranges}")
-        data_root = resolve_data_root(args.data_root)
-        source_directory = data_root / "external" / DATASET_ID
-        input_paths = [source_directory / file_spec.name for file_spec in manifest.files]
         expected_ranges = [
             (int(file_spec.ffid_min), int(file_spec.ffid_max)) for file_spec in manifest.files
         ]
@@ -295,6 +291,7 @@ def _prepare_c3_survey(args: argparse.Namespace) -> int:
             expected_complete_trace_count=C3_COMPLETE_SHOT_TRACE_COUNT,
             expected_ffid_ranges=expected_ranges,
             expected_survey_ffid_range=C3_SURVEY_FFID_RANGE,
+            source_sha256=source_sha256,
             overwrite=args.overwrite,
         )
     except (

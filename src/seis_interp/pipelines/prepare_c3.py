@@ -12,7 +12,11 @@ import pandas as pd
 
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.segy_index import scan_segy_headers
-from seis_interp.data.segy_reader import build_time_axis, read_trace_amplitudes
+from seis_interp.data.segy_reader import (
+    build_time_axis,
+    iter_trace_amplitude_chunks,
+    read_trace_amplitudes,
+)
 from seis_interp.data.trace_store import (
     AMPLITUDES_FILE_NAME,
     METADATA_FILE_NAME,
@@ -85,6 +89,7 @@ def prepare_c3_survey(
     expected_complete_trace_count: int = C3_COMPLETE_SHOT_TRACE_COUNT,
     expected_ffid_ranges: Sequence[tuple[int, int] | None] | None = None,
     expected_survey_ffid_range: tuple[int, int] | None = None,
+    source_sha256: Sequence[str] | None = None,
     overwrite: bool = False,
 ) -> dict[str, object]:
     """Combine ordered SEG-Y sources into one chunk-written interim dataset.
@@ -92,8 +97,11 @@ def prepare_c3_survey(
     ``expected_ffid_ranges`` follows ``input_paths`` order. The official C3
     caller supplies manifest ranges and ``C3_SURVEY_FFID_RANGE``; tests and
     other controlled subsets may omit the survey-wide range check.
+    ``source_sha256`` may reuse digests already verified for the exact same
+    ordered input paths; when omitted, this pipeline computes them itself.
     """
     paths = _validated_input_paths(input_paths)
+    verified_source_sha256 = _validated_source_sha256(source_sha256, len(paths))
     ranges = _validated_expected_ranges(expected_ffid_ranges, len(paths))
     survey_range = (
         None
@@ -128,8 +136,12 @@ def prepare_c3_survey(
     sample_count = int(stored_table["sample_count"].iloc[0])
     sample_interval_s = float(stored_table["sample_interval_s"].iloc[0])
     time_s = build_time_axis(sample_count, sample_interval_s)
+    source_digests = verified_source_sha256 or tuple(file_sha256(path) for path in paths)
     source_metadata = {
-        "source_files": [{"name": path.name, "sha256": file_sha256(path)} for path in paths]
+        "source_files": [
+            {"name": path.name, "sha256": digest}
+            for path, digest in zip(paths, source_digests, strict=True)
+        ]
     }
 
     return _write_c3_survey_dataset(
@@ -240,17 +252,30 @@ def _write_c3_survey_dataset(
         next_array_row = 0
         for path, table in zip(paths, source_tables, strict=True):
             trace_indices = table["trace_index"].to_numpy(dtype=np.int64)
-            for start in range(0, len(trace_indices), _SURVEY_AMPLITUDE_CHUNK_ROWS):
-                stop = min(start + _SURVEY_AMPLITUDE_CHUNK_ROWS, len(trace_indices))
-                chunk = read_trace_amplitudes(path, trace_indices[start:stop])
+            source_rows_written = 0
+            for chunk in iter_trace_amplitude_chunks(
+                path,
+                trace_indices,
+                chunk_size=_SURVEY_AMPLITUDE_CHUNK_ROWS,
+            ):
+                expected_rows = min(
+                    _SURVEY_AMPLITUDE_CHUNK_ROWS,
+                    len(trace_indices) - source_rows_written,
+                )
                 _validate_survey_amplitude_chunk(
                     chunk,
                     source_name=path.name,
-                    expected_rows=stop - start,
+                    expected_rows=expected_rows,
                     expected_sample_count=sample_count,
                 )
                 amplitude_memmap[next_array_row : next_array_row + len(chunk)] = chunk
                 next_array_row += len(chunk)
+                source_rows_written += len(chunk)
+            if source_rows_written != len(trace_indices):
+                raise RuntimeError(
+                    f"wrote {source_rows_written} amplitude rows for {path.name}, "
+                    f"expected {len(trace_indices)}"
+                )
         if next_array_row != len(stored_table):
             raise RuntimeError(
                 f"wrote {next_array_row} amplitude rows for {len(stored_table)} trace rows"
@@ -311,8 +336,6 @@ def _validate_survey_amplitude_chunk(
         )
     if chunk.dtype != np.float32:
         raise ValueError(f"{source_name}: amplitude chunk must be float32, got {chunk.dtype}")
-    if not np.all(np.isfinite(chunk)):
-        raise ValueError(f"{source_name}: amplitude chunk contains non-finite values")
 
 
 def _commit_survey_outputs(directory: Path, temporary_paths: dict[str, Path]) -> None:
@@ -364,6 +387,28 @@ def _validated_expected_ranges(
         None if value is None else _validated_ffid_range(value, f"expected_ffid_ranges[{index}]")
         for index, value in enumerate(ranges)
     )
+
+
+def _validated_source_sha256(
+    values: Sequence[str] | None,
+    source_count: int,
+) -> tuple[str, ...] | None:
+    if values is None:
+        return None
+    if isinstance(values, (str, bytes)):
+        raise ValueError("source_sha256 must contain one digest per input path in order")
+    digests = tuple(values)
+    if len(digests) != source_count:
+        raise ValueError(f"source_sha256 has {len(digests)} entries for {source_count} input paths")
+    normalized: list[str] = []
+    for index, value in enumerate(digests):
+        if not isinstance(value, str):
+            raise ValueError(f"source_sha256[{index}] must be a 64-character hexadecimal digest")
+        digest = value.lower()
+        if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+            raise ValueError(f"source_sha256[{index}] must be a 64-character hexadecimal digest")
+        normalized.append(digest)
+    return tuple(normalized)
 
 
 def _validated_ffid_range(value: object, name: str) -> tuple[int, int]:
