@@ -115,6 +115,31 @@ def test_fit_accumulates_every_training_row_across_chunk_boundaries(
     assert parameters.amplitude_rms == pytest.approx(expected)
 
 
+def test_fit_reuses_an_upstream_finite_contract_and_checks_only_training_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    finite_shapes: list[tuple[int, ...]] = []
+    actual_isfinite = normalization_module.np.isfinite
+
+    def recording_isfinite(values: object) -> np.ndarray:
+        finite_shapes.append(np.asarray(values).shape)
+        return actual_isfinite(values)
+
+    monkeypatch.setattr(normalization_module, "_AMPLITUDE_ROW_CHUNK_SIZE", 1)
+    monkeypatch.setattr(normalization_module.np, "isfinite", recording_isfinite)
+
+    parameters = fit_normalization_parameters(
+        make_trace_table(),
+        make_amplitudes(),
+        make_time_axis(),
+        amplitudes_are_finite=True,
+    )
+
+    amplitude_shapes = [shape for shape in finite_shapes if len(shape) == 2 and shape[1] == 3]
+    assert parameters.amplitude_rms > 0.0
+    assert amplitude_shapes == [(1, 3), (1, 3)]
+
+
 def test_fit_never_checks_or_squares_the_full_amplitude_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -153,9 +178,13 @@ def test_fit_never_checks_or_squares_the_full_amplitude_shape(
 
     parameters = fit_normalization_parameters(trace_table, amplitudes, time_s)
 
+    amplitude_finite_shapes = [
+        shape for shape in finite_shapes if len(shape) == 2 and shape[1] == sample_count
+    ]
     assert parameters.amplitude_rms > 0.0
     assert amplitudes.shape not in finite_shapes
     assert amplitudes.shape not in square_shapes
+    assert sum(shape[0] for shape in amplitude_finite_shapes) == trace_count
     assert all(shape[0] <= 2 for shape in square_shapes)
 
 
@@ -411,6 +440,19 @@ def test_fit_rejects_non_finite_held_out_amplitude() -> None:
 
     with pytest.raises(ValueError, match="non-finite"):
         fit_normalization_parameters(make_trace_table(), amplitudes, make_time_axis())
+
+
+def test_fit_rechecks_training_chunk_finiteness_for_upstream_validated_amplitudes() -> None:
+    amplitudes = make_amplitudes()
+    amplitudes[0, 0] = np.inf
+
+    with pytest.raises(ValueError, match="training amplitudes contain non-finite"):
+        fit_normalization_parameters(
+            make_trace_table(),
+            amplitudes,
+            make_time_axis(),
+            amplitudes_are_finite=True,
+        )
 
 
 def test_fit_rejects_non_finite_time() -> None:

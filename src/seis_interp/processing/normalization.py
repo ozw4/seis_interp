@@ -121,19 +121,30 @@ def fit_normalization_parameters(
     time_s: np.ndarray,
     *,
     split_column: str = "split",
+    amplitudes_are_finite: bool = False,
 ) -> NormalizationParameters:
-    """Fit coordinate ranges and global RMS without held-out trace leakage."""
+    """Fit coordinate ranges and global RMS without held-out trace leakage.
+
+    ``amplitudes_are_finite`` may be set only when an upstream loader has
+    validated every amplitude. Training chunks are still checked while their
+    RMS energy is accumulated.
+    """
     if not isinstance(trace_table, pd.DataFrame):
         raise TypeError(f"trace_table must be a pandas DataFrame, got {type(trace_table).__name__}")
     if not isinstance(split_column, str) or not split_column:
         raise ValueError("split_column must be a non-empty string")
+    if not isinstance(amplitudes_are_finite, bool):
+        raise ValueError("amplitudes_are_finite must be a boolean")
     required_columns = ("array_row", split_column)
     missing = [column for column in required_columns if column not in trace_table.columns]
     if missing:
         raise ValueError(f"trace table is missing required columns: {missing}")
 
     array_rows = validated_array_rows(trace_table)
-    amplitude_array = _validated_amplitude_array(amplitudes)
+    amplitude_array = _validated_amplitude_array(
+        amplitudes,
+        check_finite=not amplitudes_are_finite,
+    )
     time_array = _validated_numeric_array(time_s, "time_s", dimensions=1).astype(
         np.float64, copy=False
     )
@@ -171,7 +182,14 @@ def fit_normalization_parameters(
     )
 
     train_array_rows = np.sort(array_rows[train_mask])
-    amplitude_rms = _training_amplitude_rms(amplitude_array, train_array_rows)
+    # Avoid a second pass after this function's own all-amplitude scan. When
+    # that scan is skipped in favor of an upstream contract, retain a finite
+    # check inside the training chunks that are read for RMS accumulation.
+    amplitude_rms = _training_amplitude_rms(
+        amplitude_array,
+        train_array_rows,
+        check_finite=amplitudes_are_finite,
+    )
     if not np.isfinite(amplitude_rms) or amplitude_rms <= 0.0:
         raise ValueError(f"training amplitude RMS must be positive and finite, got {amplitude_rms}")
 
@@ -277,8 +295,12 @@ def _validated_numeric_array(
     return array
 
 
-def _validated_amplitude_array(values: np.ndarray) -> np.ndarray:
-    """Validate a 2-D amplitude array using bounded row-wise finite checks."""
+def _validated_amplitude_array(
+    values: np.ndarray,
+    *,
+    check_finite: bool,
+) -> np.ndarray:
+    """Validate a 2-D amplitude array, optionally checking finiteness by row chunk."""
     array = np.asarray(values)
     if array.ndim != 2:
         raise ValueError(f"amplitudes must be 2-dimensional, got shape {array.shape}")
@@ -287,24 +309,29 @@ def _validated_amplitude_array(values: np.ndarray) -> np.ndarray:
     if array.dtype.kind not in "iuf":
         raise ValueError("amplitudes must contain real numeric values")
 
-    for start in range(0, array.shape[0], _AMPLITUDE_ROW_CHUNK_SIZE):
-        chunk = array[start : start + _AMPLITUDE_ROW_CHUNK_SIZE]
-        if not np.all(np.isfinite(chunk)):
-            raise ValueError("amplitudes contains non-finite values")
+    if check_finite:
+        for start in range(0, array.shape[0], _AMPLITUDE_ROW_CHUNK_SIZE):
+            chunk = array[start : start + _AMPLITUDE_ROW_CHUNK_SIZE]
+            if not np.all(np.isfinite(chunk)):
+                raise ValueError("amplitudes contains non-finite values")
     return array
 
 
 def _training_amplitude_rms(
     amplitudes: np.ndarray,
     training_array_rows: np.ndarray,
+    *,
+    check_finite: bool,
 ) -> float:
-    """Accumulate training sum-of-squares in float64 over bounded row chunks."""
+    """Accumulate float64 training energy, optionally validating the same chunks."""
     sum_squares = 0.0
     sample_count = 0
     with np.errstate(over="ignore", invalid="ignore"):
         for start in range(0, len(training_array_rows), _AMPLITUDE_ROW_CHUNK_SIZE):
             rows = training_array_rows[start : start + _AMPLITUDE_ROW_CHUNK_SIZE]
             chunk = amplitudes[rows].astype(np.float64, copy=False)
+            if check_finite and not np.all(np.isfinite(chunk)):
+                raise ValueError("training amplitudes contain non-finite values")
             sum_squares += float(np.sum(np.square(chunk), dtype=np.float64))
             sample_count += int(chunk.size)
         return float(np.sqrt(sum_squares / sample_count))

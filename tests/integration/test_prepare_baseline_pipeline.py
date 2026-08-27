@@ -211,6 +211,29 @@ def test_preparation_opens_amplitudes_as_a_read_only_memmap(
     }
 
 
+def test_preparation_reuses_the_loader_amplitude_finiteness_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    observed: list[bool] = []
+    actual_fit = prepare_baseline_pipeline.fit_normalization_parameters
+
+    def recording_fit(*args: object, **kwargs: object):
+        observed.append(kwargs.get("amplitudes_are_finite") is True)
+        return actual_fit(*args, **kwargs)
+
+    monkeypatch.setattr(
+        prepare_baseline_pipeline,
+        "fit_normalization_parameters",
+        recording_fit,
+    )
+
+    _prepare(interim_dir, tmp_path / "processed")
+
+    assert observed == [True]
+
+
 def test_same_seed_writes_identical_trace_splits(tmp_path: Path) -> None:
     interim_dir = _write_interim_dataset(tmp_path)
     first_output = tmp_path / "processed_first"

@@ -87,6 +87,7 @@ def prepare_baseline_dataset(
         split_table,
         dataset.amplitudes,
         dataset.time_s,
+        amplitudes_are_finite=True,
     )
 
     stored_splits = split_table[["array_row", SPLIT_COLUMN]].copy()
