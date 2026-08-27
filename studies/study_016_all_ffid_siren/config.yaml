@@ -1,0 +1,34 @@
+extends: ../../configs/default.yaml
+
+study:
+  status: draft
+
+project:
+  random_seed: 42
+
+sampling:
+  random_trace_holdout_fraction: 0.20
+  validation_fraction_of_holdout: 0.25
+  split_scope: per_ffid
+
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
+
+model:
+  name: siren
+  input_features: 6
+  hidden_width: 256
+  hidden_layers: 4
+  omega_0: 30.0
+  hidden_omega: 30.0
+
+training:
+  batch_mode: full_ffid_epoch
+  loss: l2
+  optimizer: adam
+  learning_rate: 1.0e-4
+  max_epochs: 10
+  early_stopping_patience: 3
+  validation_batch_size: 65536
+  device: cuda:0
