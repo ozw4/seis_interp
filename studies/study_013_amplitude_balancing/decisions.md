@@ -64,3 +64,32 @@ classification, and exclude it from the summary decision.
 **Reason:** Huber is one of the paper-reported losses and bounds extreme-point gradients without
 changing the target, so it separates "robust loss alone" from "balanced target" at one fixed
 delta. Making it decision-relevant would require a delta sweep outside this study's scope.
+
+## 2026-08-27 — Amplitude balancing does not escape the near-zero predictor
+
+**Context:** The paired full-training run completed all three 50,000-update conditions on all
+435 training traces. The control reproduced Study 007/012's near-zero result (best report at
+step 19,000 with -0.0181 dB median trace S/N and a 0.0222 RMS ratio), so the comparison
+validity gate passed. The recorded per-trace scales spanned 0.152 to 15.62 with median 0.264,
+confirming the amplitude-concentration analysis on the executed data.
+
+**Decision:** Record `per_trace_rms_near_zero`. Scaling every training trace to unit RMS did
+not change the optimization outcome: the per-trace condition's best report was step 4,000 with
+-0.0029 dB median trace S/N, 0.0003 median correlation, and a 0.0265 RMS ratio, and its mean
+training loss stayed at the unit data variance near 1.0 through all 50,000 updates. The Huber
+condition (delta 1.0, unchanged target) was also `near_zero`, best at step 36,500 with
+-0.0013 dB and a flat loss near 0.070.
+
+**Evidence:** Runs `20260827T021745Z_9835849_global_rms_control`,
+`20260827T021745Z_9835849_per_trace_rms`, and `20260827T021745Z_9835849_huber_global_rms`;
+summary `20260827T021745Z_9835849_summary.json`. Each condition completed 250,000,000 point
+evaluations and 100 finite reports.
+
+**Impact:** The hypothesis that amplitude imbalance is sufficient to explain the fresh
+435-trace failure is refuted under this budget; robust loss at one delta is also insufficient.
+The failure mechanism must involve something these conditions share. The strongest remaining
+discriminator from Studies 004-006 is per-trace sample density per update (the successful
+eight-trace fits saw about 625 points per trace per 5,000-point batch, the failing 435-trace
+runs about 11.5), with full-batch training over all 271,875 points as the direct next probe.
+This one-seed result does not test whether amplitude imbalance interacts with pool expansion in
+the Study 011 continuation collapse.

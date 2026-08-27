@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -114,5 +114,23 @@ model is out of scope here. The Huber condition tests a single delta of 1.0 and 
 sweep. A positive per-trace result supports the amplitude-imbalance explanation under this
 fixed budget but does not decompose which part of the imbalance (dynamic range, gradient
 domination, or SIREN output-scale limits) is causal.
+
+## Current conclusion
+
+| Condition | Classification | Best step | Best median S/N | Best median correlation | Best RMS ratio |
+|---|---|---:|---:|---:|---:|
+| `global_rms_control` | `near_zero` | 19,000 | -0.0181 dB | 0.0018 | 0.0222 |
+| `per_trace_rms` | `near_zero` | 4,000 | -0.0029 dB | 0.0003 | 0.0265 |
+| `huber_global_rms` | `near_zero` | 36,500 | -0.0013 dB | 0.0075 | 0.0096 |
+
+The control reproduced the Study 007/012 near-zero result exactly, validating the comparison.
+Scaling every training trace to unit RMS did not let training escape the zero predictor: the
+per-trace condition's mean training loss stayed at the unit data variance near 1.0 for all
+50,000 updates, exactly as the unbalanced control did. The Huber condition also remained near
+zero with a flat loss. The summary decision is `per_trace_rms_near_zero`: amplitude imbalance is
+not a sufficient explanation for the fresh full-pool failure, so removing it alone does not fix
+optimization under this budget. The amplitude-concentration observations remain factual but
+their causal role, if any, is limited to at most an interaction with another condition (for
+example the Study 011 continuation collapse), which this study does not test.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).
