@@ -72,6 +72,7 @@ FULL_FFID_TRACE_BATCH_CORRELATION_STUDY_ID = "study_009_full_ffid_trace_batch_co
 FULL_FFID_TEMPORAL_PATCH_STUDY_ID = "study_010_full_ffid_temporal_patches"
 TRACE_POOL_CONTINUATION_STUDY_ID = "study_011_trace_pool_continuation"
 OFFICIAL_SIREN_BASELINE_STUDY_ID = "study_012_official_siren_baseline"
+AMPLITUDE_BALANCING_STUDY_ID = "study_013_amplitude_balancing"
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
@@ -96,6 +97,14 @@ _OFFICIAL_SIREN_CONDITIONS = (
     ("legacy_control", 300.0, 1.0),
     ("official_siren_30", 30.0, 30.0),
 )
+_GLOBAL_RMS_SCALING = "global_rms"
+_PER_TRACE_RMS_SCALING = "per_trace_rms"
+_AMPLITUDE_BALANCING_CONDITIONS = (
+    ("global_rms_control", _GLOBAL_RMS_SCALING, "l2"),
+    ("per_trace_rms", _PER_TRACE_RMS_SCALING, "l2"),
+    ("huber_global_rms", _GLOBAL_RMS_SCALING, "huber"),
+)
+_AMPLITUDE_BALANCING_HUBER_DELTA = 1.0
 
 
 def run_batching_ablation(
@@ -490,6 +499,229 @@ def run_official_siren_baseline(
     }
     _write_json(summary_path, summary)
     return summary
+
+
+def run_amplitude_balancing(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run the paired amplitude-balancing full-training fit probes."""
+    config = load_resolved_config(Path(config_path))
+    device = device_override or get_required_config_value(config, "training.device")
+    if not isinstance(device, str) or not device:
+        raise ConfigurationError("training.device must be a non-empty string")
+    resolved_config = deepcopy(config)
+    training_config = resolved_config.get("training")
+    if not isinstance(training_config, dict):
+        raise ConfigurationError("training configuration must be a mapping")
+    training_config["device"] = device
+
+    experiment = _validated_amplitude_balancing_experiment_config(resolved_config)
+    random_seed = _validated_random_seed(
+        get_required_config_value(resolved_config, "project.random_seed")
+    )
+    git_commit = _git_commit()
+    run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
+    output_directory = Path(output_root)
+    condition_paths = {
+        label: output_directory / f"{run_prefix}_{label}"
+        for label, _, _ in experiment["conditions"]
+    }
+    summary_path = output_directory / f"{run_prefix}_summary.json"
+    _preflight_output_paths(output_directory, (*condition_paths.values(), summary_path))
+
+    experiment_data = _load_experiment_data(
+        Path(interim_dir),
+        Path(processed_dir),
+        resolved_config,
+    )
+    selected_rows = np.sort(experiment_data["training_array_rows"]).astype(np.int64, copy=False)
+    available_training_rows = len(selected_rows)
+    trace_count = experiment["trace_count"]
+    if trace_count != available_training_rows:
+        raise ValueError(
+            f"configured trace count {trace_count} must equal all "
+            f"{available_training_rows} available training rows"
+        )
+    per_trace_amplitudes, per_trace_scales = per_trace_rms_scaled_amplitudes(
+        experiment_data["normalized_amplitudes"],
+        selected_rows,
+    )
+    amplitudes_by_scaling = {
+        _GLOBAL_RMS_SCALING: experiment_data["normalized_amplitudes"],
+        _PER_TRACE_RMS_SCALING: per_trace_amplitudes,
+    }
+    trace_points_by_scaling = {
+        scaling: build_trace_points(
+            experiment_data["normalized_time"],
+            experiment_data["normalized_spatial_by_array_row"],
+            amplitudes,
+            selected_rows,
+        )
+        for scaling, amplitudes in amplitudes_by_scaling.items()
+    }
+    sample_count = experiment_data["sample_count"]
+    point_count = trace_count * sample_count
+    point_evaluations = experiment["batch_size"] * experiment["total_updates"]
+    per_trace_scale_stats = {
+        "min": float(np.min(per_trace_scales)),
+        "median": float(np.median(per_trace_scales)),
+        "max": float(np.max(per_trace_scales)),
+    }
+
+    condition_summaries: list[dict[str, object]] = []
+    for label, amplitude_scaling, loss_name in experiment["conditions"]:
+        huber_delta = experiment["huber_delta"] if loss_name == "huber" else None
+        condition_config = _resolved_amplitude_balancing_condition_config(
+            resolved_config,
+            label=label,
+            amplitude_scaling=amplitude_scaling,
+            loss_name=loss_name,
+            huber_delta=huber_delta,
+        )
+        training_coordinates, training_targets = trace_points_by_scaling[amplitude_scaling]
+        started_at_utc = _utc_timestamp()
+        metrics = run_training_fit_condition(
+            config=condition_config,
+            label=label,
+            batch_mode=experiment["batch_mode"],
+            full_batch=False,
+            replacement=experiment["replacement"],
+            total_updates=experiment["total_updates"],
+            report_interval=experiment["report_interval"],
+            batch_size=experiment["batch_size"],
+            normalized_time=experiment_data["normalized_time"],
+            normalized_spatial_by_array_row=experiment_data["normalized_spatial_by_array_row"],
+            normalized_amplitudes=amplitudes_by_scaling[amplitude_scaling],
+            selected_array_rows=selected_rows,
+            all_coordinate_tensor=None,
+            all_target_tensor=None,
+            training_coordinates=training_coordinates,
+            training_targets=training_targets,
+            sample_count=sample_count,
+            prediction_batch_size=experiment["prediction_batch_size"],
+            device=device,
+            random_seed=random_seed,
+            loss_name=loss_name,
+            huber_delta=huber_delta,
+        )
+        metrics.update({"amplitude_scaling": amplitude_scaling, "loss_name": loss_name})
+        if huber_delta is not None:
+            metrics["huber_delta"] = huber_delta
+        if amplitude_scaling == _PER_TRACE_RMS_SCALING:
+            metrics["per_trace_scale_stats"] = dict(per_trace_scale_stats)
+        run_metadata = _build_run_metadata(
+            study_id=AMPLITUDE_BALANCING_STUDY_ID,
+            condition=label,
+            batch_mode=experiment["batch_mode"],
+            batch_size=experiment["batch_size"],
+            trace_count=trace_count,
+            sample_count=sample_count,
+            point_count=point_count,
+            point_evaluations=point_evaluations,
+            full_batch=False,
+            replacement=experiment["replacement"],
+            git_commit=git_commit,
+            started_at_utc=started_at_utc,
+            device=device,
+            random_seed=random_seed,
+            updates_completed=metrics["updates_completed"],
+        )
+        run_metadata.update({"amplitude_scaling": amplitude_scaling, "loss_name": loss_name})
+        if huber_delta is not None:
+            run_metadata["huber_delta"] = huber_delta
+        training_contract = {
+            "condition": label,
+            "batch_mode": experiment["batch_mode"],
+            "replacement": experiment["replacement"],
+            "batch_size": experiment["batch_size"],
+            "total_updates": experiment["total_updates"],
+            "point_evaluations": point_evaluations,
+            "amplitude_scaling": amplitude_scaling,
+            "loss_name": loss_name,
+        }
+        if huber_delta is not None:
+            training_contract["huber_delta"] = huber_delta
+        inputs_lock = _build_inputs_lock(
+            interim_files=experiment_data["interim_files"],
+            processed_files=experiment_data["processed_files"],
+            preparation_contract=experiment_data["preparation_contract"],
+            selected_array_rows=selected_rows,
+            trace_count=trace_count,
+            sample_count=sample_count,
+            point_count=point_count,
+            random_seed=random_seed,
+            selection_method=_ALL_TRAINING_ROWS_METHOD,
+            split_counts=experiment_data["split_counts"],
+            training_contract=training_contract,
+        )
+        output_path = condition_paths[label]
+        _write_condition_outputs(
+            output_path,
+            condition_config,
+            inputs_lock,
+            metrics,
+            run_metadata,
+        )
+        condition_summaries.append(
+            _amplitude_balancing_condition_summary(
+                output_path.name,
+                amplitude_scaling=amplitude_scaling,
+                loss_name=loss_name,
+                metrics=metrics,
+            )
+        )
+
+    classifications = {
+        str(condition["label"]): str(condition["classification"])
+        for condition in condition_summaries
+    }
+    control_classification = classifications["global_rms_control"]
+    summary: dict[str, object] = {
+        "study_id": AMPLITUDE_BALANCING_STUDY_ID,
+        "git_commit": git_commit,
+        "generated_at_utc": _utc_timestamp(),
+        "decision": amplitude_balancing_summary_decision(
+            control_classification=control_classification,
+            per_trace_classification=classifications["per_trace_rms"],
+        ),
+        "control_validity": control_classification == "near_zero",
+        "point_evaluations_per_condition": point_evaluations,
+        "per_trace_scale_stats": dict(per_trace_scale_stats),
+        "conditions": condition_summaries,
+    }
+    _write_json(summary_path, summary)
+    return summary
+
+
+def per_trace_rms_scaled_amplitudes(
+    normalized_amplitudes: np.ndarray,
+    selected_array_rows: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Scale each selected trace to unit RMS and return the applied scales."""
+    amplitudes = np.asarray(normalized_amplitudes)
+    if amplitudes.ndim != 2:
+        raise ValueError(
+            f"normalized_amplitudes must be 2-dimensional, got shape {amplitudes.shape}"
+        )
+    rows = np.asarray(selected_array_rows)
+    if rows.ndim != 1 or rows.size == 0:
+        raise ValueError("selected_array_rows must be a non-empty 1-dimensional array")
+    if np.any(rows < 0) or np.any(rows >= amplitudes.shape[0]):
+        raise ValueError(
+            f"selected_array_rows must be within amplitude row range [0, {amplitudes.shape[0]})"
+        )
+    selected = amplitudes[rows].astype(np.float64, copy=False)
+    trace_rms = np.sqrt(np.mean(np.square(selected), axis=1, dtype=np.float64))
+    if not np.all(np.isfinite(trace_rms)) or np.any(trace_rms <= 0.0):
+        raise ValueError("per-trace RMS must be positive and finite for every selected trace")
+    scaled = amplitudes.copy()
+    scaled[rows] = (selected / trace_rms[:, np.newaxis]).astype(scaled.dtype, copy=False)
+    return scaled, trace_rms
 
 
 def run_trace_pool_continuation(
@@ -1058,6 +1290,8 @@ def run_training_fit_condition(
     temporal_patch_overlap_fraction: float | None = None,
     correlation_weight: float = 0.0,
     correlation_eps: float = _STUDY_005_CORRELATION_EPS,
+    loss_name: str = "l2",
+    huber_delta: float | None = None,
     model: Siren | None = None,
     optimizer: torch.optim.Optimizer | None = None,
 ) -> dict[str, object]:
@@ -1076,6 +1310,16 @@ def run_training_fit_condition(
         "correlation_eps",
     )
     uses_trace_correlation_loss = validated_correlation_weight > 0.0
+    if loss_name not in ("l2", "huber"):
+        raise ValueError(f"unknown loss name: {loss_name!r}")
+    if loss_name == "huber":
+        if uses_trace_correlation_loss:
+            raise ValueError("huber loss does not support the trace correlation loss")
+        validated_huber_delta = _positive_finite_float(huber_delta, "huber_delta")
+    else:
+        if huber_delta is not None:
+            raise ValueError("huber_delta requires loss_name 'huber'")
+        validated_huber_delta = None
     if total_updates % report_interval != 0:
         raise ValueError("total_updates must be divisible by report_interval")
     validated_traces_per_update = (
@@ -1248,7 +1492,14 @@ def run_training_fit_condition(
 
         optimizer.zero_grad(set_to_none=True)
         prediction = model(coordinate_tensor)
-        mse_loss = torch_functional.mse_loss(prediction, target_tensor)
+        if validated_huber_delta is None:
+            point_loss = torch_functional.mse_loss(prediction, target_tensor)
+        else:
+            point_loss = torch_functional.huber_loss(
+                prediction,
+                target_tensor,
+                delta=validated_huber_delta,
+            )
         if uses_trace_correlation_loss:
             if validated_traces_per_update is None:
                 raise RuntimeError("trace correlation loss requires traces_per_update")
@@ -1258,11 +1509,11 @@ def run_training_fit_condition(
                 target_tensor.reshape(validated_traces_per_update, sample_count),
                 eps=validated_correlation_eps,
             )
-            loss = mse_loss + validated_correlation_weight * correlation_loss
-            interval_mse_loss_sum += mse_loss.detach().to(dtype=torch.float64)
+            loss = point_loss + validated_correlation_weight * correlation_loss
+            interval_mse_loss_sum += point_loss.detach().to(dtype=torch.float64)
             interval_correlation_loss_sum += correlation_loss.detach().to(dtype=torch.float64)
         else:
-            loss = mse_loss
+            loss = point_loss
         loss.backward()
         optimizer.step()
         interval_loss_sum += loss.detach().to(dtype=torch.float64)
@@ -1473,6 +1724,27 @@ def official_siren_summary_decision(
         "near_zero": "official_siren_near_zero",
     }
     return decisions[official_classification]
+
+
+def amplitude_balancing_summary_decision(
+    *,
+    control_classification: str,
+    per_trace_classification: str,
+) -> str:
+    """Map the control gate and per-trace-RMS outcome to the summary decision."""
+    known_classifications = {"strong_fit", "escaped_zero_predictor", "near_zero"}
+    if control_classification not in known_classifications:
+        raise ValueError(f"unknown control classification: {control_classification!r}")
+    if per_trace_classification not in known_classifications:
+        raise ValueError(f"unknown per-trace classification: {per_trace_classification!r}")
+    if control_classification != "near_zero":
+        return "global_rms_control_not_reproduced"
+    decisions = {
+        "strong_fit": "per_trace_rms_strong_fit",
+        "escaped_zero_predictor": "per_trace_rms_escaped_zero_predictor",
+        "near_zero": "per_trace_rms_near_zero",
+    }
+    return decisions[per_trace_classification]
 
 
 def _add_continuation_stage_context(
@@ -1868,6 +2140,72 @@ def _validated_official_siren_experiment_config(
     }
 
 
+def _validated_amplitude_balancing_experiment_config(
+    config: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate the paired amplitude-balancing full-training contract."""
+    _validate_common_training_fit_config(config)
+    experiment_config = config.get("experiment")
+    if not isinstance(experiment_config, Mapping):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    training_config = config.get("training")
+    if not isinstance(training_config, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    correlation_keys = {"correlation_weight", "correlation_eps", "loss_semantics"}
+    if correlation_keys.intersection(experiment_config) or correlation_keys.intersection(
+        training_config
+    ):
+        raise ConfigurationError("amplitude-balancing conditions must not use correlation loss")
+    total_updates = _positive_integer(
+        get_required_config_value(config, "training.total_updates"),
+        "training.total_updates",
+    )
+    report_interval = _positive_integer(
+        get_required_config_value(config, "training.report_interval"),
+        "training.report_interval",
+    )
+    if total_updates % report_interval != 0:
+        raise ConfigurationError(
+            "training.total_updates must be divisible by training.report_interval"
+        )
+    batch_mode = get_required_config_value(config, "experiment.batch_mode")
+    if batch_mode != "random_replacement":
+        raise ConfigurationError("experiment.batch_mode must be 'random_replacement'")
+    replacement = get_required_config_value(config, "experiment.replacement")
+    if replacement is not True:
+        raise ConfigurationError("experiment.replacement must be true")
+    huber_delta = _positive_finite_float(
+        get_required_config_value(config, "experiment.huber_delta"),
+        "experiment.huber_delta",
+    )
+    if huber_delta != _AMPLITUDE_BALANCING_HUBER_DELTA:
+        raise ConfigurationError(
+            f"experiment.huber_delta must be {_AMPLITUDE_BALANCING_HUBER_DELTA}"
+        )
+    return {
+        "trace_count": _positive_integer(
+            get_required_config_value(config, "experiment.trace_count"),
+            "experiment.trace_count",
+        ),
+        "total_updates": total_updates,
+        "report_interval": report_interval,
+        "batch_size": _positive_integer(
+            get_required_config_value(config, "training.batch_size"),
+            "training.batch_size",
+        ),
+        "prediction_batch_size": _positive_integer(
+            get_required_config_value(config, "training.prediction_batch_size"),
+            "training.prediction_batch_size",
+        ),
+        "batch_mode": batch_mode,
+        "replacement": replacement,
+        "huber_delta": huber_delta,
+        "conditions": _validated_amplitude_balancing_conditions(
+            get_required_config_value(config, "experiment.conditions")
+        ),
+    }
+
+
 def _validated_continuation_experiment_config(
     config: Mapping[str, object],
 ) -> dict[str, object]:
@@ -2029,6 +2367,43 @@ def _validated_official_siren_conditions(
     return _OFFICIAL_SIREN_CONDITIONS
 
 
+def _validated_amplitude_balancing_conditions(
+    value: object,
+) -> tuple[tuple[str, str, str], ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ConfigurationError("experiment.conditions must be a sequence")
+    by_label: dict[str, tuple[str, str]] = {}
+    expected_keys = {"label", "amplitude_scaling", "loss"}
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ConfigurationError("each experiment condition must be a mapping")
+        if set(item) != expected_keys:
+            raise ConfigurationError(
+                "each amplitude-balancing condition must define only label, "
+                "amplitude_scaling, and loss"
+            )
+        label = item["label"]
+        amplitude_scaling = item["amplitude_scaling"]
+        loss_name = item["loss"]
+        if not isinstance(label, str) or not label:
+            raise ConfigurationError("condition label must be a non-empty string")
+        if not isinstance(amplitude_scaling, str) or not isinstance(loss_name, str):
+            raise ConfigurationError("condition amplitude_scaling and loss must be strings")
+        if label in by_label:
+            raise ConfigurationError(f"duplicate experiment condition label: {label!r}")
+        by_label[label] = (amplitude_scaling, loss_name)
+    expected_by_label = {
+        label: (amplitude_scaling, loss_name)
+        for label, amplitude_scaling, loss_name in _AMPLITUDE_BALANCING_CONDITIONS
+    }
+    if by_label != expected_by_label:
+        raise ConfigurationError(
+            "experiment.conditions must contain exactly global_rms_control (global_rms, l2), "
+            "per_trace_rms (per_trace_rms, l2), and huber_global_rms (global_rms, huber)"
+        )
+    return _AMPLITUDE_BALANCING_CONDITIONS
+
+
 def _validated_continuation_trace_counts(value: object) -> tuple[int, ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or not value:
         raise ConfigurationError("experiment.trace_counts must be a non-empty sequence")
@@ -2149,6 +2524,55 @@ def _resolved_official_siren_condition_config(
     return resolved
 
 
+def _resolved_amplitude_balancing_condition_config(
+    config: Mapping[str, object],
+    *,
+    label: str,
+    amplitude_scaling: str,
+    loss_name: str,
+    huber_delta: float | None,
+) -> dict[str, object]:
+    resolved = deepcopy(dict(config))
+    training = resolved.get("training")
+    if not isinstance(training, dict):
+        raise ConfigurationError("training configuration must be a mapping")
+    training["loss"] = loss_name
+    if huber_delta is not None:
+        training["huber_delta"] = huber_delta
+    experiment = resolved.get("experiment")
+    if not isinstance(experiment, dict):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    active_condition: dict[str, object] = {
+        "label": label,
+        "amplitude_scaling": amplitude_scaling,
+        "loss": loss_name,
+    }
+    if huber_delta is not None:
+        active_condition["huber_delta"] = huber_delta
+    experiment["active_condition"] = active_condition
+    return resolved
+
+
+def _condition_best_and_final_reports(
+    metrics: Mapping[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Return the best-step and final report rows recorded in condition metrics."""
+    history = metrics.get("history")
+    if isinstance(history, (str, bytes)) or not isinstance(history, Sequence) or not history:
+        raise RuntimeError("condition history must be a non-empty sequence")
+    history_rows: list[Mapping[str, object]] = []
+    for row in history:
+        if not isinstance(row, Mapping):
+            raise RuntimeError("condition history rows must be mappings")
+        history_rows.append(row)
+    best_step = int(metrics["best_step"])
+    try:
+        best_row = next(row for row in history_rows if int(row["step"]) == best_step)
+    except StopIteration as error:
+        raise RuntimeError("best report step is absent from condition history") from error
+    return dict(best_row), dict(history_rows[-1])
+
+
 def _official_siren_condition_summary(
     run_directory: str,
     *,
@@ -2156,29 +2580,40 @@ def _official_siren_condition_summary(
     hidden_omega: float,
     metrics: Mapping[str, object],
 ) -> dict[str, object]:
-    history = metrics.get("history")
-    if isinstance(history, (str, bytes)) or not isinstance(history, Sequence) or not history:
-        raise RuntimeError("official-SIREN condition history must be a non-empty sequence")
-    history_rows: list[Mapping[str, object]] = []
-    for row in history:
-        if not isinstance(row, Mapping):
-            raise RuntimeError("official-SIREN condition history rows must be mappings")
-        history_rows.append(row)
-    best_step = int(metrics["best_step"])
-    try:
-        best_row = next(row for row in history_rows if int(row["step"]) == best_step)
-    except StopIteration as error:
-        raise RuntimeError("best report step is absent from condition history") from error
+    best_row, final_row = _condition_best_and_final_reports(metrics)
     return {
         "label": str(metrics["condition"]),
         "run_directory": run_directory,
         "omega_0": omega_0,
         "hidden_omega": hidden_omega,
         "classification": str(metrics["classification"]),
-        "best_report": dict(best_row),
-        "final_report": dict(history_rows[-1]),
+        "best_report": best_row,
+        "final_report": final_row,
         "updates_completed": int(metrics["updates_completed"]),
     }
+
+
+def _amplitude_balancing_condition_summary(
+    run_directory: str,
+    *,
+    amplitude_scaling: str,
+    loss_name: str,
+    metrics: Mapping[str, object],
+) -> dict[str, object]:
+    best_row, final_row = _condition_best_and_final_reports(metrics)
+    summary: dict[str, object] = {
+        "label": str(metrics["condition"]),
+        "run_directory": run_directory,
+        "amplitude_scaling": amplitude_scaling,
+        "loss_name": loss_name,
+        "classification": str(metrics["classification"]),
+        "best_report": best_row,
+        "final_report": final_row,
+        "updates_completed": int(metrics["updates_completed"]),
+    }
+    if "huber_delta" in metrics:
+        summary["huber_delta"] = metrics["huber_delta"]
+    return summary
 
 
 def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object]:
