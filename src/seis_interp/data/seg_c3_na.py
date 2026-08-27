@@ -40,6 +40,8 @@ class FileSpec:
     url: str
     expected_size_bytes: int | None
     expected_sha256: str | None
+    ffid_min: int | None = None
+    ffid_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,15 @@ def _parse_file_spec(raw_file: Any, index: int) -> FileSpec:
     if urlparse(url).scheme != "https":
         raise ManifestError(f"{field_prefix}.url must use HTTPS")
 
+    ffid_min = _optional_positive_int(file_mapping.get("ffid_min"), f"{field_prefix}.ffid_min")
+    ffid_max = _optional_positive_int(file_mapping.get("ffid_max"), f"{field_prefix}.ffid_max")
+    if (ffid_min is None) != (ffid_max is None):
+        raise ManifestError(
+            f"{field_prefix}.ffid_min and {field_prefix}.ffid_max must both be set or both be null"
+        )
+    if ffid_min is not None and ffid_max is not None and ffid_min > ffid_max:
+        raise ManifestError(f"{field_prefix}.ffid_min must not exceed {field_prefix}.ffid_max")
+
     return FileSpec(
         name=name,
         url=url,
@@ -144,6 +155,8 @@ def _parse_file_spec(raw_file: Any, index: int) -> FileSpec:
             file_mapping.get("size_bytes"), f"{field_prefix}.size_bytes"
         ),
         expected_sha256=_optional_sha256(file_mapping.get("sha256"), f"{field_prefix}.sha256"),
+        ffid_min=ffid_min,
+        ffid_max=ffid_max,
     )
 
 

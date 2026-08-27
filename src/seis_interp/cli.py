@@ -22,13 +22,14 @@ from seis_interp.configuration import (
     load_resolved_config,
     repository_relative_config_source,
 )
-from seis_interp.data.data_root import DataRootError
+from seis_interp.data.data_root import DataRootError, resolve_data_root
 from seis_interp.data.seg_c3_na import (
     DATASET_ID,
     DataIntegrityError,
     ManifestError,
     default_manifest_path,
     download_seg_c3_na,
+    load_manifest,
     verify_seg_c3_na,
 )
 from seis_interp.data.seg_c3_na_inspection import (
@@ -245,6 +246,80 @@ def _prepare_c3_shot(args: argparse.Namespace) -> int:
         print(f"Traces: {summary['trace_count']}")
         print(f"Samples per trace: {summary['sample_count']}")
         print(f"Sample interval: {summary['sample_interval_s']} s")
+        print(f"Output directory: {args.output}")
+    return 0
+
+
+def _prepare_c3_survey(args: argparse.Namespace) -> int:
+    # Imported here so that `doctor` keeps working without the data and segy extras.
+    from seis_interp.pipelines.prepare_c3 import (
+        C3_COMPLETE_SHOT_TRACE_COUNT,
+        C3_SURVEY_FFID_RANGE,
+        prepare_c3_survey,
+    )
+
+    try:
+        manifest = load_manifest(args.manifest)
+        verification = verify_seg_c3_na(args.manifest, args.data_root)
+        failed = [result for result in verification if not result.ok]
+        if failed:
+            details = "; ".join(
+                f"{result.name}: {result.status} ({result.detail})" for result in failed
+            )
+            raise DataIntegrityError(f"source verification failed: {details}")
+        expected_verification_names = [file_spec.name for file_spec in manifest.files]
+        observed_verification_names = [result.name for result in verification]
+        if observed_verification_names != expected_verification_names:
+            raise DataIntegrityError(
+                "source verification results do not match manifest order: "
+                f"expected {expected_verification_names}, got {observed_verification_names}"
+            )
+
+        missing_ranges = [
+            file_spec.name
+            for file_spec in manifest.files
+            if file_spec.ffid_min is None or file_spec.ffid_max is None
+        ]
+        if missing_ranges:
+            raise ManifestError(f"manifest files are missing FFID ranges: {missing_ranges}")
+        data_root = resolve_data_root(args.data_root)
+        source_directory = data_root / "external" / DATASET_ID
+        input_paths = [source_directory / file_spec.name for file_spec in manifest.files]
+        expected_ranges = [
+            (int(file_spec.ffid_min), int(file_spec.ffid_max)) for file_spec in manifest.files
+        ]
+        summary = prepare_c3_survey(
+            input_paths=input_paths,
+            output_dir=args.output,
+            dataset_id=args.dataset_id,
+            expected_complete_trace_count=C3_COMPLETE_SHOT_TRACE_COUNT,
+            expected_ffid_ranges=expected_ranges,
+            expected_survey_ffid_range=C3_SURVEY_FFID_RANGE,
+            overwrite=args.overwrite,
+        )
+    except (
+        DataIntegrityError,
+        DataRootError,
+        FileNotFoundError,
+        FileExistsError,
+        ManifestError,
+        OSError,
+        ValueError,
+    ) as error:
+        print(f"data prepare-c3-survey failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        ffids = summary["ffids"]
+        print(f"Source files: {summary['source_file_count']}")
+        print(f"FFID range: {ffids[0]}-{ffids[-1]}")
+        print(f"FFIDs: {summary['ffid_count']}")
+        print(f"Complete FFIDs: {summary['complete_ffid_count']}")
+        print(f"Incomplete FFIDs: {summary['incomplete_ffid_count']}")
+        print(f"Traces: {summary['trace_count']}")
+        print(f"Samples per trace: {summary['sample_count']}")
         print(f"Output directory: {args.output}")
     return 0
 
@@ -482,6 +557,36 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     prepare.add_argument("--json", action="store_true", help="Print the summary as JSON.")
     prepare.set_defaults(handler=_prepare_c3_shot)
+
+    prepare_survey = data_commands.add_parser(
+        "prepare-c3-survey",
+        help="Write every manifest-declared SEG C3 NA FFID as one interim dataset.",
+    )
+    prepare_survey.add_argument(
+        "--manifest",
+        type=Path,
+        default=default_manifest_path(),
+        help="Path to the tracked dataset manifest.",
+    )
+    prepare_survey.add_argument(
+        "--data-root",
+        type=Path,
+        help="Override SEIS_INTERP_DATA_ROOT for this command.",
+    )
+    prepare_survey.add_argument("--output", type=Path, required=True, help="Output directory.")
+    prepare_survey.add_argument(
+        "--dataset-id",
+        type=str,
+        default=DATASET_ID,
+        help="Dataset identifier stored in dataset.json.",
+    )
+    prepare_survey.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace generated files in an existing output directory.",
+    )
+    prepare_survey.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    prepare_survey.set_defaults(handler=_prepare_c3_survey)
 
     prepare_baseline = data_commands.add_parser(
         "prepare-baseline",

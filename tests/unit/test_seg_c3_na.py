@@ -93,6 +93,81 @@ def test_load_manifest_rejects_non_https_url(tmp_path: Path) -> None:
         load_manifest(manifest_path)
 
 
+def test_load_manifest_preserves_optional_ffid_ranges_in_file_order(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        yaml.safe_dump(
+            {
+                "dataset_id": "seg_c3_na",
+                "files": [
+                    {
+                        "name": "second.sgy",
+                        "url": "https://example.test/second.sgy",
+                        "ffid_min": 20,
+                        "ffid_max": 29,
+                    },
+                    {
+                        "name": "first.sgy",
+                        "url": "https://example.test/first.sgy",
+                        "ffid_min": 10,
+                        "ffid_max": 19,
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(manifest_path)
+
+    assert [(file.name, file.ffid_min, file.ffid_max) for file in manifest.files] == [
+        ("second.sgy", 20, 29),
+        ("first.sgy", 10, 19),
+    ]
+
+
+def test_load_manifest_allows_an_omitted_ffid_range(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path, {"part.sgy": b"content"})
+
+    file_spec = load_manifest(manifest_path).files[0]
+
+    assert file_spec.ffid_min is None
+    assert file_spec.ffid_max is None
+
+
+@pytest.mark.parametrize(
+    "range_fields",
+    [
+        {"ffid_min": 10},
+        {"ffid_max": 20},
+        {"ffid_min": 20, "ffid_max": 10},
+    ],
+)
+def test_load_manifest_rejects_an_invalid_ffid_range(
+    tmp_path: Path, range_fields: dict[str, int]
+) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        yaml.safe_dump(
+            {
+                "dataset_id": "seg_c3_na",
+                "files": [
+                    {
+                        "name": "part.sgy",
+                        "url": "https://example.test/part.sgy",
+                        **range_fields,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestError, match="ffid"):
+        load_manifest(manifest_path)
+
+
 def test_download_resumes_and_writes_verifiable_lock(tmp_path: Path, monkeypatch) -> None:
     files = {
         "part_1.sgy": b"first-file-content" * 100,
