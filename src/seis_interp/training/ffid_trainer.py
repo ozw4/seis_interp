@@ -89,6 +89,8 @@ def train_siren_by_ffid(
                     loss_function,
                     torch_optimizer,
                     device=device,
+                    epoch=epoch,
+                    global_step=global_steps + 1,
                 )
             )
             global_steps += 1
@@ -157,6 +159,8 @@ def _train_ffid_batch(
     optimizer: torch.optim.Optimizer,
     *,
     device: torch.device | str,
+    epoch: int,
+    global_step: int,
 ) -> float:
     """Run one update in a frame whose batch tensors are released on return."""
     coordinate_tensor, target_tensor = to_model_tensors(
@@ -167,9 +171,14 @@ def _train_ffid_batch(
     optimizer.zero_grad(set_to_none=True)
     prediction = model(coordinate_tensor)
     batch_loss = loss_function(prediction, target_tensor)
+    loss_value = float(batch_loss.detach().cpu().item())
+    if not math.isfinite(loss_value):
+        raise RuntimeError(
+            f"non-finite training loss for FFID {batch.ffid}: "
+            f"epoch={epoch}, global_step={global_step}, loss={loss_value}"
+        )
     batch_loss.backward()
     optimizer.step()
-    loss_value = float(batch_loss.detach().cpu().item())
     optimizer.zero_grad(set_to_none=True)
     return loss_value
 

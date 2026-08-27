@@ -171,6 +171,88 @@ def test_full_ffid_trainer_releases_each_batch_before_requesting_the_next(
     assert sampler.release_checks == [True, True]
 
 
+@pytest.mark.parametrize("invalid_loss", [float("nan"), float("inf"), -float("inf")])
+def test_full_ffid_trainer_rejects_non_finite_loss_before_backward_and_step(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_loss: float,
+) -> None:
+    class _SecondBatchNonFiniteLoss(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def forward(
+            self,
+            prediction: torch.Tensor,
+            target: torch.Tensor,
+        ) -> torch.Tensor:
+            self.calls += 1
+            if self.calls == 2:
+                return prediction.sum() * 0.0 + invalid_loss
+            return torch.nn.functional.mse_loss(prediction, target)
+
+    loss_function = _SecondBatchNonFiniteLoss()
+    monkeypatch.setattr(torch.nn, "MSELoss", lambda: loss_function)
+    backward_calls = 0
+    original_backward = torch.Tensor.backward
+
+    def record_backward(tensor: torch.Tensor, *args: object, **kwargs: object) -> None:
+        nonlocal backward_calls
+        backward_calls += 1
+        original_backward(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "backward", record_backward)
+    optimizer_steps = 0
+    original_step = torch.optim.Adam.step
+
+    def record_step(
+        optimizer: torch.optim.Adam,
+        closure: object | None = None,
+    ) -> torch.Tensor | None:
+        nonlocal optimizer_steps
+        optimizer_steps += 1
+        return original_step(optimizer, closure=closure)
+
+    monkeypatch.setattr(torch.optim.Adam, "step", record_step)
+    time = np.array([-1.0, 1.0], dtype=np.float64)
+    spatial = np.arange(5, dtype=np.float64).reshape(1, 5) / 5.0
+    amplitudes = np.array([[0.1, 0.2]], dtype=np.float32)
+    sampler = FullFfidBatchSampler(
+        time,
+        spatial,
+        amplitudes,
+        {2348: np.array([0], dtype=np.int64)},
+        amplitude_rms=1.0,
+        random_seed=9,
+    )
+    model = Siren(hidden_width=8, hidden_layers=1)
+
+    with pytest.raises(RuntimeError, match="non-finite training loss") as exc_info:
+        train_siren_by_ffid(
+            model,
+            sampler,
+            _scores([1.0]),
+            _normalization(),
+            device="cpu",
+            loss="l2",
+            optimizer="adam",
+            learning_rate=1.0e-3,
+            max_epochs=2,
+            early_stopping_patience=2,
+            validation_ffid_count=1,
+            checkpoint_path=tmp_path / "best.pt",
+            reporter=lambda _message: None,
+        )
+
+    message = str(exc_info.value)
+    assert "FFID 2348" in message
+    assert "epoch=2" in message
+    assert "global_step=2" in message
+    assert f"loss={invalid_loss}" in message
+    assert backward_calls == optimizer_steps == 1
+
+
 @pytest.mark.parametrize(
     ("override", "message"),
     [({"loss": "l1"}, "only l2"), ({"optimizer": "sgd"}, "only adam")],
