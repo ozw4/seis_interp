@@ -28,6 +28,7 @@ def _model_config() -> dict[str, object]:
             "hidden_width": 8,
             "hidden_layers": 1,
             "omega_0": 10.0,
+            "hidden_omega": 1.0,
         },
         "training": {"learning_rate": 1.0e-3},
     }

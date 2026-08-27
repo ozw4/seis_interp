@@ -46,6 +46,7 @@ def test_tracked_study_resolves_default_and_study_values() -> None:
         MODEL_COORDINATE_ORDER
     )
     assert get_required_config_value(resolved, "model.omega_0") == 10.0
+    assert get_required_config_value(resolved, "model.hidden_omega") == 1.0
     assert get_required_config_value(resolved, "training.optimizer") == "adam"
     assert get_required_config_value(resolved, "training.loss") == "l2"
     assert get_required_config_value(resolved, "training.learning_rate") == 1.0e-4

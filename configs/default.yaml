@@ -15,6 +15,7 @@ model:
   hidden_layers: 4
   hidden_width: 256
   omega_0: 10.0
+  hidden_omega: 1.0
 
 training:
   loss: l1

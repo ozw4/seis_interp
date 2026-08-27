@@ -110,6 +110,7 @@ def build_experiment_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                     "hidden_width": 8,
                     "hidden_layers": 1,
                     "omega_0": 10.0,
+                    "hidden_omega": 1.0,
                 },
                 "training": {
                     "loss": "l2",

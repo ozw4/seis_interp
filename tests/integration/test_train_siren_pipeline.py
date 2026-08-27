@@ -81,6 +81,7 @@ def _build_training_fixture(tmp_path: Path, *, configured_device: str = "cpu") -
                     "hidden_width": 8,
                     "hidden_layers": 1,
                     "omega_0": 10.0,
+                    "hidden_omega": 1.0,
                 },
                 "training": {
                     "loss": "l2",

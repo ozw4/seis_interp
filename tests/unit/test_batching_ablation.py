@@ -30,6 +30,7 @@ def _model_config() -> dict[str, object]:
             "hidden_width": 8,
             "hidden_layers": 2,
             "omega_0": 30.0,
+            "hidden_omega": 1.0,
         }
     }
 

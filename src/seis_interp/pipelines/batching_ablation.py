@@ -71,6 +71,7 @@ FULL_FFID_TRACE_BATCH_STUDY_ID = "study_008_full_ffid_trace_batches"
 FULL_FFID_TRACE_BATCH_CORRELATION_STUDY_ID = "study_009_full_ffid_trace_batch_correlation"
 FULL_FFID_TEMPORAL_PATCH_STUDY_ID = "study_010_full_ffid_temporal_patches"
 TRACE_POOL_CONTINUATION_STUDY_ID = "study_011_trace_pool_continuation"
+OFFICIAL_SIREN_BASELINE_STUDY_ID = "study_012_official_siren_baseline"
 CONFIG_FILE_NAME = "config.resolved.yaml"
 INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
 METRICS_FILE_NAME = "metrics.json"
@@ -90,6 +91,10 @@ _STUDY_005_CORRELATION_EPS = 1.0e-4
 _EXPECTED_CONDITIONS = (
     (_EXACT_LABEL, "exact_full_batch", True, False),
     (_RANDOM_LABEL, "random_replacement", False, True),
+)
+_OFFICIAL_SIREN_CONDITIONS = (
+    ("legacy_control", 300.0, 1.0),
+    ("official_siren_30", 30.0, 30.0),
 )
 
 
@@ -318,6 +323,173 @@ def run_full_ffid_temporal_patches(
         study_id=FULL_FFID_TEMPORAL_PATCH_STUDY_ID,
         expected_batch_mode="random_shared_temporal_patch",
     )
+
+
+def run_official_siren_baseline(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run the paired legacy and official-SIREN full-training fit probes."""
+    config = load_resolved_config(Path(config_path))
+    device = device_override or get_required_config_value(config, "training.device")
+    if not isinstance(device, str) or not device:
+        raise ConfigurationError("training.device must be a non-empty string")
+    resolved_config = deepcopy(config)
+    training_config = resolved_config.get("training")
+    if not isinstance(training_config, dict):
+        raise ConfigurationError("training configuration must be a mapping")
+    training_config["device"] = device
+
+    experiment = _validated_official_siren_experiment_config(resolved_config)
+    random_seed = _validated_random_seed(
+        get_required_config_value(resolved_config, "project.random_seed")
+    )
+    git_commit = _git_commit()
+    run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
+    output_directory = Path(output_root)
+    condition_paths = {
+        label: output_directory / f"{run_prefix}_{label}"
+        for label, _, _ in experiment["conditions"]
+    }
+    summary_path = output_directory / f"{run_prefix}_summary.json"
+    _preflight_output_paths(output_directory, (*condition_paths.values(), summary_path))
+
+    experiment_data = _load_experiment_data(
+        Path(interim_dir),
+        Path(processed_dir),
+        resolved_config,
+    )
+    selected_rows = np.sort(experiment_data["training_array_rows"]).astype(np.int64, copy=False)
+    available_training_rows = len(selected_rows)
+    trace_count = experiment["trace_count"]
+    if trace_count != available_training_rows:
+        raise ValueError(
+            f"configured trace count {trace_count} must equal all "
+            f"{available_training_rows} available training rows"
+        )
+    training_coordinates, training_targets = build_trace_points(
+        experiment_data["normalized_time"],
+        experiment_data["normalized_spatial_by_array_row"],
+        experiment_data["normalized_amplitudes"],
+        selected_rows,
+    )
+    sample_count = experiment_data["sample_count"]
+    point_count = trace_count * sample_count
+    point_evaluations = experiment["batch_size"] * experiment["total_updates"]
+
+    condition_summaries: list[dict[str, object]] = []
+    for label, omega_0, hidden_omega in experiment["conditions"]:
+        condition_config = _resolved_official_siren_condition_config(
+            resolved_config,
+            label=label,
+            omega_0=omega_0,
+            hidden_omega=hidden_omega,
+        )
+        started_at_utc = _utc_timestamp()
+        metrics = run_training_fit_condition(
+            config=condition_config,
+            label=label,
+            batch_mode=experiment["batch_mode"],
+            full_batch=False,
+            replacement=experiment["replacement"],
+            total_updates=experiment["total_updates"],
+            report_interval=experiment["report_interval"],
+            batch_size=experiment["batch_size"],
+            normalized_time=experiment_data["normalized_time"],
+            normalized_spatial_by_array_row=experiment_data["normalized_spatial_by_array_row"],
+            normalized_amplitudes=experiment_data["normalized_amplitudes"],
+            selected_array_rows=selected_rows,
+            all_coordinate_tensor=None,
+            all_target_tensor=None,
+            training_coordinates=training_coordinates,
+            training_targets=training_targets,
+            sample_count=sample_count,
+            prediction_batch_size=experiment["prediction_batch_size"],
+            device=device,
+            random_seed=random_seed,
+        )
+        metrics.update({"omega_0": omega_0, "hidden_omega": hidden_omega})
+        run_metadata = _build_run_metadata(
+            study_id=OFFICIAL_SIREN_BASELINE_STUDY_ID,
+            condition=label,
+            batch_mode=experiment["batch_mode"],
+            batch_size=experiment["batch_size"],
+            trace_count=trace_count,
+            sample_count=sample_count,
+            point_count=point_count,
+            point_evaluations=point_evaluations,
+            full_batch=False,
+            replacement=experiment["replacement"],
+            git_commit=git_commit,
+            started_at_utc=started_at_utc,
+            device=device,
+            random_seed=random_seed,
+            updates_completed=metrics["updates_completed"],
+        )
+        run_metadata.update({"omega_0": omega_0, "hidden_omega": hidden_omega})
+        inputs_lock = _build_inputs_lock(
+            interim_files=experiment_data["interim_files"],
+            processed_files=experiment_data["processed_files"],
+            preparation_contract=experiment_data["preparation_contract"],
+            selected_array_rows=selected_rows,
+            trace_count=trace_count,
+            sample_count=sample_count,
+            point_count=point_count,
+            random_seed=random_seed,
+            selection_method=_ALL_TRAINING_ROWS_METHOD,
+            split_counts=experiment_data["split_counts"],
+            training_contract={
+                "condition": label,
+                "batch_mode": experiment["batch_mode"],
+                "replacement": experiment["replacement"],
+                "batch_size": experiment["batch_size"],
+                "total_updates": experiment["total_updates"],
+                "point_evaluations": point_evaluations,
+                "omega_0": omega_0,
+                "hidden_omega": hidden_omega,
+            },
+        )
+        output_path = condition_paths[label]
+        _write_condition_outputs(
+            output_path,
+            condition_config,
+            inputs_lock,
+            metrics,
+            run_metadata,
+        )
+        condition_summaries.append(
+            _official_siren_condition_summary(
+                output_path.name,
+                omega_0=omega_0,
+                hidden_omega=hidden_omega,
+                metrics=metrics,
+            )
+        )
+
+    classifications = {
+        str(condition["label"]): str(condition["classification"])
+        for condition in condition_summaries
+    }
+    legacy_classification = classifications["legacy_control"]
+    official_classification = classifications["official_siren_30"]
+    summary: dict[str, object] = {
+        "study_id": OFFICIAL_SIREN_BASELINE_STUDY_ID,
+        "git_commit": git_commit,
+        "generated_at_utc": _utc_timestamp(),
+        "decision": official_siren_summary_decision(
+            legacy_classification=legacy_classification,
+            official_classification=official_classification,
+        ),
+        "control_validity": legacy_classification == "near_zero",
+        "point_evaluations_per_condition": point_evaluations,
+        "conditions": condition_summaries,
+    }
+    _write_json(summary_path, summary)
+    return summary
 
 
 def run_trace_pool_continuation(
@@ -1282,6 +1454,27 @@ def full_ffid_summary_decision(classification: str) -> str:
         raise ValueError(f"unknown training-fit classification: {classification!r}") from error
 
 
+def official_siren_summary_decision(
+    *,
+    legacy_classification: str,
+    official_classification: str,
+) -> str:
+    """Return the paired Study 012 decision after validating its legacy control."""
+    known_classifications = {"strong_fit", "escaped_zero_predictor", "near_zero"}
+    if legacy_classification not in known_classifications:
+        raise ValueError(f"unknown legacy-control classification: {legacy_classification!r}")
+    if official_classification not in known_classifications:
+        raise ValueError(f"unknown official-SIREN classification: {official_classification!r}")
+    if legacy_classification != "near_zero":
+        return "legacy_control_not_reproduced"
+    decisions = {
+        "strong_fit": "official_siren_strong_fit",
+        "escaped_zero_predictor": "official_siren_escaped_zero_predictor",
+        "near_zero": "official_siren_near_zero",
+    }
+    return decisions[official_classification]
+
+
 def _add_continuation_stage_context(
     metrics: dict[str, object],
     *,
@@ -1618,6 +1811,63 @@ def _validated_full_ffid_experiment_config(
     }
 
 
+def _validated_official_siren_experiment_config(
+    config: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate the paired legacy/official SIREN full-training contract."""
+    _validate_common_training_fit_config(config)
+    experiment_config = config.get("experiment")
+    if not isinstance(experiment_config, Mapping):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    training_config = config.get("training")
+    if not isinstance(training_config, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    correlation_keys = {"correlation_weight", "correlation_eps", "loss_semantics"}
+    if correlation_keys.intersection(experiment_config) or correlation_keys.intersection(
+        training_config
+    ):
+        raise ConfigurationError("official-SIREN baseline conditions must use pure MSE")
+    total_updates = _positive_integer(
+        get_required_config_value(config, "training.total_updates"),
+        "training.total_updates",
+    )
+    report_interval = _positive_integer(
+        get_required_config_value(config, "training.report_interval"),
+        "training.report_interval",
+    )
+    if total_updates % report_interval != 0:
+        raise ConfigurationError(
+            "training.total_updates must be divisible by training.report_interval"
+        )
+    batch_mode = get_required_config_value(config, "experiment.batch_mode")
+    if batch_mode != "random_replacement":
+        raise ConfigurationError("experiment.batch_mode must be 'random_replacement'")
+    replacement = get_required_config_value(config, "experiment.replacement")
+    if replacement is not True:
+        raise ConfigurationError("experiment.replacement must be true")
+    return {
+        "trace_count": _positive_integer(
+            get_required_config_value(config, "experiment.trace_count"),
+            "experiment.trace_count",
+        ),
+        "total_updates": total_updates,
+        "report_interval": report_interval,
+        "batch_size": _positive_integer(
+            get_required_config_value(config, "training.batch_size"),
+            "training.batch_size",
+        ),
+        "prediction_batch_size": _positive_integer(
+            get_required_config_value(config, "training.prediction_batch_size"),
+            "training.prediction_batch_size",
+        ),
+        "batch_mode": batch_mode,
+        "replacement": replacement,
+        "conditions": _validated_official_siren_conditions(
+            get_required_config_value(config, "experiment.conditions")
+        ),
+    }
+
+
 def _validated_continuation_experiment_config(
     config: Mapping[str, object],
 ) -> dict[str, object]:
@@ -1744,6 +1994,41 @@ def _validated_conditions(value: object) -> tuple[tuple[str, str, bool, bool], .
     return converted
 
 
+def _validated_official_siren_conditions(
+    value: object,
+) -> tuple[tuple[str, float, float], ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ConfigurationError("experiment.conditions must be a sequence")
+    by_label: dict[str, tuple[float, float]] = {}
+    expected_keys = {"label", "omega_0", "hidden_omega"}
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ConfigurationError("each experiment condition must be a mapping")
+        if set(item) != expected_keys:
+            raise ConfigurationError(
+                "each official-SIREN condition must define only label, omega_0, and hidden_omega"
+            )
+        label = item["label"]
+        if not isinstance(label, str) or not label:
+            raise ConfigurationError("condition label must be a non-empty string")
+        if label in by_label:
+            raise ConfigurationError(f"duplicate experiment condition label: {label!r}")
+        by_label[label] = (
+            _positive_finite_float(item["omega_0"], f"{label}.omega_0"),
+            _positive_finite_float(item["hidden_omega"], f"{label}.hidden_omega"),
+        )
+    expected_by_label = {
+        label: (omega_0, hidden_omega)
+        for label, omega_0, hidden_omega in _OFFICIAL_SIREN_CONDITIONS
+    }
+    if by_label != expected_by_label:
+        raise ConfigurationError(
+            "experiment.conditions must contain exactly legacy_control (300, 1) and "
+            "official_siren_30 (30, 30)"
+        )
+    return _OFFICIAL_SIREN_CONDITIONS
+
+
 def _validated_continuation_trace_counts(value: object) -> tuple[int, ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or not value:
         raise ConfigurationError("experiment.trace_counts must be a non-empty sequence")
@@ -1777,6 +2062,7 @@ def _build_model(config: Mapping[str, object]) -> Siren:
         hidden_layers=get_required_config_value(config, "model.hidden_layers"),
         output_features=1,
         omega_0=get_required_config_value(config, "model.omega_0"),
+        hidden_omega=get_required_config_value(config, "model.hidden_omega"),
     )
 
 
@@ -1838,6 +2124,61 @@ def _resolved_condition_config(
         "replacement": replacement,
     }
     return resolved
+
+
+def _resolved_official_siren_condition_config(
+    config: Mapping[str, object],
+    *,
+    label: str,
+    omega_0: float,
+    hidden_omega: float,
+) -> dict[str, object]:
+    resolved = deepcopy(dict(config))
+    model = resolved.get("model")
+    if not isinstance(model, dict):
+        raise ConfigurationError("model configuration must be a mapping")
+    model.update({"omega_0": omega_0, "hidden_omega": hidden_omega})
+    experiment = resolved.get("experiment")
+    if not isinstance(experiment, dict):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    experiment["active_condition"] = {
+        "label": label,
+        "omega_0": omega_0,
+        "hidden_omega": hidden_omega,
+    }
+    return resolved
+
+
+def _official_siren_condition_summary(
+    run_directory: str,
+    *,
+    omega_0: float,
+    hidden_omega: float,
+    metrics: Mapping[str, object],
+) -> dict[str, object]:
+    history = metrics.get("history")
+    if isinstance(history, (str, bytes)) or not isinstance(history, Sequence) or not history:
+        raise RuntimeError("official-SIREN condition history must be a non-empty sequence")
+    history_rows: list[Mapping[str, object]] = []
+    for row in history:
+        if not isinstance(row, Mapping):
+            raise RuntimeError("official-SIREN condition history rows must be mappings")
+        history_rows.append(row)
+    best_step = int(metrics["best_step"])
+    try:
+        best_row = next(row for row in history_rows if int(row["step"]) == best_step)
+    except StopIteration as error:
+        raise RuntimeError("best report step is absent from condition history") from error
+    return {
+        "label": str(metrics["condition"]),
+        "run_directory": run_directory,
+        "omega_0": omega_0,
+        "hidden_omega": hidden_omega,
+        "classification": str(metrics["classification"]),
+        "best_report": dict(best_row),
+        "final_report": dict(history_rows[-1]),
+        "updates_completed": int(metrics["updates_completed"]),
+    }
 
 
 def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object]:

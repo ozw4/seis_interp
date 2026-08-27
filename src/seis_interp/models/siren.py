@@ -1,12 +1,14 @@
 """Minimal SIREN model mapping coordinates to signal values.
 
 The network follows the paper equations: a first sine layer scaled by
-``omega_0``, unscaled hidden sine layers, and a final linear layer.
+``omega_0``, hidden sine layers scaled by ``hidden_omega``, and a final
+linear layer.
 """
 
 from __future__ import annotations
 
 import math
+from numbers import Real
 
 import torch
 from torch import nn
@@ -18,7 +20,12 @@ def _validate_positive_int(name: str, value: int) -> None:
 
 
 def _validate_positive_finite(name: str, value: float) -> None:
-    if not math.isfinite(value) or value <= 0:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, Real)
+        or not math.isfinite(value)
+        or value <= 0
+    ):
         raise ValueError(f"{name} must be a positive finite number, got {value!r}.")
 
 
@@ -52,14 +59,14 @@ class SineLayer(nn.Module):
 class Siren(nn.Module):
     """Sine-activated MLP with a linear output layer.
 
-    ``hidden_layers`` counts every sine-activated layer. Only the first
-    sine layer applies ``omega_0``; later sine layers use ``omega=1.0``.
+    ``hidden_layers`` counts every sine-activated layer. The first sine
+    layer applies ``omega_0``; later sine layers apply ``hidden_omega``.
 
     The constructor arguments define the function together with the
     weights but are not part of ``state_dict()``. Loading weights into a
-    model built with a different ``omega_0`` therefore succeeds silently
-    and yields a different function, so whatever saves these weights must
-    store the constructor arguments next to them.
+    model built with a different ``omega_0`` or ``hidden_omega`` therefore
+    succeeds silently and yields a different function, so whatever saves
+    these weights must store the constructor arguments next to them.
     """
 
     def __init__(
@@ -69,6 +76,7 @@ class Siren(nn.Module):
         hidden_layers: int = 4,
         output_features: int = 1,
         omega_0: float = 10.0,
+        hidden_omega: float = 1.0,
     ) -> None:
         super().__init__()
         _validate_positive_int("input_features", input_features)
@@ -76,21 +84,24 @@ class Siren(nn.Module):
         _validate_positive_int("hidden_layers", hidden_layers)
         _validate_positive_int("output_features", output_features)
         _validate_positive_finite("omega_0", omega_0)
+        _validate_positive_finite("hidden_omega", hidden_omega)
 
         self.input_features = input_features
         self.hidden_width = hidden_width
         self.hidden_layers = hidden_layers
         self.output_features = output_features
         self.omega_0 = omega_0
+        self.hidden_omega = hidden_omega
 
         layers: list[nn.Module] = [
             SineLayer(input_features, hidden_width, omega=omega_0, is_first=True)
         ]
         layers.extend(
-            SineLayer(hidden_width, hidden_width, omega=1.0) for _ in range(hidden_layers - 1)
+            SineLayer(hidden_width, hidden_width, omega=hidden_omega)
+            for _ in range(hidden_layers - 1)
         )
         final_layer = nn.Linear(hidden_width, output_features)
-        final_bound = math.sqrt(6.0 / hidden_width)
+        final_bound = math.sqrt(6.0 / hidden_width) / hidden_omega
         with torch.no_grad():
             final_layer.weight.uniform_(-final_bound, final_bound)
         layers.append(final_layer)

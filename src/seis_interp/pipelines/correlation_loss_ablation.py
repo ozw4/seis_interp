@@ -570,6 +570,7 @@ def _build_model(config: Mapping[str, object]) -> Siren:
         hidden_layers=get_required_config_value(config, "model.hidden_layers"),
         output_features=1,
         omega_0=get_required_config_value(config, "model.omega_0"),
+        hidden_omega=get_required_config_value(config, "model.hidden_omega"),
     )
 
 

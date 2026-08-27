@@ -45,6 +45,7 @@ def save_siren_checkpoint(
             "hidden_layers": model.hidden_layers,
             "output_features": model.output_features,
             "omega_0": model.omega_0,
+            "hidden_omega": model.hidden_omega,
         },
         "model_state_dict": state_dict,
         "normalization": normalization.to_dict(),
