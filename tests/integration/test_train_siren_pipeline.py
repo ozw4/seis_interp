@@ -236,6 +236,26 @@ def test_pipeline_routes_only_train_and_validation_rows(
     assert received == {"train": expected_train, "validation": expected_validation}
 
 
+def test_random_points_pipeline_does_not_reset_the_global_numpy_rng(tmp_path: Path) -> None:
+    config, interim, processed = _build_training_fixture(tmp_path)
+    original_state = np.random.get_state()
+    try:
+        np.random.seed(1234)
+        expected_next_value = np.random.random()
+        np.random.seed(1234)
+
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+        assert np.random.random() == expected_next_value
+    finally:
+        np.random.set_state(original_state)
+
+
 def test_pipeline_passes_the_common_trace_sample_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

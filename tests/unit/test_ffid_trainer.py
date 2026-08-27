@@ -1,0 +1,280 @@
+from __future__ import annotations
+
+import weakref
+from collections.abc import Iterator
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
+from seis_interp.models.siren import Siren
+from seis_interp.processing.normalization import NormalizationParameters
+from seis_interp.training.checkpoints import load_siren_checkpoint
+from seis_interp.training.ffid_batches import FullFfidBatch, FullFfidBatchSampler
+from seis_interp.training.ffid_trainer import train_siren_by_ffid
+
+
+def _normalization() -> NormalizationParameters:
+    return NormalizationParameters(
+        coordinate_order=MODEL_COORDINATE_ORDER,
+        coordinate_min=(-1.0, -1.0, -1.0, -1.0, -1.0, -1.0),
+        coordinate_max=(1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
+        amplitude_rms=1.0,
+    )
+
+
+def _sampler(seed: int = 9) -> FullFfidBatchSampler:
+    time = np.array([-1.0, 1.0], dtype=np.float64)
+    spatial = np.arange(30, dtype=np.float64).reshape(6, 5) / 30.0
+    amplitudes = np.arange(1, 13, dtype=np.float32).reshape(6, 2) / 10.0
+    return FullFfidBatchSampler(
+        time,
+        spatial,
+        amplitudes,
+        {
+            10: np.array([0], dtype=np.int64),
+            20: np.array([1, 2], dtype=np.int64),
+            30: np.array([3, 4, 5], dtype=np.int64),
+        },
+        amplitude_rms=1.0,
+        random_seed=seed,
+    )
+
+
+def _scores(values: list[float]):
+    iterator: Iterator[float] = iter(values)
+
+    def evaluate(_model: torch.nn.Module) -> float:
+        return next(iterator)
+
+    return evaluate
+
+
+class _LifetimeCheckingIterator(Iterator[FullFfidBatch]):
+    def __init__(self, release_checks: list[bool]) -> None:
+        self._release_checks = release_checks
+        self._index = 0
+        self._previous_references: (
+            tuple[
+                weakref.ReferenceType[np.ndarray],
+                weakref.ReferenceType[np.ndarray],
+            ]
+            | None
+        ) = None
+
+    def __next__(self) -> FullFfidBatch:
+        if self._previous_references is not None:
+            self._release_checks.append(
+                all(reference() is None for reference in self._previous_references)
+            )
+            self._previous_references = None
+        if self._index == 2:
+            raise StopIteration
+
+        coordinates = np.full((2, 6), self._index / 10.0, dtype=np.float64)
+        targets = np.full(2, (self._index + 1) / 10.0, dtype=np.float32)
+        batch = FullFfidBatch(
+            ffid=10 + self._index * 10,
+            coordinates=coordinates,
+            targets=targets,
+            trace_count=1,
+            point_count=2,
+        )
+        self._previous_references = (weakref.ref(coordinates), weakref.ref(targets))
+        self._index += 1
+        return batch
+
+
+class _LifetimeCheckingSampler:
+    ffid_count = 2
+
+    def __init__(self) -> None:
+        self.release_checks: list[bool] = []
+
+    def iter_epoch(self) -> Iterator[FullFfidBatch]:
+        return _LifetimeCheckingIterator(self.release_checks)
+
+
+def test_full_ffid_trainer_counts_variable_batches_and_selects_global_snr(
+    tmp_path: Path,
+) -> None:
+    torch.manual_seed(4)
+    model = Siren(hidden_width=8, hidden_layers=1)
+    checkpoint = tmp_path / "best.pt"
+    messages: list[str] = []
+
+    result = train_siren_by_ffid(
+        model,
+        _sampler(),
+        _scores([1.0, 2.0, 1.5, 1.0]),
+        _normalization(),
+        device="cpu",
+        loss="l2",
+        optimizer="adam",
+        learning_rate=1.0e-3,
+        max_epochs=6,
+        early_stopping_patience=2,
+        validation_ffid_count=3,
+        checkpoint_path=checkpoint,
+        reporter=messages.append,
+    )
+
+    assert result.best_epoch == 2
+    assert result.best_validation_global_snr_db == 2.0
+    assert result.epochs_completed == 4
+    assert result.global_steps == 12
+    assert result.stopped_early
+    assert result.training_ffid_count == result.validation_ffid_count == 3
+    assert all(
+        set(record)
+        == {
+            "epoch",
+            "global_step",
+            "mean_ffid_batch_loss",
+            "validation_global_snr_db",
+        }
+        for record in result.history
+    )
+    assert messages[0].endswith("start")
+    assert "validation_global_snr_db=" in messages[-1]
+    loaded = load_siren_checkpoint(checkpoint)
+    assert loaded.epoch == 2
+    assert loaded.global_step == 6
+    assert loaded.validation_median_trace_snr_db is None
+    assert loaded.validation_global_snr_db == 2.0
+
+
+def test_full_ffid_trainer_releases_each_batch_before_requesting_the_next(
+    tmp_path: Path,
+) -> None:
+    sampler = _LifetimeCheckingSampler()
+
+    result = train_siren_by_ffid(
+        Siren(hidden_width=8, hidden_layers=1),
+        sampler,
+        _scores([1.0]),
+        _normalization(),
+        device="cpu",
+        loss="l2",
+        optimizer="adam",
+        learning_rate=1.0e-3,
+        max_epochs=1,
+        early_stopping_patience=1,
+        validation_ffid_count=2,
+        checkpoint_path=tmp_path / "best.pt",
+        reporter=lambda _message: None,
+    )
+
+    assert result.global_steps == 2
+    assert sampler.release_checks == [True, True]
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [({"loss": "l1"}, "only l2"), ({"optimizer": "sgd"}, "only adam")],
+)
+def test_full_ffid_trainer_rejects_unsupported_training_contract(
+    tmp_path: Path,
+    override: dict[str, str],
+    message: str,
+) -> None:
+    arguments = {"loss": "l2", "optimizer": "adam", **override}
+
+    with pytest.raises(ValueError, match=message):
+        train_siren_by_ffid(
+            Siren(hidden_width=8, hidden_layers=1),
+            _sampler(),
+            _scores([1.0]),
+            _normalization(),
+            device="cpu",
+            learning_rate=1.0e-3,
+            max_epochs=1,
+            early_stopping_patience=1,
+            validation_ffid_count=3,
+            checkpoint_path=tmp_path / "best.pt",
+            reporter=lambda _message: None,
+            **arguments,
+        )
+
+
+def test_full_ffid_trainer_is_reproducible_for_the_same_seed(tmp_path: Path) -> None:
+    histories = []
+    states = []
+    for run_index in range(2):
+        torch.manual_seed(12)
+        model = Siren(hidden_width=8, hidden_layers=1)
+        result = train_siren_by_ffid(
+            model,
+            _sampler(seed=5),
+            _scores([0.5, 0.75]),
+            _normalization(),
+            device="cpu",
+            loss="l2",
+            optimizer="adam",
+            learning_rate=1.0e-3,
+            max_epochs=2,
+            early_stopping_patience=2,
+            validation_ffid_count=3,
+            checkpoint_path=tmp_path / f"best_{run_index}.pt",
+            reporter=lambda _message: None,
+        )
+        histories.append(result.history)
+        states.append({name: value.detach().clone() for name, value in model.state_dict().items()})
+
+    assert histories[0] == histories[1]
+    for name in states[0]:
+        torch.testing.assert_close(states[0][name], states[1][name], rtol=0.0, atol=0.0)
+
+
+def test_full_ffid_trainer_accepts_perfect_validation_and_checkpoints_it(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "best.pt"
+
+    result = train_siren_by_ffid(
+        Siren(hidden_width=8, hidden_layers=1),
+        _sampler(),
+        _scores([float("inf"), float("inf")]),
+        _normalization(),
+        device="cpu",
+        loss="l2",
+        optimizer="adam",
+        learning_rate=1.0e-3,
+        max_epochs=3,
+        early_stopping_patience=1,
+        validation_ffid_count=3,
+        checkpoint_path=checkpoint,
+        reporter=lambda _message: None,
+    )
+
+    assert result.best_epoch == 1
+    assert result.best_validation_global_snr_db == float("inf")
+    assert result.epochs_completed == 2
+    assert result.stopped_early
+    assert all(record["validation_global_snr_db"] == float("inf") for record in result.history)
+    assert load_siren_checkpoint(checkpoint).validation_global_snr_db == float("inf")
+
+
+@pytest.mark.parametrize("invalid_score", [float("nan"), -float("inf")])
+def test_full_ffid_trainer_rejects_invalid_validation_scores(
+    tmp_path: Path,
+    invalid_score: float,
+) -> None:
+    with pytest.raises(ValueError, match="finite or positive infinity"):
+        train_siren_by_ffid(
+            Siren(hidden_width=8, hidden_layers=1),
+            _sampler(),
+            _scores([invalid_score]),
+            _normalization(),
+            device="cpu",
+            loss="l2",
+            optimizer="adam",
+            learning_rate=1.0e-3,
+            max_epochs=1,
+            early_stopping_patience=1,
+            validation_ffid_count=3,
+            checkpoint_path=tmp_path / "best.pt",
+            reporter=lambda _message: None,
+        )

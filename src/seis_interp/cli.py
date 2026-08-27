@@ -413,6 +413,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
 def _train_siren(args: argparse.Namespace) -> int:
     from seis_interp.pipelines.train_siren import CHECKPOINT_RELATIVE_PATH, train_siren_run
 
+    progress_reporter = _print_progress_to_stderr if args.json else None
     try:
         summary = train_siren_run(
             config_path=args.config,
@@ -420,6 +421,7 @@ def _train_siren(args: argparse.Namespace) -> int:
             processed_dir=args.processed,
             output_dir=args.output,
             device_override=args.device,
+            progress_reporter=progress_reporter,
         )
     except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
         print(f"train siren failed: {error}", file=sys.stderr)
@@ -428,16 +430,30 @@ def _train_siren(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
+        batch_mode = summary.get("batch_mode", "random_points")
         print(f"Output directory: {args.output}")
+        print(f"Batch mode: {batch_mode}")
         print(f"Best epoch: {summary['best_epoch']}")
-        print(
-            f"Best validation median trace S/N: {summary['best_validation_median_trace_snr_db']} dB"
-        )
-        print(f"Global validation S/N at best epoch: {summary['best_validation_global_snr_db']} dB")
+        if batch_mode == "full_ffid_epoch":
+            print(f"Best validation global S/N: {summary['best_validation_global_snr_db']} dB")
+            print(f"Optimizer steps: {summary['global_steps']}")
+        else:
+            print(
+                "Best validation median trace S/N: "
+                f"{summary['best_validation_median_trace_snr_db']} dB"
+            )
+            print(
+                "Global validation S/N at best epoch: "
+                f"{summary['best_validation_global_snr_db']} dB"
+            )
         print(f"Epochs completed: {summary['epochs_completed']}")
         print(f"Stopped early: {summary['stopped_early']}")
         print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
     return 0
+
+
+def _print_progress_to_stderr(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def _config_value_or_override(

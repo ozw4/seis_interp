@@ -19,7 +19,7 @@ class LoadedSirenCheckpoint:
     normalization: NormalizationParameters
     epoch: int
     global_step: int
-    validation_median_trace_snr_db: float
+    validation_median_trace_snr_db: float | None
     validation_global_snr_db: float
 
 
@@ -30,10 +30,15 @@ def save_siren_checkpoint(
     *,
     epoch: int,
     global_step: int,
-    validation_median_trace_snr_db: float,
+    validation_median_trace_snr_db: float | None,
     validation_global_snr_db: float,
 ) -> None:
-    """Save constructor values, CPU weights, normalization, and best-epoch metadata."""
+    """Save constructor values, CPU weights, normalization, and best-epoch metadata.
+
+    ``validation_median_trace_snr_db`` is ``None`` for training modes whose
+    model-selection contract defines only a global validation metric. Existing
+    checkpoints and the random-point training path continue to store a float.
+    """
     checkpoint_path = Path(path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     state_dict = {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()}

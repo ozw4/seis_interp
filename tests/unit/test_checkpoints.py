@@ -84,3 +84,23 @@ def test_checkpoint_persists_hidden_omega_and_loads_legacy_default(tmp_path: Pat
 
     assert loaded.model.hidden_omega == 1.0
     torch.testing.assert_close(loaded.model(coordinates), expected)
+
+
+def test_checkpoint_allows_global_only_validation_metadata(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    model = Siren(hidden_width=7, hidden_layers=1)
+
+    save_siren_checkpoint(
+        checkpoint_path,
+        model,
+        _normalization(),
+        epoch=2,
+        global_step=6,
+        validation_median_trace_snr_db=None,
+        validation_global_snr_db=8.5,
+    )
+
+    loaded = load_siren_checkpoint(checkpoint_path)
+
+    assert loaded.validation_median_trace_snr_db is None
+    assert loaded.validation_global_snr_db == 8.5
