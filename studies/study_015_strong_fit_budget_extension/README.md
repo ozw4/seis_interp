@@ -2,7 +2,7 @@
 
 ## Status
 
-`active`
+`completed`
 
 ## Research question
 
@@ -84,5 +84,30 @@ interpolation. It extends the budget of the single recommended condition; it doe
 the other Study 014 conditions, separate batch size from trace completeness, or sweep the
 learning rate, so a failure to reach 20 dB within 400,000 updates would mean "not with this
 recipe and budget", not "never".
+
+## Current conclusion
+
+Run `20260827T054748Z_94b479e_full_trace_batch_per_trace_rms`; decision
+`extended_budget_strong_fit`.
+
+The baseline gate passed exactly: the best median training-trace S/N within the first 50,000
+updates was 16.13774316268436 dB, identical to Study 014's recorded value to full float
+precision, confirming a bit-exact reproduction of the shared seed-42 schedule.
+
+The recommended recipe reaches `strong_fit`. The median training-trace S/N first crossed 20 dB
+at step 199,000 (20.03 dB, median trace correlation 0.9950), about 4x Study 014's budget. The
+best report came at step 356,500 with 21.29 dB median trace S/N, 0.9963 median trace
+correlation, 20.95 dB global S/N, and a 0.9934 prediction/target RMS ratio. The final report at
+step 400,000 was 19.40 dB — late-training reports oscillate roughly 19-21 dB around the best
+while the mean training loss still creeps down (0.0184 at step 400,000).
+
+Returns diminish steeply: the 8x budget added 5.16 dB over Study 014's 16.14 dB best, and the
+last 200,000 updates contributed only about 1.3 dB of that while the curve flattened into an
+oscillating plateau near 20-21 dB. Under this fixed learning rate (`1.0e-4`) and model size,
+more updates alone are unlikely to buy much beyond ~21 dB; a learning-rate schedule or larger
+capacity would be the lever if a higher training fit were ever needed. The training-fit
+question for the 435-trace pool is now closed — the natural next step is interpolation quality
+on held-out traces, which first requires a coordinate-dependent amplitude model because the
+per-trace RMS scales do not exist at held-out positions.
 
 Historical rationale belongs in [`decisions.md`](decisions.md).
