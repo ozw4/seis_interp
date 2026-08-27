@@ -105,6 +105,19 @@ _AMPLITUDE_BALANCING_CONDITIONS = (
     ("huber_global_rms", _GLOBAL_RMS_SCALING, "huber"),
 )
 _AMPLITUDE_BALANCING_HUBER_DELTA = 1.0
+FULL_TRACE_BATCH_ABLATION_STUDY_ID = "study_014_full_trace_batch_ablation"
+_FULL_TRACE_BATCH_ABLATION_CONDITIONS = (
+    ("small_batch_control", "random_replacement", False, _GLOBAL_RMS_SCALING),
+    ("full_trace_batch", "random_complete_traces", False, _GLOBAL_RMS_SCALING),
+    ("full_trace_batch_correlation", "random_complete_traces", True, _GLOBAL_RMS_SCALING),
+    ("full_trace_batch_per_trace_rms", "random_complete_traces", False, _PER_TRACE_RMS_SCALING),
+    (
+        "full_trace_batch_correlation_per_trace_rms",
+        "random_complete_traces",
+        True,
+        _PER_TRACE_RMS_SCALING,
+    ),
+)
 
 
 def run_batching_ablation(
@@ -722,6 +735,224 @@ def per_trace_rms_scaled_amplitudes(
     scaled = amplitudes.copy()
     scaled[rows] = (selected / trace_rms[:, np.newaxis]).astype(scaled.dtype, copy=False)
     return scaled, trace_rms
+
+
+def run_full_trace_batch_ablation(
+    *,
+    config_path: Path,
+    interim_dir: Path,
+    processed_dir: Path,
+    output_root: Path,
+    device_override: str | None = None,
+) -> dict[str, object]:
+    """Run the Study 014 full-trace-batch ingredient ablation on the full training pool."""
+    config = load_resolved_config(Path(config_path))
+    device = device_override or get_required_config_value(config, "training.device")
+    if not isinstance(device, str) or not device:
+        raise ConfigurationError("training.device must be a non-empty string")
+    resolved_config = deepcopy(config)
+    training_config = resolved_config.get("training")
+    if not isinstance(training_config, dict):
+        raise ConfigurationError("training configuration must be a mapping")
+    training_config["device"] = device
+
+    experiment = _validated_full_trace_batch_ablation_experiment_config(resolved_config)
+    random_seed = _validated_random_seed(
+        get_required_config_value(resolved_config, "project.random_seed")
+    )
+    git_commit = _git_commit()
+    run_prefix = f"{_run_id_timestamp()}_{git_commit[:7]}"
+    output_directory = Path(output_root)
+    condition_paths = {
+        label: output_directory / f"{run_prefix}_{label}"
+        for label, _, _, _ in experiment["conditions"]
+    }
+    summary_path = output_directory / f"{run_prefix}_summary.json"
+    _preflight_output_paths(output_directory, (*condition_paths.values(), summary_path))
+
+    experiment_data = _load_experiment_data(
+        Path(interim_dir),
+        Path(processed_dir),
+        resolved_config,
+    )
+    selected_rows = np.sort(experiment_data["training_array_rows"]).astype(np.int64, copy=False)
+    available_training_rows = len(selected_rows)
+    trace_count = experiment["trace_count"]
+    if trace_count != available_training_rows:
+        raise ValueError(
+            f"configured trace count {trace_count} must equal all "
+            f"{available_training_rows} available training rows"
+        )
+    per_trace_amplitudes, per_trace_scales = per_trace_rms_scaled_amplitudes(
+        experiment_data["normalized_amplitudes"],
+        selected_rows,
+    )
+    amplitudes_by_scaling = {
+        _GLOBAL_RMS_SCALING: experiment_data["normalized_amplitudes"],
+        _PER_TRACE_RMS_SCALING: per_trace_amplitudes,
+    }
+    trace_points_by_scaling = {
+        scaling: build_trace_points(
+            experiment_data["normalized_time"],
+            experiment_data["normalized_spatial_by_array_row"],
+            amplitudes,
+            selected_rows,
+        )
+        for scaling, amplitudes in amplitudes_by_scaling.items()
+    }
+    sample_count = experiment_data["sample_count"]
+    point_count = trace_count * sample_count
+    per_trace_scale_stats = {
+        "min": float(np.min(per_trace_scales)),
+        "median": float(np.median(per_trace_scales)),
+        "max": float(np.max(per_trace_scales)),
+    }
+
+    condition_summaries: list[dict[str, object]] = []
+    for label, batch_mode, uses_correlation, amplitude_scaling in experiment["conditions"]:
+        if batch_mode == "random_replacement":
+            replacement = True
+            batch_size = experiment["batch_size"]
+            traces_per_update = None
+        else:
+            replacement = False
+            batch_size = point_count
+            traces_per_update = trace_count
+        correlation_weight = experiment["correlation_weight"] if uses_correlation else 0.0
+        point_evaluations = batch_size * experiment["total_updates"]
+        condition_config = _resolved_full_trace_batch_condition_config(
+            resolved_config,
+            label=label,
+            batch_mode=batch_mode,
+            correlation_weight=correlation_weight,
+            amplitude_scaling=amplitude_scaling,
+        )
+        training_coordinates, training_targets = trace_points_by_scaling[amplitude_scaling]
+        started_at_utc = _utc_timestamp()
+        metrics = run_training_fit_condition(
+            config=condition_config,
+            label=label,
+            batch_mode=batch_mode,
+            full_batch=False,
+            replacement=replacement,
+            total_updates=experiment["total_updates"],
+            report_interval=experiment["report_interval"],
+            batch_size=batch_size,
+            normalized_time=experiment_data["normalized_time"],
+            normalized_spatial_by_array_row=experiment_data["normalized_spatial_by_array_row"],
+            normalized_amplitudes=amplitudes_by_scaling[amplitude_scaling],
+            selected_array_rows=selected_rows,
+            all_coordinate_tensor=None,
+            all_target_tensor=None,
+            training_coordinates=training_coordinates,
+            training_targets=training_targets,
+            sample_count=sample_count,
+            prediction_batch_size=experiment["prediction_batch_size"],
+            device=device,
+            random_seed=random_seed,
+            traces_per_update=traces_per_update,
+            correlation_weight=correlation_weight,
+            correlation_eps=experiment["correlation_eps"],
+        )
+        metrics["amplitude_scaling"] = amplitude_scaling
+        if amplitude_scaling == _PER_TRACE_RMS_SCALING:
+            metrics["per_trace_scale_stats"] = dict(per_trace_scale_stats)
+        run_metadata = _build_run_metadata(
+            study_id=FULL_TRACE_BATCH_ABLATION_STUDY_ID,
+            condition=label,
+            batch_mode=batch_mode,
+            batch_size=batch_size,
+            trace_count=trace_count,
+            sample_count=sample_count,
+            point_count=point_count,
+            point_evaluations=point_evaluations,
+            full_batch=False,
+            replacement=replacement,
+            git_commit=git_commit,
+            started_at_utc=started_at_utc,
+            device=device,
+            random_seed=random_seed,
+            updates_completed=metrics["updates_completed"],
+            traces_per_update=traces_per_update,
+            correlation_weight=correlation_weight if uses_correlation else None,
+            correlation_eps=experiment["correlation_eps"] if uses_correlation else None,
+            loss_semantics=_MSE_PLUS_TRACE_CORRELATION if uses_correlation else None,
+        )
+        run_metadata["amplitude_scaling"] = amplitude_scaling
+        training_contract: dict[str, object] = {
+            "condition": label,
+            "batch_mode": batch_mode,
+            "replacement": replacement,
+            "batch_size": batch_size,
+            "total_updates": experiment["total_updates"],
+            "point_evaluations": point_evaluations,
+            "amplitude_scaling": amplitude_scaling,
+        }
+        if traces_per_update is not None:
+            training_contract["traces_per_update"] = traces_per_update
+        if uses_correlation:
+            training_contract.update(
+                {
+                    "correlation_weight": correlation_weight,
+                    "correlation_eps": experiment["correlation_eps"],
+                    "loss_semantics": _MSE_PLUS_TRACE_CORRELATION,
+                }
+            )
+        inputs_lock = _build_inputs_lock(
+            interim_files=experiment_data["interim_files"],
+            processed_files=experiment_data["processed_files"],
+            preparation_contract=experiment_data["preparation_contract"],
+            selected_array_rows=selected_rows,
+            trace_count=trace_count,
+            sample_count=sample_count,
+            point_count=point_count,
+            random_seed=random_seed,
+            selection_method=_ALL_TRAINING_ROWS_METHOD,
+            split_counts=experiment_data["split_counts"],
+            training_contract=training_contract,
+        )
+        output_path = condition_paths[label]
+        _write_condition_outputs(
+            output_path,
+            condition_config,
+            inputs_lock,
+            metrics,
+            run_metadata,
+        )
+        condition_summaries.append(
+            _full_trace_batch_condition_summary(
+                output_path.name,
+                batch_mode=batch_mode,
+                correlation_weight=correlation_weight,
+                amplitude_scaling=amplitude_scaling,
+                metrics=metrics,
+            )
+        )
+
+    classifications = {
+        str(condition["label"]): str(condition["classification"])
+        for condition in condition_summaries
+    }
+    control_classification = classifications["small_batch_control"]
+    reproduction_classification = classifications["full_trace_batch_correlation_per_trace_rms"]
+    summary: dict[str, object] = {
+        "study_id": FULL_TRACE_BATCH_ABLATION_STUDY_ID,
+        "git_commit": git_commit,
+        "generated_at_utc": _utc_timestamp(),
+        "decision": full_trace_batch_ablation_summary_decision(
+            control_classification=control_classification,
+            full_trace_batch_classification=classifications["full_trace_batch"],
+            reproduction_classification=reproduction_classification,
+        ),
+        "control_validity": control_classification == "near_zero",
+        "escape_reproduced": reproduction_classification != "near_zero",
+        "correlation_weight": experiment["correlation_weight"],
+        "correlation_eps": experiment["correlation_eps"],
+        "per_trace_scale_stats": dict(per_trace_scale_stats),
+        "conditions": condition_summaries,
+    }
+    _write_json(summary_path, summary)
+    return summary
 
 
 def run_trace_pool_continuation(
@@ -1769,6 +2000,34 @@ def amplitude_balancing_summary_decision(
     return decisions[per_trace_classification]
 
 
+def full_trace_batch_ablation_summary_decision(
+    *,
+    control_classification: str,
+    full_trace_batch_classification: str,
+    reproduction_classification: str,
+) -> str:
+    """Map the Study 014 gates and full-trace-batch outcome to the summary decision."""
+    known_classifications = {"strong_fit", "escaped_zero_predictor", "near_zero"}
+    if control_classification not in known_classifications:
+        raise ValueError(f"unknown control classification: {control_classification!r}")
+    if full_trace_batch_classification not in known_classifications:
+        raise ValueError(
+            f"unknown full-trace-batch classification: {full_trace_batch_classification!r}"
+        )
+    if reproduction_classification not in known_classifications:
+        raise ValueError(f"unknown reproduction classification: {reproduction_classification!r}")
+    if control_classification != "near_zero":
+        return "small_batch_control_not_reproduced"
+    if reproduction_classification == "near_zero":
+        return "combined_escape_not_reproduced"
+    decisions = {
+        "strong_fit": "full_trace_batch_strong_fit",
+        "escaped_zero_predictor": "full_trace_batch_escaped_zero_predictor",
+        "near_zero": "full_trace_batch_near_zero",
+    }
+    return decisions[full_trace_batch_classification]
+
+
 def _add_continuation_stage_context(
     metrics: dict[str, object],
     *,
@@ -2228,6 +2487,63 @@ def _validated_amplitude_balancing_experiment_config(
     }
 
 
+def _validated_full_trace_batch_ablation_experiment_config(
+    config: Mapping[str, object],
+) -> dict[str, object]:
+    """Validate the Study 014 full-trace-batch ingredient-ablation contract."""
+    _validate_common_training_fit_config(config)
+    experiment_config = config.get("experiment")
+    if not isinstance(experiment_config, Mapping):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    training_config = config.get("training")
+    if not isinstance(training_config, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    correlation_keys = {"correlation_weight", "correlation_eps", "loss_semantics"}
+    if correlation_keys.intersection(training_config):
+        raise ConfigurationError(
+            "correlation loss is configured per condition under experiment, not training"
+        )
+    total_updates = _positive_integer(
+        get_required_config_value(config, "training.total_updates"),
+        "training.total_updates",
+    )
+    report_interval = _positive_integer(
+        get_required_config_value(config, "training.report_interval"),
+        "training.report_interval",
+    )
+    if total_updates % report_interval != 0:
+        raise ConfigurationError(
+            "training.total_updates must be divisible by training.report_interval"
+        )
+    return {
+        "trace_count": _positive_integer(
+            get_required_config_value(config, "experiment.trace_count"),
+            "experiment.trace_count",
+        ),
+        "total_updates": total_updates,
+        "report_interval": report_interval,
+        "batch_size": _positive_integer(
+            get_required_config_value(config, "training.batch_size"),
+            "training.batch_size",
+        ),
+        "prediction_batch_size": _positive_integer(
+            get_required_config_value(config, "training.prediction_batch_size"),
+            "training.prediction_batch_size",
+        ),
+        "correlation_weight": _positive_finite_float(
+            get_required_config_value(config, "experiment.correlation_weight"),
+            "experiment.correlation_weight",
+        ),
+        "correlation_eps": _positive_finite_float(
+            get_required_config_value(config, "experiment.correlation_eps"),
+            "experiment.correlation_eps",
+        ),
+        "conditions": _validated_full_trace_batch_conditions(
+            get_required_config_value(config, "experiment.conditions")
+        ),
+    }
+
+
 def _validated_continuation_experiment_config(
     config: Mapping[str, object],
 ) -> dict[str, object]:
@@ -2426,6 +2742,49 @@ def _validated_amplitude_balancing_conditions(
     return _AMPLITUDE_BALANCING_CONDITIONS
 
 
+def _validated_full_trace_batch_conditions(
+    value: object,
+) -> tuple[tuple[str, str, bool, str], ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ConfigurationError("experiment.conditions must be a sequence")
+    by_label: dict[str, tuple[str, bool, str]] = {}
+    expected_keys = {"label", "batch_mode", "correlation", "amplitude_scaling"}
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ConfigurationError("each experiment condition must be a mapping")
+        if set(item) != expected_keys:
+            raise ConfigurationError(
+                "each full-trace-batch condition must define only label, batch_mode, "
+                "correlation, and amplitude_scaling"
+            )
+        label = item["label"]
+        batch_mode = item["batch_mode"]
+        correlation = item["correlation"]
+        amplitude_scaling = item["amplitude_scaling"]
+        if not isinstance(label, str) or not label:
+            raise ConfigurationError("condition label must be a non-empty string")
+        if not isinstance(batch_mode, str) or not isinstance(amplitude_scaling, str):
+            raise ConfigurationError("condition batch_mode and amplitude_scaling must be strings")
+        if not isinstance(correlation, bool):
+            raise ConfigurationError("condition correlation must be a boolean")
+        if label in by_label:
+            raise ConfigurationError(f"duplicate experiment condition label: {label!r}")
+        by_label[label] = (batch_mode, correlation, amplitude_scaling)
+    expected_by_label = {
+        label: (batch_mode, correlation, amplitude_scaling)
+        for label, batch_mode, correlation, amplitude_scaling in (
+            _FULL_TRACE_BATCH_ABLATION_CONDITIONS
+        )
+    }
+    if by_label != expected_by_label:
+        raise ConfigurationError(
+            "experiment.conditions must contain exactly the five fixed Study 014 conditions: "
+            "small_batch_control, full_trace_batch, full_trace_batch_correlation, "
+            "full_trace_batch_per_trace_rms, and full_trace_batch_correlation_per_trace_rms"
+        )
+    return _FULL_TRACE_BATCH_ABLATION_CONDITIONS
+
+
 def _validated_continuation_trace_counts(value: object) -> tuple[int, ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or not value:
         raise ConfigurationError("experiment.trace_counts must be a non-empty sequence")
@@ -2575,6 +2934,27 @@ def _resolved_amplitude_balancing_condition_config(
     return resolved
 
 
+def _resolved_full_trace_batch_condition_config(
+    config: Mapping[str, object],
+    *,
+    label: str,
+    batch_mode: str,
+    correlation_weight: float,
+    amplitude_scaling: str,
+) -> dict[str, object]:
+    resolved = deepcopy(dict(config))
+    experiment = resolved.get("experiment")
+    if not isinstance(experiment, dict):
+        raise ConfigurationError("experiment configuration must be a mapping")
+    experiment["active_condition"] = {
+        "label": label,
+        "batch_mode": batch_mode,
+        "correlation_weight": correlation_weight,
+        "amplitude_scaling": amplitude_scaling,
+    }
+    return resolved
+
+
 def _condition_best_and_final_reports(
     metrics: Mapping[str, object],
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -2636,6 +3016,29 @@ def _amplitude_balancing_condition_summary(
     if "huber_delta" in metrics:
         summary["huber_delta"] = metrics["huber_delta"]
     return summary
+
+
+def _full_trace_batch_condition_summary(
+    run_directory: str,
+    *,
+    batch_mode: str,
+    correlation_weight: float,
+    amplitude_scaling: str,
+    metrics: Mapping[str, object],
+) -> dict[str, object]:
+    best_row, final_row = _condition_best_and_final_reports(metrics)
+    return {
+        "label": str(metrics["condition"]),
+        "run_directory": run_directory,
+        "batch_mode": batch_mode,
+        "batch_size": int(metrics["batch_size"]),
+        "correlation_weight": correlation_weight,
+        "amplitude_scaling": amplitude_scaling,
+        "classification": str(metrics["classification"]),
+        "best_report": best_row,
+        "final_report": final_row,
+        "updates_completed": int(metrics["updates_completed"]),
+    }
 
 
 def _summary_run(run_id: str, metrics: Mapping[str, object]) -> dict[str, object]:
