@@ -44,7 +44,7 @@ training:
   optimizer: adam
   learning_rate: 1.0e-4
   batch_size: 300000
-  ffid_range: [2348, 2351]
+  ffid_range: [2348, 2363]
   traces_per_update: 435
   steps_per_epoch: 500
   max_epochs: 100
