@@ -328,6 +328,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         COORDINATE_NORMALIZATION_METHOD,
         prepare_baseline_dataset,
     )
+    from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
 
     try:
         config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
@@ -366,6 +367,20 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             "normalization.amplitude",
             AMPLITUDE_NORMALIZATION_METHOD,
         )
+        sampling_config = config.get("sampling")
+        raw_trace_filter = (
+            sampling_config.get("trace_amplitude_filter")
+            if isinstance(sampling_config, Mapping)
+            else None
+        )
+        trace_amplitude_filter = (
+            TraceAmplitudeFilterConfig.from_mapping(
+                raw_trace_filter,
+                name="sampling.trace_amplitude_filter",
+            )
+            if raw_trace_filter is not None
+            else None
+        )
         config_source = repository_relative_config_source(
             args.config,
             repository_root=REPOSITORY_ROOT,
@@ -384,6 +399,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             split_scope=split_scope,
             coordinate_normalization=coordinate_normalization,
             amplitude_normalization=amplitude_normalization,
+            trace_amplitude_filter=trace_amplitude_filter,
             config_source=config_source,
             overwrite=args.overwrite,
         )
@@ -399,6 +415,10 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         print(f"Input dataset: {args.input}")
         print(f"Output directory: {args.output}")
         print(f"Traces: {summary['trace_count']}")
+        trace_quality = summary.get("trace_quality")
+        if isinstance(trace_quality, Mapping):
+            print(f"Eligible traces: {trace_quality['eligible_trace_count']}")
+            print(f"Excluded traces: {trace_quality['excluded_trace_count']}")
         print(f"Split scope: {summary.get('split_scope', 'global')}")
         print(f"FFIDs: {summary.get('ffid_count', 1)}")
         print(f"Train traces: {split_counts['train']}")

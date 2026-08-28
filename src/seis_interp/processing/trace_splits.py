@@ -14,6 +14,7 @@ SPLIT_COLUMN = "split"
 TRAIN_SPLIT = "train"
 VALIDATION_SPLIT = "validation"
 TEST_SPLIT = "test"
+EXCLUDED_SPLIT = "excluded"
 
 
 def assign_random_trace_splits(

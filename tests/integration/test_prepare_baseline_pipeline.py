@@ -13,6 +13,8 @@ from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines import prepare_baseline as prepare_baseline_pipeline
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.processing.normalization import read_normalization_parameters
+from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
+from seis_interp.processing.trace_splits import EXCLUDED_SPLIT
 
 TRACE_COUNT = 20
 SAMPLE_COUNT = 4
@@ -77,6 +79,7 @@ def _prepare(
     output_dir: Path,
     *,
     split_scope: str = "global",
+    trace_amplitude_filter: TraceAmplitudeFilterConfig | None = None,
     overwrite: bool = False,
 ) -> dict[str, object]:
     return prepare_baseline_dataset(
@@ -86,6 +89,7 @@ def _prepare(
         validation_fraction_of_holdout=VALIDATION_FRACTION_OF_HOLDOUT,
         random_seed=RANDOM_SEED,
         split_scope=split_scope,
+        trace_amplitude_filter=trace_amplitude_filter,
         config_source=CONFIG_SOURCE,
         overwrite=overwrite,
     )
@@ -179,6 +183,52 @@ def test_per_ffid_scope_writes_each_split_for_every_ffid(tmp_path: Path) -> None
     assert summary["split_scope"] == "per_ffid"
     assert summary["ffid_count"] == 2
     assert summary["split_counts"] == {"train": 32, "validation": 2, "test": 6}
+
+
+def test_amplitude_filter_excludes_invalid_traces_before_split_and_normalization(
+    tmp_path: Path,
+) -> None:
+    interim_dir = _write_multi_ffid_interim_dataset(tmp_path)
+    amplitude_path = interim_dir / "amplitudes.npy"
+    amplitudes = np.load(amplitude_path, allow_pickle=False)
+    amplitudes[:10] = 0.0
+    amplitudes[10:20] = 2_000.0
+    np.save(amplitude_path, amplitudes)
+    output_dir = tmp_path / "processed"
+    trace_filter = TraceAmplitudeFilterConfig(
+        exclude_all_zero=True,
+        max_abs_amplitude=1_000.0,
+    )
+
+    summary = _prepare(
+        interim_dir,
+        output_dir,
+        split_scope="per_ffid",
+        trace_amplitude_filter=trace_filter,
+    )
+
+    split_table = pd.read_parquet(output_dir / "trace_split.parquet")
+    assert len(split_table) == 40
+    assert split_table.loc[split_table["array_row"] < 20, "split"].eq(EXCLUDED_SPLIT).all()
+    assert not split_table.loc[split_table["array_row"] >= 20, "split"].eq(EXCLUDED_SPLIT).any()
+    assert summary["split_counts"] == {"train": 16, "validation": 1, "test": 3}
+    assert summary["ffid_count"] == 1
+    assert summary["trace_amplitude_filter"] == trace_filter.to_dict()
+    assert summary["trace_quality"] == {
+        "input_trace_count": 40,
+        "eligible_trace_count": 20,
+        "excluded_trace_count": 20,
+        "all_zero_trace_count": 10,
+        "excess_amplitude_trace_count": 10,
+        "excluded_array_rows": list(range(20)),
+        "affected_ffids": [100],
+        "fully_excluded_ffids": [100],
+    }
+    training_rows = split_table.loc[split_table["split"] == "train", "array_row"].to_numpy()
+    expected_rms = float(np.sqrt(np.mean(amplitudes[training_rows].astype(np.float64) ** 2)))
+    assert read_normalization_parameters(
+        output_dir / "normalization.json"
+    ).amplitude_rms == pytest.approx(expected_rms)
 
 
 def test_preparation_opens_amplitudes_as_a_read_only_memmap(
