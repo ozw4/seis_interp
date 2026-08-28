@@ -16,6 +16,7 @@ import torch
 from torch import nn
 
 EXPONENTIAL_LAYER_OMEGA_SCHEDULE = "exponential"
+DENSE_SKIP_CONNECTIONS = "dense"
 
 
 def _validate_positive_int(name: str, value: int) -> None:
@@ -43,6 +44,13 @@ def _validate_layer_omega_schedule(value: str | None, *, hidden_layers: int) -> 
             "layer_omega_schedule='exponential' requires hidden_layers >= 2, "
             f"got {hidden_layers!r}."
         )
+
+
+def _validate_skip_connections(value: str | None) -> None:
+    if value is None:
+        return
+    if value != DENSE_SKIP_CONNECTIONS:
+        raise ValueError(f"skip_connections must be 'dense' or None, got {value!r}.")
 
 
 def _sine_layer_omegas(
@@ -99,14 +107,17 @@ class Siren(nn.Module):
     apply ``hidden_omega``. With ``layer_omega_schedule='exponential'``, the
     sine-layer frequencies form a geometric progression from ``omega_0`` to
     ``hidden_omega``. An exponential schedule therefore requires at least two
-    sine layers.
+    sine layers. With ``skip_connections='dense'``, each later sine layer
+    consumes all preceding sine-layer activations and the final linear layer
+    consumes all sine-layer activations. This makes dense parameter count grow
+    quadratically with the number of sine layers.
 
     The constructor arguments define the function together with the
     weights but are not part of ``state_dict()``. Loading weights into a
-    model built with a different ``omega_0``, ``hidden_omega``, or layer
-    schedule therefore succeeds silently and yields a different function, so
-    whatever saves these weights must store the constructor arguments next to
-    them.
+    model built with a different ``omega_0``, ``hidden_omega``, layer schedule,
+    or skip architecture therefore either fails on incompatible tensor shapes
+    or yields a different function, so whatever saves these weights must store
+    the constructor arguments next to them.
     """
 
     def __init__(
@@ -118,6 +129,7 @@ class Siren(nn.Module):
         omega_0: float = 10.0,
         hidden_omega: float = 1.0,
         layer_omega_schedule: str | None = None,
+        skip_connections: str | None = None,
     ) -> None:
         super().__init__()
         _validate_positive_int("input_features", input_features)
@@ -130,6 +142,7 @@ class Siren(nn.Module):
             layer_omega_schedule,
             hidden_layers=hidden_layers,
         )
+        _validate_skip_connections(skip_connections)
 
         self.input_features = input_features
         self.hidden_width = hidden_width
@@ -138,11 +151,23 @@ class Siren(nn.Module):
         self.omega_0 = omega_0
         self.hidden_omega = hidden_omega
         self.layer_omega_schedule = layer_omega_schedule
+        self.skip_connections = skip_connections
         self.layer_omegas = _sine_layer_omegas(
             omega_0=omega_0,
             hidden_omega=hidden_omega,
             hidden_layers=hidden_layers,
             layer_omega_schedule=layer_omega_schedule,
+        )
+        self.sine_layer_input_features = (
+            (input_features, *((hidden_width,) * (hidden_layers - 1)))
+            if skip_connections is None
+            else (
+                input_features,
+                *(hidden_width * layer_index for layer_index in range(1, hidden_layers)),
+            )
+        )
+        self.final_input_features = (
+            hidden_width if skip_connections is None else hidden_width * hidden_layers
         )
 
         layers: list[nn.Module] = [
@@ -154,14 +179,26 @@ class Siren(nn.Module):
             )
         ]
         layers.extend(
-            SineLayer(hidden_width, hidden_width, omega=omega) for omega in self.layer_omegas[1:]
+            SineLayer(in_features, hidden_width, omega=omega)
+            for in_features, omega in zip(
+                self.sine_layer_input_features[1:],
+                self.layer_omegas[1:],
+                strict=True,
+            )
         )
-        final_layer = nn.Linear(hidden_width, output_features)
-        final_bound = math.sqrt(6.0 / hidden_width) / hidden_omega
+        final_layer = nn.Linear(self.final_input_features, output_features)
+        final_bound = math.sqrt(6.0 / self.final_input_features) / hidden_omega
         with torch.no_grad():
             final_layer.weight.uniform_(-final_bound, final_bound)
         layers.append(final_layer)
         self.network = nn.Sequential(*layers)
 
     def forward(self, coordinates: torch.Tensor) -> torch.Tensor:
-        return self.network(coordinates)
+        if self.skip_connections is None:
+            return self.network(coordinates)
+
+        activations: list[torch.Tensor] = []
+        for layer_index in range(self.hidden_layers):
+            layer_input = coordinates if not activations else torch.cat(activations, dim=-1)
+            activations.append(self.network[layer_index](layer_input))
+        return self.network[-1](torch.cat(activations, dim=-1))

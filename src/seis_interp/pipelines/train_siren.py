@@ -30,7 +30,11 @@ from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import canonical_source_files
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.evaluation.streaming_snr import evaluate_model_global_snr_by_ffid
-from seis_interp.models.siren import EXPONENTIAL_LAYER_OMEGA_SCHEDULE, Siren
+from seis_interp.models.siren import (
+    DENSE_SKIP_CONNECTIONS,
+    EXPONENTIAL_LAYER_OMEGA_SCHEDULE,
+    Siren,
+)
 from seis_interp.pipelines.prepare_baseline import (
     NORMALIZATION_FILE_NAME,
     PREPARATION_FILE_NAME,
@@ -148,6 +152,7 @@ def train_siren_run(
     coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
     time_coordinate_scale = _model_time_coordinate_scale(config)
     _model_layer_omega_schedule(config)
+    _model_skip_connections(config)
     batch_mode = _training_batch_mode(config)
     learning_rate_schedule = _training_learning_rate_schedule(
         config,
@@ -224,6 +229,7 @@ def train_siren_run(
         expected_input_features=coordinate_input_features,
     )
     model_omega_schedule = _model_omega_schedule_contract(model)
+    model_skip_connections = _model_skip_connections_contract(model)
     recorded_model_coordinates = (
         coordinate_parameters
         if (
@@ -354,6 +360,8 @@ def train_siren_run(
         run_metadata["model_coordinates"] = recorded_model_coordinates.to_dict()
     if model_omega_schedule is not None:
         run_metadata["model_omega_schedule"] = model_omega_schedule
+    if model_skip_connections is not None:
+        run_metadata["model_skip_connections"] = model_skip_connections
     if isinstance(trace_quality, Mapping):
         run_metadata["trace_quality"] = dict(trace_quality)
     random_training_contract = (
@@ -373,6 +381,7 @@ def train_siren_run(
         training_contract=streaming_training_contract or random_training_contract,
         model_coordinates=recorded_model_coordinates,
         model_omega_schedule=model_omega_schedule,
+        model_skip_connections=model_skip_connections,
     )
     _write_run_outputs(
         output_directory,
@@ -1441,6 +1450,29 @@ def _model_omega_schedule_contract(model: Siren) -> dict[str, object] | None:
     }
 
 
+def _model_skip_connections(config: Mapping[str, object]) -> str | None:
+    model = config.get("model")
+    if not isinstance(model, Mapping) or "skip_connections" not in model:
+        return None
+    value = model["skip_connections"]
+    if value is None:
+        return None
+    if value != DENSE_SKIP_CONNECTIONS:
+        raise ConfigurationError(f"model.skip_connections must be 'dense' or null, got {value!r}")
+    return DENSE_SKIP_CONNECTIONS
+
+
+def _model_skip_connections_contract(model: Siren) -> dict[str, object] | None:
+    if model.skip_connections is None:
+        return None
+    return {
+        "skip_connections": model.skip_connections,
+        "sine_layer_input_features": list(model.sine_layer_input_features),
+        "final_linear_input_features": model.final_input_features,
+        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+    }
+
+
 def _build_model(
     config: Mapping[str, object],
     *,
@@ -1468,6 +1500,7 @@ def _build_model(
         omega_0=get_required_config_value(config, "model.omega_0"),
         hidden_omega=get_required_config_value(config, "model.hidden_omega"),
         layer_omega_schedule=_model_layer_omega_schedule(config),
+        skip_connections=_model_skip_connections(config),
     )
 
 
@@ -1486,6 +1519,7 @@ def _build_inputs_lock(
     training_contract: Mapping[str, object] | None = None,
     model_coordinates: ModelCoordinateParameters | None = None,
     model_omega_schedule: Mapping[str, object] | None = None,
+    model_skip_connections: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     inputs_lock: dict[str, object] = {
         "interim_files": dict(interim_files),
@@ -1500,6 +1534,8 @@ def _build_inputs_lock(
         inputs_lock["model_coordinates"] = model_coordinates.to_dict()
     if model_omega_schedule is not None:
         inputs_lock["model_omega_schedule"] = dict(model_omega_schedule)
+    if model_skip_connections is not None:
+        inputs_lock["model_skip_connections"] = dict(model_skip_connections)
     return inputs_lock
 
 

@@ -83,6 +83,8 @@ def save_siren_checkpoint(
     }
     if model.layer_omega_schedule is not None:
         model_config["layer_omega_schedule"] = model.layer_omega_schedule
+    if model.skip_connections is not None:
+        model_config["skip_connections"] = model.skip_connections
     payload = {
         "model_type": "siren",
         "model_config": model_config,

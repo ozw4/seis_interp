@@ -530,6 +530,89 @@ def test_train_siren_rejects_exponential_schedule_with_one_sine_layer(
 
 
 @pytest.mark.parametrize(
+    "batch_mode",
+    ["random_points", "full_ffid_epoch", "random_complete_traces"],
+)
+def test_train_siren_batch_modes_record_dense_skip_connections(
+    tmp_path: Path,
+    batch_mode: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"].update(
+        {
+            "hidden_layers": 3,
+            "omega_0": 5.0,
+            "hidden_omega": 50.0,
+            "layer_omega_schedule": "exponential",
+            "skip_connections": "dense",
+        }
+    )
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    if batch_mode == "random_points":
+        config_payload["training"].update({"batch_size": 8, "steps_per_epoch": 1})
+    elif batch_mode == "random_complete_traces":
+        config_payload["training"].update({"traces_per_update": 2, "steps_per_epoch": 1})
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    output = tmp_path / "run"
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.model.skip_connections == "dense"
+    assert checkpoint.model.sine_layer_input_features == (6, 8, 16)
+    assert checkpoint.model.final_input_features == 24
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    expected_provenance = {
+        "skip_connections": "dense",
+        "sine_layer_input_features": [6, 8, 16],
+        "final_linear_input_features": 24,
+        "parameter_count": 289,
+    }
+    assert inputs_lock["model_skip_connections"] == expected_provenance
+    assert run_metadata["model_skip_connections"] == expected_provenance
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert resolved["model"]["skip_connections"] == "dense"
+
+
+@pytest.mark.parametrize("skip_connections", ["residual", 1, True])
+def test_train_siren_rejects_unknown_skip_connections_before_data_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    skip_connections: object,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["skip_connections"] = skip_connections
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(
+        "seis_interp.pipelines.train_siren.load_interim_trace_dataset",
+        lambda *_args, **_kwargs: pytest.fail("data loading must not start"),
+    )
+
+    with pytest.raises(ConfigurationError, match="model.skip_connections"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+@pytest.mark.parametrize(
     "invalid_scale",
     [
         0.0,
