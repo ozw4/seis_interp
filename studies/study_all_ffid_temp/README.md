@@ -110,6 +110,15 @@ From the repository root:
 python scripts/run_study_all_ffid_temp.py
 ```
 
+Both `random_points` and `full_ffid_epoch` print an immediately flushed start and end line for each
+epoch. The `random_points` end line includes the epoch mean training loss and both validation S/N
+metrics. For example, a `per_trace_rms` run prints:
+
+```text
+random_points 1/10 start: steps_per_epoch=500 batch_size=3000000 amplitude_scaling=per_trace_rms validation_metric_domain=oracle_per_trace_unit_rms
+random_points 1/10 end: train_loss=... oracle_per_trace_unit_rms_median_trace_snr_db=... oracle_per_trace_unit_rms_global_snr_db=...
+```
+
 To override only the execution device:
 
 ```bash

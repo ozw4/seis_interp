@@ -26,14 +26,23 @@ def _normalization() -> NormalizationParameters:
     )
 
 
-def _training_inputs() -> tuple[RandomPointSampler, np.ndarray, np.ndarray]:
+def _training_inputs(
+    *, amplitude_scaling: str = "train_global_rms"
+) -> tuple[RandomPointSampler, np.ndarray, np.ndarray]:
     time = np.linspace(-1.0, 1.0, SAMPLES_PER_TRACE, dtype=np.float64)
     spatial = np.array(
         [[-0.5, 0.2, 0.3, 0.0, 1.0], [0.5, -0.2, -0.3, 1.0, 0.0]],
         dtype=np.float64,
     )
     amplitudes = (time[np.newaxis, :] + spatial[:, :1]).astype(np.float32)
-    sampler = RandomPointSampler(time, spatial, amplitudes, np.array([0]), random_seed=3)
+    sampler = RandomPointSampler(
+        time,
+        spatial,
+        amplitudes,
+        np.array([0]),
+        random_seed=3,
+        amplitude_scaling=amplitude_scaling,
+    )
     validation_coordinates, validation_targets = build_trace_points(
         time, spatial, amplitudes, np.array([1])
     )
@@ -175,6 +184,45 @@ def test_history_records_the_configured_loss(tmp_path: Path) -> None:
     )
 
     assert result.history[0]["train_loss"] == pytest.approx(expected_loss)
+
+
+def test_reports_each_random_points_epoch_with_validation_metrics(tmp_path: Path) -> None:
+    sampler, coordinates, targets = _training_inputs(amplitude_scaling="per_trace_rms")
+    messages: list[str] = []
+
+    result = train_siren(
+        Siren(hidden_width=4, hidden_layers=1),
+        sampler,
+        coordinates,
+        targets,
+        _normalization(),
+        device="cpu",
+        loss="l2",
+        learning_rate=1e-3,
+        batch_size=2,
+        steps_per_epoch=1,
+        max_epochs=2,
+        early_stopping_patience=2,
+        validation_batch_size=20,
+        validation_samples_per_trace=SAMPLES_PER_TRACE,
+        checkpoint_path=tmp_path / "best.pt",
+        amplitude_scaling="per_trace_rms",
+        reporter=messages.append,
+    )
+
+    assert result.epochs_completed == 2
+    assert len(messages) == 4
+    assert messages[0] == (
+        "random_points 1/2 start: steps_per_epoch=1 batch_size=2 "
+        "amplitude_scaling=per_trace_rms "
+        "validation_metric_domain=oracle_per_trace_unit_rms"
+    )
+    assert messages[1].startswith("random_points 1/2 end: train_loss=")
+    assert messages[2].startswith("random_points 2/2 start:")
+    assert messages[3].startswith("random_points 2/2 end: train_loss=")
+    for end_message in messages[1::2]:
+        assert "oracle_per_trace_unit_rms_median_trace_snr_db=" in end_message
+        assert "oracle_per_trace_unit_rms_global_snr_db=" in end_message
 
 
 def test_rejects_a_validation_point_count_that_is_not_whole_traces(tmp_path: Path) -> None:

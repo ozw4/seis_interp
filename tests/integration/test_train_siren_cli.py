@@ -36,8 +36,11 @@ def test_cli_runs_training_with_device_override_and_json_output(
     )
 
     assert exit_code == 0
-    summary = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
     assert summary == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    assert "random_points 1/2 start" in captured.err
+    assert "random_points 1/2 end" in captured.err
     saved_config = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
     assert saved_config["training"]["device"] == "cpu"
     assert load_siren_checkpoint(output / "artifacts" / "best.pt").model.input_features == 6

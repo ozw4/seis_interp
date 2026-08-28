@@ -183,6 +183,7 @@ def train_siren_run(
             random_seed=random_seed,
             device=device,
             checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+            progress_reporter=progress_reporter,
         )
     else:
         result, full_training_contract = _train_full_ffid_epoch(
@@ -279,8 +280,9 @@ def _train_random_points(
     random_seed: int,
     device: object,
     checkpoint_path: Path,
+    progress_reporter: ProgressReporter | None,
 ) -> object:
-    """Run the established random-point path without changing its outputs."""
+    """Run random-point training and forward epoch progress to the caller."""
     train_rows = split_rows[split_table[SPLIT_COLUMN].eq(TRAIN_SPLIT).to_numpy(dtype=bool)]
     validation_rows = split_rows[
         split_table[SPLIT_COLUMN].eq(VALIDATION_SPLIT).to_numpy(dtype=bool)
@@ -325,6 +327,7 @@ def _train_random_points(
         validation_samples_per_trace=len(normalized_time),
         checkpoint_path=checkpoint_path,
         amplitude_scaling=amplitude_scaling,
+        reporter=progress_reporter,
     )
 
 

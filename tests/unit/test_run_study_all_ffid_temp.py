@@ -17,6 +17,7 @@ def _set_scratch_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 def test_successful_run_replaces_the_previous_scratch_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     output = _set_scratch_output(tmp_path, monkeypatch)
     output.mkdir(parents=True)
@@ -26,6 +27,7 @@ def test_successful_run_replaces_the_previous_scratch_output(
     def fake_train_siren_run(**kwargs: Any) -> dict[str, object]:
         received.update(kwargs)
         assert (output / "old-result").is_file()
+        kwargs["progress_reporter"]("random_points 1/2 start")
         staging = kwargs["output_dir"]
         staging.mkdir(parents=True)
         (staging / "new-result").write_text("new", encoding="utf-8")
@@ -37,10 +39,14 @@ def test_successful_run_replaces_the_previous_scratch_output(
     assert runner.run(config_path=config, device_override="cpu") == {"best_epoch": 1}
     assert received["config_path"] == config
     assert received["device_override"] == "cpu"
+    assert received["progress_reporter"] is runner._print_progress
     assert received["output_dir"] != output
     assert not (output / "old-result").exists()
     assert (output / "new-result").read_text(encoding="utf-8") == "new"
     assert list(output.parent.iterdir()) == [output]
+    captured = capsys.readouterr()
+    assert "random_points 1/2 start" in captured.out
+    assert captured.err == ""
 
 
 def test_failed_run_preserves_the_previous_scratch_output(

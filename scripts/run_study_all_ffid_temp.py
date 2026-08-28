@@ -27,6 +27,11 @@ PROCESSED_DIRECTORY = (
 OUTPUT_DIRECTORY = REPOSITORY_ROOT / "runs" / "study_all_ffid_temp" / "current"
 
 
+def _print_progress(message: str) -> None:
+    """Write training progress immediately to the scratch runner's standard output."""
+    print(message, flush=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
@@ -48,6 +53,7 @@ def run(*, config_path: Path, device_override: str | None = None) -> dict[str, o
             processed_dir=PROCESSED_DIRECTORY,
             output_dir=staging_directory,
             device_override=device_override,
+            progress_reporter=_print_progress,
         )
         _replace_current_output(staging_directory, OUTPUT_DIRECTORY)
     except Exception:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from numbers import Integral, Real
 from pathlib import Path
@@ -17,6 +18,8 @@ from seis_interp.evaluation.metrics import (
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
 from seis_interp.training.amplitude_scaling import (
+    ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
+    PER_TRACE_RMS_SCALING,
     TRAIN_GLOBAL_RMS_SCALING,
     validated_amplitude_scaling,
 )
@@ -24,6 +27,8 @@ from seis_interp.training.checkpoints import save_siren_checkpoint
 from seis_interp.training.model_inputs import to_model_tensors
 from seis_interp.training.point_sampler import RandomPointSampler
 from seis_interp.training.prediction import predict_points
+
+Reporter = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -66,6 +71,7 @@ def train_siren(
     validation_samples_per_trace: int,
     checkpoint_path: Path,
     amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
+    reporter: Reporter | None = None,
 ) -> TrainingResult:
     """Train a SIREN and save only improvements in median per-trace validation S/N."""
     loss_function = build_loss(loss)
@@ -88,6 +94,15 @@ def train_siren(
         validation_coordinates, validation_targets, model.input_features
     )
     trace_targets = _trace_shaped(targets, samples_per_trace)
+    report = reporter or _print_progress
+    if target_amplitude_scaling == PER_TRACE_RMS_SCALING:
+        progress_domain = f" validation_metric_domain={ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN}"
+        validation_median_label = f"{ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN}_median_trace_snr_db"
+        validation_global_label = f"{ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN}_global_snr_db"
+    else:
+        progress_domain = ""
+        validation_median_label = "validation_median_trace_snr_db"
+        validation_global_label = "validation_global_snr_db"
 
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate_value)
@@ -100,6 +115,11 @@ def train_siren(
     stopped_early = False
 
     for epoch in range(1, max_epochs_value + 1):
+        report(
+            f"random_points {epoch}/{max_epochs_value} start: "
+            f"steps_per_epoch={steps_value} batch_size={batch_size_value} "
+            f"amplitude_scaling={target_amplitude_scaling}{progress_domain}"
+        )
         model.train()
         training_losses: list[float] = []
         for _ in range(steps_value):
@@ -125,14 +145,21 @@ def train_siren(
         validation_median_trace_snr_db = median_trace_signal_to_noise_ratio_db(
             trace_targets, _trace_shaped(validation_prediction, samples_per_trace)
         )
+        train_loss = float(np.mean(training_losses, dtype=np.float64))
         history.append(
             {
                 "epoch": epoch,
                 "global_step": global_steps,
-                "train_loss": float(np.mean(training_losses, dtype=np.float64)),
+                "train_loss": train_loss,
                 "validation_global_snr_db": validation_global_snr_db,
                 "validation_median_trace_snr_db": validation_median_trace_snr_db,
             }
+        )
+        report(
+            f"random_points {epoch}/{max_epochs_value} end: "
+            f"train_loss={train_loss:.8g} "
+            f"{validation_median_label}={validation_median_trace_snr_db:.8g} "
+            f"{validation_global_label}={validation_global_snr_db:.8g}"
         )
 
         if epoch == 1 or validation_median_trace_snr_db > best_validation_median_trace_snr_db:
@@ -196,6 +223,10 @@ def _trace_shaped(values: np.ndarray, samples_per_trace: int) -> np.ndarray:
             f"validation_samples_per_trace {samples_per_trace}"
         )
     return values.reshape(-1, samples_per_trace)
+
+
+def _print_progress(message: str) -> None:
+    print(message, flush=True)
 
 
 def _positive_integer(value: int, name: str) -> int:
