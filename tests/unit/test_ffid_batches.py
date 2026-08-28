@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from seis_interp.processing.trace_splits import EXCLUDED_SPLIT
 from seis_interp.training.ffid_batches import (
     FullFfidBatch,
     FullFfidBatchSampler,
@@ -87,6 +88,25 @@ def test_grouping_omits_ffid_without_requested_split_and_coverage_rejects_it() -
     assert list(grouped) == [10, 20]
     with pytest.raises(ValueError, match=r"missing_ffids=\[30\]"):
         validate_all_ffids_have_split_rows(trace_table, grouped, split="train")
+
+
+def test_grouping_accepts_explicit_exclusions_and_checks_only_eligible_ffids() -> None:
+    trace_table, split_table = _trace_and_split_tables()
+    excluded_rows = np.asarray([7, 8, 9], dtype=np.int64)
+    split_table.loc[split_table["array_row"].isin(excluded_rows), "split"] = EXCLUDED_SPLIT
+
+    grouped = array_rows_by_ffid_for_split(trace_table, split_table, split="train")
+
+    assert list(grouped) == [10, 20]
+    eligible_rows = split_table.loc[split_table["split"] != EXCLUDED_SPLIT, "array_row"].to_numpy(
+        dtype=np.int64
+    )
+    validate_all_ffids_have_split_rows(
+        trace_table,
+        grouped,
+        split="train",
+        eligible_array_rows=eligible_rows,
+    )
 
 
 @pytest.mark.parametrize(

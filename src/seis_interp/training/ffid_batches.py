@@ -14,6 +14,7 @@ from pandas.api.types import is_bool_dtype, is_integer_dtype
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.processing.trace_splits import (
+    EXCLUDED_SPLIT,
     SPLIT_COLUMN,
     TEST_SPLIT,
     TRAIN_SPLIT,
@@ -26,7 +27,8 @@ from seis_interp.training.amplitude_scaling import (
     validated_amplitude_scaling,
 )
 
-_VALID_SPLITS = frozenset((TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT))
+_REQUESTABLE_SPLITS = frozenset((TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT))
+_VALID_SPLITS = frozenset((*_REQUESTABLE_SPLITS, EXCLUDED_SPLIT))
 
 
 @dataclass(frozen=True)
@@ -74,8 +76,9 @@ def validate_all_ffids_have_split_rows(
     rows_by_ffid: Mapping[int, np.ndarray],
     *,
     split: str,
+    eligible_array_rows: np.ndarray | None = None,
 ) -> None:
-    """Reject a grouped split unless every source FFID has at least one row."""
+    """Reject a grouped split unless every eligible FFID has at least one row."""
     requested_split = _validated_split_name(split)
     _, ffid_by_array_row = _validated_trace_table_rows_and_ffids(trace_table)
     canonical = _validated_rows_by_ffid(
@@ -83,7 +86,15 @@ def validate_all_ffids_have_split_rows(
         trace_count=len(ffid_by_array_row),
         ffid_by_array_row=ffid_by_array_row,
     )
-    expected_ffids = {int(value) for value in np.unique(ffid_by_array_row)}
+    if eligible_array_rows is None:
+        eligible_rows = np.arange(len(ffid_by_array_row), dtype=np.int64)
+    else:
+        eligible_rows = _validated_selected_rows(
+            eligible_array_rows,
+            len(ffid_by_array_row),
+            "eligible_array_rows",
+        )
+    expected_ffids = {int(value) for value in np.unique(ffid_by_array_row[eligible_rows])}
     actual_ffids = set(canonical)
     missing = sorted(expected_ffids - actual_ffids)
     unexpected = sorted(actual_ffids - expected_ffids)
@@ -393,8 +404,8 @@ def _validated_selected_rows(values: np.ndarray, trace_count: int, name: str) ->
 
 
 def _validated_split_name(value: str) -> str:
-    if value not in _VALID_SPLITS:
-        raise ValueError(f"split must be one of {sorted(_VALID_SPLITS)}, got {value!r}")
+    if value not in _REQUESTABLE_SPLITS:
+        raise ValueError(f"split must be one of {sorted(_REQUESTABLE_SPLITS)}, got {value!r}")
     return value
 
 
