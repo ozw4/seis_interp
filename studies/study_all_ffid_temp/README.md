@@ -72,6 +72,28 @@ Cartesian-mode runs lock the feature order and physical normalization bounds und
 shared `half_offset_scale_m`. All three training batch modes use the selected representation for
 training and validation.
 
+### Optional post-normalization time scale
+
+`model.time_coordinate_scale` optionally multiplies only the already min/max-normalized time
+coordinate. For example, the following maps the usual normalized time range `[-1, 1]` to
+`[-4, 4]` while leaving every spatial feature and the fitted physical normalization bounds
+unchanged:
+
+```yaml
+model:
+  time_coordinate_scale: 4.0
+```
+
+The value must be positive, finite, and remain a nonzero finite value in the model's `float32`
+input dtype. Omitting it preserves the prior coordinate values and generated artifacts exactly.
+Explicit `1.0` has the same coordinates and adds no transform provenance, while its presence is
+retained in `config.resolved.yaml` as an explicitly configured value. A non-default value is
+recorded as `model_coordinates.time_coordinate_scale` in `inputs.lock.json`, `run.json`, and the
+checkpoint; checkpoint loading exposes the same value so inference can reproduce the training
+transform. The scale is applied to training and validation coordinates in all three batch modes.
+It is a model-input transform, so changing it does not require rebuilding the prepared split or
+fitted normalization.
+
 ## Trace-amplitude eligibility
 
 Amplitude eligibility is determined from raw interim traces before split assignment and before

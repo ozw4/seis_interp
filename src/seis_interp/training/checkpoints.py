@@ -35,6 +35,13 @@ class LoadedSirenCheckpoint:
     validation_median_trace_snr_db: float | None
     validation_global_snr_db: float
 
+    @property
+    def time_coordinate_scale(self) -> float:
+        """Return the post-normalization temporal scale needed for inference."""
+        if self.model_coordinates is None:
+            return 1.0
+        return self.model_coordinates.time_coordinate_scale
+
 
 def save_siren_checkpoint(
     path: Path,

@@ -8,6 +8,7 @@ from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.processing.normalization import (
     NormalizationParameters,
     normalize_spatial_coordinates,
+    normalize_time,
 )
 from seis_interp.processing.training_coordinates import (
     CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
@@ -18,6 +19,7 @@ from seis_interp.processing.training_coordinates import (
     ModelCoordinateParameters,
     model_coordinate_parameters,
     normalize_training_spatial_coordinates,
+    normalize_training_time_coordinate,
 )
 
 
@@ -138,6 +140,43 @@ def test_default_coordinate_mode_preserves_existing_normalized_features() -> Non
     assert parameters.coordinate_order == MODEL_COORDINATE_ORDER
     assert parameters.input_features == 6
     assert parameters.half_offset_scale_m is None
+    assert parameters.time_coordinate_scale == 1.0
+    assert "time_coordinate_scale" not in parameters.to_dict()
+
+
+def test_time_coordinate_scale_is_applied_after_existing_minmax_normalization() -> None:
+    time_s = np.asarray([0.0, 1.0, 2.0])
+    parameters = model_coordinate_parameters(
+        CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+        _normalization(),
+        time_coordinate_scale=4.0,
+    )
+
+    scaled = normalize_training_time_coordinate(
+        time_s,
+        _normalization(),
+        parameters,
+    )
+
+    np.testing.assert_array_equal(scaled, [-4.0, 0.0, 4.0])
+    assert parameters.to_dict()["time_coordinate_scale"] == 4.0
+    assert ModelCoordinateParameters.from_dict(parameters.to_dict()) == parameters
+
+
+def test_default_time_coordinate_scale_preserves_the_existing_array_exactly() -> None:
+    time_s = np.asarray([0.0, 0.25, 1.5, 2.0])
+    parameters = model_coordinate_parameters(
+        CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+        _normalization(),
+    )
+
+    actual = normalize_training_time_coordinate(
+        time_s,
+        _normalization(),
+        parameters,
+    )
+
+    np.testing.assert_array_equal(actual, normalize_time(time_s, _normalization()))
 
 
 @pytest.mark.parametrize(

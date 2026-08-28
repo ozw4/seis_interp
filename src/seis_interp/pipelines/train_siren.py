@@ -39,7 +39,6 @@ from seis_interp.pipelines.prepare_baseline import (
 from seis_interp.processing.normalization import (
     NormalizationParameters,
     normalize_amplitudes,
-    normalize_time,
     read_normalization_parameters,
 )
 from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
@@ -57,7 +56,9 @@ from seis_interp.processing.training_coordinates import (
     coordinate_order_for_features,
     model_coordinate_parameters,
     normalize_training_spatial_coordinates,
+    normalize_training_time_coordinate,
     validated_coordinate_features,
+    validated_time_coordinate_scale,
 )
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
@@ -145,6 +146,7 @@ def train_siren_run(
     config = load_resolved_config(Path(config_path))
     coordinate_features = _model_coordinate_features(config)
     coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
+    time_coordinate_scale = _model_time_coordinate_scale(config)
     batch_mode = _training_batch_mode(config)
     learning_rate_schedule = _training_learning_rate_schedule(
         config,
@@ -192,8 +194,16 @@ def train_siren_run(
         batch_mode=batch_mode,
     )
 
-    coordinate_parameters = model_coordinate_parameters(coordinate_features, normalization)
-    normalized_time = normalize_time(dataset.time_s, normalization)
+    coordinate_parameters = model_coordinate_parameters(
+        coordinate_features,
+        normalization,
+        time_coordinate_scale=time_coordinate_scale,
+    )
+    normalized_time = normalize_training_time_coordinate(
+        dataset.time_s,
+        normalization,
+        coordinate_parameters,
+    )
     normalized_spatial = normalize_training_spatial_coordinates(
         dataset.trace_table,
         normalization,
@@ -214,7 +224,10 @@ def train_siren_run(
     )
     recorded_model_coordinates = (
         coordinate_parameters
-        if coordinate_features != CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES
+        if (
+            coordinate_features != CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES
+            or time_coordinate_scale != 1.0
+        )
         else None
     )
     _validate_training_contract(resolved_config)
@@ -1373,6 +1386,19 @@ def _model_coordinate_features(config: Mapping[str, object]) -> str:
     )
     try:
         return validated_coordinate_features(value, name="model.coordinate_features")
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
+
+
+def _model_time_coordinate_scale(config: Mapping[str, object]) -> float:
+    model = config.get("model")
+    if not isinstance(model, Mapping) or "time_coordinate_scale" not in model:
+        return 1.0
+    try:
+        return validated_time_coordinate_scale(
+            model["time_coordinate_scale"],
+            name="model.time_coordinate_scale",
+        )
     except ValueError as error:
         raise ConfigurationError(str(error)) from error
 

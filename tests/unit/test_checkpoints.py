@@ -11,6 +11,7 @@ from seis_interp.processing.normalization import NormalizationParameters
 from seis_interp.processing.training_coordinates import (
     CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
     CMP_CARTESIAN_HALF_OFFSET_RADIUS_COORDINATE_FEATURES,
+    CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
     model_coordinate_parameters,
 )
 from seis_interp.training.checkpoints import load_siren_checkpoint, save_siren_checkpoint
@@ -58,6 +59,7 @@ def test_checkpoint_round_trip_restores_function_config_and_metadata(tmp_path: P
     assert loaded.model.hidden_omega == 17.0
     assert loaded.normalization == _normalization()
     assert loaded.model_coordinates is None
+    assert loaded.time_coordinate_scale == 1.0
     assert loaded.amplitude_scaling == "train_global_rms"
     assert loaded.validation_metric_domain == "train_global_rms"
     assert (
@@ -171,6 +173,63 @@ def test_checkpoint_records_cartesian_coordinate_mode_and_scales(
     assert loaded.model.input_features == input_features
     assert loaded.model_coordinates == coordinates
     assert loaded.model_coordinates.half_offset_scale_m == 2.0
+
+
+def test_checkpoint_round_trip_exposes_nondefault_time_coordinate_scale(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    coordinates = model_coordinate_parameters(
+        CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+        _normalization(),
+        time_coordinate_scale=4.0,
+    )
+
+    save_siren_checkpoint(
+        checkpoint_path,
+        Siren(hidden_width=7, hidden_layers=1),
+        _normalization(),
+        model_coordinates=coordinates,
+        epoch=2,
+        global_step=6,
+        validation_median_trace_snr_db=3.0,
+        validation_global_snr_db=8.5,
+    )
+
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    loaded = load_siren_checkpoint(checkpoint_path)
+    assert payload["model_coordinates"]["time_coordinate_scale"] == 4.0
+    assert loaded.model_coordinates == coordinates
+    assert loaded.time_coordinate_scale == 4.0
+
+
+@pytest.mark.parametrize("invalid_scale", [1.0e-50, 1.0e40, 10**400])
+def test_checkpoint_rejects_unusable_or_overflowing_time_coordinate_scale(
+    tmp_path: Path,
+    invalid_scale: object,
+) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    coordinates = model_coordinate_parameters(
+        CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+        _normalization(),
+        time_coordinate_scale=4.0,
+    )
+    save_siren_checkpoint(
+        checkpoint_path,
+        Siren(hidden_width=7, hidden_layers=1),
+        _normalization(),
+        model_coordinates=coordinates,
+        epoch=2,
+        global_step=6,
+        validation_median_trace_snr_db=3.0,
+        validation_global_snr_db=8.5,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    payload["model_coordinates"]["time_coordinate_scale"] = invalid_scale
+    torch.save(payload, checkpoint_path)
+
+    with pytest.raises(ValueError, match="positive finite number representable as float32"):
+        load_siren_checkpoint(checkpoint_path)
 
 
 def test_checkpoint_rejects_a_metric_domain_that_mislabels_target_scaling(
