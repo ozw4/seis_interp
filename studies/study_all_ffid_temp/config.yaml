@@ -25,8 +25,8 @@ normalization:
 # These model values are intended experiment knobs.
 model:
   name: siren
-  coordinate_features: cmp_cartesian_half_offset
-  input_features: 5
+  coordinate_features: cmp_cartesian_half_offset_radius
+  input_features: 6
   hidden_width: 256
   hidden_layers: 4
   omega_0: 30.0
