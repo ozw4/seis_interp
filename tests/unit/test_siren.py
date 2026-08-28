@@ -144,12 +144,23 @@ def test_train_siren_builder_forwards_hidden_omega() -> None:
     assert _build_model(config).hidden_omega == 30.0
 
 
-def test_train_siren_builder_validates_coordinate_feature_width() -> None:
+@pytest.mark.parametrize(
+    ("coordinate_features", "input_features", "wrong_input_features"),
+    [
+        ("cmp_cartesian_half_offset", 5, 6),
+        ("cmp_cartesian_half_offset_radius", 6, 5),
+    ],
+)
+def test_train_siren_builder_validates_coordinate_feature_width(
+    coordinate_features: str,
+    input_features: int,
+    wrong_input_features: int,
+) -> None:
     config = {
         "model": {
             "name": "siren",
-            "coordinate_features": "cmp_cartesian_half_offset",
-            "input_features": 5,
+            "coordinate_features": coordinate_features,
+            "input_features": input_features,
             "hidden_width": 8,
             "hidden_layers": 2,
             "omega_0": 10.0,
@@ -157,9 +168,9 @@ def test_train_siren_builder_validates_coordinate_feature_width() -> None:
         }
     }
 
-    assert _build_model(config).input_features == 5
-    config["model"]["input_features"] = 6
-    with pytest.raises(ValueError, match="must be 5"):
+    assert _build_model(config).input_features == input_features
+    config["model"]["input_features"] = wrong_input_features
+    with pytest.raises(ValueError, match=f"must be {input_features}"):
         _build_model(config)
 
 

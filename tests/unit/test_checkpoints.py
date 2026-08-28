@@ -10,6 +10,7 @@ from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
 from seis_interp.processing.training_coordinates import (
     CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+    CMP_CARTESIAN_HALF_OFFSET_RADIUS_COORDINATE_FEATURES,
     model_coordinate_parameters,
 )
 from seis_interp.training.checkpoints import load_siren_checkpoint, save_siren_checkpoint
@@ -137,16 +138,27 @@ def test_checkpoint_records_per_trace_rms_target_scaling(tmp_path: Path) -> None
     assert loaded.validation_metric_domain == "oracle_per_trace_unit_rms"
 
 
-def test_checkpoint_records_cartesian_coordinate_mode_and_scales(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("coordinate_features", "input_features"),
+    [
+        (CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES, 5),
+        (CMP_CARTESIAN_HALF_OFFSET_RADIUS_COORDINATE_FEATURES, 6),
+    ],
+)
+def test_checkpoint_records_cartesian_coordinate_mode_and_scales(
+    tmp_path: Path,
+    coordinate_features: str,
+    input_features: int,
+) -> None:
     checkpoint_path = tmp_path / "best.pt"
     coordinates = model_coordinate_parameters(
-        CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+        coordinate_features,
         _normalization(),
     )
 
     save_siren_checkpoint(
         checkpoint_path,
-        Siren(input_features=5, hidden_width=7, hidden_layers=1),
+        Siren(input_features=input_features, hidden_width=7, hidden_layers=1),
         _normalization(),
         model_coordinates=coordinates,
         epoch=2,
@@ -156,7 +168,7 @@ def test_checkpoint_records_cartesian_coordinate_mode_and_scales(tmp_path: Path)
     )
 
     loaded = load_siren_checkpoint(checkpoint_path)
-    assert loaded.model.input_features == 5
+    assert loaded.model.input_features == input_features
     assert loaded.model_coordinates == coordinates
     assert loaded.model_coordinates.half_offset_scale_m == 2.0
 

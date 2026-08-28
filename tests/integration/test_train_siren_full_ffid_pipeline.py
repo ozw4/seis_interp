@@ -221,16 +221,26 @@ def test_full_ffid_pipeline_streams_training_and_writes_the_run_contract(
     "batch_mode",
     ["random_points", "full_ffid_epoch", "random_complete_traces"],
 )
-def test_train_siren_batch_modes_support_cartesian_half_offset_coordinates(
+@pytest.mark.parametrize(
+    ("coordinate_features", "input_features", "includes_radius"),
+    [
+        ("cmp_cartesian_half_offset", 5, False),
+        ("cmp_cartesian_half_offset_radius", 6, True),
+    ],
+)
+def test_train_siren_batch_modes_support_cartesian_coordinates(
     tmp_path: Path,
     batch_mode: str,
+    coordinate_features: str,
+    input_features: int,
+    includes_radius: bool,
 ) -> None:
     config, interim, processed = _build_full_ffid_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"].update(
         {
-            "coordinate_features": "cmp_cartesian_half_offset",
-            "input_features": 5,
+            "coordinate_features": coordinate_features,
+            "input_features": input_features,
         }
     )
     config_payload["training"].update(
@@ -257,29 +267,36 @@ def test_train_siren_batch_modes_support_cartesian_half_offset_coordinates(
 
     normalization = read_normalization_parameters(processed / "normalization.json")
     half_offset_scale_m = 0.5 * normalization.coordinate_max[3]
+    coordinate_order = [
+        "time_s",
+        "cmp_x_m",
+        "cmp_y_m",
+        "half_offset_x_m",
+        "half_offset_y_m",
+    ]
+    coordinate_scale_min = [
+        *normalization.coordinate_min[:3],
+        -half_offset_scale_m,
+        -half_offset_scale_m,
+    ]
+    coordinate_scale_max = [
+        *normalization.coordinate_max[:3],
+        half_offset_scale_m,
+        half_offset_scale_m,
+    ]
+    if includes_radius:
+        coordinate_order.append("offset_m")
+        coordinate_scale_min.append(normalization.coordinate_min[3])
+        coordinate_scale_max.append(normalization.coordinate_max[3])
     expected_contract = {
-        "coordinate_features": "cmp_cartesian_half_offset",
-        "coordinate_order": [
-            "time_s",
-            "cmp_x_m",
-            "cmp_y_m",
-            "half_offset_x_m",
-            "half_offset_y_m",
-        ],
-        "coordinate_scale_min": [
-            *normalization.coordinate_min[:3],
-            -half_offset_scale_m,
-            -half_offset_scale_m,
-        ],
-        "coordinate_scale_max": [
-            *normalization.coordinate_max[:3],
-            half_offset_scale_m,
-            half_offset_scale_m,
-        ],
+        "coordinate_features": coordinate_features,
+        "coordinate_order": coordinate_order,
+        "coordinate_scale_min": coordinate_scale_min,
+        "coordinate_scale_max": coordinate_scale_max,
         "half_offset_scale_m": half_offset_scale_m,
     }
     checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
-    assert checkpoint.model.input_features == 5
+    assert checkpoint.model.input_features == input_features
     assert checkpoint.model_coordinates is not None
     assert checkpoint.model_coordinates.to_dict() == expected_contract
     inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))

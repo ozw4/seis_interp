@@ -38,12 +38,18 @@ rebuilding the prepared dataset:
 - Setting `cmp_cartesian_half_offset` uses five inputs
   `[normalized_time, normalized_cmp_x, normalized_cmp_y, normalized_half_offset_x,
   normalized_half_offset_y]` and requires `model.input_features: 5`.
+- Setting `cmp_cartesian_half_offset_radius` appends the legacy normalized offset to those
+  Cartesian features, producing six inputs `[normalized_time, normalized_cmp_x,
+  normalized_cmp_y, normalized_half_offset_x, normalized_half_offset_y, normalized_offset]`,
+  and requires `model.input_features: 6`.
 
 The Cartesian components are calculated from the stored physical headers as
 `half_offset = 0.5 * (source - receiver)`. Time and CMP continue to use the min/max fitted from
 prepared training traces. Both half-offset axes are divided by the same symmetric scale,
 `0.5 * prepared_training_max_offset_m`; they are not fitted independently per axis. This keeps
 offset magnitude and azimuth geometry coupled while avoiding held-out fitting.
+The radius mode preserves that same shared Cartesian scale and normalizes its final `offset_m`
+feature with the prepared training offset min/max exactly as `cmp_offset_azimuth` does.
 
 For example:
 
@@ -51,6 +57,14 @@ For example:
 model:
   coordinate_features: cmp_cartesian_half_offset
   input_features: 5
+```
+
+To retain the scalar offset radius as well:
+
+```yaml
+model:
+  coordinate_features: cmp_cartesian_half_offset_radius
+  input_features: 6
 ```
 
 Cartesian-mode runs lock the feature order and physical normalization bounds under
