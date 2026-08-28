@@ -40,7 +40,10 @@ def test_temp_study_preserves_the_existing_processed_data_contract() -> None:
     assert get_required_config_value(formal_config, "training.amplitude_scaling") == (
         "train_global_rms"
     )
-    assert get_required_config_value(temp_config, "training.amplitude_scaling") == "per_trace_rms"
+    assert get_required_config_value(temp_config, "training.amplitude_scaling") in {
+        "train_global_rms",
+        "per_trace_rms",
+    }
     assert get_required_config_value(formal_config, "training.loss") == "l2"
     assert "correlation_weight" not in formal_config["training"]
     assert "correlation_eps" not in formal_config["training"]

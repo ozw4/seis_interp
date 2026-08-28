@@ -48,8 +48,7 @@ accepts two values:
 
 - `train_global_rms` divides every target by the RMS fitted from all training samples. This is
   the physical-amplitude interpolation contract used by Study 016.
-- `per_trace_rms` divides each complete trace by that trace's own RMS at training time. The
-  scratch config selects this value initially.
+- `per_trace_rms` divides each complete trace by that trace's own RMS at training time.
 
 For `per_trace_rms`, validation traces are also divided by their own target RMS so that early
 stopping measures waveform fit in the unit-RMS target domain. This is an oracle-normalized
