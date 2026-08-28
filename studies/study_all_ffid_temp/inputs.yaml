@@ -1,0 +1,20 @@
+datasets:
+  - dataset_id: seg_c3_na
+    manifest: ../../data/external/seg_c3_na/manifest.yaml
+    files:
+      - name: SEG_C3NA_ffid_2-1200.sgy
+        sha256: 8913f18606e21b116280755cf7367fee90fea05b06dc7c85d919ae17a1c9c4a9
+      - name: SEG_C3NA_ffid_1201-2400.sgy
+        sha256: 50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7
+      - name: SEG_C3NA_ffid_2401-3600.sgy
+        sha256: 8b14ab894bc78991aebb14d96f49f0ecd9dc492ca1c993e60ebcc1dfcb741aeb
+      - name: SEG_C3NA_ffid_3601-4781.sgy
+        sha256: 16a66c1e165da86d98186e4ff13510678291b484a64cdae549b5336932b9d1e9
+    subset:
+      ffid_min: 2
+      ffid_max: 4782
+      include_incomplete_ffids: true
+      expected_complete_trace_count: 544
+      time_window_s: null
+    interim: ../../data/interim/c3_na/all_ffids
+    processed: ../../data/processed/c3_na/all_ffids_per_ffid_random_split

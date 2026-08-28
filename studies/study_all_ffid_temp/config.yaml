@@ -1,0 +1,43 @@
+extends: ../../configs/default.yaml
+
+# Scratch configuration for survey-wide experiments. Edit freely, then run
+# `python scripts/run_study_all_ffid_temp.py`. The last successful output is replaced.
+
+study:
+  status: draft
+
+# Keep project, sampling, and normalization aligned with the existing processed dataset.
+project:
+  random_seed: 42
+
+sampling:
+  random_trace_holdout_fraction: 0.20
+  validation_fraction_of_holdout: 0.25
+  split_scope: per_ffid
+
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
+
+# These model values are intended experiment knobs.
+model:
+  name: siren
+  input_features: 6
+  hidden_width: 256
+  hidden_layers: 4
+  omega_0: 30.0
+  hidden_omega: 30.0
+
+# full_ffid_epoch uses one FFID per update and ignores batch_size/steps_per_epoch.
+# random_points uses batch_size/steps_per_epoch instead.
+training:
+  batch_mode: full_ffid_epoch
+  loss: l2
+  optimizer: adam
+  learning_rate: 1.0e-4
+  batch_size: 1024
+  steps_per_epoch: 500
+  max_epochs: 10
+  early_stopping_patience: 3
+  validation_batch_size: 65536
+  device: cuda:0
