@@ -474,7 +474,10 @@ def train_neighbor_inpainter_run(
     device = torch.device(settings.device)
     _seed_global_model_initialization(settings.random_seed, device=device)
     if device.type == "cuda":
-        torch.cuda.reset_peak_memory_stats(device)
+        # Some supported PyTorch/CUDA builds reject an explicit device argument
+        # here even though the no-argument form works for the current device.
+        with torch.cuda.device(device):
+            torch.cuda.reset_peak_memory_stats()
     train_amplitudes = torch.from_numpy(train_amplitudes_host).to(device)
     validation_amplitudes = torch.from_numpy(validation_amplitudes_host).to(device)
     del train_amplitudes_host, validation_amplitudes_host
