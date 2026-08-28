@@ -97,6 +97,9 @@ def test_main_labels_per_trace_validation_as_oracle(
             "best_validation_global_snr_db": 3.5,
             "global_steps": 8,
             "amplitude_scaling": "per_trace_rms",
+            "loss_semantics": "mse_plus_trace_correlation",
+            "correlation_weight": 0.3,
+            "correlation_eps": 1.0e-4,
             "validation_metric_domain": "oracle_per_trace_unit_rms",
         },
     )
@@ -104,5 +107,7 @@ def test_main_labels_per_trace_validation_as_oracle(
     assert runner.main([]) == 0
     output = capsys.readouterr().out
     assert "Amplitude scaling: per_trace_rms" in output
+    assert "Training loss: MSE + 0.3 * mean_trace(1 - corr)" in output
+    assert "correlation_eps=0.0001" in output
     assert "Validation metric domain: oracle per-trace unit RMS" in output
     assert "Best oracle-normalized validation global S/N: 3.5 dB" in output

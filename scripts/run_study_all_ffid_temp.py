@@ -106,6 +106,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Best epoch: {metrics['best_epoch']}")
     if "amplitude_scaling" in metrics:
         print(f"Amplitude scaling: {metrics['amplitude_scaling']}")
+    if metrics.get("loss_semantics") == "mse_plus_trace_correlation":
+        correlation_weight = float(metrics["correlation_weight"])
+        correlation_eps = float(metrics["correlation_eps"])
+        print(
+            f"Training loss: MSE + {correlation_weight:g} * mean_trace(1 - corr) "
+            f"(correlation_eps={correlation_eps:g})"
+        )
     trace_quality = metrics.get("trace_quality")
     if isinstance(trace_quality, dict):
         print(f"Excluded traces: {trace_quality['excluded_trace_count']}")

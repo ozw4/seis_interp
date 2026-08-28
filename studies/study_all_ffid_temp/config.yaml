@@ -37,7 +37,10 @@ model:
 training:
   batch_mode: full_ffid_epoch
   amplitude_scaling: per_trace_rms
+  # l2 is the pointwise MSE term; the positive weight adds mean trace correlation loss.
   loss: l2
+  correlation_weight: 0
+  correlation_eps: 1.0e-4
   optimizer: adam
   learning_rate: 1.0e-4
   batch_size: 1024

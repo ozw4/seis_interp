@@ -41,6 +41,12 @@ def test_temp_study_preserves_the_existing_processed_data_contract() -> None:
         "train_global_rms"
     )
     assert get_required_config_value(temp_config, "training.amplitude_scaling") == "per_trace_rms"
+    assert get_required_config_value(formal_config, "training.loss") == "l2"
+    assert "correlation_weight" not in formal_config["training"]
+    assert "correlation_eps" not in formal_config["training"]
+    assert get_required_config_value(temp_config, "training.loss") == "l2"
+    assert float(get_required_config_value(temp_config, "training.correlation_weight")) >= 0.0
+    assert float(get_required_config_value(temp_config, "training.correlation_eps")) > 0.0
 
 
 def test_temp_study_reuses_the_all_ffid_input_contract() -> None:

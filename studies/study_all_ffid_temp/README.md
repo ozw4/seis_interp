@@ -6,10 +6,10 @@ This is a scratch workspace for repeated survey-wide SIREN experiments using the
 `all_ffids_per_ffid_random_split_amplitude_qc` dataset. It is not a numbered study and its latest
 output is not an immutable research record.
 
-Edit [`config.yaml`](config.yaml) directly between runs. The initial values match
-`study_016_all_ffid_siren` except for the deliberately enabled per-trace RMS training target.
-Inherited random-point settings are written explicitly so that the available knobs are visible
-in one file.
+Edit [`config.yaml`](config.yaml) directly between runs. Its values reuse the prepared-data and
+model conditions from `study_016_all_ffid_siren`, while exposing per-trace RMS, batch mode, and
+trace-correlation settings as experiment knobs. Study 016 itself remains a pure-L2,
+train-global-RMS condition and is not changed by this scratch experiment.
 
 ## Fixed prepared-data contract
 
@@ -59,6 +59,37 @@ at inference. The checkpoint records the scaling name but cannot supply that unk
 not promote this condition as a physical-amplitude interpolation result without a separate gain
 model fitted only from training data. Generated metrics, run metadata, and the checkpoint label
 this metric domain as `oracle_per_trace_unit_rms`.
+
+## Training loss
+
+When `training.correlation_weight` is positive, the scratch condition uses the configured `l2`
+loss as its pointwise MSE term and optimizes
+
+```text
+L = MSE + correlation_weight * mean_trace(1 - corr)
+```
+
+This auxiliary term requires `batch_mode: full_ffid_epoch`. For each full-FFID update, the already
+amplitude-scaled targets and matching predictions are
+interpreted in trace-major order as `(eligible_trace_count, 625)`. Each correlation is centered
+over the 625 time samples of one complete trace, and the resulting `1 - corr` values are averaged
+equally over the eligible traces in that FFID. The auxiliary term is therefore computed after
+`training.amplitude_scaling`; with a `per_trace_rms` setting it operates in the
+per-trace unit-RMS target domain.
+
+The stabilized correlation adds `correlation_eps: 1.0e-4` to each centered squared norm before
+forming the denominator. This keeps the loss and its zero-prediction gradient finite, but makes
+the regularized correlation only approximately scale invariant: the epsilon belongs to the
+chosen scaled-amplitude domain, and the same value does not have identical behavior under
+`train_global_rms` and `per_trace_rms`.
+
+Correlation is a training-only auxiliary term. Validation and early stopping are unchanged and
+continue to use streamed global S/N; with `per_trace_rms`, that remains the oracle per-trace
+unit-RMS validation domain described above.
+
+With `batch_mode: random_points`, set `correlation_weight: 0`; independently sampled points do not
+retain the complete per-trace time axis needed by the trace-correlation term. That condition trains
+with the configured pointwise loss alone.
 
 ## Run
 
