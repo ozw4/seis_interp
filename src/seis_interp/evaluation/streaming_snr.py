@@ -9,7 +9,15 @@ from numbers import Integral, Real
 import numpy as np
 import torch
 
-from seis_interp.training.ffid_batches import build_global_rms_trace_points
+from seis_interp.training.amplitude_scaling import (
+    PER_TRACE_RMS_SCALING,
+    TRAIN_GLOBAL_RMS_SCALING,
+    validated_amplitude_scaling,
+)
+from seis_interp.training.ffid_batches import (
+    build_global_rms_trace_points,
+    build_per_trace_rms_trace_points,
+)
 from seis_interp.training.prediction import predict_points
 
 
@@ -21,17 +29,23 @@ def evaluate_model_global_snr_by_ffid(
     amplitudes: np.ndarray,
     rows_by_ffid: Mapping[int, np.ndarray],
     amplitude_rms: float,
+    amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
     prediction_batch_size: int,
     device: torch.device | str,
 ) -> float:
-    """Return point-weighted global S/N while retaining at most one FFID's points.
+    """Return point-weighted target-domain S/N while retaining one FFID's points.
 
     Each FFID is built and predicted independently in sorted FFID order. Energies
     are accumulated as float64 scalars, matching ``signal_to_noise_ratio_db``
     without concatenating survey-wide coordinates, targets, or predictions.
+
+    ``per_trace_rms`` divides each validation trace by its own target RMS. That
+    branch is an oracle-normalized waveform diagnostic, not physical-amplitude
+    interpolation, because the scale is unavailable for an unseen query trace.
     """
     sorted_groups = _validated_sorted_rows_by_ffid(rows_by_ffid)
     _positive_finite_float(amplitude_rms, "amplitude_rms")
+    scaling = validated_amplitude_scaling(amplitude_scaling)
     batch_size = _positive_integer(prediction_batch_size, "prediction_batch_size")
 
     reference_energy = 0.0
@@ -44,6 +58,7 @@ def evaluate_model_global_snr_by_ffid(
             amplitudes=amplitudes,
             rows=rows,
             amplitude_rms=amplitude_rms,
+            amplitude_scaling=scaling,
             prediction_batch_size=batch_size,
             device=device,
         )
@@ -69,17 +84,28 @@ def _evaluate_ffid_energies(
     amplitudes: np.ndarray,
     rows: np.ndarray,
     amplitude_rms: float,
+    amplitude_scaling: str,
     prediction_batch_size: int,
     device: torch.device | str,
 ) -> tuple[float, float]:
     """Build one FFID and release all of its arrays when the scalar energies return."""
-    coordinates, targets = build_global_rms_trace_points(
-        normalized_time,
-        normalized_spatial_by_array_row,
-        amplitudes,
-        rows,
-        amplitude_rms=amplitude_rms,
-    )
+    if amplitude_scaling == TRAIN_GLOBAL_RMS_SCALING:
+        coordinates, targets = build_global_rms_trace_points(
+            normalized_time,
+            normalized_spatial_by_array_row,
+            amplitudes,
+            rows,
+            amplitude_rms=amplitude_rms,
+        )
+    elif amplitude_scaling == PER_TRACE_RMS_SCALING:
+        coordinates, targets = build_per_trace_rms_trace_points(
+            normalized_time,
+            normalized_spatial_by_array_row,
+            amplitudes,
+            rows,
+        )
+    else:  # pragma: no cover - public entry point validates the name.
+        raise RuntimeError(f"unsupported amplitude scaling: {amplitude_scaling!r}")
     predictions = predict_points(
         model,
         coordinates,

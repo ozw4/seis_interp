@@ -430,19 +430,33 @@ def _train_siren(args: argparse.Namespace) -> int:
         batch_mode = summary.get("batch_mode", "random_points")
         print(f"Output directory: {args.output}")
         print(f"Batch mode: {batch_mode}")
+        if "amplitude_scaling" in summary:
+            print(f"Amplitude scaling: {summary['amplitude_scaling']}")
+        oracle_validation = summary.get("validation_metric_domain") == ("oracle_per_trace_unit_rms")
+        if oracle_validation:
+            print("Validation metric domain: oracle per-trace unit RMS")
         print(f"Best epoch: {summary['best_epoch']}")
         if batch_mode == "full_ffid_epoch":
-            print(f"Best validation global S/N: {summary['best_validation_global_snr_db']} dB")
+            label = (
+                "Best oracle-normalized validation global S/N"
+                if oracle_validation
+                else "Best validation global S/N"
+            )
+            print(f"{label}: {summary['best_validation_global_snr_db']} dB")
             print(f"Optimizer steps: {summary['global_steps']}")
         else:
-            print(
-                "Best validation median trace S/N: "
-                f"{summary['best_validation_median_trace_snr_db']} dB"
+            median_label = (
+                "Best oracle-normalized validation median trace S/N"
+                if oracle_validation
+                else "Best validation median trace S/N"
             )
-            print(
-                "Global validation S/N at best epoch: "
-                f"{summary['best_validation_global_snr_db']} dB"
+            print(f"{median_label}: {summary['best_validation_median_trace_snr_db']} dB")
+            global_label = (
+                "Oracle-normalized global validation S/N at best epoch"
+                if oracle_validation
+                else "Global validation S/N at best epoch"
             )
+            print(f"{global_label}: {summary['best_validation_global_snr_db']} dB")
         print(f"Epochs completed: {summary['epochs_completed']}")
         print(f"Stopped early: {summary['stopped_early']}")
         print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")

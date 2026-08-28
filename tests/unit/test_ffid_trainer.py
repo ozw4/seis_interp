@@ -25,7 +25,11 @@ def _normalization() -> NormalizationParameters:
     )
 
 
-def _sampler(seed: int = 9) -> FullFfidBatchSampler:
+def _sampler(
+    seed: int = 9,
+    *,
+    amplitude_scaling: str = "train_global_rms",
+) -> FullFfidBatchSampler:
     time = np.array([-1.0, 1.0], dtype=np.float64)
     spatial = np.arange(30, dtype=np.float64).reshape(6, 5) / 30.0
     amplitudes = np.arange(1, 13, dtype=np.float32).reshape(6, 2) / 10.0
@@ -40,6 +44,7 @@ def _sampler(seed: int = 9) -> FullFfidBatchSampler:
         },
         amplitude_rms=1.0,
         random_seed=seed,
+        amplitude_scaling=amplitude_scaling,
     )
 
 
@@ -89,6 +94,7 @@ class _LifetimeCheckingIterator(Iterator[FullFfidBatch]):
 
 class _LifetimeCheckingSampler:
     ffid_count = 2
+    amplitude_scaling = "train_global_rms"
 
     def __init__(self) -> None:
         self.release_checks: list[bool] = []
@@ -337,6 +343,58 @@ def test_full_ffid_trainer_accepts_perfect_validation_and_checkpoints_it(
     assert result.stopped_early
     assert all(record["validation_global_snr_db"] == float("inf") for record in result.history)
     assert load_siren_checkpoint(checkpoint).validation_global_snr_db == float("inf")
+
+
+def test_full_ffid_trainer_rejects_scaling_that_does_not_match_sampler(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="must match the FullFfidBatchSampler"):
+        train_siren_by_ffid(
+            Siren(hidden_width=8, hidden_layers=1),
+            _sampler(),
+            _scores([1.0]),
+            _normalization(),
+            device="cpu",
+            loss="l2",
+            optimizer="adam",
+            learning_rate=1.0e-3,
+            max_epochs=1,
+            early_stopping_patience=1,
+            validation_ffid_count=3,
+            checkpoint_path=tmp_path / "best.pt",
+            reporter=lambda _message: None,
+            amplitude_scaling="per_trace_rms",
+        )
+
+
+def test_full_ffid_trainer_labels_per_trace_validation_as_oracle(
+    tmp_path: Path,
+) -> None:
+    checkpoint = tmp_path / "best.pt"
+    messages: list[str] = []
+
+    train_siren_by_ffid(
+        Siren(hidden_width=8, hidden_layers=1),
+        _sampler(amplitude_scaling="per_trace_rms"),
+        _scores([1.0]),
+        _normalization(),
+        device="cpu",
+        loss="l2",
+        optimizer="adam",
+        learning_rate=1.0e-3,
+        max_epochs=1,
+        early_stopping_patience=1,
+        validation_ffid_count=3,
+        checkpoint_path=checkpoint,
+        reporter=messages.append,
+        amplitude_scaling="per_trace_rms",
+    )
+
+    assert "validation_metric_domain=oracle_per_trace_unit_rms" in messages[0]
+    assert "oracle_per_trace_unit_rms_global_snr_db=" in messages[-1]
+    assert load_siren_checkpoint(checkpoint).validation_metric_domain == (
+        "oracle_per_trace_unit_rms"
+    )
 
 
 @pytest.mark.parametrize("invalid_score", [float("nan"), -float("inf")])

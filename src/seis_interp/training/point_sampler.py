@@ -9,6 +9,10 @@ from numbers import Integral, Real
 import numpy as np
 
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
+from seis_interp.training.amplitude_scaling import (
+    TRAIN_GLOBAL_RMS_SCALING,
+    validated_amplitude_scaling,
+)
 
 
 def overlapping_patch_starts(
@@ -48,6 +52,7 @@ class RandomPointSampler:
         training_array_rows: np.ndarray,
         *,
         random_seed: int,
+        amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
     ) -> None:
         time, spatial, amplitudes = _validated_point_arrays(
             normalized_time,
@@ -59,12 +64,19 @@ class RandomPointSampler:
             raise ValueError("random_seed must be an integer")
         if int(random_seed) < 0:
             raise ValueError("random_seed must be non-negative")
+        scaling = validated_amplitude_scaling(amplitude_scaling)
 
         self._time = time
         self._spatial = spatial
         self._amplitudes = amplitudes
         self._training_array_rows = rows
+        self._amplitude_scaling = scaling
         self._rng = np.random.default_rng(int(random_seed))
+
+    @property
+    def amplitude_scaling(self) -> str:
+        """Return the target scaling applied before sampling."""
+        return self._amplitude_scaling
 
     def sample(self, batch_size: int) -> tuple[np.ndarray, np.ndarray]:
         """Return one uniformly sampled batch as NumPy arrays."""

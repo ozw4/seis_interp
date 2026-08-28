@@ -16,6 +16,10 @@ from seis_interp.evaluation.metrics import (
 )
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
+from seis_interp.training.amplitude_scaling import (
+    TRAIN_GLOBAL_RMS_SCALING,
+    validated_amplitude_scaling,
+)
 from seis_interp.training.checkpoints import save_siren_checkpoint
 from seis_interp.training.model_inputs import to_model_tensors
 from seis_interp.training.point_sampler import RandomPointSampler
@@ -61,6 +65,7 @@ def train_siren(
     validation_batch_size: int,
     validation_samples_per_trace: int,
     checkpoint_path: Path,
+    amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
 ) -> TrainingResult:
     """Train a SIREN and save only improvements in median per-trace validation S/N."""
     loss_function = build_loss(loss)
@@ -73,6 +78,12 @@ def train_siren(
     samples_per_trace = _positive_integer(
         validation_samples_per_trace, "validation_samples_per_trace"
     )
+    target_amplitude_scaling = validated_amplitude_scaling(amplitude_scaling)
+    if sampler.amplitude_scaling != target_amplitude_scaling:
+        raise ValueError(
+            "amplitude_scaling must match the RandomPointSampler target scaling: "
+            f"{target_amplitude_scaling!r} != {sampler.amplitude_scaling!r}"
+        )
     coordinates, targets = _validated_validation_data(
         validation_coordinates, validation_targets, model.input_features
     )
@@ -133,6 +144,7 @@ def train_siren(
                 checkpoint_path,
                 model,
                 normalization,
+                amplitude_scaling=target_amplitude_scaling,
                 epoch=epoch,
                 global_step=global_steps,
                 validation_median_trace_snr_db=validation_median_trace_snr_db,

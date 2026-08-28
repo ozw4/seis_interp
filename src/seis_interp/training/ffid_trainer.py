@@ -13,6 +13,12 @@ import torch
 
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
+from seis_interp.training.amplitude_scaling import (
+    ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
+    PER_TRACE_RMS_SCALING,
+    TRAIN_GLOBAL_RMS_SCALING,
+    validated_amplitude_scaling,
+)
 from seis_interp.training.checkpoints import save_siren_checkpoint
 from seis_interp.training.ffid_batches import FullFfidBatch, FullFfidBatchSampler
 from seis_interp.training.model_inputs import to_model_tensors
@@ -50,6 +56,7 @@ def train_siren_by_ffid(
     validation_ffid_count: int,
     checkpoint_path: Path,
     reporter: Reporter | None = None,
+    amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
 ) -> FullFfidTrainingResult:
     """Train with every training FFID once per epoch and select by global S/N."""
     if loss != "l2":
@@ -61,6 +68,12 @@ def train_siren_by_ffid(
     patience_value = _positive_integer(early_stopping_patience, "early_stopping_patience")
     validation_count = _positive_integer(validation_ffid_count, "validation_ffid_count")
     training_count = _positive_integer(sampler.ffid_count, "training_ffid_count")
+    target_amplitude_scaling = validated_amplitude_scaling(amplitude_scaling)
+    if sampler.amplitude_scaling != target_amplitude_scaling:
+        raise ValueError(
+            "amplitude_scaling must match the FullFfidBatchSampler target scaling: "
+            f"{target_amplitude_scaling!r} != {sampler.amplitude_scaling!r}"
+        )
     report = reporter or _print_progress
 
     model.to(device)
@@ -74,7 +87,14 @@ def train_siren_by_ffid(
     stopped_early = False
 
     for epoch in range(1, max_epochs_value + 1):
-        report(f"full_ffid_epoch {epoch}/{max_epochs_value} start")
+        if target_amplitude_scaling == PER_TRACE_RMS_SCALING:
+            report(
+                f"full_ffid_epoch {epoch}/{max_epochs_value} start: "
+                f"amplitude_scaling={target_amplitude_scaling} "
+                f"validation_metric_domain={ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN}"
+            )
+        else:
+            report(f"full_ffid_epoch {epoch}/{max_epochs_value} start")
         model.train()
         ffid_batch_losses: list[float] = []
         visited_ffids: set[int] = set()
@@ -115,10 +135,15 @@ def train_siren_by_ffid(
                 "validation_global_snr_db": validation_global_snr_db,
             }
         )
+        validation_label = (
+            "oracle_per_trace_unit_rms_global_snr_db"
+            if target_amplitude_scaling == PER_TRACE_RMS_SCALING
+            else "validation_global_snr_db"
+        )
         report(
             f"full_ffid_epoch {epoch}/{max_epochs_value} end: "
             f"mean_ffid_batch_loss={mean_ffid_batch_loss:.8g} "
-            f"validation_global_snr_db={validation_global_snr_db:.8g}"
+            f"{validation_label}={validation_global_snr_db:.8g}"
         )
 
         if epoch == 1 or validation_global_snr_db > best_validation_global_snr_db:
@@ -129,6 +154,7 @@ def train_siren_by_ffid(
                 checkpoint_path,
                 model,
                 normalization,
+                amplitude_scaling=target_amplitude_scaling,
                 epoch=epoch,
                 global_step=global_steps,
                 validation_median_trace_snr_db=None,

@@ -198,3 +198,27 @@ def test_rejects_a_validation_point_count_that_is_not_whole_traces(tmp_path: Pat
             validation_samples_per_trace=SAMPLES_PER_TRACE - 1,
             checkpoint_path=tmp_path / "best.pt",
         )
+
+
+def test_rejects_checkpoint_scaling_that_does_not_match_the_sampler(tmp_path: Path) -> None:
+    sampler, coordinates, targets = _training_inputs()
+
+    with pytest.raises(ValueError, match="must match the RandomPointSampler"):
+        train_siren(
+            Siren(hidden_width=4, hidden_layers=1),
+            sampler,
+            coordinates,
+            targets,
+            _normalization(),
+            device="cpu",
+            loss="l2",
+            learning_rate=1e-3,
+            batch_size=2,
+            steps_per_epoch=1,
+            max_epochs=1,
+            early_stopping_patience=1,
+            validation_batch_size=20,
+            validation_samples_per_trace=SAMPLES_PER_TRACE,
+            checkpoint_path=tmp_path / "best.pt",
+            amplitude_scaling="per_trace_rms",
+        )

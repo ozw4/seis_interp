@@ -10,7 +10,10 @@ import torch
 from seis_interp.evaluation import streaming_snr
 from seis_interp.evaluation.metrics import signal_to_noise_ratio_db
 from seis_interp.evaluation.streaming_snr import evaluate_model_global_snr_by_ffid
-from seis_interp.training.ffid_batches import build_global_rms_trace_points
+from seis_interp.training.ffid_batches import (
+    build_global_rms_trace_points,
+    build_per_trace_rms_trace_points,
+)
 from seis_interp.training.prediction import predict_points
 
 
@@ -85,6 +88,40 @@ def test_streaming_snr_matches_materialized_point_weighted_reference() -> None:
         amplitudes=amplitudes,
         rows_by_ffid=rows_by_ffid,
         amplitude_rms=2.5,
+        prediction_batch_size=3,
+        device="cpu",
+    )
+
+    assert actual == pytest.approx(expected, rel=1.0e-12, abs=1.0e-12)
+
+
+def test_per_trace_streaming_snr_matches_its_oracle_normalized_reference() -> None:
+    time, spatial, amplitudes, rows_by_ffid = _evaluation_inputs()
+    model = CoordinateModel()
+    targets: list[np.ndarray] = []
+    predictions: list[np.ndarray] = []
+    for ffid in sorted(rows_by_ffid):
+        coordinates, ffid_targets = build_per_trace_rms_trace_points(
+            time,
+            spatial,
+            amplitudes,
+            rows_by_ffid[ffid],
+        )
+        targets.append(ffid_targets)
+        predictions.append(predict_points(model, coordinates, batch_size=100, device="cpu"))
+    expected = signal_to_noise_ratio_db(
+        np.concatenate(targets),
+        np.concatenate(predictions),
+    )
+
+    actual = evaluate_model_global_snr_by_ffid(
+        model,
+        normalized_time=time,
+        normalized_spatial_by_array_row=spatial,
+        amplitudes=amplitudes,
+        rows_by_ffid=rows_by_ffid,
+        amplitude_rms=2.5,
+        amplitude_scaling="per_trace_rms",
         prediction_batch_size=3,
         device="cpu",
     )
@@ -177,6 +214,31 @@ def test_streaming_snr_rejects_zero_energy_reference() -> None:
             amplitudes=np.zeros_like(amplitudes),
             rows_by_ffid=rows_by_ffid,
             amplitude_rms=1.0,
+            prediction_batch_size=3,
+            device="cpu",
+        )
+
+
+def test_per_trace_streaming_snr_rejects_zero_rms_before_prediction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    time, spatial, amplitudes, _ = _evaluation_inputs()
+    amplitudes[4] = 0.0
+    monkeypatch.setattr(
+        streaming_snr,
+        "predict_points",
+        lambda *_args, **_kwargs: pytest.fail("prediction must not run for an invalid target"),
+    )
+
+    with pytest.raises(ValueError, match="array_row 4"):
+        evaluate_model_global_snr_by_ffid(
+            CoordinateModel(),
+            normalized_time=time,
+            normalized_spatial_by_array_row=spatial,
+            amplitudes=amplitudes,
+            rows_by_ffid={20: np.asarray([4])},
+            amplitude_rms=1.0,
+            amplitude_scaling="per_trace_rms",
             prediction_batch_size=3,
             device="cpu",
         )

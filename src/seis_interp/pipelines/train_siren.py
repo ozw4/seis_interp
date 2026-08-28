@@ -49,6 +49,13 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
+from seis_interp.training.amplitude_scaling import (
+    ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
+    PER_TRACE_RMS_SCALING,
+    TRAIN_GLOBAL_RMS_SCALING,
+    per_trace_rms_scaled_rows,
+    validated_amplitude_scaling,
+)
 from seis_interp.training.ffid_batches import (
     FullFfidBatchSampler,
     array_rows_by_ffid_for_split,
@@ -89,9 +96,11 @@ def train_siren_run(
     git_commit = _git_commit()
     config = load_resolved_config(Path(config_path))
     batch_mode = _training_batch_mode(config)
+    amplitude_scaling = _training_amplitude_scaling(config)
     device = device_override or get_required_config_value(config, "training.device")
     resolved_config = deepcopy(config)
     resolved_config["training"]["device"] = device
+    resolved_config["training"]["amplitude_scaling"] = amplitude_scaling
     interim_directory = Path(interim_dir)
     processed_directory = Path(processed_dir)
     dataset = load_interim_trace_dataset(
@@ -138,6 +147,7 @@ def train_siren_run(
             split_table=split_table,
             split_rows=split_rows,
             normalization=normalization,
+            amplitude_scaling=amplitude_scaling,
             config=resolved_config,
             random_seed=random_seed,
             device=device,
@@ -152,6 +162,7 @@ def train_siren_run(
             trace_table=dataset.trace_table,
             split_table=split_table,
             normalization=normalization,
+            amplitude_scaling=amplitude_scaling,
             config=resolved_config,
             random_seed=random_seed,
             device=device,
@@ -161,6 +172,10 @@ def train_siren_run(
 
     metrics = asdict(result)
     metrics["history"] = [dict(record) for record in result.history]
+    if amplitude_scaling == PER_TRACE_RMS_SCALING:
+        metrics["amplitude_scaling"] = amplitude_scaling
+        metrics["validation_metric_domain"] = ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
+        metrics["validation_scale_source"] = "validation_trace_target_rms"
     if full_training_contract is not None:
         metrics["batch_mode"] = FULL_FFID_EPOCH_BATCH_MODE
         metrics["effective_steps_per_epoch"] = full_training_contract["effective_steps_per_epoch"]
@@ -177,6 +192,20 @@ def train_siren_run(
     }
     if full_training_contract is not None:
         run_metadata.update(full_training_contract)
+    elif amplitude_scaling == PER_TRACE_RMS_SCALING:
+        run_metadata.update(
+            {
+                "batch_mode": RANDOM_POINTS_BATCH_MODE,
+                "amplitude_scaling": amplitude_scaling,
+                "validation_metric_domain": ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
+                "validation_scale_source": "validation_trace_target_rms",
+            }
+        )
+    random_training_contract = (
+        _random_points_per_trace_training_contract()
+        if batch_mode == RANDOM_POINTS_BATCH_MODE and amplitude_scaling == PER_TRACE_RMS_SCALING
+        else None
+    )
     inputs_lock = _build_inputs_lock(
         interim_files=interim_files,
         processed_files=processed_files,
@@ -184,7 +213,7 @@ def train_siren_run(
         source_files=(
             canonical_source_files(dataset.metadata) if full_training_contract is not None else None
         ),
-        training_contract=full_training_contract,
+        training_contract=full_training_contract or random_training_contract,
     )
     _write_run_outputs(
         output_directory,
@@ -205,23 +234,31 @@ def _train_random_points(
     split_table: pd.DataFrame,
     split_rows: np.ndarray,
     normalization: NormalizationParameters,
+    amplitude_scaling: str,
     config: Mapping[str, object],
     random_seed: int,
     device: object,
     checkpoint_path: Path,
 ) -> object:
     """Run the established random-point path without changing its outputs."""
-    normalized_amplitudes = normalize_amplitudes(amplitudes, normalization)
     train_rows = split_rows[split_table[SPLIT_COLUMN].eq(TRAIN_SPLIT).to_numpy(dtype=bool)]
     validation_rows = split_rows[
         split_table[SPLIT_COLUMN].eq(VALIDATION_SPLIT).to_numpy(dtype=bool)
     ]
+    if amplitude_scaling == TRAIN_GLOBAL_RMS_SCALING:
+        normalized_amplitudes = normalize_amplitudes(amplitudes, normalization)
+    else:
+        normalized_amplitudes = per_trace_rms_scaled_rows(
+            amplitudes,
+            np.concatenate((train_rows, validation_rows)),
+        )
     sampler = RandomPointSampler(
         normalized_time,
         spatial_by_array_row,
         normalized_amplitudes,
         train_rows,
         random_seed=random_seed,
+        amplitude_scaling=amplitude_scaling,
     )
     validation_coordinates, validation_targets = build_trace_points(
         normalized_time,
@@ -247,6 +284,7 @@ def _train_random_points(
         validation_batch_size=get_required_config_value(config, "training.validation_batch_size"),
         validation_samples_per_trace=len(normalized_time),
         checkpoint_path=checkpoint_path,
+        amplitude_scaling=amplitude_scaling,
     )
 
 
@@ -259,6 +297,7 @@ def _train_full_ffid_epoch(
     trace_table: pd.DataFrame,
     split_table: pd.DataFrame,
     normalization: NormalizationParameters,
+    amplitude_scaling: str,
     config: Mapping[str, object],
     random_seed: int,
     device: object,
@@ -290,6 +329,7 @@ def _train_full_ffid_epoch(
         training_rows_by_ffid,
         amplitude_rms=normalization.amplitude_rms,
         random_seed=random_seed,
+        amplitude_scaling=amplitude_scaling,
     )
 
     def evaluate_validation(current_model: torch.nn.Module) -> float:
@@ -300,6 +340,7 @@ def _train_full_ffid_epoch(
             amplitudes=amplitudes,
             rows_by_ffid=validation_rows_by_ffid,
             amplitude_rms=normalization.amplitude_rms,
+            amplitude_scaling=amplitude_scaling,
             prediction_batch_size=validation_batch_size,
             device=device,
         )
@@ -320,11 +361,13 @@ def _train_full_ffid_epoch(
         validation_ffid_count=len(validation_rows_by_ffid),
         checkpoint_path=checkpoint_path,
         reporter=progress_reporter,
+        amplitude_scaling=amplitude_scaling,
     )
     return result, _full_training_contract(
         training_rows_by_ffid,
         validation_rows_by_ffid,
         sample_count=len(normalized_time),
+        amplitude_scaling=amplitude_scaling,
     )
 
 
@@ -333,13 +376,14 @@ def _full_training_contract(
     validation_rows_by_ffid: Mapping[int, np.ndarray],
     *,
     sample_count: int,
+    amplitude_scaling: str,
 ) -> dict[str, object]:
     training_trace_counts = np.asarray(
         [len(rows) for rows in training_rows_by_ffid.values()], dtype=np.int64
     )
     point_counts = training_trace_counts * int(sample_count)
     ffids = sorted(training_rows_by_ffid)
-    return {
+    contract: dict[str, object] = {
         "batch_mode": FULL_FFID_EPOCH_BATCH_MODE,
         "training_ffid_count": len(training_rows_by_ffid),
         "validation_ffid_count": len(validation_rows_by_ffid),
@@ -347,8 +391,23 @@ def _full_training_contract(
         "ffid_range": [ffids[0], ffids[-1]],
         "training_traces_per_ffid": _integer_distribution(training_trace_counts),
         "points_per_update": _integer_distribution(point_counts),
-        "amplitude_scaling": "train_global_rms",
+        "amplitude_scaling": amplitude_scaling,
         "validation": "all_validation_traces_streamed",
+    }
+    if amplitude_scaling == PER_TRACE_RMS_SCALING:
+        contract["validation"] = "all_validation_traces_streamed_per_trace_rms"
+        contract["validation_metric_domain"] = ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
+        contract["validation_scale_source"] = "validation_trace_target_rms"
+    return contract
+
+
+def _random_points_per_trace_training_contract() -> dict[str, object]:
+    return {
+        "batch_mode": RANDOM_POINTS_BATCH_MODE,
+        "amplitude_scaling": PER_TRACE_RMS_SCALING,
+        "validation": "all_validation_traces_materialized_per_trace_rms",
+        "validation_metric_domain": ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
+        "validation_scale_source": "validation_trace_target_rms",
     }
 
 
@@ -419,6 +478,19 @@ def _training_batch_mode(config: Mapping[str, object]) -> str:
             f"training.batch_mode must be 'random_points' or 'full_ffid_epoch', got {value!r}"
         )
     return str(value)
+
+
+def _training_amplitude_scaling(config: Mapping[str, object]) -> str:
+    training = config.get("training")
+    value = (
+        training.get("amplitude_scaling", TRAIN_GLOBAL_RMS_SCALING)
+        if isinstance(training, Mapping)
+        else TRAIN_GLOBAL_RMS_SCALING
+    )
+    try:
+        return validated_amplitude_scaling(value, name="training.amplitude_scaling")
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
 
 
 def _load_processed_dataset(

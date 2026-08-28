@@ -102,6 +102,38 @@ def test_cli_reports_nonempty_output(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "train siren failed" in capsys.readouterr().err
 
 
+def test_cli_rejects_unknown_training_amplitude_scaling_before_data_loading(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config, _, _ = _build_training_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"]["amplitude_scaling"] = "global_rms"
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "run"
+
+    exit_code = main(
+        [
+            "train",
+            "siren",
+            "--config",
+            str(config),
+            "--interim",
+            str(tmp_path / "missing-interim"),
+            "--processed",
+            str(tmp_path / "missing-processed"),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert exit_code == 1
+    error = capsys.readouterr().err
+    assert "train siren failed" in error
+    assert "training.amplitude_scaling must be one of" in error
+    assert not output.exists()
+
+
 def test_cli_does_not_offer_training_overwrite(tmp_path: Path) -> None:
     config, interim, processed = _build_training_fixture(tmp_path)
 

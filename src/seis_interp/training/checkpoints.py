@@ -1,4 +1,4 @@
-"""Save and restore self-contained SIREN inference checkpoints."""
+"""Save and restore SIREN checkpoints with target-scaling metadata."""
 
 from __future__ import annotations
 
@@ -9,14 +9,25 @@ import torch
 
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
+from seis_interp.training.amplitude_scaling import (
+    TRAIN_GLOBAL_RMS_SCALING,
+    validated_amplitude_scaling,
+    validation_metric_domain_for_scaling,
+)
 
 
 @dataclass(frozen=True)
 class LoadedSirenCheckpoint:
-    """A restored SIREN and its training-time inference metadata."""
+    """A restored SIREN and its training-time target metadata.
+
+    A per-trace-RMS model still needs an externally supplied scale to recover
+    physical amplitudes at a query trace.
+    """
 
     model: Siren
     normalization: NormalizationParameters
+    amplitude_scaling: str
+    validation_metric_domain: str
     epoch: int
     global_step: int
     validation_median_trace_snr_db: float | None
@@ -28,18 +39,23 @@ def save_siren_checkpoint(
     model: Siren,
     normalization: NormalizationParameters,
     *,
+    amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
     epoch: int,
     global_step: int,
     validation_median_trace_snr_db: float | None,
     validation_global_snr_db: float,
 ) -> None:
-    """Save constructor values, CPU weights, normalization, and best-epoch metadata.
+    """Save constructor values, CPU weights, target scaling, and best metadata.
 
     ``validation_median_trace_snr_db`` is ``None`` for training modes whose
     model-selection contract defines only a global validation metric. Existing
     checkpoints and the random-point training path continue to store a float.
+    ``per_trace_rms`` records the unit-RMS target domain but cannot embed the
+    unknown physical scale of an unseen trace.
     """
     checkpoint_path = Path(path)
+    stored_amplitude_scaling = validated_amplitude_scaling(amplitude_scaling)
+    validation_metric_domain = validation_metric_domain_for_scaling(stored_amplitude_scaling)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     state_dict = {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()}
     payload = {
@@ -54,6 +70,8 @@ def save_siren_checkpoint(
         },
         "model_state_dict": state_dict,
         "normalization": normalization.to_dict(),
+        "amplitude_scaling": stored_amplitude_scaling,
+        "validation_metric_domain": validation_metric_domain,
         "training": {
             "epoch": epoch,
             "global_step": global_step,
@@ -77,10 +95,25 @@ def load_siren_checkpoint(
     model.load_state_dict(payload["model_state_dict"], strict=True)
     model.to(device)
     normalization = NormalizationParameters.from_dict(payload["normalization"])
+    amplitude_scaling = validated_amplitude_scaling(
+        payload.get("amplitude_scaling", TRAIN_GLOBAL_RMS_SCALING)
+    )
+    expected_validation_metric_domain = validation_metric_domain_for_scaling(amplitude_scaling)
+    validation_metric_domain = payload.get(
+        "validation_metric_domain",
+        expected_validation_metric_domain,
+    )
+    if validation_metric_domain != expected_validation_metric_domain:
+        raise ValueError(
+            "checkpoint validation_metric_domain does not match amplitude_scaling: "
+            f"{validation_metric_domain!r} != {expected_validation_metric_domain!r}"
+        )
     training = payload["training"]
     return LoadedSirenCheckpoint(
         model=model,
         normalization=normalization,
+        amplitude_scaling=amplitude_scaling,
+        validation_metric_domain=validation_metric_domain,
         epoch=training["epoch"],
         global_step=training["global_step"],
         validation_median_trace_snr_db=training["validation_median_trace_snr_db"],

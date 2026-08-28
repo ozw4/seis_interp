@@ -19,6 +19,12 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
+from seis_interp.training.amplitude_scaling import (
+    PER_TRACE_RMS_SCALING,
+    TRAIN_GLOBAL_RMS_SCALING,
+    per_trace_rms_scaled_amplitudes,
+    validated_amplitude_scaling,
+)
 
 _VALID_SPLITS = frozenset((TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT))
 
@@ -126,13 +132,46 @@ def build_global_rms_trace_points(
         raise ValueError("selected amplitudes contain non-finite values")
     np.divide(selected_amplitudes, rms, out=selected_amplitudes)
 
+    return _expand_trace_points(time, selected_spatial, selected_amplitudes)
+
+
+def build_per_trace_rms_trace_points(
+    normalized_time: np.ndarray,
+    normalized_spatial_by_array_row: np.ndarray,
+    amplitudes: np.ndarray,
+    array_rows: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Read selected traces and scale each complete trace to unit RMS."""
+    time, spatial, amplitude_array = _validated_point_sources(
+        normalized_time,
+        normalized_spatial_by_array_row,
+        amplitudes,
+    )
+    rows = _validated_selected_rows(array_rows, spatial.shape[0], "array_rows")
+
+    selected_spatial = spatial[rows]
+    if not np.all(np.isfinite(selected_spatial)):
+        raise ValueError("selected normalized spatial coordinates contain non-finite values")
+    selected_amplitudes = per_trace_rms_scaled_amplitudes(
+        amplitude_array[rows],
+        array_rows=rows,
+    )
+    return _expand_trace_points(time, selected_spatial, selected_amplitudes)
+
+
+def _expand_trace_points(
+    time: np.ndarray,
+    selected_spatial: np.ndarray,
+    selected_amplitudes: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Expand already selected traces into trace-major coordinate-target points."""
     time_count = len(time)
     coordinates = np.empty(
-        (len(rows) * time_count, len(MODEL_COORDINATE_ORDER)),
+        (len(selected_spatial) * time_count, len(MODEL_COORDINATE_ORDER)),
         dtype=np.float64,
     )
     coordinate_grid = coordinates.reshape(
-        len(rows),
+        len(selected_spatial),
         time_count,
         len(MODEL_COORDINATE_ORDER),
     )
@@ -154,6 +193,7 @@ class FullFfidBatchSampler:
         *,
         amplitude_rms: float,
         random_seed: int,
+        amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
     ) -> None:
         time, spatial, amplitude_array = _validated_point_sources(
             normalized_time,
@@ -161,6 +201,7 @@ class FullFfidBatchSampler:
             amplitudes,
         )
         rms = _positive_finite_float(amplitude_rms, "amplitude_rms")
+        scaling = validated_amplitude_scaling(amplitude_scaling)
         canonical_rows = _validated_rows_by_ffid(
             rows_by_ffid,
             trace_count=spatial.shape[0],
@@ -173,6 +214,7 @@ class FullFfidBatchSampler:
         self._rows_by_ffid = canonical_rows
         self._ffids = tuple(sorted(canonical_rows))
         self._amplitude_rms = rms
+        self._amplitude_scaling = scaling
         self._rng = np.random.default_rng(seed)
 
     @property
@@ -185,6 +227,11 @@ class FullFfidBatchSampler:
         """Return the canonical sorted FFIDs covered by every epoch."""
         return self._ffids
 
+    @property
+    def amplitude_scaling(self) -> str:
+        """Return the target scaling used to construct every FFID batch."""
+        return self._amplitude_scaling
+
     def iter_epoch(self) -> Iterator[FullFfidBatch]:
         """Yield one complete batch for each FFID using the next RNG permutation."""
         shuffled_ffids = self._rng.permutation(np.asarray(self._ffids, dtype=np.int64))
@@ -193,13 +240,23 @@ class FullFfidBatchSampler:
     def _build_batch(self, raw_ffid: np.integer) -> FullFfidBatch:
         ffid = int(raw_ffid)
         rows = self._rows_by_ffid[ffid]
-        coordinates, targets = build_global_rms_trace_points(
-            self._time,
-            self._spatial,
-            self._amplitudes,
-            rows,
-            amplitude_rms=self._amplitude_rms,
-        )
+        if self._amplitude_scaling == TRAIN_GLOBAL_RMS_SCALING:
+            coordinates, targets = build_global_rms_trace_points(
+                self._time,
+                self._spatial,
+                self._amplitudes,
+                rows,
+                amplitude_rms=self._amplitude_rms,
+            )
+        elif self._amplitude_scaling == PER_TRACE_RMS_SCALING:
+            coordinates, targets = build_per_trace_rms_trace_points(
+                self._time,
+                self._spatial,
+                self._amplitudes,
+                rows,
+            )
+        else:  # pragma: no cover - constructor validation makes this unreachable.
+            raise RuntimeError(f"unsupported amplitude scaling: {self._amplitude_scaling!r}")
         return FullFfidBatch(
             ffid=ffid,
             coordinates=coordinates,

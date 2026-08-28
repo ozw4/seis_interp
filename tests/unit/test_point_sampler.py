@@ -37,6 +37,22 @@ def test_same_seed_produces_same_first_batch_without_changing_global_rng() -> No
     assert first_coordinates.shape == (32, 6)
     assert first_coordinates.dtype == np.float64
     assert first_targets.dtype == np.float32
+    assert first.amplitude_scaling == "train_global_rms"
+
+
+def test_random_point_sampler_records_per_trace_target_scaling() -> None:
+    time, spatial, amplitudes = _arrays()
+
+    sampler = RandomPointSampler(
+        time,
+        spatial,
+        amplitudes,
+        np.array([0, 2]),
+        random_seed=4,
+        amplitude_scaling="per_trace_rms",
+    )
+
+    assert sampler.amplitude_scaling == "per_trace_rms"
 
 
 def test_only_training_rows_are_sampled_and_coordinates_match_targets() -> None:

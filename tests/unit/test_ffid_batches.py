@@ -14,6 +14,7 @@ from seis_interp.training.ffid_batches import (
     FullFfidBatchSampler,
     array_rows_by_ffid_for_split,
     build_global_rms_trace_points,
+    build_per_trace_rms_trace_points,
     validate_all_ffids_have_split_rows,
 )
 from seis_interp.training.point_sampler import build_trace_points
@@ -155,6 +156,43 @@ def test_point_builder_matches_materialized_reference_and_global_rms_only() -> N
     assert targets.dtype == np.float32
 
 
+def test_per_trace_point_builder_scales_each_selected_trace_to_unit_rms() -> None:
+    time, spatial, amplitudes = _point_arrays()
+    rows = np.asarray([6, 1, 4])
+    original = amplitudes.copy()
+
+    coordinates, targets = build_per_trace_rms_trace_points(
+        time,
+        spatial,
+        amplitudes,
+        rows,
+    )
+
+    expected_coordinates, _ = build_trace_points(time, spatial, amplitudes, rows)
+    target_traces = targets.reshape(len(rows), len(time)).astype(np.float64)
+    np.testing.assert_array_equal(coordinates, expected_coordinates)
+    np.testing.assert_allclose(
+        np.sqrt(np.mean(np.square(target_traces), axis=1)),
+        np.ones(len(rows)),
+        rtol=1.0e-7,
+    )
+    np.testing.assert_array_equal(amplitudes, original)
+    assert targets.dtype == np.float32
+
+
+def test_per_trace_point_builder_identifies_a_zero_rms_array_row() -> None:
+    time, spatial, amplitudes = _point_arrays()
+    amplitudes[4] = 0.0
+
+    with pytest.raises(ValueError, match="array_row 4"):
+        build_per_trace_rms_trace_points(
+            time,
+            spatial,
+            amplitudes,
+            np.asarray([6, 4]),
+        )
+
+
 def test_point_builder_uses_broadcast_assignment_without_full_point_temporaries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -221,11 +259,26 @@ def test_point_builder_reads_a_read_only_memmap(tmp_path: Path) -> None:
     np.testing.assert_array_equal(batch.coordinates, sampler_coordinates)
     np.testing.assert_array_equal(batch.targets, sampler_targets)
 
+    per_trace_coordinates, per_trace_targets = build_per_trace_rms_trace_points(
+        time,
+        spatial,
+        memory_mapped,
+        np.asarray([8, 2]),
+    )
+    np.testing.assert_array_equal(per_trace_coordinates, expected_coordinates)
+    per_trace_targets = per_trace_targets.reshape(2, len(time)).astype(np.float64)
+    np.testing.assert_allclose(
+        np.sqrt(np.mean(np.square(per_trace_targets), axis=1)),
+        np.ones(2),
+        rtol=1.0e-7,
+    )
+
 
 def _sampler(
     *,
     seed: int,
     rows_by_ffid: dict[int, np.ndarray] | None = None,
+    amplitude_scaling: str = "train_global_rms",
 ) -> FullFfidBatchSampler:
     time, spatial, amplitudes = _point_arrays()
     groups = rows_by_ffid or {
@@ -240,6 +293,7 @@ def _sampler(
         groups,
         amplitude_rms=2.0,
         random_seed=seed,
+        amplitude_scaling=amplitude_scaling,
     )
 
 
@@ -259,8 +313,9 @@ def test_epoch_visits_every_ffid_once_with_variable_point_counts() -> None:
     assert all(batch.targets.shape == (batch.point_count,) for batch in batches)
 
 
-def test_sampler_does_not_retain_a_yielded_ffid_batch() -> None:
-    epoch = _sampler(seed=12).iter_epoch()
+@pytest.mark.parametrize("amplitude_scaling", ["train_global_rms", "per_trace_rms"])
+def test_sampler_does_not_retain_a_yielded_ffid_batch(amplitude_scaling: str) -> None:
+    epoch = _sampler(seed=12, amplitude_scaling=amplitude_scaling).iter_epoch()
     batch = next(epoch)
     coordinate_reference = weakref.ref(batch.coordinates)
     target_reference = weakref.ref(batch.targets)
@@ -292,6 +347,33 @@ def test_sampler_batches_contain_every_selected_trace_and_sample_once() -> None:
         )
         np.testing.assert_array_equal(batch.coordinates, expected_coordinates)
         np.testing.assert_array_equal(batch.targets, expected_targets)
+
+
+def test_sampler_supports_per_trace_rms_scaling() -> None:
+    time, spatial, amplitudes = _point_arrays()
+    groups = {
+        10: np.asarray([2, 0]),
+        20: np.asarray([6, 5, 4]),
+        30: np.asarray([8]),
+    }
+    sampler = FullFfidBatchSampler(
+        time,
+        spatial,
+        amplitudes,
+        groups,
+        amplitude_rms=2.0,
+        random_seed=3,
+        amplitude_scaling="per_trace_rms",
+    )
+
+    assert sampler.amplitude_scaling == "per_trace_rms"
+    for batch in sampler.iter_epoch():
+        traces = batch.targets.reshape(batch.trace_count, len(time)).astype(np.float64)
+        np.testing.assert_allclose(
+            np.sqrt(np.mean(np.square(traces), axis=1)),
+            np.ones(batch.trace_count),
+            rtol=1.0e-7,
+        )
 
 
 def test_same_seed_reproduces_multiple_epochs_independent_of_mapping_order() -> None:

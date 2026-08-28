@@ -204,6 +204,68 @@ def test_full_ffid_pipeline_streams_training_and_writes_the_run_contract(
     assert run_metadata["effective_steps_per_epoch"] == 3
 
 
+def test_full_ffid_pipeline_supports_per_trace_rms_as_a_training_target_scaling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"]["amplitude_scaling"] = "per_trace_rms"
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "run"
+    import seis_interp.pipelines.train_siren as pipeline
+
+    received_scaling: dict[str, str] = {}
+    actual_sampler = pipeline.FullFfidBatchSampler
+    actual_evaluate = pipeline.evaluate_model_global_snr_by_ffid
+    actual_train = pipeline.train_siren_by_ffid
+
+    def recording_sampler(*args: Any, **kwargs: Any):
+        received_scaling["sampler"] = kwargs["amplitude_scaling"]
+        return actual_sampler(*args, **kwargs)
+
+    def recording_evaluate(*args: Any, **kwargs: Any) -> float:
+        received_scaling["validation"] = kwargs["amplitude_scaling"]
+        return actual_evaluate(*args, **kwargs)
+
+    def recording_train(*args: Any, **kwargs: Any):
+        received_scaling["trainer"] = kwargs["amplitude_scaling"]
+        return actual_train(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "FullFfidBatchSampler", recording_sampler)
+    monkeypatch.setattr(pipeline, "evaluate_model_global_snr_by_ffid", recording_evaluate)
+    monkeypatch.setattr(pipeline, "train_siren_by_ffid", recording_train)
+
+    metrics = train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    assert metrics["amplitude_scaling"] == "per_trace_rms"
+    assert received_scaling == {
+        "sampler": "per_trace_rms",
+        "validation": "per_trace_rms",
+        "trainer": "per_trace_rms",
+    }
+    assert metrics["validation_metric_domain"] == "oracle_per_trace_unit_rms"
+    assert metrics["validation_scale_source"] == "validation_trace_target_rms"
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.amplitude_scaling == "per_trace_rms"
+    assert checkpoint.validation_metric_domain == "oracle_per_trace_unit_rms"
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    assert inputs_lock["preparation"]["normalization"]["amplitude"] == "train_global_rms"
+    assert inputs_lock["training"]["amplitude_scaling"] == "per_trace_rms"
+    assert inputs_lock["training"]["validation_metric_domain"] == ("oracle_per_trace_unit_rms")
+    assert inputs_lock["training"]["validation_scale_source"] == "validation_trace_target_rms"
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert run_metadata["amplitude_scaling"] == "per_trace_rms"
+    assert run_metadata["validation_metric_domain"] == "oracle_per_trace_unit_rms"
+    assert run_metadata["validation_scale_source"] == "validation_trace_target_rms"
+
+
 def test_full_ffid_pipeline_routes_no_test_rows_to_training_or_validation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -311,6 +373,28 @@ def test_full_ffid_pipeline_rejects_invalid_validation_batch_size_before_trainin
         )
 
 
+def test_full_ffid_pipeline_rejects_unknown_training_amplitude_scaling(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"]["amplitude_scaling"] = "global_rms"
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(
+        "seis_interp.pipelines.train_siren.load_interim_trace_dataset",
+        lambda *_args, **_kwargs: pytest.fail("data loading must not start"),
+    )
+
+    with pytest.raises(ValueError, match="training.amplitude_scaling must be one of"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
 def test_full_ffid_cli_keeps_json_clean_while_reporting_progress(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -369,6 +453,37 @@ def test_full_ffid_cli_prints_the_human_training_summary(
     assert "Epochs completed: 2" in captured.out
     assert "Optimizer steps: 6" in captured.out
     assert f"Checkpoint: {output / 'artifacts' / 'best.pt'}" in captured.out
+
+
+def test_full_ffid_cli_labels_per_trace_validation_as_oracle_normalized(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"]["amplitude_scaling"] = "per_trace_rms"
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    exit_code = main(
+        [
+            "train",
+            "siren",
+            "--config",
+            str(config),
+            "--interim",
+            str(interim),
+            "--processed",
+            str(processed),
+            "--output",
+            str(tmp_path / "run"),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Amplitude scaling: per_trace_rms" in captured.out
+    assert "Validation metric domain: oracle per-trace unit RMS" in captured.out
+    assert "Best oracle-normalized validation global S/N:" in captured.out
 
 
 def test_full_ffid_cli_serializes_perfect_validation_as_explicit_infinity(
