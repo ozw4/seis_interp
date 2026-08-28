@@ -22,13 +22,15 @@ from seis_interp.configuration import (
     load_resolved_config,
     repository_relative_config_source,
 )
-from seis_interp.data.data_root import DataRootError
+from seis_interp.data.data_root import DataRootError, resolve_data_root
 from seis_interp.data.seg_c3_na import (
     DATASET_ID,
     DataIntegrityError,
     ManifestError,
     default_manifest_path,
     download_seg_c3_na,
+    load_manifest,
+    verified_source_sha256,
     verify_seg_c3_na,
 )
 from seis_interp.data.seg_c3_na_inspection import (
@@ -249,6 +251,76 @@ def _prepare_c3_shot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_c3_survey(args: argparse.Namespace) -> int:
+    # Imported here so that `doctor` keeps working without the data and segy extras.
+    from seis_interp.pipelines.prepare_c3 import (
+        C3_COMPLETE_SHOT_TRACE_COUNT,
+        C3_SURVEY_FFID_RANGE,
+        prepare_c3_survey,
+    )
+
+    try:
+        manifest = load_manifest(args.manifest)
+        verification = verify_seg_c3_na(args.manifest, args.data_root)
+        failed = [result for result in verification if not result.ok]
+        if failed:
+            details = "; ".join(
+                f"{result.name}: {result.status} ({result.detail})" for result in failed
+            )
+            raise DataIntegrityError(f"source verification failed: {details}")
+
+        data_root = resolve_data_root(args.data_root)
+        source_directory = data_root / "external" / DATASET_ID
+        input_paths = [source_directory / file_spec.name for file_spec in manifest.files]
+        source_sha256 = verified_source_sha256(manifest, input_paths, verification)
+
+        missing_ranges = [
+            file_spec.name
+            for file_spec in manifest.files
+            if file_spec.ffid_min is None or file_spec.ffid_max is None
+        ]
+        if missing_ranges:
+            raise ManifestError(f"manifest files are missing FFID ranges: {missing_ranges}")
+        expected_ranges = [
+            (int(file_spec.ffid_min), int(file_spec.ffid_max)) for file_spec in manifest.files
+        ]
+        summary = prepare_c3_survey(
+            input_paths=input_paths,
+            output_dir=args.output,
+            dataset_id=args.dataset_id,
+            expected_complete_trace_count=C3_COMPLETE_SHOT_TRACE_COUNT,
+            expected_ffid_ranges=expected_ranges,
+            expected_survey_ffid_range=C3_SURVEY_FFID_RANGE,
+            source_sha256=source_sha256,
+            overwrite=args.overwrite,
+        )
+    except (
+        DataIntegrityError,
+        DataRootError,
+        FileNotFoundError,
+        FileExistsError,
+        ManifestError,
+        OSError,
+        ValueError,
+    ) as error:
+        print(f"data prepare-c3-survey failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        ffids = summary["ffids"]
+        print(f"Source files: {summary['source_file_count']}")
+        print(f"FFID range: {ffids[0]}-{ffids[-1]}")
+        print(f"FFIDs: {summary['ffid_count']}")
+        print(f"Complete FFIDs: {summary['complete_ffid_count']}")
+        print(f"Incomplete FFIDs: {summary['incomplete_ffid_count']}")
+        print(f"Traces: {summary['trace_count']}")
+        print(f"Samples per trace: {summary['sample_count']}")
+        print(f"Output directory: {args.output}")
+    return 0
+
+
 def _prepare_baseline(args: argparse.Namespace) -> int:
     # Imported here so that unrelated commands keep working without the data extras.
     from seis_interp.pipelines.prepare_baseline import (
@@ -256,6 +328,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         COORDINATE_NORMALIZATION_METHOD,
         prepare_baseline_dataset,
     )
+    from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
 
     try:
         config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
@@ -278,6 +351,12 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             config,
             "sampling.validation_fraction_of_holdout",
         )
+        split_scope = _config_value_or_optional_default(
+            args.split_scope,
+            config,
+            "sampling.split_scope",
+            "global",
+        )
         coordinate_normalization = _required_supported_config_value(
             config,
             "normalization.coordinates",
@@ -287,6 +366,20 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             config,
             "normalization.amplitude",
             AMPLITUDE_NORMALIZATION_METHOD,
+        )
+        sampling_config = config.get("sampling")
+        raw_trace_filter = (
+            sampling_config.get("trace_amplitude_filter")
+            if isinstance(sampling_config, Mapping)
+            else None
+        )
+        trace_amplitude_filter = (
+            TraceAmplitudeFilterConfig.from_mapping(
+                raw_trace_filter,
+                name="sampling.trace_amplitude_filter",
+            )
+            if raw_trace_filter is not None
+            else None
         )
         config_source = repository_relative_config_source(
             args.config,
@@ -303,8 +396,10 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             holdout_fraction=holdout_fraction,
             validation_fraction_of_holdout=validation_fraction,
             random_seed=random_seed,
+            split_scope=split_scope,
             coordinate_normalization=coordinate_normalization,
             amplitude_normalization=amplitude_normalization,
+            trace_amplitude_filter=trace_amplitude_filter,
             config_source=config_source,
             overwrite=args.overwrite,
         )
@@ -320,6 +415,12 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         print(f"Input dataset: {args.input}")
         print(f"Output directory: {args.output}")
         print(f"Traces: {summary['trace_count']}")
+        trace_quality = summary.get("trace_quality")
+        if isinstance(trace_quality, Mapping):
+            print(f"Eligible traces: {trace_quality['eligible_trace_count']}")
+            print(f"Excluded traces: {trace_quality['excluded_trace_count']}")
+        print(f"Split scope: {summary.get('split_scope', 'global')}")
+        print(f"FFIDs: {summary.get('ffid_count', 1)}")
         print(f"Train traces: {split_counts['train']}")
         print(f"Validation traces: {split_counts['validation']}")
         print(f"Test traces: {split_counts['test']}")
@@ -329,6 +430,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
 def _train_siren(args: argparse.Namespace) -> int:
     from seis_interp.pipelines.train_siren import CHECKPOINT_RELATIVE_PATH, train_siren_run
 
+    progress_reporter = _print_progress_to_stderr if args.json else None
     try:
         summary = train_siren_run(
             config_path=args.config,
@@ -336,6 +438,7 @@ def _train_siren(args: argparse.Namespace) -> int:
             processed_dir=args.processed,
             output_dir=args.output,
             device_override=args.device,
+            progress_reporter=progress_reporter,
         )
     except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
         print(f"train siren failed: {error}", file=sys.stderr)
@@ -344,13 +447,52 @@ def _train_siren(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
+        batch_mode = summary.get("batch_mode", "random_points")
         print(f"Output directory: {args.output}")
+        print(f"Batch mode: {batch_mode}")
+        if "amplitude_scaling" in summary:
+            print(f"Amplitude scaling: {summary['amplitude_scaling']}")
+        if summary.get("loss_semantics") == "mse_plus_trace_correlation":
+            print(
+                "Correlation loss: "
+                f"weight={summary['correlation_weight']}, eps={summary['correlation_eps']}"
+            )
+        trace_quality = summary.get("trace_quality")
+        if isinstance(trace_quality, Mapping):
+            print(f"Excluded traces: {trace_quality['excluded_trace_count']}")
+        oracle_validation = summary.get("validation_metric_domain") == ("oracle_per_trace_unit_rms")
+        if oracle_validation:
+            print("Validation metric domain: oracle per-trace unit RMS")
         print(f"Best epoch: {summary['best_epoch']}")
-        print(f"Best validation S/N: {summary['best_validation_snr_db']} dB")
+        if batch_mode == "full_ffid_epoch":
+            label = (
+                "Best oracle-normalized validation global S/N"
+                if oracle_validation
+                else "Best validation global S/N"
+            )
+            print(f"{label}: {summary['best_validation_global_snr_db']} dB")
+            print(f"Optimizer steps: {summary['global_steps']}")
+        else:
+            median_label = (
+                "Best oracle-normalized validation median trace S/N"
+                if oracle_validation
+                else "Best validation median trace S/N"
+            )
+            print(f"{median_label}: {summary['best_validation_median_trace_snr_db']} dB")
+            global_label = (
+                "Oracle-normalized global validation S/N at best epoch"
+                if oracle_validation
+                else "Global validation S/N at best epoch"
+            )
+            print(f"{global_label}: {summary['best_validation_global_snr_db']} dB")
         print(f"Epochs completed: {summary['epochs_completed']}")
         print(f"Stopped early: {summary['stopped_early']}")
         print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
     return 0
+
+
+def _print_progress_to_stderr(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 def _config_value_or_override(
@@ -361,6 +503,23 @@ def _config_value_or_override(
     if override is not None:
         return override
     return get_required_config_value(config, dotted_path)
+
+
+def _config_value_or_optional_default(
+    override: object | None,
+    config: Mapping[str, object],
+    dotted_path: str,
+    default: object,
+) -> object:
+    """Resolve an optional config value below a CLI override."""
+    if override is not None:
+        return override
+    current: object = config
+    for part in dotted_path.split("."):
+        if not isinstance(current, Mapping) or part not in current:
+            return default
+        current = current[part]
+    return current
 
 
 def _required_supported_config_value(
@@ -480,6 +639,36 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     prepare.add_argument("--json", action="store_true", help="Print the summary as JSON.")
     prepare.set_defaults(handler=_prepare_c3_shot)
 
+    prepare_survey = data_commands.add_parser(
+        "prepare-c3-survey",
+        help="Write every manifest-declared SEG C3 NA FFID as one interim dataset.",
+    )
+    prepare_survey.add_argument(
+        "--manifest",
+        type=Path,
+        default=default_manifest_path(),
+        help="Path to the tracked dataset manifest.",
+    )
+    prepare_survey.add_argument(
+        "--data-root",
+        type=Path,
+        help="Override SEIS_INTERP_DATA_ROOT for this command.",
+    )
+    prepare_survey.add_argument("--output", type=Path, required=True, help="Output directory.")
+    prepare_survey.add_argument(
+        "--dataset-id",
+        type=str,
+        default=DATASET_ID,
+        help="Dataset identifier stored in dataset.json.",
+    )
+    prepare_survey.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace generated files in an existing output directory.",
+    )
+    prepare_survey.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    prepare_survey.set_defaults(handler=_prepare_c3_survey)
+
     prepare_baseline = data_commands.add_parser(
         "prepare-baseline",
         help="Create trace splits and normalization metadata from an interim dataset.",
@@ -510,6 +699,11 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "--random-seed",
         type=int,
         help="Override project.random_seed for deterministic trace-level splitting.",
+    )
+    prepare_baseline.add_argument(
+        "--split-scope",
+        choices=("global", "per_ffid"),
+        help="Override sampling.split_scope (default: global).",
     )
     prepare_baseline.add_argument(
         "--overwrite",

@@ -10,8 +10,11 @@ import pytest
 
 from seis_interp.cli import main
 from seis_interp.data.trace_store import write_interim_trace_dataset
+from seis_interp.pipelines import prepare_baseline as prepare_baseline_pipeline
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.processing.normalization import read_normalization_parameters
+from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
+from seis_interp.processing.trace_splits import EXCLUDED_SPLIT
 
 TRACE_COUNT = 20
 SAMPLE_COUNT = 4
@@ -71,16 +74,58 @@ def _write_interim_dataset(tmp_path: Path) -> Path:
     return interim_dir
 
 
-def _prepare(interim_dir: Path, output_dir: Path, *, overwrite: bool = False) -> dict[str, object]:
+def _prepare(
+    interim_dir: Path,
+    output_dir: Path,
+    *,
+    split_scope: str = "global",
+    trace_amplitude_filter: TraceAmplitudeFilterConfig | None = None,
+    overwrite: bool = False,
+) -> dict[str, object]:
     return prepare_baseline_dataset(
         interim_dir,
         output_dir,
         holdout_fraction=HOLDOUT_FRACTION,
         validation_fraction_of_holdout=VALIDATION_FRACTION_OF_HOLDOUT,
         random_seed=RANDOM_SEED,
+        split_scope=split_scope,
+        trace_amplitude_filter=trace_amplitude_filter,
         config_source=CONFIG_SOURCE,
         overwrite=overwrite,
     )
+
+
+def _write_multi_ffid_interim_dataset(tmp_path: Path) -> Path:
+    source_path = tmp_path / "multi-source.sgy"
+    source_path.write_bytes(b"synthetic multi-FFID SEG-Y placeholder")
+    interim_dir = tmp_path / "multi-ffid-interim"
+    traces_per_ffid = 20
+    trace_count = 2 * traces_per_ffid
+    trace_indices = np.arange(trace_count, dtype=np.int64)
+    trace_table = pd.DataFrame(
+        {
+            "trace_index": trace_indices,
+            "ffid": np.repeat([100, 101], traces_per_ffid).astype(np.int64),
+            "cmp_x_m": trace_indices.astype(np.float64),
+            "cmp_y_m": trace_indices.astype(np.float64) * 2.0,
+            "offset_m": trace_indices.astype(np.float64) + 100.0,
+            "azimuth_deg": trace_indices.astype(np.float64) * 5.0,
+            "sample_interval_s": np.full(trace_count, 0.008),
+        }
+    )
+    amplitudes = np.arange(1, trace_count * SAMPLE_COUNT + 1, dtype=np.float32).reshape(
+        trace_count, SAMPLE_COUNT
+    )
+    write_interim_trace_dataset(
+        output_dir=interim_dir,
+        trace_table=trace_table,
+        amplitudes=amplitudes,
+        time_s=np.arange(SAMPLE_COUNT, dtype=np.float64) * 0.008,
+        source_path=source_path,
+        dataset_id="seg_c3_na",
+        selection={"ffid_scope": "all", "include_incomplete_ffids": True},
+    )
+    return interim_dir
 
 
 def test_writes_only_the_three_processed_dataset_files(tmp_path: Path) -> None:
@@ -113,6 +158,130 @@ def test_records_the_expected_split_counts(tmp_path: Path) -> None:
         pd.read_parquet(output_dir / "trace_split.parquet")["split"].value_counts().to_dict()
     )
     assert split_counts == summary["split_counts"]
+    assert summary["split_scope"] == "global"
+    assert summary["ffid_count"] == 1
+
+
+def test_per_ffid_scope_writes_each_split_for_every_ffid(tmp_path: Path) -> None:
+    interim_dir = _write_multi_ffid_interim_dataset(tmp_path)
+    output_dir = tmp_path / "processed"
+
+    summary = _prepare(interim_dir, output_dir, split_scope="per_ffid")
+
+    split_table = pd.read_parquet(output_dir / "trace_split.parquet")
+    trace_table = pd.read_parquet(interim_dir / "traces.parquet")
+    joined = trace_table[["array_row", "ffid"]].merge(
+        split_table,
+        on="array_row",
+        validate="one_to_one",
+    )
+    counts = joined.groupby(["ffid", "split"]).size().unstack(fill_value=0)
+    assert counts.to_dict(orient="index") == {
+        100: {"test": 3, "train": 16, "validation": 1},
+        101: {"test": 3, "train": 16, "validation": 1},
+    }
+    assert summary["split_scope"] == "per_ffid"
+    assert summary["ffid_count"] == 2
+    assert summary["split_counts"] == {"train": 32, "validation": 2, "test": 6}
+
+
+def test_amplitude_filter_excludes_invalid_traces_before_split_and_normalization(
+    tmp_path: Path,
+) -> None:
+    interim_dir = _write_multi_ffid_interim_dataset(tmp_path)
+    amplitude_path = interim_dir / "amplitudes.npy"
+    amplitudes = np.load(amplitude_path, allow_pickle=False)
+    amplitudes[:10] = 0.0
+    amplitudes[10:20] = 2_000.0
+    np.save(amplitude_path, amplitudes)
+    output_dir = tmp_path / "processed"
+    trace_filter = TraceAmplitudeFilterConfig(
+        exclude_all_zero=True,
+        max_abs_amplitude=1_000.0,
+    )
+
+    summary = _prepare(
+        interim_dir,
+        output_dir,
+        split_scope="per_ffid",
+        trace_amplitude_filter=trace_filter,
+    )
+
+    split_table = pd.read_parquet(output_dir / "trace_split.parquet")
+    assert len(split_table) == 40
+    assert split_table.loc[split_table["array_row"] < 20, "split"].eq(EXCLUDED_SPLIT).all()
+    assert not split_table.loc[split_table["array_row"] >= 20, "split"].eq(EXCLUDED_SPLIT).any()
+    assert summary["split_counts"] == {"train": 16, "validation": 1, "test": 3}
+    assert summary["ffid_count"] == 1
+    assert summary["trace_amplitude_filter"] == trace_filter.to_dict()
+    assert summary["trace_quality"] == {
+        "input_trace_count": 40,
+        "eligible_trace_count": 20,
+        "excluded_trace_count": 20,
+        "all_zero_trace_count": 10,
+        "excess_amplitude_trace_count": 10,
+        "excluded_array_rows": list(range(20)),
+        "affected_ffids": [100],
+        "fully_excluded_ffids": [100],
+    }
+    training_rows = split_table.loc[split_table["split"] == "train", "array_row"].to_numpy()
+    expected_rms = float(np.sqrt(np.mean(amplitudes[training_rows].astype(np.float64) ** 2)))
+    assert read_normalization_parameters(
+        output_dir / "normalization.json"
+    ).amplitude_rms == pytest.approx(expected_rms)
+
+
+def test_preparation_opens_amplitudes_as_a_read_only_memmap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    observed: dict[str, object] = {}
+    actual_load = prepare_baseline_pipeline.load_interim_trace_dataset
+
+    def recording_load(directory: Path, **kwargs: object):
+        observed.update(kwargs)
+        dataset = actual_load(directory, **kwargs)
+        observed["is_memmap"] = isinstance(dataset.amplitudes, np.memmap)
+        observed["writeable"] = dataset.amplitudes.flags.writeable
+        return dataset
+
+    monkeypatch.setattr(
+        prepare_baseline_pipeline,
+        "load_interim_trace_dataset",
+        recording_load,
+    )
+
+    _prepare(interim_dir, tmp_path / "processed")
+
+    assert observed == {
+        "memory_map_amplitudes": True,
+        "is_memmap": True,
+        "writeable": False,
+    }
+
+
+def test_preparation_reuses_the_loader_amplitude_finiteness_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    observed: list[bool] = []
+    actual_fit = prepare_baseline_pipeline.fit_normalization_parameters
+
+    def recording_fit(*args: object, **kwargs: object):
+        observed.append(kwargs.get("amplitudes_are_finite") is True)
+        return actual_fit(*args, **kwargs)
+
+    monkeypatch.setattr(
+        prepare_baseline_pipeline,
+        "fit_normalization_parameters",
+        recording_fit,
+    )
+
+    _prepare(interim_dir, tmp_path / "processed")
+
+    assert observed == [True]
 
 
 def test_same_seed_writes_identical_trace_splits(tmp_path: Path) -> None:
@@ -190,6 +359,7 @@ def test_preparation_records_relative_provenance_and_input_hashes(tmp_path: Path
     preparation_text = (output_dir / "preparation.json").read_text(encoding="utf-8")
 
     assert summary["source_file"] == "source.sgy"
+    assert "source_files" not in summary
     assert summary["config_source"] == CONFIG_SOURCE
     assert summary["normalization"] == {
         "coordinates": COORDINATE_NORMALIZATION_METHOD,
@@ -198,6 +368,38 @@ def test_preparation_records_relative_provenance_and_input_hashes(tmp_path: Path
     assert summary["input_files"] == expected_input_files
     assert "input_dataset_metadata_sha256" not in summary
     assert str(tmp_path) not in preparation_text
+
+
+def test_preparation_records_canonical_multi_source_provenance(tmp_path: Path) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    metadata_path = interim_dir / "dataset.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.pop("source_file")
+    metadata.pop("source_sha256")
+    metadata["source_files"] = [
+        {"name": "part-1.sgy", "sha256": "a" * 64},
+        {"name": "part-2.sgy", "sha256": "b" * 64},
+    ]
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    summary = _prepare(interim_dir, tmp_path / "processed")
+
+    assert summary["source_files"] == metadata["source_files"]
+    assert "source_file" not in summary
+    assert "source_sha256" not in summary
+
+
+def test_rejects_an_unknown_split_scope_before_writing_outputs(tmp_path: Path) -> None:
+    interim_dir = _write_interim_dataset(tmp_path)
+    output_dir = tmp_path / "processed"
+
+    with pytest.raises(ValueError, match="split_scope"):
+        _prepare(interim_dir, output_dir, split_scope="per_source")
+
+    assert not output_dir.exists()
 
 
 def test_input_hash_detects_array_changes_without_metadata_changes(tmp_path: Path) -> None:

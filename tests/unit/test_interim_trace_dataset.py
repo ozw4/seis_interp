@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from seis_interp.data import interim_trace_dataset as interim_trace_dataset_module
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_schema import (
     MODEL_COORDINATE_ORDER,
@@ -83,6 +84,116 @@ def test_loads_the_table_arrays_and_metadata(tmp_path: Path) -> None:
     np.testing.assert_array_equal(dataset.amplitudes, _amplitudes())
     np.testing.assert_array_equal(dataset.time_s, _time_axis())
     assert dataset.metadata == expected_metadata
+
+
+def test_loads_two_source_metadata_in_declared_order(tmp_path: Path) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+    metadata = _read_metadata(directory)
+    metadata.pop("source_file")
+    metadata.pop("source_sha256")
+    metadata["source_files"] = [
+        {"name": "second.sgy", "sha256": "b" * 64},
+        {"name": "first.sgy", "sha256": "a" * 64},
+    ]
+    _write_metadata(directory, metadata)
+
+    dataset = load_interim_trace_dataset(directory)
+
+    assert dataset.metadata["source_files"] == metadata["source_files"]
+
+
+@pytest.mark.parametrize(
+    "source_files",
+    [
+        [{"name": "nested/source.sgy", "sha256": "a" * 64}],
+        [
+            {"name": "source.sgy", "sha256": "a" * 64},
+            {"name": "source.sgy", "sha256": "b" * 64},
+        ],
+        [{"name": "source.sgy", "sha256": "A" * 64}],
+    ],
+)
+def test_loader_rejects_invalid_source_files_metadata(
+    tmp_path: Path, source_files: list[dict[str, str]]
+) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+    metadata = _read_metadata(directory)
+    metadata.pop("source_file")
+    metadata.pop("source_sha256")
+    metadata["source_files"] = source_files
+    _write_metadata(directory, metadata)
+
+    with pytest.raises(ValueError, match="source"):
+        load_interim_trace_dataset(directory)
+
+
+def test_memory_maps_amplitudes_when_requested(tmp_path: Path) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+
+    dataset = load_interim_trace_dataset(directory, memory_map_amplitudes=True)
+
+    assert isinstance(dataset.amplitudes, np.memmap)
+    assert not dataset.amplitudes.flags.writeable
+    assert dataset.amplitudes.shape == (TRACE_COUNT, SAMPLE_COUNT)
+    np.testing.assert_array_equal(dataset.amplitudes, _amplitudes())
+
+
+def test_default_loader_returns_an_ordinary_ndarray(tmp_path: Path) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+
+    dataset = load_interim_trace_dataset(directory)
+
+    assert isinstance(dataset.amplitudes, np.ndarray)
+    assert not isinstance(dataset.amplitudes, np.memmap)
+
+
+def test_memmap_finite_validation_reaches_later_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+    amplitudes = _amplitudes()
+    amplitudes[-1, -1] = np.inf
+    np.save(directory / "amplitudes.npy", amplitudes)
+    monkeypatch.setattr(
+        interim_trace_dataset_module,
+        "_AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE",
+        2,
+    )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        load_interim_trace_dataset(directory, memory_map_amplitudes=True)
+
+
+def test_loader_allows_duplicate_local_indices_across_sources(tmp_path: Path) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+    trace_table = pd.read_parquet(directory / "traces.parquet")
+    trace_table["source_file"] = ["first.sgy", "second.sgy", "first.sgy", "second.sgy"]
+    trace_table["trace_index"] = [0, 0, 1, 1]
+    trace_table.to_parquet(directory / "traces.parquet", index=False)
+    metadata = _read_metadata(directory)
+    metadata.pop("source_file")
+    metadata.pop("source_sha256")
+    metadata["source_files"] = [
+        {"name": "first.sgy", "sha256": "a" * 64},
+        {"name": "second.sgy", "sha256": "b" * 64},
+    ]
+    metadata["files"]["traces.parquet"]["column_count"] = len(trace_table.columns)
+    _write_metadata(directory, metadata)
+
+    dataset = load_interim_trace_dataset(directory)
+
+    assert dataset.trace_table["trace_index"].tolist() == [0, 0, 1, 1]
+
+
+def test_loader_rejects_duplicate_local_identity_within_a_source(tmp_path: Path) -> None:
+    directory, _ = _write_interim_dataset(tmp_path)
+    trace_table = pd.read_parquet(directory / "traces.parquet")
+    trace_table["source_file"] = ["first.sgy"] * TRACE_COUNT
+    trace_table["trace_index"] = [0, 0, 1, 2]
+    trace_table.to_parquet(directory / "traces.parquet", index=False)
+
+    with pytest.raises(ValueError, match=r"source_file, trace_index"):
+        load_interim_trace_dataset(directory)
 
 
 def test_interim_metadata_describes_physical_not_encoded_coordinates(tmp_path: Path) -> None:

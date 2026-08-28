@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
+from seis_interp.processing import normalization as normalization_module
 from seis_interp.processing.normalization import (
     NormalizationParameters,
     denormalize_amplitudes,
@@ -76,6 +77,115 @@ def test_fit_uses_only_training_amplitudes_for_global_rms() -> None:
 
     expected = np.sqrt((3.0**2 + 4.0**2 + 12.0**2) / 6.0)
     assert parameters.amplitude_rms == pytest.approx(expected)
+
+
+def test_fit_memmapped_amplitudes_matches_the_direct_formula(tmp_path: Path) -> None:
+    amplitude_path = tmp_path / "amplitudes.npy"
+    np.save(amplitude_path, make_amplitudes())
+    amplitudes = np.load(amplitude_path, mmap_mode="r", allow_pickle=False)
+    trace_table = make_trace_table()
+    training_rows = np.sort(
+        trace_table.loc[trace_table["split"] == "train", "array_row"].to_numpy(dtype=np.int64)
+    )
+
+    parameters = fit_normalization_parameters(trace_table, amplitudes, make_time_axis())
+
+    assert isinstance(amplitudes, np.memmap)
+    expected = np.sqrt(
+        np.mean(
+            np.square(np.asarray(amplitudes[training_rows], dtype=np.float64)), dtype=np.float64
+        )
+    )
+    assert parameters.amplitude_rms == pytest.approx(expected)
+
+
+def test_fit_accumulates_every_training_row_across_chunk_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(normalization_module, "_AMPLITUDE_ROW_CHUNK_SIZE", 1)
+    trace_table = make_trace_table()
+    amplitudes = make_amplitudes()
+
+    parameters = fit_normalization_parameters(trace_table, amplitudes, make_time_axis())
+
+    training_rows = np.asarray([0, 2], dtype=np.int64)
+    expected = np.sqrt(
+        np.mean(np.square(amplitudes[training_rows].astype(np.float64)), dtype=np.float64)
+    )
+    assert parameters.amplitude_rms == pytest.approx(expected)
+
+
+def test_fit_reuses_an_upstream_finite_contract_and_checks_only_training_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    finite_shapes: list[tuple[int, ...]] = []
+    actual_isfinite = normalization_module.np.isfinite
+
+    def recording_isfinite(values: object) -> np.ndarray:
+        finite_shapes.append(np.asarray(values).shape)
+        return actual_isfinite(values)
+
+    monkeypatch.setattr(normalization_module, "_AMPLITUDE_ROW_CHUNK_SIZE", 1)
+    monkeypatch.setattr(normalization_module.np, "isfinite", recording_isfinite)
+
+    parameters = fit_normalization_parameters(
+        make_trace_table(),
+        make_amplitudes(),
+        make_time_axis(),
+        amplitudes_are_finite=True,
+    )
+
+    amplitude_shapes = [shape for shape in finite_shapes if len(shape) == 2 and shape[1] == 3]
+    assert parameters.amplitude_rms > 0.0
+    assert amplitude_shapes == [(1, 3), (1, 3)]
+
+
+def test_fit_never_checks_or_squares_the_full_amplitude_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trace_count = 9
+    sample_count = 7
+    trace_table = pd.DataFrame(
+        {
+            "array_row": np.arange(trace_count, dtype=np.int64),
+            "split": ["train"] * 6 + ["validation", "test", "test"],
+            "cmp_x_m": np.arange(trace_count, dtype=np.float64),
+            "cmp_y_m": np.arange(trace_count, dtype=np.float64),
+            "offset_m": np.arange(trace_count, dtype=np.float64) + 1.0,
+            "azimuth_deg": np.arange(trace_count, dtype=np.float64) * 10.0,
+        }
+    )
+    amplitudes = np.arange(1, trace_count * sample_count + 1, dtype=np.float32).reshape(
+        trace_count, sample_count
+    )
+    time_s = np.arange(sample_count, dtype=np.float64)
+    finite_shapes: list[tuple[int, ...]] = []
+    square_shapes: list[tuple[int, ...]] = []
+    actual_isfinite = normalization_module.np.isfinite
+    actual_square = normalization_module.np.square
+
+    def recording_isfinite(values: object) -> np.ndarray:
+        finite_shapes.append(np.asarray(values).shape)
+        return actual_isfinite(values)
+
+    def recording_square(values: object, *args: object, **kwargs: object) -> np.ndarray:
+        square_shapes.append(np.asarray(values).shape)
+        return actual_square(values, *args, **kwargs)
+
+    monkeypatch.setattr(normalization_module, "_AMPLITUDE_ROW_CHUNK_SIZE", 2)
+    monkeypatch.setattr(normalization_module.np, "isfinite", recording_isfinite)
+    monkeypatch.setattr(normalization_module.np, "square", recording_square)
+
+    parameters = fit_normalization_parameters(trace_table, amplitudes, time_s)
+
+    amplitude_finite_shapes = [
+        shape for shape in finite_shapes if len(shape) == 2 and shape[1] == sample_count
+    ]
+    assert parameters.amplitude_rms > 0.0
+    assert amplitudes.shape not in finite_shapes
+    assert amplitudes.shape not in square_shapes
+    assert sum(shape[0] for shape in amplitude_finite_shapes) == trace_count
+    assert all(shape[0] <= 2 for shape in square_shapes)
 
 
 def test_array_row_not_dataframe_position_aligns_amplitudes() -> None:
@@ -330,6 +440,19 @@ def test_fit_rejects_non_finite_held_out_amplitude() -> None:
 
     with pytest.raises(ValueError, match="non-finite"):
         fit_normalization_parameters(make_trace_table(), amplitudes, make_time_axis())
+
+
+def test_fit_rechecks_training_chunk_finiteness_for_upstream_validated_amplitudes() -> None:
+    amplitudes = make_amplitudes()
+    amplitudes[0, 0] = np.inf
+
+    with pytest.raises(ValueError, match="training amplitudes contain non-finite"):
+        fit_normalization_parameters(
+            make_trace_table(),
+            amplitudes,
+            make_time_axis(),
+            amplitudes_are_finite=True,
+        )
 
 
 def test_fit_rejects_non_finite_time() -> None:

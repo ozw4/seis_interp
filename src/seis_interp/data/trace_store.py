@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import numpy as np
 import pandas as pd
@@ -39,6 +40,127 @@ _REQUIRED_COLUMNS = (
     "sample_interval_s",
 )
 _FINITE_COLUMNS = ("cmp_x_m", "cmp_y_m", "offset_m", "azimuth_deg")
+_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def canonical_source_files(metadata: Mapping[str, object]) -> tuple[dict[str, str], ...]:
+    """Return validated source provenance as an ordered tuple of records.
+
+    Legacy datasets store one ``source_file``/``source_sha256`` pair. New
+    multi-source datasets store an ordered ``source_files`` list. When both
+    representations are present they must describe the same source records.
+    """
+    if not isinstance(metadata, Mapping):
+        raise ValueError("source metadata must be an object")
+
+    has_source_files = "source_files" in metadata
+    has_legacy_name = "source_file" in metadata
+    has_legacy_sha256 = "source_sha256" in metadata
+    if has_legacy_name != has_legacy_sha256:
+        raise ValueError(
+            "source metadata must contain both source_file and source_sha256 or neither"
+        )
+    if not has_source_files and not has_legacy_name:
+        raise ValueError("source metadata must contain source_files or source_file/source_sha256")
+
+    canonical: tuple[dict[str, str], ...] | None = None
+    if has_source_files:
+        raw_source_files = metadata["source_files"]
+        if not isinstance(raw_source_files, list) or not raw_source_files:
+            raise ValueError("source_files must be a non-empty list")
+        records: list[dict[str, str]] = []
+        for index, raw_record in enumerate(raw_source_files):
+            if not isinstance(raw_record, Mapping):
+                raise ValueError(f"source_files[{index}] must be an object")
+            records.append(
+                _canonical_source_record(
+                    raw_record.get("name"),
+                    raw_record.get("sha256"),
+                    field_prefix=f"source_files[{index}]",
+                )
+            )
+        names = [record["name"] for record in records]
+        if len(names) != len(set(names)):
+            raise ValueError("source_files contains duplicate names")
+        canonical = tuple(records)
+
+    if has_legacy_name:
+        legacy = (
+            _canonical_source_record(
+                metadata["source_file"],
+                metadata["source_sha256"],
+                field_prefix="legacy source metadata",
+            ),
+        )
+        if canonical is not None and canonical != legacy:
+            raise ValueError(
+                "source_files does not match legacy source_file/source_sha256 metadata"
+            )
+        canonical = legacy
+
+    assert canonical is not None
+    return canonical
+
+
+def validate_trace_identity(trace_table: pd.DataFrame) -> None:
+    """Require unique local trace identities, including source when available."""
+    if "trace_index" not in trace_table.columns:
+        raise ValueError("trace table is missing required column: trace_index")
+    if "source_file" in trace_table.columns:
+        if trace_table[["source_file", "trace_index"]].duplicated().any():
+            raise ValueError("trace table contains duplicate (source_file, trace_index) values")
+        return
+    if trace_table["trace_index"].duplicated().any():
+        raise ValueError("trace table contains duplicate trace_index values")
+
+
+def build_interim_dataset_metadata(
+    trace_table: pd.DataFrame,
+    amplitudes: np.ndarray,
+    time_s: np.ndarray,
+    *,
+    dataset_id: str,
+    source_metadata: Mapping[str, object],
+    selection: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Build the shared metadata payload for an already validated dataset."""
+    source_files = canonical_source_files(source_metadata)
+    metadata: dict[str, object] = {
+        "dataset_id": dataset_id,
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "trace_count": int(len(trace_table)),
+        "sample_count": int(amplitudes.shape[1]),
+        "sample_interval_s": _single_sample_interval_s(trace_table),
+        "ffids": sorted(int(value) for value in trace_table["ffid"].unique()),
+        "selection": _selection_metadata(selection),
+        "coordinate_order": list(PHYSICAL_COORDINATE_ORDER),
+        "coordinate_units": dict(PHYSICAL_COORDINATE_UNITS),
+        "azimuth_convention": AZIMUTH_CONVENTION,
+        "time_origin_s": TIME_ORIGIN_S,
+        "files": {
+            TRACES_FILE_NAME: {
+                "row_count": int(len(trace_table)),
+                "column_count": int(trace_table.shape[1]),
+            },
+            AMPLITUDES_FILE_NAME: {
+                "dtype": str(amplitudes.dtype),
+                "shape": [int(size) for size in amplitudes.shape],
+            },
+            TIME_FILE_NAME: {
+                "dtype": str(time_s.dtype),
+                "shape": [int(size) for size in time_s.shape],
+            },
+        },
+    }
+    if "source_files" in source_metadata:
+        metadata["source_files"] = [dict(record) for record in source_files]
+        if "source_file" in source_metadata:
+            metadata["source_file"] = source_files[0]["name"]
+            metadata["source_sha256"] = source_files[0]["sha256"]
+    else:
+        metadata["source_file"] = source_files[0]["name"]
+        metadata["source_sha256"] = source_files[0]["sha256"]
+    return metadata
 
 
 def write_interim_trace_dataset(
@@ -72,36 +194,17 @@ def write_interim_trace_dataset(
     stored_table = trace_table.reset_index(drop=True).copy()
     stored_table.insert(0, "array_row", np.arange(len(stored_table), dtype=np.int64))
 
-    sample_interval_s = _single_sample_interval_s(stored_table)
-    metadata: dict[str, object] = {
-        "dataset_id": dataset_id,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "source_file": source.name,
-        "source_sha256": file_sha256(source),
-        "trace_count": int(len(stored_table)),
-        "sample_count": int(amplitudes.shape[1]),
-        "sample_interval_s": sample_interval_s,
-        "ffids": sorted(int(value) for value in stored_table["ffid"].unique()),
-        "selection": _selection_metadata(selection),
-        "coordinate_order": list(PHYSICAL_COORDINATE_ORDER),
-        "coordinate_units": dict(PHYSICAL_COORDINATE_UNITS),
-        "azimuth_convention": AZIMUTH_CONVENTION,
-        "time_origin_s": TIME_ORIGIN_S,
-        "files": {
-            TRACES_FILE_NAME: {
-                "row_count": int(len(stored_table)),
-                "column_count": int(stored_table.shape[1]),
-            },
-            AMPLITUDES_FILE_NAME: {
-                "dtype": str(amplitudes.dtype),
-                "shape": [int(size) for size in amplitudes.shape],
-            },
-            TIME_FILE_NAME: {
-                "dtype": str(time_s.dtype),
-                "shape": [int(size) for size in time_s.shape],
-            },
+    metadata = build_interim_dataset_metadata(
+        stored_table,
+        amplitudes,
+        time_s,
+        dataset_id=dataset_id,
+        source_metadata={
+            "source_file": source.name,
+            "source_sha256": file_sha256(source),
         },
-    }
+        selection=selection,
+    )
 
     directory.mkdir(parents=True, exist_ok=True)
     stored_table.to_parquet(directory / TRACES_FILE_NAME, index=False)
@@ -148,8 +251,7 @@ def _validate_trace_table(trace_table: pd.DataFrame) -> None:
         raise ValueError(f"trace table is missing required columns: {missing}")
     if trace_table.empty:
         raise ValueError("trace table is empty")
-    if trace_table["trace_index"].duplicated().any():
-        raise ValueError("trace table contains duplicate trace_index values")
+    validate_trace_identity(trace_table)
 
     geometry = trace_table[list(_FINITE_COLUMNS)].to_numpy(dtype=np.float64)
     if not np.all(np.isfinite(geometry)):
@@ -172,6 +274,33 @@ def _selection_metadata(selection: Mapping[str, object] | None) -> dict[str, obj
     except TypeError as error:
         raise ValueError(f"selection is not JSON serialisable: {error}") from error
     return stored
+
+
+def _canonical_source_record(
+    name: object,
+    sha256: object,
+    *,
+    field_prefix: str,
+) -> dict[str, str]:
+    if not isinstance(name, str) or not name or name != name.strip():
+        raise ValueError(f"{field_prefix} name must be a non-empty basename")
+    posix_name = PurePosixPath(name)
+    windows_name = PureWindowsPath(name)
+    if (
+        name in {".", ".."}
+        or posix_name.is_absolute()
+        or windows_name.is_absolute()
+        or windows_name.drive
+        or windows_name.root
+        or len(posix_name.parts) != 1
+        or len(windows_name.parts) != 1
+        or posix_name.name != name
+        or windows_name.name != name
+    ):
+        raise ValueError(f"{field_prefix} name must be a basename without path components")
+    if not isinstance(sha256, str) or _SHA256_PATTERN.fullmatch(sha256) is None:
+        raise ValueError(f"{field_prefix} sha256 must be 64 lowercase hexadecimal characters")
+    return {"name": name, "sha256": sha256}
 
 
 def _single_sample_interval_s(trace_table: pd.DataFrame) -> float:

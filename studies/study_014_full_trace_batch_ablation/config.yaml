@@ -1,0 +1,59 @@
+extends: ../../configs/default.yaml
+
+study:
+  status: completed
+
+project:
+  random_seed: 42
+
+sampling:
+  random_trace_holdout_fraction: 0.20
+  validation_fraction_of_holdout: 0.25
+
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
+
+model:
+  name: siren
+  input_features: 6
+  hidden_width: 256
+  hidden_layers: 4
+  omega_0: 30.0
+  hidden_omega: 30.0
+
+training:
+  loss: l2
+  optimizer: adam
+  learning_rate: 1.0e-4
+  batch_size: 5000
+  total_updates: 50000
+  report_interval: 500
+  prediction_batch_size: 65536
+  device: cuda:0
+
+experiment:
+  trace_count: 435
+  correlation_weight: 0.3
+  correlation_eps: 1.0e-4
+  conditions:
+    - label: small_batch_control
+      batch_mode: random_replacement
+      correlation: false
+      amplitude_scaling: global_rms
+    - label: full_trace_batch
+      batch_mode: random_complete_traces
+      correlation: false
+      amplitude_scaling: global_rms
+    - label: full_trace_batch_correlation
+      batch_mode: random_complete_traces
+      correlation: true
+      amplitude_scaling: global_rms
+    - label: full_trace_batch_per_trace_rms
+      batch_mode: random_complete_traces
+      correlation: false
+      amplitude_scaling: per_trace_rms
+    - label: full_trace_batch_correlation_per_trace_rms
+      batch_mode: random_complete_traces
+      correlation: true
+      amplitude_scaling: per_trace_rms

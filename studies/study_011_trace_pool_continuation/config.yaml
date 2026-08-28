@@ -1,0 +1,44 @@
+extends: ../../configs/default.yaml
+
+study:
+  status: completed
+
+project:
+  random_seed: 42
+
+sampling:
+  random_trace_holdout_fraction: 0.20
+  validation_fraction_of_holdout: 0.25
+
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
+
+model:
+  name: siren
+  input_features: 6
+  hidden_width: 256
+  hidden_layers: 4
+  omega_0: 300.0
+
+training:
+  loss: l2
+  optimizer: adam
+  learning_rate: 1.0e-3
+  batch_size: 5000
+  updates_per_stage: 50000
+  report_interval: 500
+  prediction_batch_size: 65536
+  device: cuda:0
+
+experiment:
+  trace_counts: [8, 16, 32, 64, 128, 256, 435]
+  batch_mode: random_replacement
+  replacement: true
+  sampler_seed_policy: base_seed_plus_stage_index
+  carry_model_state: true
+  carry_optimizer_state: true
+  reset_optimizer_between_stages: false
+  rewind_to_best: false
+  checkpoint: false
+  first_stage_final_min_median_trace_snr_db: 20.0

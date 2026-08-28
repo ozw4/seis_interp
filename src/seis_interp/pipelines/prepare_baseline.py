@@ -6,19 +6,30 @@ import json
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+import numpy as np
+import pandas as pd
+
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
+from seis_interp.data.trace_store import canonical_source_files
 from seis_interp.processing.normalization import (
     fit_normalization_parameters,
     write_normalization_parameters,
 )
+from seis_interp.processing.trace_amplitude_filter import (
+    TraceAmplitudeFilterConfig,
+    TraceAmplitudeFilterResult,
+    filter_trace_amplitudes,
+)
 from seis_interp.processing.trace_splits import (
+    EXCLUDED_SPLIT,
     SPLIT_COLUMN,
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
     assign_random_trace_splits,
+    assign_random_trace_splits_by_ffid,
 )
 
 TRACE_SPLIT_FILE_NAME = "trace_split.parquet"
@@ -26,6 +37,9 @@ NORMALIZATION_FILE_NAME = "normalization.json"
 PREPARATION_FILE_NAME = "preparation.json"
 COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
 AMPLITUDE_NORMALIZATION_METHOD = "train_global_rms"
+GLOBAL_SPLIT_SCOPE = "global"
+PER_FFID_SPLIT_SCOPE = "per_ffid"
+SPLIT_SCOPES = frozenset((GLOBAL_SPLIT_SCOPE, PER_FFID_SPLIT_SCOPE))
 
 OUTPUT_FILE_NAMES = (
     TRACE_SPLIT_FILE_NAME,
@@ -43,6 +57,8 @@ def prepare_baseline_dataset(
     random_seed: int,
     coordinate_normalization: str = COORDINATE_NORMALIZATION_METHOD,
     amplitude_normalization: str = AMPLITUDE_NORMALIZATION_METHOD,
+    split_scope: str = GLOBAL_SPLIT_SCOPE,
+    trace_amplitude_filter: TraceAmplitudeFilterConfig | None = None,
     config_source: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, object]:
@@ -60,29 +76,46 @@ def prepare_baseline_dataset(
         AMPLITUDE_NORMALIZATION_METHOD,
     )
     stored_config_source = _validated_config_source(config_source)
+    stored_split_scope = _validated_split_scope(split_scope)
+    stored_trace_filter = _validated_trace_amplitude_filter(trace_amplitude_filter)
 
-    dataset = load_interim_trace_dataset(input_directory)
-    split_table = assign_random_trace_splits(
-        dataset.trace_table,
-        holdout_fraction=holdout_fraction,
-        validation_fraction_of_holdout=validation_fraction_of_holdout,
-        random_seed=random_seed,
+    dataset = load_interim_trace_dataset(input_directory, memory_map_amplitudes=True)
+    trace_filter_result = (
+        filter_trace_amplitudes(dataset.amplitudes, stored_trace_filter)
+        if stored_trace_filter is not None
+        else None
     )
+    eligible_trace_table = _eligible_trace_table(dataset.trace_table, trace_filter_result)
+    if stored_split_scope == GLOBAL_SPLIT_SCOPE:
+        eligible_split_table = assign_random_trace_splits(
+            eligible_trace_table,
+            holdout_fraction=holdout_fraction,
+            validation_fraction_of_holdout=validation_fraction_of_holdout,
+            random_seed=random_seed,
+        )
+    else:
+        eligible_split_table = assign_random_trace_splits_by_ffid(
+            eligible_trace_table,
+            holdout_fraction=holdout_fraction,
+            validation_fraction_of_holdout=validation_fraction_of_holdout,
+            random_seed=random_seed,
+        )
     normalization = fit_normalization_parameters(
-        split_table,
+        eligible_split_table,
         dataset.amplitudes,
         dataset.time_s,
+        amplitudes_are_finite=True,
     )
 
-    stored_splits = split_table[["array_row", SPLIT_COLUMN]].copy()
+    stored_splits = _stored_split_table(dataset.trace_table, eligible_split_table)
     split_counts = {
         split: int((stored_splits[SPLIT_COLUMN] == split).sum())
         for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
     }
+    source_provenance = _source_provenance(dataset.metadata)
     preparation: dict[str, object] = {
         "dataset_id": _metadata_text(dataset.metadata, "dataset_id"),
-        "source_file": _relative_source_file(dataset.metadata),
-        "source_sha256": _metadata_text(dataset.metadata, "source_sha256"),
+        **source_provenance,
         "input_files": {
             file_name: {"sha256": file_sha256(input_directory / file_name)}
             for file_name in INTERIM_FILE_NAMES
@@ -97,12 +130,21 @@ def prepare_baseline_dataset(
         "random_seed": int(random_seed),
         "holdout_fraction": float(holdout_fraction),
         "validation_fraction_of_holdout": float(validation_fraction_of_holdout),
+        "split_scope": stored_split_scope,
+        "ffid_count": int(eligible_trace_table["ffid"].nunique()),
         "split_counts": split_counts,
         "files": {
             "trace_split": TRACE_SPLIT_FILE_NAME,
             "normalization": NORMALIZATION_FILE_NAME,
         },
     }
+    if stored_trace_filter is not None:
+        assert trace_filter_result is not None
+        preparation["trace_amplitude_filter"] = stored_trace_filter.to_dict()
+        preparation["trace_quality"] = _trace_quality_metadata(
+            dataset.trace_table,
+            trace_filter_result,
+        )
     preparation_json = json.dumps(preparation, indent=2, sort_keys=True) + "\n"
 
     _check_output_directory(output_directory, overwrite=overwrite)
@@ -119,6 +161,73 @@ def prepare_baseline_dataset(
     return preparation
 
 
+def _validated_trace_amplitude_filter(
+    value: TraceAmplitudeFilterConfig | None,
+) -> TraceAmplitudeFilterConfig | None:
+    if value is not None and not isinstance(value, TraceAmplitudeFilterConfig):
+        raise TypeError("trace_amplitude_filter must be a TraceAmplitudeFilterConfig or None")
+    return value
+
+
+def _eligible_trace_table(
+    trace_table: pd.DataFrame,
+    result: TraceAmplitudeFilterResult | None,
+) -> pd.DataFrame:
+    """Return the rows eligible for split assignment and normalization fitting."""
+    if result is None:
+        return trace_table
+    eligible_by_array_row = np.zeros(len(trace_table), dtype=bool)
+    eligible_by_array_row[result.eligible_array_rows] = True
+    source_rows = trace_table["array_row"].to_numpy(dtype=np.int64)
+    eligible = trace_table.loc[eligible_by_array_row[source_rows]].copy()
+    if eligible.empty:
+        raise ValueError("trace amplitude filter excluded every trace")
+    return eligible
+
+
+def _stored_split_table(
+    trace_table: pd.DataFrame,
+    eligible_split_table: pd.DataFrame,
+) -> pd.DataFrame:
+    """Keep every source row and label amplitude-QC failures as excluded."""
+    stored = trace_table[["array_row"]].copy()
+    split_by_array_row = np.full(len(stored), EXCLUDED_SPLIT, dtype=object)
+    eligible_rows = eligible_split_table["array_row"].to_numpy(dtype=np.int64)
+    split_by_array_row[eligible_rows] = eligible_split_table[SPLIT_COLUMN].to_numpy()
+    stored_rows = stored["array_row"].to_numpy(dtype=np.int64)
+    stored[SPLIT_COLUMN] = split_by_array_row[stored_rows]
+    return stored
+
+
+def _trace_quality_metadata(
+    trace_table: pd.DataFrame,
+    result: TraceAmplitudeFilterResult,
+) -> dict[str, object]:
+    excluded_rows = np.setdiff1d(
+        trace_table["array_row"].to_numpy(dtype=np.int64),
+        result.eligible_array_rows,
+        assume_unique=True,
+    )
+    source_rows = trace_table["array_row"].to_numpy(dtype=np.int64)
+    ffid_by_array_row = np.empty(len(trace_table), dtype=np.int64)
+    ffid_by_array_row[source_rows] = trace_table["ffid"].to_numpy(dtype=np.int64)
+    excluded_ffids = sorted(int(value) for value in np.unique(ffid_by_array_row[excluded_rows]))
+    eligible_ffids = {
+        int(value) for value in np.unique(ffid_by_array_row[result.eligible_array_rows])
+    }
+    fully_excluded_ffids = sorted(set(excluded_ffids) - eligible_ffids)
+    return {
+        "input_trace_count": int(len(trace_table)),
+        "eligible_trace_count": int(len(result.eligible_array_rows)),
+        "excluded_trace_count": int(len(excluded_rows)),
+        "all_zero_trace_count": int(len(result.all_zero_array_rows)),
+        "excess_amplitude_trace_count": int(len(result.excess_amplitude_array_rows)),
+        "excluded_array_rows": [int(row) for row in excluded_rows],
+        "affected_ffids": excluded_ffids,
+        "fully_excluded_ffids": fully_excluded_ffids,
+    }
+
+
 def _metadata_text(metadata: Mapping[str, object], key: str) -> str:
     value = metadata.get(key)
     if not isinstance(value, str) or not value:
@@ -126,11 +235,16 @@ def _metadata_text(metadata: Mapping[str, object], key: str) -> str:
     return value
 
 
-def _relative_source_file(metadata: Mapping[str, object]) -> str:
-    source_file = _metadata_text(metadata, "source_file")
-    if Path(source_file).is_absolute() or PureWindowsPath(source_file).is_absolute():
-        raise ValueError("input dataset metadata source_file must not be an absolute path")
-    return source_file
+def _source_provenance(metadata: Mapping[str, object]) -> dict[str, object]:
+    """Preserve legacy source keys and use the canonical list for multi-source data."""
+    source_files = canonical_source_files(metadata)
+    if len(source_files) == 1:
+        source_file = source_files[0]
+        return {
+            "source_file": source_file["name"],
+            "source_sha256": source_file["sha256"],
+        }
+    return {"source_files": [dict(source_file) for source_file in source_files]}
 
 
 def _validated_config_source(value: str | None) -> str | None:
@@ -161,6 +275,12 @@ def _validated_normalization_method(name: str, value: str, expected: str) -> str
     if value != expected:
         raise ValueError(f"{name} must be {expected!r}, got {value!r}")
     return expected
+
+
+def _validated_split_scope(value: str) -> str:
+    if not isinstance(value, str) or value not in SPLIT_SCOPES:
+        raise ValueError(f"split_scope must be one of {sorted(SPLIT_SCOPES)}, got {value!r}")
+    return value
 
 
 def _check_output_directory(directory: Path, *, overwrite: bool) -> None:

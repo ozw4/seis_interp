@@ -8,6 +8,7 @@ from torch import nn
 
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.models import SineLayer, Siren
+from seis_interp.pipelines.train_siren import _build_model
 
 
 def test_sine_layer_forward_matches_formula() -> None:
@@ -77,13 +78,70 @@ def test_first_sine_layer_weight_bound() -> None:
 
 def test_hidden_sine_layer_weight_bound() -> None:
     torch.manual_seed(0)
-    model = Siren(input_features=5, hidden_width=16, hidden_layers=2, omega_0=10.0)
+    model = Siren(
+        input_features=5,
+        hidden_width=16,
+        hidden_layers=4,
+        omega_0=10.0,
+        hidden_omega=30.0,
+    )
 
-    hidden = model.network[1]
-    bound = math.sqrt(6.0 / 16) / hidden.omega + 1e-6
+    hidden_layers = model.network[1:-1]
+    bound = math.sqrt(6.0 / 16) / 30.0 + 1e-6
 
-    assert hidden.omega == 1.0
-    assert hidden.linear.weight.abs().max().item() <= bound
+    assert len(hidden_layers) == 3
+    assert all(isinstance(layer, SineLayer) for layer in hidden_layers)
+    assert all(layer.omega == 30.0 for layer in hidden_layers)
+    assert all(layer.linear.weight.abs().max().item() <= bound for layer in hidden_layers)
+
+
+def test_final_linear_uses_official_hidden_omega_weight_bound() -> None:
+    torch.manual_seed(0)
+    model = Siren(
+        input_features=5,
+        hidden_width=16,
+        hidden_layers=2,
+        hidden_omega=30.0,
+    )
+
+    final_layer = model.network[-1]
+    bound = math.sqrt(6.0 / 16) / 30.0 + 1e-6
+
+    assert isinstance(final_layer, nn.Linear)
+    assert final_layer.weight.abs().max().item() <= bound
+
+
+def test_hidden_omega_default_preserves_legacy_parameters_and_layer_count() -> None:
+    torch.manual_seed(42)
+    default_model = Siren(input_features=5, hidden_width=16, hidden_layers=4)
+    torch.manual_seed(42)
+    explicit_legacy_model = Siren(
+        input_features=5,
+        hidden_width=16,
+        hidden_layers=4,
+        hidden_omega=1.0,
+    )
+
+    assert default_model.hidden_omega == 1.0
+    assert len(default_model.network) == 5
+    assert sum(isinstance(layer, SineLayer) for layer in default_model.network) == 4
+    for name, value in default_model.state_dict().items():
+        assert torch.equal(value, explicit_legacy_model.state_dict()[name]), name
+
+
+def test_train_siren_builder_forwards_hidden_omega() -> None:
+    config = {
+        "model": {
+            "name": "siren",
+            "input_features": len(MODEL_COORDINATE_ORDER),
+            "hidden_width": 8,
+            "hidden_layers": 2,
+            "omega_0": 10.0,
+            "hidden_omega": 30.0,
+        }
+    }
+
+    assert _build_model(config).hidden_omega == 30.0
 
 
 def test_backward_produces_finite_gradients() -> None:
@@ -136,3 +194,9 @@ def test_siren_rejects_invalid_sizes(kwargs: dict[str, int]) -> None:
 def test_siren_rejects_invalid_omega_0(omega_0: float) -> None:
     with pytest.raises(ValueError, match="positive finite"):
         Siren(omega_0=omega_0)
+
+
+@pytest.mark.parametrize("hidden_omega", [0.0, -10.0, math.nan, math.inf, True])
+def test_siren_rejects_invalid_hidden_omega(hidden_omega: float) -> None:
+    with pytest.raises(ValueError, match="positive finite"):
+        Siren(hidden_omega=hidden_omega)

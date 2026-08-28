@@ -11,9 +11,13 @@ import yaml
 from seis_interp.data import seg_c3_na
 from seis_interp.data.seg_c3_na import (
     DataIntegrityError,
+    DatasetManifest,
+    FileSpec,
     ManifestError,
+    VerificationResult,
     download_seg_c3_na,
     load_manifest,
+    verified_source_sha256,
     verify_seg_c3_na,
 )
 
@@ -93,6 +97,81 @@ def test_load_manifest_rejects_non_https_url(tmp_path: Path) -> None:
         load_manifest(manifest_path)
 
 
+def test_load_manifest_preserves_optional_ffid_ranges_in_file_order(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        yaml.safe_dump(
+            {
+                "dataset_id": "seg_c3_na",
+                "files": [
+                    {
+                        "name": "second.sgy",
+                        "url": "https://example.test/second.sgy",
+                        "ffid_min": 20,
+                        "ffid_max": 29,
+                    },
+                    {
+                        "name": "first.sgy",
+                        "url": "https://example.test/first.sgy",
+                        "ffid_min": 10,
+                        "ffid_max": 19,
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(manifest_path)
+
+    assert [(file.name, file.ffid_min, file.ffid_max) for file in manifest.files] == [
+        ("second.sgy", 20, 29),
+        ("first.sgy", 10, 19),
+    ]
+
+
+def test_load_manifest_allows_an_omitted_ffid_range(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path, {"part.sgy": b"content"})
+
+    file_spec = load_manifest(manifest_path).files[0]
+
+    assert file_spec.ffid_min is None
+    assert file_spec.ffid_max is None
+
+
+@pytest.mark.parametrize(
+    "range_fields",
+    [
+        {"ffid_min": 10},
+        {"ffid_max": 20},
+        {"ffid_min": 20, "ffid_max": 10},
+    ],
+)
+def test_load_manifest_rejects_an_invalid_ffid_range(
+    tmp_path: Path, range_fields: dict[str, int]
+) -> None:
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text(
+        yaml.safe_dump(
+            {
+                "dataset_id": "seg_c3_na",
+                "files": [
+                    {
+                        "name": "part.sgy",
+                        "url": "https://example.test/part.sgy",
+                        **range_fields,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestError, match="ffid"):
+        load_manifest(manifest_path)
+
+
 def test_download_resumes_and_writes_verifiable_lock(tmp_path: Path, monkeypatch) -> None:
     files = {
         "part_1.sgy": b"first-file-content" * 100,
@@ -130,6 +209,10 @@ def test_download_resumes_and_writes_verifiable_lock(tmp_path: Path, monkeypatch
     results = verify_seg_c3_na(manifest_path, data_root)
     assert all(result.ok for result in results)
     assert {result.status for result in results} == {"ok"}
+    assert [result.path for result in results] == [dataset_dir / name for name in files]
+    assert [result.sha256 for result in results] == [
+        hashlib.sha256(content).hexdigest() for content in files.values()
+    ]
 
 
 def test_existing_file_must_match_previous_lock(tmp_path: Path, monkeypatch) -> None:
@@ -168,6 +251,61 @@ def test_verify_requires_recorded_checksums(tmp_path: Path) -> None:
     assert len(results) == 1
     assert not results[0].ok
     assert results[0].status == "unlocked"
+
+
+def test_verified_source_sha256_returns_manifest_order_after_structural_matching(
+    tmp_path: Path,
+) -> None:
+    specs = (
+        FileSpec("a.sgy", "https://example.test/a.sgy", None, None),
+        FileSpec("b.sgy", "https://example.test/b.sgy", None, None),
+    )
+    manifest = DatasetManifest(tmp_path / "manifest.yaml", specs)
+    source_paths = tuple(tmp_path / spec.name for spec in specs)
+    expected = ("a" * 64, "b" * 64)
+    results = tuple(
+        VerificationResult(
+            spec.name,
+            True,
+            "ok",
+            "verified",
+            path=path,
+            sha256=digest,
+        )
+        for spec, path, digest in zip(specs, source_paths, expected, strict=True)
+    )
+
+    assert verified_source_sha256(manifest, source_paths, results) == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "sha256", "message"),
+    [
+        (Path("wrong/a.sgy"), "a" * 64, "refers to"),
+        (Path("a.sgy"), "not-a-digest", "valid SHA-256"),
+    ],
+)
+def test_verified_source_sha256_rejects_untrusted_result_metadata(
+    tmp_path: Path,
+    path: Path,
+    sha256: str,
+    message: str,
+) -> None:
+    spec = FileSpec("a.sgy", "https://example.test/a.sgy", None, None)
+    manifest = DatasetManifest(tmp_path / "manifest.yaml", (spec,))
+    source_path = tmp_path / "a.sgy"
+    result_path = source_path if path == Path("a.sgy") else tmp_path / path
+    result = VerificationResult(
+        spec.name,
+        True,
+        "ok",
+        "verified",
+        path=result_path,
+        sha256=sha256,
+    )
+
+    with pytest.raises(DataIntegrityError, match=message):
+        verified_source_sha256(manifest, (source_path,), (result,))
 
 
 def test_incomplete_http_response_keeps_partial_file(tmp_path: Path, monkeypatch) -> None:

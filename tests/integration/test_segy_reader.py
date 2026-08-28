@@ -5,7 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from seis_interp.data.segy_reader import build_time_axis, read_trace_amplitudes
+from seis_interp.data import segy_reader as segy_reader_module
+from seis_interp.data.segy_reader import (
+    build_time_axis,
+    iter_trace_amplitude_chunks,
+    read_trace_amplitudes,
+)
 from tests.fixtures.tiny_segy import TinySegyFile, write_tiny_segy
 
 
@@ -33,6 +38,74 @@ def test_returns_c_contiguous_float32(tiny_segy: TinySegyFile) -> None:
 
     assert amplitudes.dtype == np.float32
     assert amplitudes.flags["C_CONTIGUOUS"]
+
+
+def test_chunk_reader_opens_once_and_preserves_order(
+    tiny_segy: TinySegyFile, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    open_count = 0
+    original_open = segy_reader_module.segyio.open
+
+    def recording_open(*args: object, **kwargs: object):
+        nonlocal open_count
+        open_count += 1
+        return original_open(*args, **kwargs)
+
+    monkeypatch.setattr(segy_reader_module.segyio, "open", recording_open)
+
+    chunks = list(
+        iter_trace_amplitude_chunks(
+            tiny_segy.path,
+            [5, 0, 3, 2, 1],
+            chunk_size=2,
+        )
+    )
+
+    assert open_count == 1
+    assert [chunk.shape for chunk in chunks] == [(2, 8), (2, 8), (1, 8)]
+    assert all(chunk.dtype == np.float32 for chunk in chunks)
+    assert all(chunk.flags["C_CONTIGUOUS"] for chunk in chunks)
+    np.testing.assert_array_equal(
+        np.vstack(chunks),
+        tiny_segy.amplitudes[[5, 0, 3, 2, 1]],
+    )
+
+
+@pytest.mark.parametrize("chunk_size", [0, -1, True, 1.5])
+def test_chunk_reader_rejects_invalid_chunk_size(
+    tiny_segy: TinySegyFile, chunk_size: object
+) -> None:
+    with pytest.raises(ValueError, match="chunk_size"):
+        list(
+            iter_trace_amplitude_chunks(
+                tiny_segy.path,
+                [0],
+                chunk_size=chunk_size,
+            )
+        )
+
+
+def test_chunk_reader_rejects_non_finite_values_in_a_later_chunk(
+    tiny_segy: TinySegyFile,
+) -> None:
+    with segy_reader_module.segyio.open(
+        str(tiny_segy.path),
+        mode="r+",
+        strict=False,
+        ignore_geometry=True,
+    ) as handle:
+        corrupted = np.asarray(handle.trace[3], dtype=np.float32).copy()
+        corrupted[0] = np.nan
+        handle.trace[3] = corrupted
+
+    with pytest.raises(ValueError, match="non-finite"):
+        list(
+            iter_trace_amplitude_chunks(
+                tiny_segy.path,
+                [0, 1, 2, 3],
+                chunk_size=2,
+            )
+        )
 
 
 def test_empty_indices_are_an_error(tiny_segy: TinySegyFile) -> None:

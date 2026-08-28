@@ -18,6 +18,8 @@ from seis_interp.data.trace_store import (
     OUTPUT_FILE_NAMES,
     TIME_FILE_NAME,
     TRACES_FILE_NAME,
+    canonical_source_files,
+    validate_trace_identity,
 )
 from seis_interp.data.trace_table import validated_array_rows
 
@@ -32,7 +34,14 @@ class InterimTraceDataset:
     metadata: dict[str, object]
 
 
-def load_interim_trace_dataset(directory: Path) -> InterimTraceDataset:
+_AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE = 4096
+
+
+def load_interim_trace_dataset(
+    directory: Path,
+    *,
+    memory_map_amplitudes: bool = False,
+) -> InterimTraceDataset:
     """Load an interim trace dataset and validate its on-disk contract."""
     dataset_dir = Path(directory)
     paths = {file_name: dataset_dir / file_name for file_name in OUTPUT_FILE_NAMES}
@@ -44,10 +53,15 @@ def load_interim_trace_dataset(directory: Path) -> InterimTraceDataset:
 
     metadata = _read_metadata(paths[METADATA_FILE_NAME])
     trace_table = pd.read_parquet(paths[TRACES_FILE_NAME])
-    amplitudes = np.load(paths[AMPLITUDES_FILE_NAME], allow_pickle=False)
+    amplitudes = np.load(
+        paths[AMPLITUDES_FILE_NAME],
+        mmap_mode="r" if memory_map_amplitudes else None,
+        allow_pickle=False,
+    )
     time_s = np.load(paths[TIME_FILE_NAME], allow_pickle=False)
 
     validated_array_rows(trace_table, require_contiguous=True)
+    validate_trace_identity(trace_table)
     _validate_numeric_table_values(trace_table)
     _validate_arrays(trace_table, amplitudes, time_s)
     _validate_metadata(metadata, trace_table, amplitudes, time_s)
@@ -104,8 +118,10 @@ def _validate_arrays(
             f"{AMPLITUDES_FILE_NAME} has {amplitudes.shape[1]} samples but "
             f"{TIME_FILE_NAME} has {len(time_s)} values"
         )
-    if not np.all(np.isfinite(amplitudes)):
-        raise ValueError(f"{AMPLITUDES_FILE_NAME} contains non-finite values")
+    for start in range(0, amplitudes.shape[0], _AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE):
+        stop = min(start + _AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE, amplitudes.shape[0])
+        if not np.all(np.isfinite(amplitudes[start:stop])):
+            raise ValueError(f"{AMPLITUDES_FILE_NAME} contains non-finite values")
     if not np.all(np.isfinite(time_s)):
         raise ValueError(f"{TIME_FILE_NAME} contains non-finite values")
 
@@ -116,6 +132,7 @@ def _validate_metadata(
     amplitudes: np.ndarray,
     time_s: np.ndarray,
 ) -> None:
+    canonical_source_files(metadata)
     _validate_coordinate_schema(metadata)
 
     trace_count = _metadata_integer(metadata, "trace_count")

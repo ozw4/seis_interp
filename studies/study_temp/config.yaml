@@ -1,0 +1,43 @@
+extends: ../../configs/default.yaml
+
+# Scratch config for throwaway experiments. Edit freely and re-run
+# scripts/run_study_temp.py; runs/study_temp/ is overwritten every time.
+
+project:
+  random_seed: 42
+
+sampling:
+  random_trace_holdout_fraction: 0.20
+  validation_fraction_of_holdout: 0.25
+
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
+
+model:
+  name: siren
+  input_features: 6
+  hidden_width: 256
+  hidden_layers: 4
+  omega_0: 30.0
+  hidden_omega: 30.0
+
+training:
+  loss: l2                 # l2 | huber (huber needs huber_delta)
+  # huber_delta: 1.0
+  correlation_weight: 0.3  # >0 adds w * (1 - trace corr); requires random_complete_traces + l2
+  # correlation_eps: 1.0e-4
+  optimizer: adam
+  learning_rate: 1.0e-4
+  batch_size: 271875         # ignored for exact_full_batch and random_complete_traces
+  total_updates: 50000     # must be divisible by report_interval
+  report_interval: 500
+  prediction_batch_size: 65536
+  device: cuda:0
+
+experiment:
+  trace_count: 435            # first N sorted training rows (max 435)
+  batch_mode:  random_complete_traces  # random_replacement | exact_full_batch | random_complete_traces
+  traces_per_update: 435        # random_complete_traces only; batch_size auto = N * 625
+  amplitude_scaling: per_trace_rms   # global_rms | per_trace_rms
+  amplitude_gain: 1.0             # constant multiplier applied to the training target

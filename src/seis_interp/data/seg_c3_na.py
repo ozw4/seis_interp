@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +40,8 @@ class FileSpec:
     url: str
     expected_size_bytes: int | None
     expected_sha256: str | None
+    ffid_min: int | None = None
+    ffid_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,8 @@ class VerificationResult:
     ok: bool
     status: str
     detail: str
+    path: Path | None = None
+    sha256: str | None = None
 
 
 def default_manifest_path() -> Path:
@@ -137,6 +141,15 @@ def _parse_file_spec(raw_file: Any, index: int) -> FileSpec:
     if urlparse(url).scheme != "https":
         raise ManifestError(f"{field_prefix}.url must use HTTPS")
 
+    ffid_min = _optional_positive_int(file_mapping.get("ffid_min"), f"{field_prefix}.ffid_min")
+    ffid_max = _optional_positive_int(file_mapping.get("ffid_max"), f"{field_prefix}.ffid_max")
+    if (ffid_min is None) != (ffid_max is None):
+        raise ManifestError(
+            f"{field_prefix}.ffid_min and {field_prefix}.ffid_max must both be set or both be null"
+        )
+    if ffid_min is not None and ffid_max is not None and ffid_min > ffid_max:
+        raise ManifestError(f"{field_prefix}.ffid_min must not exceed {field_prefix}.ffid_max")
+
     return FileSpec(
         name=name,
         url=url,
@@ -144,6 +157,8 @@ def _parse_file_spec(raw_file: Any, index: int) -> FileSpec:
             file_mapping.get("size_bytes"), f"{field_prefix}.size_bytes"
         ),
         expected_sha256=_optional_sha256(file_mapping.get("sha256"), f"{field_prefix}.sha256"),
+        ffid_min=ffid_min,
+        ffid_max=ffid_max,
     )
 
 
@@ -481,7 +496,13 @@ def _verification_result(
     lock_records: Mapping[str, FileRecord] | None,
 ) -> VerificationResult:
     if not destination.is_file():
-        return VerificationResult(file_spec.name, False, "missing", str(destination))
+        return VerificationResult(
+            file_spec.name,
+            False,
+            "missing",
+            str(destination),
+            path=destination,
+        )
 
     expected_size, expected_sha256 = _expected_metadata(file_spec, lock_records)
     if expected_sha256 is None:
@@ -490,6 +511,7 @@ def _verification_result(
             False,
             "unlocked",
             "No expected SHA-256 is available; run the download command first.",
+            path=destination,
         )
 
     actual_size = destination.stat().st_size
@@ -499,6 +521,7 @@ def _verification_result(
             False,
             "size_mismatch",
             f"expected {expected_size} bytes, got {actual_size}",
+            path=destination,
         )
 
     actual_sha256 = file_sha256(destination)
@@ -508,6 +531,8 @@ def _verification_result(
             False,
             "checksum_mismatch",
             f"expected {expected_sha256}, got {actual_sha256}",
+            path=destination,
+            sha256=actual_sha256,
         )
 
     return VerificationResult(
@@ -515,7 +540,61 @@ def _verification_result(
         True,
         "ok",
         f"{actual_size} bytes, SHA-256 {actual_sha256}",
+        path=destination,
+        sha256=actual_sha256,
     )
+
+
+def verified_source_sha256(
+    manifest: DatasetManifest,
+    source_paths: Sequence[Path],
+    verification_results: Sequence[VerificationResult],
+) -> tuple[str, ...]:
+    """Return verified digests after matching manifest order, names, and paths."""
+    paths = tuple(Path(path).expanduser().resolve() for path in source_paths)
+    results = tuple(verification_results)
+    expected_count = len(manifest.files)
+    if len(paths) != expected_count or len(results) != expected_count:
+        raise DataIntegrityError(
+            "source paths and verification results must contain every manifest file in order: "
+            f"expected {expected_count}, got {len(paths)} paths and {len(results)} results"
+        )
+
+    digests: list[str] = []
+    for index, (file_spec, source_path, result) in enumerate(
+        zip(manifest.files, paths, results, strict=True)
+    ):
+        if source_path.name != file_spec.name or result.name != file_spec.name:
+            raise DataIntegrityError(
+                "source paths and verification results do not match manifest order at "
+                f"index {index}: expected {file_spec.name!r}, got path {source_path.name!r} "
+                f"and result {result.name!r}"
+            )
+        if result.path is None:
+            raise DataIntegrityError(
+                f"verification result for {file_spec.name} does not record its source path"
+            )
+        result_path = Path(result.path).expanduser().resolve()
+        if result_path != source_path:
+            raise DataIntegrityError(
+                f"verification result for {file_spec.name} refers to {result_path}, "
+                f"expected {source_path}"
+            )
+        if result.ok is not True or result.status != "ok":
+            raise DataIntegrityError(
+                f"verification result for {file_spec.name} is not successful: {result.status}"
+            )
+        try:
+            digest = _required_sha256(
+                result.sha256,
+                f"verification result for {file_spec.name}.sha256",
+            )
+        except ManifestError as error:
+            raise DataIntegrityError(
+                f"verification result for {file_spec.name} does not contain a valid SHA-256"
+            ) from error
+        digests.append(digest)
+    return tuple(digests)
 
 
 def verify_seg_c3_na(

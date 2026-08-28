@@ -9,7 +9,12 @@ import pandas as pd
 import pytest
 
 from seis_interp.data.trace_schema import PHYSICAL_COORDINATE_ORDER, PHYSICAL_COORDINATE_UNITS
-from seis_interp.data.trace_store import OUTPUT_FILE_NAMES, write_interim_trace_dataset
+from seis_interp.data.trace_store import (
+    OUTPUT_FILE_NAMES,
+    canonical_source_files,
+    validate_trace_identity,
+    write_interim_trace_dataset,
+)
 
 SAMPLE_INTERVAL_S = 0.004
 
@@ -95,6 +100,7 @@ def test_metadata_records_basename_and_no_absolute_paths(tmp_path: Path) -> None
     metadata = write_default_dataset(tmp_path)
 
     assert metadata["source_file"] == "source.sgy"
+    assert "source_files" not in metadata
     raw_metadata = (tmp_path / "out" / "dataset.json").read_text(encoding="utf-8")
     assert str(tmp_path) not in raw_metadata
     assert json.loads(raw_metadata) == metadata
@@ -144,6 +150,74 @@ def test_source_sha256_matches_the_source_file(tmp_path: Path) -> None:
     metadata = write_default_dataset(tmp_path)
 
     assert metadata["source_sha256"] == hashlib.sha256(b"tiny-source-bytes").hexdigest()
+
+
+def test_canonical_source_files_reads_legacy_metadata() -> None:
+    digest = "a" * 64
+
+    assert canonical_source_files({"source_file": "source.sgy", "source_sha256": digest}) == (
+        {"name": "source.sgy", "sha256": digest},
+    )
+
+
+def test_canonical_source_files_preserves_declared_order() -> None:
+    records = [
+        {"name": "second.sgy", "sha256": "b" * 64},
+        {"name": "first.sgy", "sha256": "a" * 64},
+    ]
+
+    assert canonical_source_files({"source_files": records}) == tuple(records)
+
+
+@pytest.mark.parametrize(
+    "records,expected_message",
+    [
+        ([{"name": "/absolute/source.sgy", "sha256": "a" * 64}], "basename"),
+        ([{"name": "nested/source.sgy", "sha256": "a" * 64}], "basename"),
+        ([{"name": r"nested\source.sgy", "sha256": "a" * 64}], "basename"),
+        ([{"name": "./source.sgy", "sha256": "a" * 64}], "basename"),
+        ([{"name": "source.sgy/", "sha256": "a" * 64}], "basename"),
+        (
+            [
+                {"name": "source.sgy", "sha256": "a" * 64},
+                {"name": "source.sgy", "sha256": "b" * 64},
+            ],
+            "duplicate",
+        ),
+        ([{"name": "source.sgy", "sha256": "A" * 64}], "lowercase"),
+        ([{"name": "source.sgy", "sha256": "a" * 63}], "64"),
+        ([{"name": "source.sgy", "sha256": "g" * 64}], "hexadecimal"),
+    ],
+)
+def test_canonical_source_files_rejects_invalid_records(
+    records: list[dict[str, str]], expected_message: str
+) -> None:
+    with pytest.raises(ValueError, match=expected_message):
+        canonical_source_files({"source_files": records})
+
+
+def test_canonical_source_files_rejects_disagreeing_legacy_metadata() -> None:
+    with pytest.raises(ValueError, match="does not match"):
+        canonical_source_files(
+            {
+                "source_file": "source.sgy",
+                "source_sha256": "a" * 64,
+                "source_files": [{"name": "source.sgy", "sha256": "b" * 64}],
+            }
+        )
+
+
+def test_trace_identity_allows_the_same_local_index_in_different_sources() -> None:
+    trace_table = pd.DataFrame({"source_file": ["first.sgy", "second.sgy"], "trace_index": [0, 0]})
+
+    validate_trace_identity(trace_table)
+
+
+def test_trace_identity_rejects_a_duplicate_within_one_source() -> None:
+    trace_table = pd.DataFrame({"source_file": ["first.sgy", "first.sgy"], "trace_index": [0, 0]})
+
+    with pytest.raises(ValueError, match=r"source_file, trace_index"):
+        validate_trace_identity(trace_table)
 
 
 def test_row_count_mismatch_is_an_error(tmp_path: Path) -> None:
