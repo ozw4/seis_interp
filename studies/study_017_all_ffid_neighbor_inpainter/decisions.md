@@ -24,14 +24,17 @@ proxies. The scale progression justified formalizing the changed model family.
 **Status:** active
 
 **Decision:**
-Exclude offset `(0, 0, 0)`, restrict lookup amplitudes to train rows, never cross source-x lines,
-and encode unavailable positions explicitly.
+Before routing splits, retain only the lowest `array_row` at each repeated physical coordinate.
+Then exclude offset `(0, 0, 0)`, restrict lookup amplitudes to train rows, never cross source-x
+lines, and encode unavailable positions explicitly.
 
 **Reason:**
-The model must reproduce a completely held-out trace rather than copy it. This rule also prevents
-the train twin at either of the two duplicate train-validation physical coordinates from entering
-the matching validation prediction, while a separately reported clean metric quantifies any
-remaining concern.
+The model must reproduce a completely held-out trace rather than copy it. Center exclusion alone
+does not make the two train-validation duplicates independent: each pair has the same target
+coordinate, gathered neighbor tensor, and target waveform. Global physical-cell canonicalization
+removes all 15 repeated rows without inspecting their split or amplitude and leaves 114,490
+independent validation traces. The staged proxy already exceeded 18 dB when those two validation
+rows were omitted, so this stricter rule does not depend on the duplicated examples for success.
 
 ## 2026-08-28 — Accept oracle per-trace unit-RMS only as the requested waveform criterion
 

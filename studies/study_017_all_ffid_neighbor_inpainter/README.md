@@ -18,8 +18,11 @@ Fourier, profile-wise, low-rank, moveout, and non-local retrieval diagnostics di
 
 The study uses all four locked SEG C3 NA sources and all 4,780 amplitude-eligible FFIDs, including
 incomplete line-end FFIDs. FFID 1746 remains wholly excluded by the prepared amplitude-quality
-rule. Eligible whole traces retain the seed-42 per-FFID split: 1,842,102 train, 114,492 validation,
-and 346,886 test traces. Time samples from one stored trace never cross split boundaries.
+rule. The prepared seed-42 per-FFID split contains 1,842,102 train, 114,492 validation, and 346,886
+test traces. Before model use, the 15 repeated physical cells are canonicalized across all splits
+by retaining only the lowest `array_row`. The effective split is therefore 1,842,090 train,
+114,490 validation, and 346,885 test traces, with all 4,780 FFIDs still represented. Time samples
+from one canonical trace never cross split boundaries.
 
 Validation and test coordinates are known query metadata. Only train amplitudes may populate a
 neighbor channel. Validation targets are used solely for checkpoint selection and metrics; test
@@ -85,6 +88,8 @@ audit, neighbor-availability statistics, and a loadable best checkpoint.
 ## Acceptance criteria
 
 - All 4,780 eligible FFIDs contribute train and validation traces; incomplete FFIDs are retained.
+- Duplicate physical cells are canonicalized before routing targets or neighbor amplitudes, using
+  only the deterministic lowest-`array_row` rule.
 - The target offset is absent, source-x lines never mix, and every supplied amplitude comes from
   the train split.
 - Test and excluded targets do not affect optimization, model selection, or reported validation.
@@ -97,10 +102,9 @@ audit, neighbor-availability statistics, and a loadable best checkpoint.
 This is not a coordinate-only SIREN: it conditions on neighboring train waveforms and therefore
 answers a different, more operational interpolation question than Study 016. Per-trace target
 normalization is an oracle waveform diagnostic; a held-out trace's physical RMS still needs a
-separate gain model. The study uses one seed and one survey. The raw input contains 15 duplicate
-physical cells, including two validation coordinates also present in train; because the center
-offset is absent those train twins cannot be model inputs for their matching validation targets.
-The run reports both the full metric and a diagnostic excluding those two validation rows.
+separate gain model. The study uses one seed and one survey. Canonicalizing duplicate physical
+cells removes 15 raw rows from the model condition, so its effective trace counts differ slightly
+from the reusable prepared split artifact.
 
 ## Current result
 

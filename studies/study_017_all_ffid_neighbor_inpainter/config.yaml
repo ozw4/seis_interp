@@ -15,6 +15,7 @@ sampling:
   trace_amplitude_filter:
     exclude_all_zero: true
     max_abs_amplitude: 10000.0
+  duplicate_physical_coordinate_policy: keep_lowest_array_row
 
 normalization:
   coordinates: train_minmax_linear_plus_azimuth_sin_cos
