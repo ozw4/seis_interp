@@ -30,8 +30,10 @@ model:
 
 # full_ffid_epoch uses one FFID per update and ignores batch_size/steps_per_epoch.
 # random_points uses batch_size/steps_per_epoch instead.
+# amplitude_scaling accepts train_global_rms or per_trace_rms.
 training:
   batch_mode: full_ffid_epoch
+  amplitude_scaling: per_trace_rms
   loss: l2
   optimizer: adam
   learning_rate: 1.0e-4

@@ -83,3 +83,26 @@ def test_run_refuses_to_replace_a_non_directory_output(
         runner.run(config_path=tmp_path / "config.yaml")
 
     assert output.read_text(encoding="utf-8") == "keep"
+
+
+def test_main_labels_per_trace_validation_as_oracle(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        runner,
+        "run",
+        lambda **_kwargs: {
+            "best_epoch": 2,
+            "best_validation_global_snr_db": 3.5,
+            "global_steps": 8,
+            "amplitude_scaling": "per_trace_rms",
+            "validation_metric_domain": "oracle_per_trace_unit_rms",
+        },
+    )
+
+    assert runner.main([]) == 0
+    output = capsys.readouterr().out
+    assert "Amplitude scaling: per_trace_rms" in output
+    assert "Validation metric domain: oracle per-trace unit RMS" in output
+    assert "Best oracle-normalized validation global S/N: 3.5 dB" in output

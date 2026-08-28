@@ -100,7 +100,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Best epoch: {metrics['best_epoch']}")
-    print(f"Best validation global S/N: {metrics['best_validation_global_snr_db']} dB")
+    if "amplitude_scaling" in metrics:
+        print(f"Amplitude scaling: {metrics['amplitude_scaling']}")
+    if metrics.get("validation_metric_domain") == "oracle_per_trace_unit_rms":
+        print("Validation metric domain: oracle per-trace unit RMS")
+        validation_label = "Best oracle-normalized validation global S/N"
+    else:
+        validation_label = "Best validation global S/N"
+    print(f"{validation_label}: {metrics['best_validation_global_snr_db']} dB")
     print(f"Optimizer steps: {metrics['global_steps']}")
     print(f"Replaced output: {OUTPUT_DIRECTORY.relative_to(REPOSITORY_ROOT)}")
     return 0

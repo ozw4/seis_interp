@@ -25,6 +25,7 @@ model:
 
 training:
   batch_mode: full_ffid_epoch
+  amplitude_scaling: train_global_rms
   loss: l2
   optimizer: adam
   learning_rate: 1.0e-4

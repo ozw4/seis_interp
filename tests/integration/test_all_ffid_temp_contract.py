@@ -35,6 +35,10 @@ def test_temp_study_preserves_the_existing_processed_data_contract() -> None:
     assert {path: get_required_config_value(temp_config, path) for path in fixed_paths} == {
         path: get_required_config_value(formal_config, path) for path in fixed_paths
     }
+    assert get_required_config_value(formal_config, "training.amplitude_scaling") == (
+        "train_global_rms"
+    )
+    assert get_required_config_value(temp_config, "training.amplitude_scaling") == "per_trace_rms"
 
 
 def test_temp_study_reuses_the_all_ffid_input_contract() -> None:

@@ -35,6 +35,7 @@ def test_all_ffid_study_resolves_the_training_contract() -> None:
         "model.omega_0": 30.0,
         "model.hidden_omega": 30.0,
         "training.batch_mode": "full_ffid_epoch",
+        "training.amplitude_scaling": "train_global_rms",
         "training.loss": "l2",
         "training.optimizer": "adam",
         "training.learning_rate": 1.0e-4,
