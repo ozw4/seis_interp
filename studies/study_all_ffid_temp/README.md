@@ -27,6 +27,37 @@ reusing it:
 Changing one of those values requires preparing a different processed dataset. Model and training
 values can be changed without rebuilding the split or normalization.
 
+## Training-time coordinate features
+
+`model.coordinate_features` controls the model inputs derived at training time and does not require
+rebuilding the prepared dataset:
+
+- Omitting the key, or setting `cmp_offset_azimuth`, preserves the existing six inputs
+  `[normalized_time, normalized_cmp_x, normalized_cmp_y, normalized_offset,
+  azimuth_sin, azimuth_cos]` and requires `model.input_features: 6`.
+- Setting `cmp_cartesian_half_offset` uses five inputs
+  `[normalized_time, normalized_cmp_x, normalized_cmp_y, normalized_half_offset_x,
+  normalized_half_offset_y]` and requires `model.input_features: 5`.
+
+The Cartesian components are calculated from the stored physical headers as
+`half_offset = 0.5 * (source - receiver)`. Time and CMP continue to use the min/max fitted from
+prepared training traces. Both half-offset axes are divided by the same symmetric scale,
+`0.5 * prepared_training_max_offset_m`; they are not fitted independently per axis. This keeps
+offset magnitude and azimuth geometry coupled while avoiding held-out fitting.
+
+For example:
+
+```yaml
+model:
+  coordinate_features: cmp_cartesian_half_offset
+  input_features: 5
+```
+
+Cartesian-mode runs lock the feature order and physical normalization bounds under
+`model_coordinates` in `inputs.lock.json`, `run.json`, and the checkpoint, including the explicit
+shared `half_offset_scale_m`. All three training batch modes use the selected representation for
+training and validation.
+
 ## Trace-amplitude eligibility
 
 Amplitude eligibility is determined from raw interim traces before split assignment and before

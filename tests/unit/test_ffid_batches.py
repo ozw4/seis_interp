@@ -500,6 +500,21 @@ def test_point_builder_rejects_duplicate_out_of_range_and_non_finite_selected_ro
         build_global_rms_trace_points(time, spatial, amplitudes, np.asarray([3]), amplitude_rms=1.0)
 
 
+def test_complete_trace_point_builder_follows_spatial_feature_width() -> None:
+    time, spatial, amplitudes = _point_arrays()
+
+    coordinates, targets = build_global_rms_trace_points(
+        time,
+        spatial[:, :4],
+        amplitudes,
+        np.asarray([1, 3]),
+        amplitude_rms=1.0,
+    )
+
+    assert coordinates.shape == (2 * len(time), 5)
+    assert targets.shape == (2 * len(time),)
+
+
 def test_batch_record_is_frozen() -> None:
     batch = next(_sampler(seed=1).iter_epoch())
 

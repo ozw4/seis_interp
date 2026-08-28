@@ -8,6 +8,10 @@ import torch
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
+from seis_interp.processing.training_coordinates import (
+    CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+    model_coordinate_parameters,
+)
 from seis_interp.training.checkpoints import load_siren_checkpoint, save_siren_checkpoint
 
 
@@ -52,6 +56,7 @@ def test_checkpoint_round_trip_restores_function_config_and_metadata(tmp_path: P
     assert loaded.model.omega_0 == 13.0
     assert loaded.model.hidden_omega == 17.0
     assert loaded.normalization == _normalization()
+    assert loaded.model_coordinates is None
     assert loaded.amplitude_scaling == "train_global_rms"
     assert loaded.validation_metric_domain == "train_global_rms"
     assert (
@@ -130,6 +135,30 @@ def test_checkpoint_records_per_trace_rms_target_scaling(tmp_path: Path) -> None
     loaded = load_siren_checkpoint(checkpoint_path)
     assert loaded.amplitude_scaling == "per_trace_rms"
     assert loaded.validation_metric_domain == "oracle_per_trace_unit_rms"
+
+
+def test_checkpoint_records_cartesian_coordinate_mode_and_scales(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    coordinates = model_coordinate_parameters(
+        CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+        _normalization(),
+    )
+
+    save_siren_checkpoint(
+        checkpoint_path,
+        Siren(input_features=5, hidden_width=7, hidden_layers=1),
+        _normalization(),
+        model_coordinates=coordinates,
+        epoch=2,
+        global_step=6,
+        validation_median_trace_snr_db=None,
+        validation_global_snr_db=8.5,
+    )
+
+    loaded = load_siren_checkpoint(checkpoint_path)
+    assert loaded.model.input_features == 5
+    assert loaded.model_coordinates == coordinates
+    assert loaded.model_coordinates.half_offset_scale_m == 2.0
 
 
 def test_checkpoint_rejects_a_metric_domain_that_mislabels_target_scaling(

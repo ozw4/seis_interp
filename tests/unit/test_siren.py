@@ -144,6 +144,25 @@ def test_train_siren_builder_forwards_hidden_omega() -> None:
     assert _build_model(config).hidden_omega == 30.0
 
 
+def test_train_siren_builder_validates_coordinate_feature_width() -> None:
+    config = {
+        "model": {
+            "name": "siren",
+            "coordinate_features": "cmp_cartesian_half_offset",
+            "input_features": 5,
+            "hidden_width": 8,
+            "hidden_layers": 2,
+            "omega_0": 10.0,
+            "hidden_omega": 30.0,
+        }
+    }
+
+    assert _build_model(config).input_features == 5
+    config["model"]["input_features"] = 6
+    with pytest.raises(ValueError, match="must be 5"):
+        _build_model(config)
+
+
 def test_backward_produces_finite_gradients() -> None:
     torch.manual_seed(0)
     model = Siren(input_features=5, hidden_width=16, hidden_layers=2)

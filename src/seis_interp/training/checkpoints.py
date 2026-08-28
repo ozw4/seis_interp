@@ -9,6 +9,7 @@ import torch
 
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
+from seis_interp.processing.training_coordinates import ModelCoordinateParameters
 from seis_interp.training.amplitude_scaling import (
     TRAIN_GLOBAL_RMS_SCALING,
     validated_amplitude_scaling,
@@ -18,7 +19,7 @@ from seis_interp.training.amplitude_scaling import (
 
 @dataclass(frozen=True)
 class LoadedSirenCheckpoint:
-    """A restored SIREN and its training-time target metadata.
+    """A restored SIREN and its training-time coordinate and target metadata.
 
     A per-trace-RMS model still needs an externally supplied scale to recover
     physical amplitudes at a query trace.
@@ -26,6 +27,7 @@ class LoadedSirenCheckpoint:
 
     model: Siren
     normalization: NormalizationParameters
+    model_coordinates: ModelCoordinateParameters | None
     amplitude_scaling: str
     validation_metric_domain: str
     epoch: int
@@ -39,13 +41,14 @@ def save_siren_checkpoint(
     model: Siren,
     normalization: NormalizationParameters,
     *,
+    model_coordinates: ModelCoordinateParameters | None = None,
     amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
     epoch: int,
     global_step: int,
     validation_median_trace_snr_db: float | None,
     validation_global_snr_db: float,
 ) -> None:
-    """Save constructor values, CPU weights, target scaling, and best metadata.
+    """Save constructor values, CPU weights, feature/target scaling, and best metadata.
 
     ``validation_median_trace_snr_db`` is ``None`` for training modes whose
     model-selection contract defines only a global validation metric. Existing
@@ -54,6 +57,11 @@ def save_siren_checkpoint(
     unknown physical scale of an unseen trace.
     """
     checkpoint_path = Path(path)
+    if model_coordinates is not None and model_coordinates.input_features != model.input_features:
+        raise ValueError(
+            "model coordinate width must match model.input_features: "
+            f"{model_coordinates.input_features} != {model.input_features}"
+        )
     stored_amplitude_scaling = validated_amplitude_scaling(amplitude_scaling)
     validation_metric_domain = validation_metric_domain_for_scaling(stored_amplitude_scaling)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,6 +87,8 @@ def save_siren_checkpoint(
             "validation_global_snr_db": validation_global_snr_db,
         },
     }
+    if model_coordinates is not None:
+        payload["model_coordinates"] = model_coordinates.to_dict()
     torch.save(payload, checkpoint_path)
 
 
@@ -95,6 +105,17 @@ def load_siren_checkpoint(
     model.load_state_dict(payload["model_state_dict"], strict=True)
     model.to(device)
     normalization = NormalizationParameters.from_dict(payload["normalization"])
+    raw_model_coordinates = payload.get("model_coordinates")
+    model_coordinates = (
+        ModelCoordinateParameters.from_dict(raw_model_coordinates)
+        if raw_model_coordinates is not None
+        else None
+    )
+    if model_coordinates is not None and model_coordinates.input_features != model.input_features:
+        raise ValueError(
+            "checkpoint model coordinate width does not match model.input_features: "
+            f"{model_coordinates.input_features} != {model.input_features}"
+        )
     amplitude_scaling = validated_amplitude_scaling(
         payload.get("amplitude_scaling", TRAIN_GLOBAL_RMS_SCALING)
     )
@@ -112,6 +133,7 @@ def load_siren_checkpoint(
     return LoadedSirenCheckpoint(
         model=model,
         normalization=normalization,
+        model_coordinates=model_coordinates,
         amplitude_scaling=amplitude_scaling,
         validation_metric_domain=validation_metric_domain,
         epoch=training["epoch"],

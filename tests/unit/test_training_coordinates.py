@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
+from seis_interp.processing.normalization import (
+    NormalizationParameters,
+    normalize_spatial_coordinates,
+)
+from seis_interp.processing.training_coordinates import (
+    CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+    CMP_CARTESIAN_HALF_OFFSET_COORDINATE_ORDER,
+    CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+    ModelCoordinateParameters,
+    model_coordinate_parameters,
+    normalize_training_spatial_coordinates,
+)
+
+
+def _normalization() -> NormalizationParameters:
+    return NormalizationParameters(
+        coordinate_order=MODEL_COORDINATE_ORDER,
+        coordinate_min=(0.0, 100.0, 200.0, 100.0, -1.0, -1.0),
+        coordinate_max=(2.0, 300.0, 600.0, 1000.0, 1.0, 1.0),
+        amplitude_rms=3.0,
+    )
+
+
+def _trace_table() -> pd.DataFrame:
+    cmp_x = np.asarray([100.0, 200.0, 300.0])
+    cmp_y = np.asarray([200.0, 400.0, 600.0])
+    half_offset_x = np.asarray([500.0, 0.0, 300.0])
+    half_offset_y = np.asarray([0.0, -500.0, 400.0])
+    return pd.DataFrame(
+        {
+            "cmp_x_m": cmp_x,
+            "cmp_y_m": cmp_y,
+            "source_x_m": cmp_x + half_offset_x,
+            "source_y_m": cmp_y + half_offset_y,
+            "receiver_x_m": cmp_x - half_offset_x,
+            "receiver_y_m": cmp_y - half_offset_y,
+            "offset_m": [1000.0, 1000.0, 1000.0],
+            "azimuth_deg": [90.0, 180.0, np.degrees(np.arctan2(600.0, 800.0))],
+        }
+    )
+
+
+def test_cartesian_half_offset_uses_prepared_cmp_bounds_and_one_symmetric_scale() -> None:
+    parameters = model_coordinate_parameters(
+        CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+        _normalization(),
+    )
+
+    coordinates = normalize_training_spatial_coordinates(
+        _trace_table(),
+        _normalization(),
+        parameters,
+    )
+
+    assert parameters.coordinate_order == CMP_CARTESIAN_HALF_OFFSET_COORDINATE_ORDER
+    assert parameters.input_features == 5
+    assert parameters.half_offset_scale_m == 500.0
+    assert parameters.coordinate_scale_min == (0.0, 100.0, 200.0, -500.0, -500.0)
+    assert parameters.coordinate_scale_max == (2.0, 300.0, 600.0, 500.0, 500.0)
+    np.testing.assert_allclose(
+        coordinates,
+        [
+            [-1.0, -1.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, -1.0],
+            [1.0, 1.0, 0.6, 0.8],
+        ],
+    )
+
+
+def test_default_coordinate_mode_preserves_existing_normalized_features() -> None:
+    parameters = model_coordinate_parameters(
+        CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+        _normalization(),
+    )
+
+    actual = normalize_training_spatial_coordinates(
+        _trace_table(),
+        _normalization(),
+        parameters,
+    )
+
+    np.testing.assert_array_equal(
+        actual,
+        normalize_spatial_coordinates(_trace_table(), _normalization()),
+    )
+    assert parameters.coordinate_order == MODEL_COORDINATE_ORDER
+    assert parameters.input_features == 6
+    assert parameters.half_offset_scale_m is None
+
+
+def test_coordinate_parameter_payload_round_trips() -> None:
+    expected = model_coordinate_parameters(
+        CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+        _normalization(),
+    )
+
+    assert ModelCoordinateParameters.from_dict(expected.to_dict()) == expected
+
+
+def test_cartesian_half_offset_requires_source_and_receiver_coordinates() -> None:
+    parameters = model_coordinate_parameters(
+        CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+        _normalization(),
+    )
+
+    with pytest.raises(ValueError, match="source_x_m"):
+        normalize_training_spatial_coordinates(
+            _trace_table().drop(columns="source_x_m"),
+            _normalization(),
+            parameters,
+        )

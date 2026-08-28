@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_bool_dtype, is_integer_dtype
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
@@ -177,14 +176,15 @@ def _expand_trace_points(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Expand already selected traces into trace-major coordinate-target points."""
     time_count = len(time)
+    input_features = selected_spatial.shape[1] + 1
     coordinates = np.empty(
-        (len(selected_spatial) * time_count, len(MODEL_COORDINATE_ORDER)),
+        (len(selected_spatial) * time_count, input_features),
         dtype=np.float64,
     )
     coordinate_grid = coordinates.reshape(
         len(selected_spatial),
         time_count,
-        len(MODEL_COORDINATE_ORDER),
+        input_features,
     )
     coordinate_grid[:, :, 0] = time[np.newaxis, :]
     coordinate_grid[:, :, 1:] = selected_spatial[:, np.newaxis, :]
@@ -450,12 +450,8 @@ def _validated_point_sources(
         raise ValueError("normalized_time contains non-finite values")
     if spatial.ndim != 2:
         raise ValueError("normalized_spatial_by_array_row must be two-dimensional")
-    expected_features = len(MODEL_COORDINATE_ORDER) - 1
-    if spatial.shape[1] != expected_features:
-        raise ValueError(
-            f"normalized_spatial_by_array_row must have {expected_features} features, "
-            f"got {spatial.shape[1]}"
-        )
+    if spatial.shape[1] == 0:
+        raise ValueError("normalized_spatial_by_array_row must have at least one feature")
     if spatial.dtype != np.float64:
         raise ValueError(f"normalized_spatial_by_array_row must be float64, got {spatial.dtype}")
     if amplitude_array.ndim != 2:

@@ -29,6 +29,13 @@ def _build_full_ffid_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     trace_count = 30
     sample_count = 4
     array_indices = np.arange(trace_count)
+    cmp_x_m = array_indices.astype(np.float64)
+    cmp_y_m = array_indices.astype(np.float64) * 2.0
+    offset_m = 100.0 + array_indices.astype(np.float64)
+    azimuth_deg = array_indices.astype(np.float64) * 7.0
+    azimuth_rad = np.deg2rad(azimuth_deg)
+    half_offset_x_m = 0.5 * offset_m * np.sin(azimuth_rad)
+    half_offset_y_m = 0.5 * offset_m * np.cos(azimuth_rad)
     trace_table = pd.DataFrame(
         {
             "source_file": np.repeat([source_a.name, source_b.name], [20, 10]),
@@ -36,10 +43,14 @@ def _build_full_ffid_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                 [np.arange(20, dtype=np.int64), np.arange(10, dtype=np.int64)]
             ),
             "ffid": np.repeat([10, 20, 30], 10),
-            "cmp_x_m": array_indices.astype(np.float64),
-            "cmp_y_m": array_indices.astype(np.float64) * 2.0,
-            "offset_m": 100.0 + array_indices.astype(np.float64),
-            "azimuth_deg": array_indices.astype(np.float64) * 7.0,
+            "source_x_m": cmp_x_m + half_offset_x_m,
+            "source_y_m": cmp_y_m + half_offset_y_m,
+            "receiver_x_m": cmp_x_m - half_offset_x_m,
+            "receiver_y_m": cmp_y_m - half_offset_y_m,
+            "cmp_x_m": cmp_x_m,
+            "cmp_y_m": cmp_y_m,
+            "offset_m": offset_m,
+            "azimuth_deg": azimuth_deg,
             "sample_interval_s": np.full(trace_count, 0.008),
         }
     )
@@ -204,6 +215,77 @@ def test_full_ffid_pipeline_streams_training_and_writes_the_run_contract(
     run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
     assert run_metadata["batch_mode"] == "full_ffid_epoch"
     assert run_metadata["effective_steps_per_epoch"] == 3
+
+
+@pytest.mark.parametrize(
+    "batch_mode",
+    ["random_points", "full_ffid_epoch", "random_complete_traces"],
+)
+def test_train_siren_batch_modes_support_cartesian_half_offset_coordinates(
+    tmp_path: Path,
+    batch_mode: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"].update(
+        {
+            "coordinate_features": "cmp_cartesian_half_offset",
+            "input_features": 5,
+        }
+    )
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    if batch_mode == "random_points":
+        config_payload["training"].update({"batch_size": 8, "steps_per_epoch": 1})
+    elif batch_mode == "random_complete_traces":
+        config_payload["training"].update({"traces_per_update": 2, "steps_per_epoch": 1})
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "run"
+
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    normalization = read_normalization_parameters(processed / "normalization.json")
+    half_offset_scale_m = 0.5 * normalization.coordinate_max[3]
+    expected_contract = {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+            "time_s",
+            "cmp_x_m",
+            "cmp_y_m",
+            "half_offset_x_m",
+            "half_offset_y_m",
+        ],
+        "coordinate_scale_min": [
+            *normalization.coordinate_min[:3],
+            -half_offset_scale_m,
+            -half_offset_scale_m,
+        ],
+        "coordinate_scale_max": [
+            *normalization.coordinate_max[:3],
+            half_offset_scale_m,
+            half_offset_scale_m,
+        ],
+        "half_offset_scale_m": half_offset_scale_m,
+    }
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.model.input_features == 5
+    assert checkpoint.model_coordinates is not None
+    assert checkpoint.model_coordinates.to_dict() == expected_contract
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert inputs_lock["model_coordinates"] == expected_contract
+    assert run_metadata["model_coordinates"] == expected_contract
 
 
 def test_full_ffid_pipeline_supports_per_trace_rms_as_a_training_target_scaling(

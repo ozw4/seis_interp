@@ -26,7 +26,6 @@ from seis_interp.configuration import (
 )
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import canonical_source_files
 from seis_interp.data.trace_table import validated_array_rows
@@ -40,7 +39,6 @@ from seis_interp.pipelines.prepare_baseline import (
 from seis_interp.processing.normalization import (
     NormalizationParameters,
     normalize_amplitudes,
-    normalize_spatial_coordinates,
     normalize_time,
     read_normalization_parameters,
 )
@@ -51,6 +49,15 @@ from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
+)
+from seis_interp.processing.training_coordinates import (
+    CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+    DEFAULT_COORDINATE_FEATURES,
+    ModelCoordinateParameters,
+    coordinate_order_for_features,
+    model_coordinate_parameters,
+    normalize_training_spatial_coordinates,
+    validated_coordinate_features,
 )
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
@@ -123,6 +130,8 @@ def train_siren_run(
     started_at_utc = _utc_timestamp()
     git_commit = _git_commit()
     config = load_resolved_config(Path(config_path))
+    coordinate_features = _model_coordinate_features(config)
+    coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
     batch_mode = _training_batch_mode(config)
     amplitude_scaling = _training_amplitude_scaling(config)
     correlation_loss = _training_correlation_loss(config, batch_mode=batch_mode)
@@ -166,8 +175,13 @@ def train_siren_run(
         batch_mode=batch_mode,
     )
 
+    coordinate_parameters = model_coordinate_parameters(coordinate_features, normalization)
     normalized_time = normalize_time(dataset.time_s, normalization)
-    normalized_spatial = normalize_spatial_coordinates(dataset.trace_table, normalization)
+    normalized_spatial = normalize_training_spatial_coordinates(
+        dataset.trace_table,
+        normalization,
+        coordinate_parameters,
+    )
     dataset_array_rows = validated_array_rows(dataset.trace_table, require_contiguous=True)
     spatial_by_array_row = np.empty_like(normalized_spatial)
     spatial_by_array_row[dataset_array_rows] = normalized_spatial
@@ -177,7 +191,15 @@ def train_siren_run(
     else:
         # Preserve the established random-points path's observable RNG contract.
         torch.manual_seed(random_seed)
-    model = _build_model(resolved_config)
+    model = _build_model(
+        resolved_config,
+        expected_input_features=coordinate_input_features,
+    )
+    recorded_model_coordinates = (
+        coordinate_parameters
+        if coordinate_features != CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES
+        else None
+    )
     _validate_training_contract(resolved_config)
     streaming_training_contract: dict[str, object] | None = None
     if batch_mode == RANDOM_POINTS_BATCH_MODE:
@@ -189,6 +211,7 @@ def train_siren_run(
             split_table=split_table,
             split_rows=split_rows,
             normalization=normalization,
+            model_coordinates=recorded_model_coordinates,
             amplitude_scaling=amplitude_scaling,
             config=resolved_config,
             random_seed=random_seed,
@@ -205,6 +228,7 @@ def train_siren_run(
             trace_table=dataset.trace_table,
             split_table=split_table,
             normalization=normalization,
+            model_coordinates=recorded_model_coordinates,
             amplitude_scaling=amplitude_scaling,
             correlation_loss=correlation_loss,
             config=resolved_config,
@@ -223,6 +247,7 @@ def train_siren_run(
             trace_table=dataset.trace_table,
             split_table=split_table,
             normalization=normalization,
+            model_coordinates=recorded_model_coordinates,
             amplitude_scaling=amplitude_scaling,
             config=resolved_config,
             random_seed=random_seed,
@@ -287,6 +312,8 @@ def train_siren_run(
                 "validation_scale_source": "validation_trace_target_rms",
             }
         )
+    if recorded_model_coordinates is not None:
+        run_metadata["model_coordinates"] = recorded_model_coordinates.to_dict()
     if isinstance(trace_quality, Mapping):
         run_metadata["trace_quality"] = dict(trace_quality)
     random_training_contract = (
@@ -304,6 +331,7 @@ def train_siren_run(
             else None
         ),
         training_contract=streaming_training_contract or random_training_contract,
+        model_coordinates=recorded_model_coordinates,
     )
     _write_run_outputs(
         output_directory,
@@ -324,6 +352,7 @@ def _train_random_points(
     split_table: pd.DataFrame,
     split_rows: np.ndarray,
     normalization: NormalizationParameters,
+    model_coordinates: ModelCoordinateParameters | None,
     amplitude_scaling: str,
     config: Mapping[str, object],
     random_seed: int,
@@ -375,6 +404,7 @@ def _train_random_points(
         validation_batch_size=get_required_config_value(config, "training.validation_batch_size"),
         validation_samples_per_trace=len(normalized_time),
         checkpoint_path=checkpoint_path,
+        model_coordinates=model_coordinates,
         amplitude_scaling=amplitude_scaling,
         reporter=progress_reporter,
     )
@@ -389,6 +419,7 @@ def _train_random_complete_traces(
     trace_table: pd.DataFrame,
     split_table: pd.DataFrame,
     normalization: NormalizationParameters,
+    model_coordinates: ModelCoordinateParameters | None,
     amplitude_scaling: str,
     config: Mapping[str, object],
     random_seed: int,
@@ -473,6 +504,7 @@ def _train_random_complete_traces(
         ),
         validation_ffid_count=len(validation_rows_by_ffid),
         checkpoint_path=checkpoint_path,
+        model_coordinates=model_coordinates,
         amplitude_scaling=amplitude_scaling,
         training_evaluator=training_evaluator,
         reporter=progress_reporter,
@@ -498,6 +530,7 @@ def _train_full_ffid_epoch(
     trace_table: pd.DataFrame,
     split_table: pd.DataFrame,
     normalization: NormalizationParameters,
+    model_coordinates: ModelCoordinateParameters | None,
     amplitude_scaling: str,
     correlation_loss: _CorrelationLossSettings,
     config: Mapping[str, object],
@@ -558,6 +591,7 @@ def _train_full_ffid_epoch(
         ),
         validation_ffid_count=len(validation_rows_by_ffid),
         checkpoint_path=checkpoint_path,
+        model_coordinates=model_coordinates,
         reporter=progress_reporter,
         amplitude_scaling=amplitude_scaling,
         correlation_weight=correlation_loss.weight,
@@ -1225,14 +1259,37 @@ def _configured_trace_amplitude_filter(
     )
 
 
-def _build_model(config: Mapping[str, object]) -> Siren:
+def _model_coordinate_features(config: Mapping[str, object]) -> str:
+    model = config.get("model")
+    value = (
+        model.get("coordinate_features", DEFAULT_COORDINATE_FEATURES)
+        if isinstance(model, Mapping)
+        else DEFAULT_COORDINATE_FEATURES
+    )
+    try:
+        return validated_coordinate_features(value, name="model.coordinate_features")
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
+
+
+def _build_model(
+    config: Mapping[str, object],
+    *,
+    expected_input_features: int | None = None,
+) -> Siren:
     model_name = get_required_config_value(config, "model.name")
     if model_name != "siren":
         raise ConfigurationError(f"model.name must be 'siren', got {model_name!r}")
+    if expected_input_features is None:
+        expected_input_features = len(
+            coordinate_order_for_features(_model_coordinate_features(config))
+        )
     input_features = get_required_config_value(config, "model.input_features")
-    if input_features != len(MODEL_COORDINATE_ORDER):
+    if input_features != expected_input_features:
         raise ConfigurationError(
-            f"model.input_features must be {len(MODEL_COORDINATE_ORDER)}, got {input_features!r}"
+            f"model.input_features must be {expected_input_features} for "
+            f"model.coordinate_features={_model_coordinate_features(config)!r}, "
+            f"got {input_features!r}"
         )
     return Siren(
         input_features=input_features,
@@ -1257,6 +1314,7 @@ def _build_inputs_lock(
     preparation_contract: Mapping[str, object],
     source_files: tuple[dict[str, str], ...] | None = None,
     training_contract: Mapping[str, object] | None = None,
+    model_coordinates: ModelCoordinateParameters | None = None,
 ) -> dict[str, object]:
     inputs_lock: dict[str, object] = {
         "interim_files": dict(interim_files),
@@ -1267,6 +1325,8 @@ def _build_inputs_lock(
         inputs_lock["source_files"] = [dict(source) for source in source_files]
     if training_contract is not None:
         inputs_lock["training"] = dict(training_contract)
+    if model_coordinates is not None:
+        inputs_lock["model_coordinates"] = model_coordinates.to_dict()
     return inputs_lock
 
 
