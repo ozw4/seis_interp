@@ -73,16 +73,19 @@ def save_siren_checkpoint(
     validation_metric_domain = validation_metric_domain_for_scaling(stored_amplitude_scaling)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     state_dict = {name: tensor.detach().cpu() for name, tensor in model.state_dict().items()}
+    model_config = {
+        "input_features": model.input_features,
+        "hidden_width": model.hidden_width,
+        "hidden_layers": model.hidden_layers,
+        "output_features": model.output_features,
+        "omega_0": model.omega_0,
+        "hidden_omega": model.hidden_omega,
+    }
+    if model.layer_omega_schedule is not None:
+        model_config["layer_omega_schedule"] = model.layer_omega_schedule
     payload = {
         "model_type": "siren",
-        "model_config": {
-            "input_features": model.input_features,
-            "hidden_width": model.hidden_width,
-            "hidden_layers": model.hidden_layers,
-            "output_features": model.output_features,
-            "omega_0": model.omega_0,
-            "hidden_omega": model.hidden_omega,
-        },
+        "model_config": model_config,
         "model_state_dict": state_dict,
         "normalization": normalization.to_dict(),
         "amplitude_scaling": stored_amplitude_scaling,

@@ -433,6 +433,103 @@ def test_explicit_unit_time_coordinate_scale_preserves_legacy_provenance(
 
 
 @pytest.mark.parametrize(
+    "batch_mode",
+    ["random_points", "full_ffid_epoch", "random_complete_traces"],
+)
+def test_train_siren_batch_modes_record_exponential_layer_omega_schedule(
+    tmp_path: Path,
+    batch_mode: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"].update(
+        {
+            "hidden_layers": 4,
+            "omega_0": 5.0,
+            "hidden_omega": 50.0,
+            "layer_omega_schedule": "exponential",
+        }
+    )
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    if batch_mode == "random_points":
+        config_payload["training"].update({"batch_size": 8, "steps_per_epoch": 1})
+    elif batch_mode == "random_complete_traces":
+        config_payload["training"].update({"traces_per_update": 2, "steps_per_epoch": 1})
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    output = tmp_path / "run"
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    expected_omegas = [5.0 * 10.0 ** (index / 3.0) for index in range(4)]
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.model.layer_omega_schedule == "exponential"
+    assert checkpoint.model.layer_omegas == pytest.approx(expected_omegas)
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    for provenance in (
+        inputs_lock["model_omega_schedule"],
+        run_metadata["model_omega_schedule"],
+    ):
+        assert provenance["layer_omega_schedule"] == "exponential"
+        assert provenance["sine_layer_omegas"] == pytest.approx(expected_omegas)
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert resolved["model"]["layer_omega_schedule"] == "exponential"
+
+
+@pytest.mark.parametrize("schedule", ["linear", 1, True])
+def test_train_siren_rejects_unknown_layer_omega_schedule_before_data_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schedule: object,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["layer_omega_schedule"] = schedule
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(
+        "seis_interp.pipelines.train_siren.load_interim_trace_dataset",
+        lambda *_args, **_kwargs: pytest.fail("data loading must not start"),
+    )
+
+    with pytest.raises(ConfigurationError, match="model.layer_omega_schedule"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+def test_train_siren_rejects_exponential_schedule_with_one_sine_layer(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["layer_omega_schedule"] = "exponential"
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="requires model.hidden_layers >= 2"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+@pytest.mark.parametrize(
     "invalid_scale",
     [
         0.0,

@@ -95,6 +95,28 @@ def test_hidden_sine_layer_weight_bound() -> None:
     assert all(layer.linear.weight.abs().max().item() <= bound for layer in hidden_layers)
 
 
+def test_exponential_layer_omega_schedule_uses_geometric_progression() -> None:
+    torch.manual_seed(0)
+    model = Siren(
+        input_features=5,
+        hidden_width=16,
+        hidden_layers=4,
+        omega_0=5.0,
+        hidden_omega=50.0,
+        layer_omega_schedule="exponential",
+    )
+
+    expected_omegas = tuple(5.0 * 10.0 ** (index / 3.0) for index in range(4))
+    sine_layers = [layer for layer in model.network if isinstance(layer, SineLayer)]
+
+    assert model.layer_omega_schedule == "exponential"
+    assert model.layer_omegas == pytest.approx(expected_omegas)
+    assert [layer.omega for layer in sine_layers] == pytest.approx(expected_omegas)
+    for layer, omega in zip(sine_layers[1:], expected_omegas[1:], strict=True):
+        bound = math.sqrt(6.0 / 16) / omega + 1e-6
+        assert layer.linear.weight.abs().max().item() <= bound
+
+
 def test_final_linear_uses_official_hidden_omega_weight_bound() -> None:
     torch.manual_seed(0)
     model = Siren(
@@ -120,9 +142,12 @@ def test_hidden_omega_default_preserves_legacy_parameters_and_layer_count() -> N
         hidden_width=16,
         hidden_layers=4,
         hidden_omega=1.0,
+        layer_omega_schedule=None,
     )
 
     assert default_model.hidden_omega == 1.0
+    assert default_model.layer_omega_schedule is None
+    assert default_model.layer_omegas == (10.0, 1.0, 1.0, 1.0)
     assert len(default_model.network) == 5
     assert sum(isinstance(layer, SineLayer) for layer in default_model.network) == 4
     for name, value in default_model.state_dict().items():
@@ -142,6 +167,27 @@ def test_train_siren_builder_forwards_hidden_omega() -> None:
     }
 
     assert _build_model(config).hidden_omega == 30.0
+
+
+def test_train_siren_builder_forwards_exponential_layer_omega_schedule() -> None:
+    config = {
+        "model": {
+            "name": "siren",
+            "input_features": len(MODEL_COORDINATE_ORDER),
+            "hidden_width": 8,
+            "hidden_layers": 4,
+            "omega_0": 5.0,
+            "hidden_omega": 50.0,
+            "layer_omega_schedule": "exponential",
+        }
+    }
+
+    model = _build_model(config)
+
+    assert model.layer_omega_schedule == "exponential"
+    assert model.layer_omegas == pytest.approx(
+        tuple(5.0 * 10.0 ** (index / 3.0) for index in range(4))
+    )
 
 
 @pytest.mark.parametrize(
@@ -230,3 +276,14 @@ def test_siren_rejects_invalid_omega_0(omega_0: float) -> None:
 def test_siren_rejects_invalid_hidden_omega(hidden_omega: float) -> None:
     with pytest.raises(ValueError, match="positive finite"):
         Siren(hidden_omega=hidden_omega)
+
+
+@pytest.mark.parametrize("schedule", ["linear", "constant", 1, True])
+def test_siren_rejects_unknown_layer_omega_schedule(schedule: object) -> None:
+    with pytest.raises(ValueError, match="layer_omega_schedule must be 'exponential'"):
+        Siren(layer_omega_schedule=schedule)
+
+
+def test_siren_rejects_exponential_schedule_with_one_sine_layer() -> None:
+    with pytest.raises(ValueError, match="requires hidden_layers >= 2"):
+        Siren(hidden_layers=1, layer_omega_schedule="exponential")

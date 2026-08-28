@@ -30,7 +30,7 @@ from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import canonical_source_files
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.evaluation.streaming_snr import evaluate_model_global_snr_by_ffid
-from seis_interp.models.siren import Siren
+from seis_interp.models.siren import EXPONENTIAL_LAYER_OMEGA_SCHEDULE, Siren
 from seis_interp.pipelines.prepare_baseline import (
     NORMALIZATION_FILE_NAME,
     PREPARATION_FILE_NAME,
@@ -147,6 +147,7 @@ def train_siren_run(
     coordinate_features = _model_coordinate_features(config)
     coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
     time_coordinate_scale = _model_time_coordinate_scale(config)
+    _model_layer_omega_schedule(config)
     batch_mode = _training_batch_mode(config)
     learning_rate_schedule = _training_learning_rate_schedule(
         config,
@@ -222,6 +223,7 @@ def train_siren_run(
         resolved_config,
         expected_input_features=coordinate_input_features,
     )
+    model_omega_schedule = _model_omega_schedule_contract(model)
     recorded_model_coordinates = (
         coordinate_parameters
         if (
@@ -350,6 +352,8 @@ def train_siren_run(
         )
     if recorded_model_coordinates is not None:
         run_metadata["model_coordinates"] = recorded_model_coordinates.to_dict()
+    if model_omega_schedule is not None:
+        run_metadata["model_omega_schedule"] = model_omega_schedule
     if isinstance(trace_quality, Mapping):
         run_metadata["trace_quality"] = dict(trace_quality)
     random_training_contract = (
@@ -368,6 +372,7 @@ def train_siren_run(
         ),
         training_contract=streaming_training_contract or random_training_contract,
         model_coordinates=recorded_model_coordinates,
+        model_omega_schedule=model_omega_schedule,
     )
     _write_run_outputs(
         output_directory,
@@ -1403,6 +1408,39 @@ def _model_time_coordinate_scale(config: Mapping[str, object]) -> float:
         raise ConfigurationError(str(error)) from error
 
 
+def _model_layer_omega_schedule(config: Mapping[str, object]) -> str | None:
+    model = config.get("model")
+    if not isinstance(model, Mapping) or "layer_omega_schedule" not in model:
+        return None
+    value = model["layer_omega_schedule"]
+    if value is None:
+        return None
+    if value != EXPONENTIAL_LAYER_OMEGA_SCHEDULE:
+        raise ConfigurationError(
+            f"model.layer_omega_schedule must be 'exponential' or null, got {value!r}"
+        )
+    hidden_layers = get_required_config_value(config, "model.hidden_layers")
+    if (
+        isinstance(hidden_layers, bool)
+        or not isinstance(hidden_layers, Integral)
+        or int(hidden_layers) < 2
+    ):
+        raise ConfigurationError(
+            "model.layer_omega_schedule='exponential' requires "
+            f"model.hidden_layers >= 2, got {hidden_layers!r}"
+        )
+    return EXPONENTIAL_LAYER_OMEGA_SCHEDULE
+
+
+def _model_omega_schedule_contract(model: Siren) -> dict[str, object] | None:
+    if model.layer_omega_schedule is None:
+        return None
+    return {
+        "layer_omega_schedule": model.layer_omega_schedule,
+        "sine_layer_omegas": list(model.layer_omegas),
+    }
+
+
 def _build_model(
     config: Mapping[str, object],
     *,
@@ -1429,6 +1467,7 @@ def _build_model(
         output_features=1,
         omega_0=get_required_config_value(config, "model.omega_0"),
         hidden_omega=get_required_config_value(config, "model.hidden_omega"),
+        layer_omega_schedule=_model_layer_omega_schedule(config),
     )
 
 
@@ -1446,6 +1485,7 @@ def _build_inputs_lock(
     source_files: tuple[dict[str, str], ...] | None = None,
     training_contract: Mapping[str, object] | None = None,
     model_coordinates: ModelCoordinateParameters | None = None,
+    model_omega_schedule: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     inputs_lock: dict[str, object] = {
         "interim_files": dict(interim_files),
@@ -1458,6 +1498,8 @@ def _build_inputs_lock(
         inputs_lock["training"] = dict(training_contract)
     if model_coordinates is not None:
         inputs_lock["model_coordinates"] = model_coordinates.to_dict()
+    if model_omega_schedule is not None:
+        inputs_lock["model_omega_schedule"] = dict(model_omega_schedule)
     return inputs_lock
 
 

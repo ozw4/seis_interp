@@ -87,6 +87,7 @@ def test_checkpoint_persists_hidden_omega_and_loads_legacy_default(tmp_path: Pat
 
     payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     assert payload["model_config"]["hidden_omega"] == 1.0
+    assert "layer_omega_schedule" not in payload["model_config"]
     payload["model_config"].pop("hidden_omega")
     payload.pop("amplitude_scaling")
     payload.pop("validation_metric_domain")
@@ -96,8 +97,43 @@ def test_checkpoint_persists_hidden_omega_and_loads_legacy_default(tmp_path: Pat
     loaded = load_siren_checkpoint(legacy_checkpoint_path)
 
     assert loaded.model.hidden_omega == 1.0
+    assert loaded.model.layer_omega_schedule is None
     assert loaded.amplitude_scaling == "train_global_rms"
     assert loaded.validation_metric_domain == "train_global_rms"
+    torch.testing.assert_close(loaded.model(coordinates), expected)
+
+
+def test_checkpoint_round_trip_restores_exponential_layer_omega_schedule(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    model = Siren(
+        hidden_width=7,
+        hidden_layers=4,
+        omega_0=5.0,
+        hidden_omega=50.0,
+        layer_omega_schedule="exponential",
+    )
+    coordinates = torch.randn(5, model.input_features)
+    expected = model(coordinates).detach()
+
+    save_siren_checkpoint(
+        checkpoint_path,
+        model,
+        _normalization(),
+        epoch=1,
+        global_step=2,
+        validation_median_trace_snr_db=3.0,
+        validation_global_snr_db=4.0,
+    )
+
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    loaded = load_siren_checkpoint(checkpoint_path)
+    assert payload["model_config"]["layer_omega_schedule"] == "exponential"
+    assert loaded.model.layer_omega_schedule == "exponential"
+    assert loaded.model.layer_omegas == pytest.approx(
+        tuple(5.0 * 10.0 ** (index / 3.0) for index in range(4))
+    )
     torch.testing.assert_close(loaded.model(coordinates), expected)
 
 
