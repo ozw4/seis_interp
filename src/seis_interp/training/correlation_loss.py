@@ -7,12 +7,15 @@ from numbers import Real
 
 import torch
 
+DEFAULT_TRACE_CORRELATION_EPS = 1.0e-4
+MSE_PLUS_TRACE_CORRELATION = "mse_plus_trace_correlation"
+
 
 def trace_correlation_loss(
     prediction: torch.Tensor,
     target: torch.Tensor,
     *,
-    eps: float = 1.0e-4,
+    eps: float = DEFAULT_TRACE_CORRELATION_EPS,
 ) -> torch.Tensor:
     """Return mean 1-correlation over traces shaped (n_traces, n_samples)."""
     if prediction.shape != target.shape:

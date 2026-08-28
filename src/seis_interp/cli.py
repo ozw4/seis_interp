@@ -452,6 +452,11 @@ def _train_siren(args: argparse.Namespace) -> int:
         print(f"Batch mode: {batch_mode}")
         if "amplitude_scaling" in summary:
             print(f"Amplitude scaling: {summary['amplitude_scaling']}")
+        if summary.get("loss_semantics") == "mse_plus_trace_correlation":
+            print(
+                "Correlation loss: "
+                f"weight={summary['correlation_weight']}, eps={summary['correlation_eps']}"
+            )
         trace_quality = summary.get("trace_quality")
         if isinstance(trace_quality, Mapping):
             print(f"Excluded traces: {trace_quality['excluded_trace_count']}")

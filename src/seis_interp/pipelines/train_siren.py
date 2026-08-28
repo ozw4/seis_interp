@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 import platform
 import subprocess
 from collections.abc import Callable, Mapping
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from numbers import Integral
+from numbers import Integral, Real
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +59,10 @@ from seis_interp.training.amplitude_scaling import (
     per_trace_rms_scaled_rows,
     validated_amplitude_scaling,
 )
+from seis_interp.training.correlation_loss import (
+    DEFAULT_TRACE_CORRELATION_EPS,
+    MSE_PLUS_TRACE_CORRELATION,
+)
 from seis_interp.training.ffid_batches import (
     FullFfidBatchSampler,
     array_rows_by_ffid_for_split,
@@ -82,6 +87,18 @@ FULL_FFID_EPOCH_BATCH_MODE = "full_ffid_epoch"
 ProgressReporter = Callable[[str], None]
 
 
+@dataclass(frozen=True)
+class _CorrelationLossSettings:
+    """Validated optional trace-correlation objective settings."""
+
+    weight: float = 0.0
+    eps: float = DEFAULT_TRACE_CORRELATION_EPS
+
+    @property
+    def enabled(self) -> bool:
+        return self.weight > 0.0
+
+
 def train_siren_run(
     *,
     config_path: Path,
@@ -99,11 +116,15 @@ def train_siren_run(
     config = load_resolved_config(Path(config_path))
     batch_mode = _training_batch_mode(config)
     amplitude_scaling = _training_amplitude_scaling(config)
+    correlation_loss = _training_correlation_loss(config, batch_mode=batch_mode)
     trace_amplitude_filter = _configured_trace_amplitude_filter(config)
     device = device_override or get_required_config_value(config, "training.device")
     resolved_config = deepcopy(config)
     resolved_config["training"]["device"] = device
     resolved_config["training"]["amplitude_scaling"] = amplitude_scaling
+    if correlation_loss.enabled:
+        resolved_config["training"]["correlation_weight"] = correlation_loss.weight
+        resolved_config["training"]["correlation_eps"] = correlation_loss.eps
     interim_directory = Path(interim_dir)
     processed_directory = Path(processed_dir)
     dataset = load_interim_trace_dataset(
@@ -173,6 +194,7 @@ def train_siren_run(
             split_table=split_table,
             normalization=normalization,
             amplitude_scaling=amplitude_scaling,
+            correlation_loss=correlation_loss,
             config=resolved_config,
             random_seed=random_seed,
             device=device,
@@ -192,6 +214,9 @@ def train_siren_run(
     if full_training_contract is not None:
         metrics["batch_mode"] = FULL_FFID_EPOCH_BATCH_MODE
         metrics["effective_steps_per_epoch"] = full_training_contract["effective_steps_per_epoch"]
+        for key in ("correlation_weight", "correlation_eps", "loss_semantics"):
+            if key in full_training_contract:
+                metrics[key] = full_training_contract[key]
         metrics = _encode_full_ffid_infinite_snr(metrics)
     run_metadata = {
         "git_commit": git_commit,
@@ -313,6 +338,7 @@ def _train_full_ffid_epoch(
     split_table: pd.DataFrame,
     normalization: NormalizationParameters,
     amplitude_scaling: str,
+    correlation_loss: _CorrelationLossSettings,
     config: Mapping[str, object],
     random_seed: int,
     device: object,
@@ -381,12 +407,15 @@ def _train_full_ffid_epoch(
         checkpoint_path=checkpoint_path,
         reporter=progress_reporter,
         amplitude_scaling=amplitude_scaling,
+        correlation_weight=correlation_loss.weight,
+        correlation_eps=correlation_loss.eps,
     )
     return result, _full_training_contract(
         training_rows_by_ffid,
         validation_rows_by_ffid,
         sample_count=len(normalized_time),
         amplitude_scaling=amplitude_scaling,
+        correlation_loss=correlation_loss,
     )
 
 
@@ -396,6 +425,7 @@ def _full_training_contract(
     *,
     sample_count: int,
     amplitude_scaling: str,
+    correlation_loss: _CorrelationLossSettings,
 ) -> dict[str, object]:
     training_trace_counts = np.asarray(
         [len(rows) for rows in training_rows_by_ffid.values()], dtype=np.int64
@@ -417,6 +447,14 @@ def _full_training_contract(
         contract["validation"] = "all_validation_traces_streamed_per_trace_rms"
         contract["validation_metric_domain"] = ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
         contract["validation_scale_source"] = "validation_trace_target_rms"
+    if correlation_loss.enabled:
+        contract.update(
+            {
+                "correlation_weight": correlation_loss.weight,
+                "correlation_eps": correlation_loss.eps,
+                "loss_semantics": MSE_PLUS_TRACE_CORRELATION,
+            }
+        )
     return contract
 
 
@@ -442,6 +480,28 @@ def _validated_positive_config_integer(value: object, dotted_path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
         raise ConfigurationError(f"{dotted_path} must be a positive integer, got {value!r}")
     return int(value)
+
+
+def _validated_positive_config_float(value: object, dotted_path: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ConfigurationError(f"{dotted_path} must be a positive finite number, got {value!r}")
+    converted = float(value)
+    if not math.isfinite(converted) or converted <= 0.0:
+        raise ConfigurationError(f"{dotted_path} must be a positive finite number, got {value!r}")
+    return converted
+
+
+def _validated_nonnegative_config_float(value: object, dotted_path: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ConfigurationError(
+            f"{dotted_path} must be a non-negative finite number, got {value!r}"
+        )
+    converted = float(value)
+    if not math.isfinite(converted) or converted < 0.0:
+        raise ConfigurationError(
+            f"{dotted_path} must be a non-negative finite number, got {value!r}"
+        )
+    return converted
 
 
 def _encode_full_ffid_infinite_snr(metrics: dict[str, object]) -> dict[str, object]:
@@ -510,6 +570,38 @@ def _training_amplitude_scaling(config: Mapping[str, object]) -> str:
         return validated_amplitude_scaling(value, name="training.amplitude_scaling")
     except ValueError as error:
         raise ConfigurationError(str(error)) from error
+
+
+def _training_correlation_loss(
+    config: Mapping[str, object],
+    *,
+    batch_mode: str,
+) -> _CorrelationLossSettings:
+    training = config.get("training")
+    if not isinstance(training, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    has_weight = "correlation_weight" in training
+    has_eps = "correlation_eps" in training
+    if not has_weight:
+        if has_eps:
+            raise ConfigurationError(
+                "training.correlation_eps requires training.correlation_weight"
+            )
+        return _CorrelationLossSettings()
+
+    weight = _validated_nonnegative_config_float(
+        training["correlation_weight"],
+        "training.correlation_weight",
+    )
+    eps = _validated_positive_config_float(
+        training.get("correlation_eps", DEFAULT_TRACE_CORRELATION_EPS),
+        "training.correlation_eps",
+    )
+    if weight > 0.0 and batch_mode != FULL_FFID_EPOCH_BATCH_MODE:
+        raise ConfigurationError(
+            "training.correlation_weight > 0 requires batch_mode 'full_ffid_epoch'"
+        )
+    return _CorrelationLossSettings(weight=weight, eps=eps)
 
 
 def _load_processed_dataset(

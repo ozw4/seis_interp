@@ -48,6 +48,7 @@ def test_all_ffid_study_resolves_the_training_contract() -> None:
     }
 
     assert {path: get_required_config_value(config, path) for path in expected} == expected
+    assert {"correlation_weight", "correlation_eps"}.isdisjoint(config["training"])
 
 
 def test_all_ffid_inputs_lock_the_manifest_sources_without_reading_raw_data() -> None:

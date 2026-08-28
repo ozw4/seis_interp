@@ -15,6 +15,8 @@ from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.train_siren import train_siren_run
 from seis_interp.processing.normalization import read_normalization_parameters
+from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
+from seis_interp.processing.trace_splits import EXCLUDED_SPLIT
 from seis_interp.training.checkpoints import load_siren_checkpoint
 
 
@@ -266,6 +268,185 @@ def test_full_ffid_pipeline_supports_per_trace_rms_as_a_training_target_scaling(
     assert run_metadata["validation_scale_source"] == "validation_trace_target_rms"
 
 
+@pytest.mark.parametrize("amplitude_scaling", ["train_global_rms", "per_trace_rms"])
+def test_full_ffid_pipeline_forwards_and_records_active_trace_correlation_loss(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    amplitude_scaling: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"].update(
+        {
+            "amplitude_scaling": amplitude_scaling,
+            "correlation_weight": 0.1,
+            "correlation_eps": 1.0e-4,
+        }
+    )
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "run"
+    import seis_interp.pipelines.train_siren as pipeline
+
+    received: dict[str, float] = {}
+    actual_train = pipeline.train_siren_by_ffid
+
+    def recording_train(*args: Any, **kwargs: Any):
+        received["correlation_weight"] = kwargs["correlation_weight"]
+        received["correlation_eps"] = kwargs["correlation_eps"]
+        return actual_train(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "train_siren_by_ffid", recording_train)
+
+    metrics = train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    expected_provenance = {
+        "correlation_weight": 0.1,
+        "correlation_eps": 1.0e-4,
+        "loss_semantics": "mse_plus_trace_correlation",
+    }
+    assert received == {
+        "correlation_weight": 0.1,
+        "correlation_eps": 1.0e-4,
+    }
+    assert {key: metrics[key] for key in expected_provenance} == expected_provenance
+    assert json.loads((output / "metrics.json").read_text(encoding="utf-8")) == metrics
+
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    assert {key: inputs_lock["training"][key] for key in expected_provenance} == expected_provenance
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert {key: run_metadata[key] for key in expected_provenance} == expected_provenance
+    resolved_config = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert resolved_config["training"]["correlation_weight"] == 0.1
+    assert resolved_config["training"]["correlation_eps"] == 1.0e-4
+    assert inputs_lock["training"]["amplitude_scaling"] == amplitude_scaling
+    if amplitude_scaling == "per_trace_rms":
+        assert metrics["validation_metric_domain"] == "oracle_per_trace_unit_rms"
+        assert run_metadata["validation_metric_domain"] == "oracle_per_trace_unit_rms"
+
+
+def test_full_ffid_pipeline_omits_trace_correlation_provenance_for_pure_mse(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    output = tmp_path / "run"
+
+    metrics = train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    resolved_config = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    correlation_keys = {"correlation_weight", "correlation_eps", "loss_semantics"}
+    assert correlation_keys.isdisjoint(metrics)
+    assert correlation_keys.isdisjoint(inputs_lock["training"])
+    assert correlation_keys.isdisjoint(run_metadata)
+    assert correlation_keys.isdisjoint(resolved_config["training"])
+
+
+@pytest.mark.parametrize("amplitude_scaling", ["train_global_rms", "per_trace_rms"])
+def test_full_ffid_pipeline_never_routes_amplitude_filtered_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    amplitude_scaling: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    amplitudes_path = interim / "amplitudes.npy"
+    amplitudes = np.load(amplitudes_path, allow_pickle=False)
+    amplitudes[:5] = 0.0
+    amplitudes[5:10] = 100.0
+    np.save(amplitudes_path, amplitudes)
+    trace_filter = TraceAmplitudeFilterConfig(
+        exclude_all_zero=True,
+        max_abs_amplitude=10.0,
+    )
+    prepare_baseline_dataset(
+        interim,
+        processed,
+        holdout_fraction=0.3,
+        validation_fraction_of_holdout=0.5,
+        random_seed=7,
+        split_scope="per_ffid",
+        trace_amplitude_filter=trace_filter,
+        config_source="studies/synthetic/config.yaml",
+        overwrite=True,
+    )
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["sampling"]["trace_amplitude_filter"] = trace_filter.to_dict()
+    config_payload["training"]["amplitude_scaling"] = amplitude_scaling
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    received: dict[str, set[int]] = {}
+    import seis_interp.pipelines.train_siren as pipeline
+
+    actual_sampler = pipeline.FullFfidBatchSampler
+    actual_evaluate = pipeline.evaluate_model_global_snr_by_ffid
+
+    def recording_sampler(*args: Any, **kwargs: Any):
+        received["train"] = {int(row) for rows in args[3].values() for row in rows}
+        return actual_sampler(*args, **kwargs)
+
+    def recording_evaluate(*args: Any, **kwargs: Any) -> float:
+        received["validation"] = {
+            int(row) for rows in kwargs["rows_by_ffid"].values() for row in rows
+        }
+        return actual_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "FullFfidBatchSampler", recording_sampler)
+    monkeypatch.setattr(pipeline, "evaluate_model_global_snr_by_ffid", recording_evaluate)
+
+    output = tmp_path / "run"
+    metrics = train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    split_table = pd.read_parquet(processed / "trace_split.parquet")
+    excluded_rows = set(split_table.loc[split_table["split"] == EXCLUDED_SPLIT, "array_row"])
+    assert excluded_rows == set(range(10))
+    assert excluded_rows.isdisjoint(received["train"] | received["validation"])
+    assert metrics["training_ffid_count"] == metrics["validation_ffid_count"] == 2
+    assert metrics["effective_steps_per_epoch"] == 2
+    assert metrics["trace_quality"]["excluded_trace_count"] == 10
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    assert inputs_lock["preparation"]["trace_amplitude_filter"] == trace_filter.to_dict()
+    assert inputs_lock["preparation"]["trace_quality"]["fully_excluded_ffids"] == [10]
+
+
+def test_full_ffid_pipeline_rejects_a_stale_pre_filter_preparation(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["sampling"]["trace_amplitude_filter"] = {
+        "exclude_all_zero": True,
+        "max_abs_amplitude": 10.0,
+    }
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="trace_amplitude_filter"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+            progress_reporter=lambda _message: None,
+        )
+
+
 def test_full_ffid_pipeline_routes_no_test_rows_to_training_or_validation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -387,6 +568,34 @@ def test_full_ffid_pipeline_rejects_unknown_training_amplitude_scaling(
     )
 
     with pytest.raises(ValueError, match="training.amplitude_scaling must be one of"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+def test_active_trace_correlation_loss_rejects_random_points_before_data_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"].update(
+        {
+            "batch_mode": "random_points",
+            "correlation_weight": 0.1,
+            "correlation_eps": 1.0e-4,
+        }
+    )
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(
+        "seis_interp.pipelines.train_siren.load_interim_trace_dataset",
+        lambda *_args, **_kwargs: pytest.fail("data loading must not start"),
+    )
+
+    with pytest.raises(ValueError, match="correlation.*full_ffid_epoch"):
         train_siren_run(
             config_path=config,
             interim_dir=interim,
