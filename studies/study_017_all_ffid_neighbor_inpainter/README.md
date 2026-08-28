@@ -6,13 +6,14 @@
 
 ## Research question
 
-Can one geometry-conditioned temporal network reconstruct every amplitude-eligible SEG C3
-Narrow-Azimuth validation trace with an oracle per-trace unit-RMS global S/N strictly greater
-than 15 dB when only training-trace amplitudes are available as neighbors?
+Can one geometry-conditioned temporal network reconstruct every canonical validation physical
+cell in amplitude-eligible SEG C3 Narrow-Azimuth with an oracle per-trace unit-RMS global S/N
+strictly greater than 15 dB when only training-trace amplitudes are available as neighbors?
 
 This is the leakage-safe successor to the coordinate-only `study_016_all_ffid_siren` condition.
-It preserves that study's survey scope and trace split, but changes the model after staged SIREN,
-Fourier, profile-wise, low-rank, moveout, and non-local retrieval diagnostics did not reach 15 dB.
+It preserves that study's survey scope and each retained row's prepared split label, but changes
+the model after staged SIREN, Fourier, profile-wise, low-rank, moveout, and non-local retrieval
+diagnostics did not reach 15 dB.
 
 ## Inputs and split
 

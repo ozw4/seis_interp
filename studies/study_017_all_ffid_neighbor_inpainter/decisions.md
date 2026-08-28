@@ -33,8 +33,9 @@ The model must reproduce a completely held-out trace rather than copy it. Center
 does not make the two train-validation duplicates independent: each pair has the same target
 coordinate, gathered neighbor tensor, and target waveform. Global physical-cell canonicalization
 removes all 15 repeated rows without inspecting their split or amplitude and leaves 114,490
-independent validation traces. The staged proxy already exceeded 18 dB when those two validation
-rows were omitted, so this stricter rule does not depend on the duplicated examples for success.
+independent validation traces. Excluding those two rows from the old proxy metric still exceeded
+18 dB, showing that its score was not driven by the twins; only a fresh retraining run can establish
+whether the new canonicalized condition itself succeeds.
 
 ## 2026-08-28 — Accept oracle per-trace unit-RMS only as the requested waveform criterion
 

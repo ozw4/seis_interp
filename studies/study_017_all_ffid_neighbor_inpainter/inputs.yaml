@@ -16,5 +16,20 @@ datasets:
       include_incomplete_ffids: true
       expected_complete_trace_count: 544
       time_window_s: null
+      physical_coordinate_canonicalization:
+        key:
+          - source_x_m
+          - source_y_m
+          - receiver_x_m
+          - receiver_y_m
+        policy: keep_lowest_array_row
+        observed_duplicate_cell_count: 15
+        observed_duplicate_row_count: 30
+        removed_trace_count: 15
+        removed_split_counts:
+          train: 12
+          validation: 2
+          test: 1
+        effective_eligible_trace_count: 2303465
     interim: ../../data/interim/c3_na/all_ffids
     processed: ../../data/processed/c3_na/all_ffids_per_ffid_random_split_amplitude_qc
