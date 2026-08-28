@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import weakref
 from collections.abc import Iterator
 from pathlib import Path
@@ -96,6 +97,7 @@ def test_random_complete_trace_trainer_selects_by_global_validation_and_records_
         1.5,
     ]
     assert all("mean_trace_batch_loss" in row for row in result.history)
+    assert all("learning_rate" not in row for row in result.history)
     loaded = load_siren_checkpoint(checkpoint)
     assert loaded.epoch == 2
     assert loaded.global_step == 6
@@ -104,6 +106,75 @@ def test_random_complete_trace_trainer_selects_by_global_validation_and_records_
     assert loaded.validation_metric_domain == "oracle_per_trace_unit_rms"
     assert "validation_metric_domain=oracle_per_trace_unit_rms" in messages[0]
     assert "oracle_per_trace_unit_rms_global_snr_db=" in messages[-1]
+
+
+def test_cosine_schedule_steps_per_update_over_the_configured_full_horizon(
+    tmp_path: Path,
+) -> None:
+    messages: list[str] = []
+    result = train_siren_by_random_complete_traces(
+        Siren(hidden_width=8, hidden_layers=1),
+        _sampler(),
+        _scores([1.0, 2.0]),
+        _normalization(),
+        device="cpu",
+        loss="l2",
+        optimizer="adam",
+        learning_rate=1.0e-3,
+        traces_per_update=2,
+        steps_per_epoch=2,
+        max_epochs=2,
+        early_stopping_patience=2,
+        validation_ffid_count=2,
+        checkpoint_path=tmp_path / "best.pt",
+        learning_rate_schedule="cosine",
+        minimum_learning_rate=1.0e-4,
+        reporter=messages.append,
+    )
+
+    assert result.global_steps == 4
+    assert [row["learning_rate"] for row in result.history] == pytest.approx([5.5e-4, 1.0e-4])
+    assert "learning_rate=0.00055" in messages[1]
+    assert "learning_rate=0.0001" in messages[-1]
+
+
+@pytest.mark.parametrize(
+    ("schedule", "minimum_learning_rate", "match"),
+    [
+        (None, 1.0e-4, "requires learning_rate_schedule"),
+        ("linear", 1.0e-4, "must be 'cosine' or None"),
+        ("cosine", None, "is required"),
+        ("cosine", 0.0, "positive finite"),
+        ("cosine", math.inf, "positive finite"),
+        ("cosine", 1.0e-3, "strictly less"),
+    ],
+)
+def test_random_complete_trace_trainer_rejects_invalid_learning_rate_schedules(
+    tmp_path: Path,
+    schedule: str | None,
+    minimum_learning_rate: float | None,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        train_siren_by_random_complete_traces(
+            Siren(hidden_width=8, hidden_layers=1),
+            _sampler(),
+            _scores([1.0]),
+            _normalization(),
+            device="cpu",
+            loss="l2",
+            optimizer="adam",
+            learning_rate=1.0e-3,
+            traces_per_update=2,
+            steps_per_epoch=1,
+            max_epochs=1,
+            early_stopping_patience=1,
+            validation_ffid_count=1,
+            checkpoint_path=tmp_path / "best.pt",
+            learning_rate_schedule=schedule,
+            minimum_learning_rate=minimum_learning_rate,
+            reporter=lambda _message: None,
+        )
 
 
 def test_random_complete_trace_trainer_rejects_more_traces_than_the_pool(

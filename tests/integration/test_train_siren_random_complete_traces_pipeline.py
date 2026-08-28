@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from seis_interp.cli import main
+from seis_interp.configuration import ConfigurationError
 from seis_interp.pipelines.train_siren import train_siren_run
 from seis_interp.training.checkpoints import load_siren_checkpoint
 from tests.integration.test_train_siren_full_ffid_pipeline import _build_full_ffid_fixture
@@ -148,6 +149,8 @@ def test_random_complete_traces_filters_ffids_and_selects_by_streamed_global_snr
     assert metrics["effective_steps_per_epoch"] == 3
     assert metrics["validation_metric_domain"] == "oracle_per_trace_unit_rms"
     assert metrics["training_metric_domain"] == "oracle_per_trace_unit_rms"
+    assert "learning_rate_schedule" not in metrics
+    assert all("learning_rate" not in row for row in metrics["history"])
 
     checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
     assert checkpoint.epoch == 2
@@ -167,12 +170,91 @@ def test_random_complete_traces_filters_ffids_and_selects_by_streamed_global_snr
     assert training_lock["validation"] == "all_validation_traces_streamed_per_trace_rms"
     assert training_lock["training_evaluation"] == "all_training_traces_streamed"
     assert training_lock["training_metric_domain"] == "oracle_per_trace_unit_rms"
+    assert "learning_rate_schedule" not in training_lock
 
     run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
     assert run_metadata["selected_ffid_range"] == [20, 30]
     assert run_metadata["selected_ffid_count"] == 2
     assert run_metadata["configured_ffid_range"] == [20, 30]
     assert run_metadata["batch_mode"] == "random_complete_traces"
+    assert "learning_rate_schedule" not in run_metadata
+
+
+def test_random_complete_traces_cosine_schedule_records_the_full_horizon_contract(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"].update(
+        {
+            "batch_mode": "random_complete_traces",
+            "ffid_range": [20, 20],
+            "traces_per_update": 2,
+            "steps_per_epoch": 2,
+            "max_epochs": 2,
+            "early_stopping_patience": 2,
+            "learning_rate_schedule": "cosine",
+            "minimum_learning_rate": 1.0e-4,
+        }
+    )
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    output = tmp_path / "run"
+    metrics = train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    expected_schedule_contract = {
+        "learning_rate_schedule": "cosine",
+        "initial_learning_rate": 1.0e-3,
+        "minimum_learning_rate": 1.0e-4,
+        "learning_rate_schedule_step_unit": "optimizer_update",
+        "learning_rate_schedule_total_updates": 4,
+    }
+    assert [row["learning_rate"] for row in metrics["history"]] == pytest.approx([5.5e-4, 1.0e-4])
+    assert {key: metrics[key] for key in expected_schedule_contract} == (expected_schedule_contract)
+
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    assert {
+        key: inputs_lock["training"][key] for key in expected_schedule_contract
+    } == expected_schedule_contract
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert {key: run_metadata[key] for key in expected_schedule_contract} == (
+        expected_schedule_contract
+    )
+    resolved_config = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert resolved_config["training"]["learning_rate_schedule"] == "cosine"
+    assert resolved_config["training"]["minimum_learning_rate"] == 1.0e-4
+
+
+@pytest.mark.parametrize("batch_mode", ["random_points", "full_ffid_epoch"])
+def test_cosine_schedule_is_rejected_outside_random_complete_traces(
+    tmp_path: Path,
+    batch_mode: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "learning_rate_schedule": "cosine",
+            "minimum_learning_rate": 1.0e-4,
+        }
+    )
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="supported only by batch_mode"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+            progress_reporter=lambda _message: None,
+        )
 
 
 def test_random_complete_traces_rejects_an_empty_ffid_range(tmp_path: Path) -> None:

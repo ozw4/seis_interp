@@ -27,6 +27,7 @@ from seis_interp.training.trainer import build_loss
 
 Reporter = Callable[[str], None]
 GlobalSnrEvaluator = Callable[[torch.nn.Module], float]
+COSINE_LEARNING_RATE_SCHEDULE = "cosine"
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,8 @@ def train_siren_by_random_complete_traces(
     checkpoint_path: Path,
     model_coordinates: ModelCoordinateParameters | None = None,
     amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
+    learning_rate_schedule: str | None = None,
+    minimum_learning_rate: float | None = None,
     training_evaluator: GlobalSnrEvaluator | None = None,
     reporter: Reporter | None = None,
 ) -> RandomCompleteTraceTrainingResult:
@@ -77,6 +80,11 @@ def train_siren_by_random_complete_traces(
     training_trace_count = _positive_integer(
         sampler.training_trace_count,
         "training_trace_count",
+    )
+    minimum_learning_rate_value = _validated_minimum_learning_rate(
+        learning_rate_schedule,
+        minimum_learning_rate,
+        initial_learning_rate=learning_rate_value,
     )
     if traces_value > training_trace_count:
         raise ValueError(
@@ -105,6 +113,15 @@ def train_siren_by_random_complete_traces(
 
     model.to(device)
     torch_optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate_value)
+    learning_rate_scheduler = (
+        torch.optim.lr_scheduler.CosineAnnealingLR(
+            torch_optimizer,
+            T_max=max_epochs_value * steps_value,
+            eta_min=minimum_learning_rate_value,
+        )
+        if minimum_learning_rate_value is not None
+        else None
+    )
     history: list[dict[str, int | float]] = []
     global_steps = 0
     best_epoch = 0
@@ -133,12 +150,16 @@ def train_siren_by_random_complete_traces(
             )
             batch_losses.append(loss_value)
             global_steps += 1
+            if learning_rate_scheduler is not None:
+                learning_rate_scheduler.step()
 
         history_row: dict[str, int | float] = {
             "epoch": epoch,
             "global_step": global_steps,
             "mean_trace_batch_loss": float(np.mean(batch_losses, dtype=np.float64)),
         }
+        if learning_rate_scheduler is not None:
+            history_row["learning_rate"] = _optimizer_learning_rate(torch_optimizer)
         if training_evaluator is not None:
             history_row["training_global_snr_db"] = _validated_global_snr(
                 training_evaluator(model),
@@ -156,10 +177,16 @@ def train_siren_by_random_complete_traces(
             if "training_global_snr_db" in history_row
             else ""
         )
+        learning_rate_progress = (
+            f" learning_rate={history_row['learning_rate']:.8g}"
+            if "learning_rate" in history_row
+            else ""
+        )
         report(
             f"random_complete_traces {epoch}/{max_epochs_value} end: "
             f"mean_trace_batch_loss={history_row['mean_trace_batch_loss']:.8g}"
-            f"{training_progress} {validation_label}={validation_global_snr_db:.8g}"
+            f"{learning_rate_progress}{training_progress} "
+            f"{validation_label}={validation_global_snr_db:.8g}"
         )
 
         if epoch == 1 or validation_global_snr_db > best_validation_global_snr_db:
@@ -235,6 +262,35 @@ def _validated_global_snr(value: object, name: str) -> float:
     if math.isnan(converted) or converted == -math.inf:
         raise ValueError(f"{name} global S/N must be finite or positive infinity")
     return converted
+
+
+def _validated_minimum_learning_rate(
+    schedule: str | None,
+    minimum_learning_rate: float | None,
+    *,
+    initial_learning_rate: float,
+) -> float | None:
+    if schedule is None:
+        if minimum_learning_rate is not None:
+            raise ValueError("minimum_learning_rate requires learning_rate_schedule")
+        return None
+    if schedule != COSINE_LEARNING_RATE_SCHEDULE:
+        raise ValueError(f"learning_rate_schedule must be 'cosine' or None, got {schedule!r}")
+    if minimum_learning_rate is None:
+        raise ValueError("minimum_learning_rate is required when learning_rate_schedule='cosine'")
+    minimum = _positive_finite_float(minimum_learning_rate, "minimum_learning_rate")
+    if minimum >= initial_learning_rate:
+        raise ValueError("minimum_learning_rate must be strictly less than learning_rate")
+    return minimum
+
+
+def _optimizer_learning_rate(optimizer: torch.optim.Optimizer) -> float:
+    if len(optimizer.param_groups) != 1:
+        raise RuntimeError("random_complete_traces optimizer must have one parameter group")
+    learning_rate = float(optimizer.param_groups[0]["lr"])
+    if not math.isfinite(learning_rate) or learning_rate <= 0.0:
+        raise RuntimeError("optimizer learning rate must remain positive and finite")
+    return learning_rate
 
 
 def _print_progress(message: str) -> None:

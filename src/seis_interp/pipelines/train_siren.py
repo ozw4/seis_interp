@@ -68,6 +68,7 @@ from seis_interp.training.amplitude_scaling import (
     validated_amplitude_scaling,
 )
 from seis_interp.training.complete_trace_trainer import (
+    COSINE_LEARNING_RATE_SCHEDULE,
     train_siren_by_random_complete_traces,
 )
 from seis_interp.training.correlation_loss import (
@@ -115,6 +116,18 @@ class _CorrelationLossSettings:
         return self.weight > 0.0
 
 
+@dataclass(frozen=True)
+class _LearningRateScheduleSettings:
+    """Validated optional per-update learning-rate schedule settings."""
+
+    name: str | None = None
+    minimum_learning_rate: float | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.name is not None
+
+
 def train_siren_run(
     *,
     config_path: Path,
@@ -133,6 +146,10 @@ def train_siren_run(
     coordinate_features = _model_coordinate_features(config)
     coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
     batch_mode = _training_batch_mode(config)
+    learning_rate_schedule = _training_learning_rate_schedule(
+        config,
+        batch_mode=batch_mode,
+    )
     amplitude_scaling = _training_amplitude_scaling(config)
     correlation_loss = _training_correlation_loss(config, batch_mode=batch_mode)
     ffid_range = _training_ffid_range(config, batch_mode=batch_mode)
@@ -253,6 +270,7 @@ def train_siren_run(
             random_seed=random_seed,
             ffid_range=ffid_range,
             evaluate_training_snr=evaluate_training_snr,
+            learning_rate_schedule=learning_rate_schedule,
             device=device,
             checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
             progress_reporter=progress_reporter,
@@ -284,6 +302,11 @@ def train_siren_run(
             "points_per_update",
             "evaluate_training_snr",
             "training_metric_domain",
+            "learning_rate_schedule",
+            "initial_learning_rate",
+            "minimum_learning_rate",
+            "learning_rate_schedule_step_unit",
+            "learning_rate_schedule_total_updates",
         ):
             if key in streaming_training_contract:
                 metrics[key] = streaming_training_contract[key]
@@ -425,6 +448,7 @@ def _train_random_complete_traces(
     random_seed: int,
     ffid_range: tuple[int, int] | None,
     evaluate_training_snr: bool,
+    learning_rate_schedule: _LearningRateScheduleSettings,
     device: object,
     checkpoint_path: Path,
     progress_reporter: ProgressReporter | None,
@@ -446,6 +470,8 @@ def _train_random_complete_traces(
         get_required_config_value(config, "training.steps_per_epoch"),
         "training.steps_per_epoch",
     )
+    max_epochs = get_required_config_value(config, "training.max_epochs")
+    learning_rate = get_required_config_value(config, "training.learning_rate")
     validation_batch_size = _validated_positive_config_integer(
         get_required_config_value(config, "training.validation_batch_size"),
         "training.validation_batch_size",
@@ -495,10 +521,10 @@ def _train_random_complete_traces(
         device=device,
         loss=get_required_config_value(config, "training.loss"),
         optimizer=get_required_config_value(config, "training.optimizer"),
-        learning_rate=get_required_config_value(config, "training.learning_rate"),
+        learning_rate=learning_rate,
         traces_per_update=traces_per_update,
         steps_per_epoch=steps_per_epoch,
-        max_epochs=get_required_config_value(config, "training.max_epochs"),
+        max_epochs=max_epochs,
         early_stopping_patience=get_required_config_value(
             config, "training.early_stopping_patience"
         ),
@@ -506,6 +532,8 @@ def _train_random_complete_traces(
         checkpoint_path=checkpoint_path,
         model_coordinates=model_coordinates,
         amplitude_scaling=amplitude_scaling,
+        learning_rate_schedule=learning_rate_schedule.name,
+        minimum_learning_rate=learning_rate_schedule.minimum_learning_rate,
         training_evaluator=training_evaluator,
         reporter=progress_reporter,
     )
@@ -518,6 +546,9 @@ def _train_random_complete_traces(
         steps_per_epoch=steps_per_epoch,
         amplitude_scaling=amplitude_scaling,
         evaluate_training_snr=evaluate_training_snr,
+        learning_rate_schedule=learning_rate_schedule,
+        initial_learning_rate=learning_rate,
+        max_epochs=max_epochs,
     )
 
 
@@ -666,6 +697,9 @@ def _random_complete_trace_training_contract(
     steps_per_epoch: int,
     amplitude_scaling: str,
     evaluate_training_snr: bool,
+    learning_rate_schedule: _LearningRateScheduleSettings,
+    initial_learning_rate: object,
+    max_epochs: object,
 ) -> dict[str, object]:
     training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
     validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
@@ -698,6 +732,27 @@ def _random_complete_trace_training_contract(
             ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
             if amplitude_scaling == PER_TRACE_RMS_SCALING
             else TRAIN_GLOBAL_RMS_VALIDATION_DOMAIN
+        )
+    if learning_rate_schedule.enabled:
+        assert learning_rate_schedule.name is not None
+        assert learning_rate_schedule.minimum_learning_rate is not None
+        contract.update(
+            {
+                "learning_rate_schedule": learning_rate_schedule.name,
+                "initial_learning_rate": _validated_positive_config_float(
+                    initial_learning_rate,
+                    "training.learning_rate",
+                ),
+                "minimum_learning_rate": learning_rate_schedule.minimum_learning_rate,
+                "learning_rate_schedule_step_unit": "optimizer_update",
+                "learning_rate_schedule_total_updates": (
+                    _validated_positive_config_integer(
+                        max_epochs,
+                        "training.max_epochs",
+                    )
+                    * steps_per_epoch
+                ),
+            }
         )
     return contract
 
@@ -881,6 +936,56 @@ def _training_batch_mode(config: Mapping[str, object]) -> str:
             f"training.batch_mode must be one of {supported_modes}, got {value!r}"
         )
     return str(value)
+
+
+def _training_learning_rate_schedule(
+    config: Mapping[str, object],
+    *,
+    batch_mode: str,
+) -> _LearningRateScheduleSettings:
+    training = config.get("training")
+    if not isinstance(training, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    has_schedule = "learning_rate_schedule" in training
+    has_minimum = "minimum_learning_rate" in training
+    if not has_schedule:
+        if has_minimum:
+            raise ConfigurationError(
+                "training.minimum_learning_rate requires training.learning_rate_schedule"
+            )
+        return _LearningRateScheduleSettings()
+
+    schedule = training["learning_rate_schedule"]
+    if schedule != COSINE_LEARNING_RATE_SCHEDULE:
+        raise ConfigurationError(
+            f"training.learning_rate_schedule must be 'cosine', got {schedule!r}"
+        )
+    if batch_mode != RANDOM_COMPLETE_TRACES_BATCH_MODE:
+        raise ConfigurationError(
+            "training.learning_rate_schedule is supported only by batch_mode "
+            "'random_complete_traces'"
+        )
+    if not has_minimum:
+        raise ConfigurationError(
+            "training.minimum_learning_rate is required when "
+            "training.learning_rate_schedule='cosine'"
+        )
+    initial_learning_rate = _validated_positive_config_float(
+        get_required_config_value(config, "training.learning_rate"),
+        "training.learning_rate",
+    )
+    minimum_learning_rate = _validated_positive_config_float(
+        training["minimum_learning_rate"],
+        "training.minimum_learning_rate",
+    )
+    if minimum_learning_rate >= initial_learning_rate:
+        raise ConfigurationError(
+            "training.minimum_learning_rate must be strictly less than training.learning_rate"
+        )
+    return _LearningRateScheduleSettings(
+        name=COSINE_LEARNING_RATE_SCHEDULE,
+        minimum_learning_rate=minimum_learning_rate,
+    )
 
 
 def _training_ffid_range(

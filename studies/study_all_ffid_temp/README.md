@@ -128,6 +128,27 @@ global S/N over the selected training traces after every epoch. This is an optim
 and does not affect checkpoint selection. Leave it false for survey-wide runs when the extra full
 training pass is too expensive.
 
+## Optional cosine learning-rate schedule
+
+`random_complete_traces` can optionally decay Adam's learning rate with a cosine schedule:
+
+```yaml
+training:
+  learning_rate: 1.0e-4
+  learning_rate_schedule: cosine
+  minimum_learning_rate: 1.0e-6
+```
+
+The schedule advances after every optimizer update. Its fixed horizon is the configured
+`max_epochs * steps_per_epoch`, even when early stopping ends the run before that horizon. The
+minimum must be positive, finite, and strictly less than `training.learning_rate`. These schedule
+keys are rejected by the other batch modes.
+
+Scheduled runs add the current end-of-epoch `learning_rate` to each history row and lock the
+initial and minimum rates, optimizer-update step unit, and full configured update horizon in
+`metrics.json`, `run.json`, and `inputs.lock.json`. Omitting both schedule keys preserves the
+fixed-learning-rate behavior and does not add schedule or history fields to existing artifacts.
+
 ## Training loss
 
 When `training.correlation_weight` is positive, the scratch condition uses the configured `l2`
