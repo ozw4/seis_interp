@@ -452,6 +452,9 @@ def _train_siren(args: argparse.Namespace) -> int:
         print(f"Batch mode: {batch_mode}")
         if "amplitude_scaling" in summary:
             print(f"Amplitude scaling: {summary['amplitude_scaling']}")
+        trace_quality = summary.get("trace_quality")
+        if isinstance(trace_quality, Mapping):
+            print(f"Excluded traces: {trace_quality['excluded_trace_count']}")
         oracle_validation = summary.get("validation_metric_domain") == ("oracle_per_trace_unit_rms")
         if oracle_validation:
             print("Validation metric domain: oracle per-trace unit RMS")

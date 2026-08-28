@@ -43,7 +43,9 @@ from seis_interp.processing.normalization import (
     normalize_time,
     read_normalization_parameters,
 )
+from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
 from seis_interp.processing.trace_splits import (
+    EXCLUDED_SPLIT,
     SPLIT_COLUMN,
     TEST_SPLIT,
     TRAIN_SPLIT,
@@ -97,6 +99,7 @@ def train_siren_run(
     config = load_resolved_config(Path(config_path))
     batch_mode = _training_batch_mode(config)
     amplitude_scaling = _training_amplitude_scaling(config)
+    trace_amplitude_filter = _configured_trace_amplitude_filter(config)
     device = device_override or get_required_config_value(config, "training.device")
     resolved_config = deepcopy(config)
     resolved_config["training"]["device"] = device
@@ -110,7 +113,11 @@ def train_siren_run(
     split_table, normalization, preparation = _load_processed_dataset(processed_directory)
     interim_files = _file_hashes(interim_directory, INTERIM_FILE_NAMES)
     processed_files = _file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
-    split_rows = _validate_split_table(split_table, len(dataset.trace_table))
+    split_rows = _validate_split_table(
+        split_table,
+        len(dataset.trace_table),
+        allow_excluded="trace_amplitude_filter" in preparation,
+    )
     split_counts = _split_counts(split_table)
     _validate_preparation_data(
         preparation,
@@ -121,6 +128,9 @@ def train_siren_run(
     preparation_contract = _validated_preparation_contract(
         preparation,
         resolved_config,
+        split_table=split_table,
+        trace_table=dataset.trace_table,
+        trace_amplitude_filter=trace_amplitude_filter,
         batch_mode=batch_mode,
     )
 
@@ -172,6 +182,9 @@ def train_siren_run(
 
     metrics = asdict(result)
     metrics["history"] = [dict(record) for record in result.history]
+    trace_quality = preparation_contract.get("trace_quality")
+    if isinstance(trace_quality, Mapping):
+        metrics["trace_quality"] = dict(trace_quality)
     if amplitude_scaling == PER_TRACE_RMS_SCALING:
         metrics["amplitude_scaling"] = amplitude_scaling
         metrics["validation_metric_domain"] = ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
@@ -201,6 +214,8 @@ def train_siren_run(
                 "validation_scale_source": "validation_trace_target_rms",
             }
         )
+    if isinstance(trace_quality, Mapping):
+        run_metadata["trace_quality"] = dict(trace_quality)
     random_training_contract = (
         _random_points_per_trace_training_contract()
         if batch_mode == RANDOM_POINTS_BATCH_MODE and amplitude_scaling == PER_TRACE_RMS_SCALING
@@ -309,11 +324,15 @@ def _train_full_ffid_epoch(
         split: array_rows_by_ffid_for_split(trace_table, split_table, split=split)
         for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
     }
+    eligible_rows = split_table.loc[
+        split_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT), "array_row"
+    ].to_numpy(dtype=np.int64)
     for split, rows_by_ffid in rows_by_split.items():
         validate_all_ffids_have_split_rows(
             trace_table,
             rows_by_ffid,
             split=split,
+            eligible_array_rows=eligible_rows,
         )
 
     training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
@@ -509,7 +528,12 @@ def _load_processed_dataset(
     return split_table, normalization, preparation
 
 
-def _validate_split_table(split_table: pd.DataFrame, trace_count: int) -> np.ndarray:
+def _validate_split_table(
+    split_table: pd.DataFrame,
+    trace_count: int,
+    *,
+    allow_excluded: bool = False,
+) -> np.ndarray:
     rows = validated_array_rows(split_table, require_contiguous=True)
     if len(split_table) != trace_count:
         raise ValueError(
@@ -517,11 +541,14 @@ def _validate_split_table(split_table: pd.DataFrame, trace_count: int) -> np.nda
         )
     if SPLIT_COLUMN not in split_table.columns:
         raise ValueError(f"split table is missing required column: {SPLIT_COLUMN}")
-    valid_splits = {TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT}
+    required_splits = {TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT}
+    valid_splits = set(required_splits)
+    if allow_excluded:
+        valid_splits.add(EXCLUDED_SPLIT)
     invalid = sorted(set(split_table[SPLIT_COLUMN]) - valid_splits)
     if invalid:
         raise ValueError(f"split table contains invalid split values: {invalid}")
-    missing = sorted(valid_splits - set(split_table[SPLIT_COLUMN]))
+    missing = sorted(required_splits - set(split_table[SPLIT_COLUMN]))
     if missing:
         raise ValueError(f"split table contains no rows for splits: {missing}")
     return rows
@@ -582,6 +609,9 @@ def _validated_preparation_contract(
     preparation: Mapping[str, object],
     config: Mapping[str, object],
     *,
+    split_table: pd.DataFrame,
+    trace_table: pd.DataFrame,
+    trace_amplitude_filter: TraceAmplitudeFilterConfig | None,
     batch_mode: str,
 ) -> dict[str, object]:
     expected = {
@@ -610,6 +640,30 @@ def _validated_preparation_contract(
                 f"got {prepared_split_scope!r}"
             )
         expected["split_scope"] = "per_ffid"
+    expected_trace_filter = (
+        trace_amplitude_filter.to_dict() if trace_amplitude_filter is not None else None
+    )
+    prepared_trace_filter_present = "trace_amplitude_filter" in preparation
+    if (
+        prepared_trace_filter_present != (expected_trace_filter is not None)
+        or preparation.get("trace_amplitude_filter") != expected_trace_filter
+    ):
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} does not match the resolved configuration: "
+            "['trace_amplitude_filter']"
+        )
+    if trace_amplitude_filter is not None:
+        expected["trace_amplitude_filter"] = expected_trace_filter
+        expected["trace_quality"] = _validated_trace_quality_contract(
+            preparation.get("trace_quality"),
+            split_table,
+            trace_table,
+        )
+    elif "trace_quality" in preparation:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} contains trace_quality without a configured "
+            "trace_amplitude_filter"
+        )
     mismatched = [
         key for key, expected_value in expected.items() if preparation.get(key) != expected_value
     ]
@@ -620,11 +674,125 @@ def _validated_preparation_contract(
     return expected
 
 
+def _validated_trace_quality_contract(
+    value: object,
+    split_table: pd.DataFrame,
+    trace_table: pd.DataFrame,
+) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{PREPARATION_FILE_NAME} trace_quality must be an object")
+    required_keys = {
+        "input_trace_count",
+        "eligible_trace_count",
+        "excluded_trace_count",
+        "all_zero_trace_count",
+        "excess_amplitude_trace_count",
+        "excluded_array_rows",
+        "affected_ffids",
+        "fully_excluded_ffids",
+    }
+    if set(value) != required_keys:
+        missing = sorted(required_keys - set(value))
+        unexpected = sorted(set(value) - required_keys)
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} trace_quality has invalid keys: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+
+    excluded_rows = np.sort(
+        split_table.loc[split_table[SPLIT_COLUMN].eq(EXCLUDED_SPLIT), "array_row"].to_numpy(
+            dtype=np.int64
+        )
+    )
+    stored_excluded_rows = value["excluded_array_rows"]
+    if (
+        not isinstance(stored_excluded_rows, list)
+        or any(isinstance(row, bool) or not isinstance(row, int) for row in stored_excluded_rows)
+        or stored_excluded_rows != [int(row) for row in excluded_rows]
+    ):
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} trace_quality excluded_array_rows do not match "
+            f"{TRACE_SPLIT_FILE_NAME}"
+        )
+
+    expected_counts = {
+        "input_trace_count": len(split_table),
+        "eligible_trace_count": len(split_table) - len(excluded_rows),
+        "excluded_trace_count": len(excluded_rows),
+    }
+    mismatched_counts = [
+        key for key, expected_value in expected_counts.items() if value.get(key) != expected_value
+    ]
+    reason_count = value.get("all_zero_trace_count")
+    excess_count = value.get("excess_amplitude_trace_count")
+    if (
+        isinstance(reason_count, bool)
+        or not isinstance(reason_count, int)
+        or isinstance(excess_count, bool)
+        or not isinstance(excess_count, int)
+        or reason_count < 0
+        or excess_count < 0
+        or reason_count + excess_count != len(excluded_rows)
+    ):
+        mismatched_counts.append("reason_counts")
+    if mismatched_counts:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} trace_quality counts do not match "
+            f"{TRACE_SPLIT_FILE_NAME}: {mismatched_counts}"
+        )
+    for key in ("affected_ffids", "fully_excluded_ffids"):
+        raw_ffids = value[key]
+        if (
+            not isinstance(raw_ffids, list)
+            or any(isinstance(ffid, bool) or not isinstance(ffid, int) for ffid in raw_ffids)
+            or raw_ffids != sorted(set(raw_ffids))
+        ):
+            raise ValueError(
+                f"{PREPARATION_FILE_NAME} trace_quality {key} must be sorted unique integers"
+            )
+    ffid_by_array_row = np.empty(len(trace_table), dtype=np.int64)
+    trace_rows = trace_table["array_row"].to_numpy(dtype=np.int64)
+    ffid_by_array_row[trace_rows] = trace_table["ffid"].to_numpy(dtype=np.int64)
+    expected_affected_ffids = sorted(
+        int(ffid) for ffid in np.unique(ffid_by_array_row[excluded_rows])
+    )
+    eligible_rows = split_table.loc[
+        split_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT), "array_row"
+    ].to_numpy(dtype=np.int64)
+    eligible_ffids = {int(ffid) for ffid in np.unique(ffid_by_array_row[eligible_rows])}
+    expected_fully_excluded_ffids = sorted(set(expected_affected_ffids) - eligible_ffids)
+    expected_ffid_lists = {
+        "affected_ffids": expected_affected_ffids,
+        "fully_excluded_ffids": expected_fully_excluded_ffids,
+    }
+    mismatched_ffids = [
+        key for key, expected_value in expected_ffid_lists.items() if value[key] != expected_value
+    ]
+    if mismatched_ffids:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} trace_quality FFIDs do not match "
+            f"{TRACE_SPLIT_FILE_NAME}: {mismatched_ffids}"
+        )
+    return dict(value)
+
+
 def _configured_split_scope(config: Mapping[str, object]) -> object:
     sampling = config.get("sampling")
     if not isinstance(sampling, Mapping):
         return "global"
     return sampling.get("split_scope", "global")
+
+
+def _configured_trace_amplitude_filter(
+    config: Mapping[str, object],
+) -> TraceAmplitudeFilterConfig | None:
+    sampling = config.get("sampling")
+    if not isinstance(sampling, Mapping) or "trace_amplitude_filter" not in sampling:
+        return None
+    return TraceAmplitudeFilterConfig.from_mapping(
+        sampling["trace_amplitude_filter"],
+        name="sampling.trace_amplitude_filter",
+    )
 
 
 def _build_model(config: Mapping[str, object]) -> Siren:
