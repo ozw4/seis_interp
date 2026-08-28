@@ -32,6 +32,7 @@ model:
   omega_0: 90.0
   hidden_omega: 30.0
   layer_omega_schedule: exponential
+  skip_connections: dense
 
 # full_ffid_epoch uses one FFID per update and ignores batch_size/steps_per_epoch.
 # random_points uses batch_size/steps_per_epoch instead.

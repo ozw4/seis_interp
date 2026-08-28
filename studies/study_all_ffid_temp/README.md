@@ -113,6 +113,18 @@ The generated checkpoint retains the schedule name, while `inputs.lock.json` and
 also retain the resolved per-layer frequencies. Omitting the key preserves the established
 first-layer `omega_0` plus fixed `hidden_omega` behavior and does not add schedule provenance.
 
+### Optional dense sine-layer connections
+
+`model.skip_connections: dense` makes each sine layer after the first consume the concatenated
+activations of every preceding sine layer. The final linear layer likewise consumes all sine-layer
+activations. This can be combined with the layer-wise frequency schedule, but its parameter and
+activation costs grow quadratically with `model.hidden_layers`.
+
+The active architecture is stored in the checkpoint. `inputs.lock.json` and `run.json` additionally
+record each sine layer's input width, the final linear input width, and the model parameter count.
+Omitting the key preserves the established sequential SIREN and does not add dense-architecture
+provenance.
+
 ## Trace-amplitude eligibility
 
 Amplitude eligibility is determined from raw interim traces before split assignment and before
