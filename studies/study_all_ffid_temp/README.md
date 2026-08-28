@@ -94,6 +94,25 @@ transform. The scale is applied to training and validation coordinates in all th
 It is a model-input transform, so changing it does not require rebuilding the prepared split or
 fitted normalization.
 
+### Optional layer-wise frequency schedule
+
+`model.layer_omega_schedule: exponential` assigns a geometric progression of activation
+frequencies to the sine layers, beginning at `model.omega_0` and ending at
+`model.hidden_omega`. The schedule requires at least two sine layers. For example, four layers
+with endpoints 5 and 50 use frequencies `[5, 10.772..., 23.208..., 50]`:
+
+```yaml
+model:
+  hidden_layers: 4
+  omega_0: 5.0
+  hidden_omega: 50.0
+  layer_omega_schedule: exponential
+```
+
+The generated checkpoint retains the schedule name, while `inputs.lock.json` and `run.json`
+also retain the resolved per-layer frequencies. Omitting the key preserves the established
+first-layer `omega_0` plus fixed `hidden_omega` behavior and does not add schedule provenance.
+
 ## Trace-amplitude eligibility
 
 Amplitude eligibility is determined from raw interim traces before split assignment and before
