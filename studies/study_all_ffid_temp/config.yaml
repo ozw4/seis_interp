@@ -27,7 +27,8 @@ model:
   name: siren
   coordinate_features: cmp_cartesian_half_offset
   input_features: 5
-  hidden_width: 512
+  time_coordinate_scale: 4.0
+  hidden_width: 256
   hidden_layers: 4
   omega_0: 30.0
   hidden_omega: 30.0
