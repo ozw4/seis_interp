@@ -24,6 +24,14 @@ normalization:
 model:
   name: neighbor_trace_inpainter
   hidden_width: 128
+  target_coordinates:
+    - relative_receiver_x_m
+    - source_y_m
+    - relative_receiver_y_m
+  target_coordinate_scaling: train_minmax
+  stem_kernel_size: 15
+  residual_kernel_size: 7
+  temporal_dilations: [1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1]
   neighborhood:
     relative_receiver_x_radius: 1
     source_shot_radius: 2
@@ -55,3 +63,10 @@ evaluation:
   primary_metric: oracle_per_trace_unit_rms_global_snr_db
   success_threshold_db: 15.0
   comparison: strictly_greater_than
+  required_eligible_ffid_count: 4780
+  required_sample_count: 625
+  required_effective_split_counts:
+    train: 1842090
+    validation: 114490
+    test: 346885
+  required_fully_excluded_ffids: [1746]

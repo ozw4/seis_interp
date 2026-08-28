@@ -44,6 +44,10 @@ kernel-15 temporal stem of width 128 feeds eleven gated depthwise residual block
 `[1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1]`, followed by a scalar trace head. The fixed condition has
 983,041 parameters.
 
+The `normalization` mapping in `config.yaml` locks compatibility with the reused Study 016
+prepared artifact; it is not the model-input transform. The inpainter's three target coordinates
+use their own train-only min/max transform declared under `model.target_coordinate_scaling`.
+
 ## Training and validation
 
 AdamW runs 2,500 updates with seed 42, batch size 96, learning rate `5e-4`, weight decay `1e-5`,
@@ -52,13 +56,14 @@ The loss is trace MSE plus `0.1` times first-time-difference MSE, with gradient 
 CUDA training uses bfloat16 autocast while predictions and energy accumulation remain float32 and
 float64 respectively.
 
-Every 500 updates, all validation traces are predicted from train neighbors. The checkpoint is
-selected by raw prediction S/N; normalizing a prediction by its own RMS is diagnostic only and
-cannot select the checkpoint. The primary metric is
+Validation runs after the first update, every 500 updates, and at the final update. The checkpoint
+is selected by raw prediction S/N; normalizing a prediction by its own RMS is diagnostic only and
+cannot select the checkpoint. A deterministic seed-44 sample of 114,492 train traces supplies a
+leave-one-out training audit after selection and cannot affect the checkpoint. The primary metric is
 `oracle_per_trace_unit_rms_global_snr_db`, computed as
 `10 log10(sum(target_unit^2) / sum((target_unit - prediction_raw)^2))`.
 
-The success rule was fixed before the accepted run:
+The success rule was fixed before the formal run:
 
 ```text
 oracle_per_trace_unit_rms_global_snr_db > 15 dB
@@ -66,7 +71,21 @@ oracle_per_trace_unit_rms_global_snr_db > 15 dB
 
 ## Reproduction
 
-From the repository root, after preparing the dataset named in `inputs.yaml`:
+From the repository root, prepare the locked survey and split if they are not already present:
+
+```bash
+python -m seis_interp.cli data prepare-c3-survey \
+  --manifest data/external/seg_c3_na/manifest.yaml \
+  --data-root "$SEIS_INTERP_DATA_ROOT" \
+  --output data/interim/c3_na/all_ffids
+
+python -m seis_interp.cli data prepare-baseline \
+  --config studies/study_017_all_ffid_neighbor_inpainter/config.yaml \
+  --input data/interim/c3_na/all_ffids \
+  --output data/processed/c3_na/all_ffids_per_ffid_random_split_amplitude_qc
+```
+
+Then run the formal training condition:
 
 ```bash
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)_$(git rev-parse --short HEAD)_all_ffids"
