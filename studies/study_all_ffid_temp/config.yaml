@@ -26,7 +26,7 @@ normalization:
 model:
   name: siren
   input_features: 6
-  hidden_width: 512
+  hidden_width: 256
   hidden_layers: 4
   omega_0: 30.0
   hidden_omega: 30.0
@@ -35,7 +35,7 @@ model:
 # random_points uses batch_size/steps_per_epoch instead.
 # amplitude_scaling accepts train_global_rms or per_trace_rms.
 training:
-  batch_mode: full_ffid_epoch
+  batch_mode: random_complete_traces
   amplitude_scaling: per_trace_rms
   # l2 is the pointwise MSE term; the positive weight adds mean trace correlation loss.
   loss: l2
@@ -44,8 +44,11 @@ training:
   optimizer: adam
   learning_rate: 1.0e-4
   batch_size: 300000
+  ffid_range: [2348, 2348]
+  traces_per_update: 435
   steps_per_epoch: 500
-  max_epochs: 30
-  early_stopping_patience: 3
+  max_epochs: 100
+  early_stopping_patience: 100
+  evaluate_training_snr: true
   validation_batch_size: 65536
   device: cuda:1

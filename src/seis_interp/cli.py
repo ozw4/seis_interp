@@ -464,7 +464,7 @@ def _train_siren(args: argparse.Namespace) -> int:
         if oracle_validation:
             print("Validation metric domain: oracle per-trace unit RMS")
         print(f"Best epoch: {summary['best_epoch']}")
-        if batch_mode == "full_ffid_epoch":
+        if batch_mode in ("full_ffid_epoch", "random_complete_traces"):
             label = (
                 "Best oracle-normalized validation global S/N"
                 if oracle_validation

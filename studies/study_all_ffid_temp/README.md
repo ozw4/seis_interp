@@ -59,6 +59,30 @@ not promote this condition as a physical-amplitude interpolation result without 
 model fitted only from training data. Generated metrics, run metadata, and the checkpoint label
 this metric domain as `oracle_per_trace_unit_rms`.
 
+## Batch modes and staged FFID scope
+
+`training.batch_mode` supports three diagnostic paths:
+
+- `random_points` samples independent trace/time points and selects checkpoints by median
+  validation trace S/N. It retains the original materialized validation path.
+- `full_ffid_epoch` uses one complete training FFID per update and selects checkpoints by streamed
+  global validation S/N.
+- `random_complete_traces` samples `training.traces_per_update` distinct rows uniformly from the
+  selected training-trace pool, includes all 625 time samples from each row, and runs
+  `training.steps_per_epoch` updates per epoch. Targets are scaled only after their rows are
+  selected, and checkpoints and early stopping use only streamed global validation S/N.
+
+For the two streamed modes, optional inclusive `training.ffid_range: [min, max]` applies the same
+FFID selection to train, validation, and test groups without rewriting the prepared artifacts.
+Coordinate bounds and the prepared training-global amplitude RMS remain those of the original
+survey-wide preparation. The configured and effective FFID ranges and effective FFID count are
+locked in the generated run records.
+
+`random_complete_traces` can additionally set `training.evaluate_training_snr: true` to stream
+global S/N over the selected training traces after every epoch. This is an optimization diagnostic
+and does not affect checkpoint selection. Leave it false for survey-wide runs when the extra full
+training pass is too expensive.
+
 ## Training loss
 
 When `training.correlation_weight` is positive, the scratch condition uses the configured `l2`
@@ -86,9 +110,10 @@ Correlation is a training-only auxiliary term. Validation and early stopping are
 continue to use streamed global S/N; with `per_trace_rms`, that remains the oracle per-trace
 unit-RMS validation domain described above.
 
-With `batch_mode: random_points`, set `correlation_weight: 0`; independently sampled points do not
-retain the complete per-trace time axis needed by the trace-correlation term. That condition trains
-with the configured pointwise loss alone.
+With `batch_mode: random_points` or `batch_mode: random_complete_traces`, set
+`correlation_weight: 0`. The reusable `train siren` path currently enables the auxiliary
+correlation objective only for `full_ffid_epoch`; the other modes train with the configured
+pointwise loss alone.
 
 ## Run
 
@@ -109,9 +134,9 @@ From the repository root:
 python scripts/run_study_all_ffid_temp.py
 ```
 
-Both `random_points` and `full_ffid_epoch` print an immediately flushed start and end line for each
-epoch. The `random_points` end line includes the epoch mean training loss and both validation S/N
-metrics. For example, a `per_trace_rms` run prints:
+All three batch modes print an immediately flushed start and end line for each epoch. The
+`random_points` end line includes the epoch mean training loss and both validation S/N metrics.
+For example, a `per_trace_rms` run prints:
 
 ```text
 random_points 1/10 start: steps_per_epoch=500 batch_size=3000000 amplitude_scaling=per_trace_rms validation_metric_domain=oracle_per_trace_unit_rms
