@@ -3,8 +3,8 @@
 ## Purpose
 
 This is a scratch workspace for repeated survey-wide SIREN experiments using the prepared
-`all_ffids_per_ffid_random_split` dataset. It is not a numbered study and its latest output is
-not an immutable research record.
+`all_ffids_per_ffid_random_split_amplitude_qc` dataset. It is not a numbered study and its latest
+output is not an immutable research record.
 
 Edit [`config.yaml`](config.yaml) directly between runs. The initial values match
 `study_016_all_ffid_siren` except for the deliberately enabled per-trace RMS training target.
@@ -20,11 +20,26 @@ reusing it:
 - `sampling.random_trace_holdout_fraction`
 - `sampling.validation_fraction_of_holdout`
 - `sampling.split_scope`
+- `sampling.trace_amplitude_filter`
 - `normalization.coordinates`
 - `normalization.amplitude`
 
 Changing one of those values requires preparing a different processed dataset. Model and training
 values can be changed without rebuilding the split or normalization.
+
+## Trace-amplitude eligibility
+
+Amplitude eligibility is determined from raw interim traces before split assignment and before
+normalization is fitted. This rule does not depend on `training.amplitude_scaling`:
+
+- exclude a trace when all 625 samples are exactly zero;
+- exclude a trace when any sample has absolute amplitude greater than `1.0e4`;
+- never clip amplitudes or remove individual time samples.
+
+For the locked SEG C3 NA input this excludes exactly 544 traces: 107 all-zero traces and 437
+excessive-amplitude traces, all belonging to FFID 1746. The remaining 2,303,480 traces across
+4,780 FFIDs are split and normalized. Excluded rows remain recorded with the `excluded` split
+label but are used by neither training nor validation.
 
 ## Training-target amplitude scaling
 
@@ -46,6 +61,17 @@ model fitted only from training data. Generated metrics, run metadata, and the c
 this metric domain as `oracle_per_trace_unit_rms`.
 
 ## Run
+
+Prepare the amplitude-filtered split once, or regenerate it after changing a fixed prepared-data
+condition:
+
+```bash
+python -m seis_interp.cli data prepare-baseline \
+  --config studies/study_all_ffid_temp/config.yaml \
+  --input data/interim/c3_na/all_ffids \
+  --output data/processed/c3_na/all_ffids_per_ffid_random_split_amplitude_qc \
+  --overwrite
+```
 
 From the repository root:
 

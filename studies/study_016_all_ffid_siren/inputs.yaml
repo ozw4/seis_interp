@@ -17,4 +17,4 @@ datasets:
       expected_complete_trace_count: 544
       time_window_s: null
     interim: ../../data/interim/c3_na/all_ffids
-    processed: ../../data/processed/c3_na/all_ffids_per_ffid_random_split
+    processed: ../../data/processed/c3_na/all_ffids_per_ffid_random_split_amplitude_qc

@@ -26,6 +26,8 @@ def test_all_ffid_study_resolves_the_training_contract() -> None:
         "sampling.random_trace_holdout_fraction": 0.20,
         "sampling.validation_fraction_of_holdout": 0.25,
         "sampling.split_scope": "per_ffid",
+        "sampling.trace_amplitude_filter.exclude_all_zero": True,
+        "sampling.trace_amplitude_filter.max_abs_amplitude": 1.0e4,
         "normalization.coordinates": "train_minmax_linear_plus_azimuth_sin_cos",
         "normalization.amplitude": "train_global_rms",
         "model.name": "siren",
@@ -93,3 +95,4 @@ def test_all_ffid_inputs_lock_the_manifest_sources_without_reading_raw_data() ->
         value = Path(dataset[key])
         assert not value.is_absolute()
         assert (STUDY_DIRECTORY / value).resolve().is_relative_to(REPOSITORY_ROOT)
+    assert Path(dataset["processed"]).name == ("all_ffids_per_ffid_random_split_amplitude_qc")

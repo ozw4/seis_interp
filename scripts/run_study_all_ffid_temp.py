@@ -18,7 +18,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = REPOSITORY_ROOT / "studies" / "study_all_ffid_temp" / "config.yaml"
 INTERIM_DIRECTORY = REPOSITORY_ROOT / "data" / "interim" / "c3_na" / "all_ffids"
 PROCESSED_DIRECTORY = (
-    REPOSITORY_ROOT / "data" / "processed" / "c3_na" / "all_ffids_per_ffid_random_split"
+    REPOSITORY_ROOT
+    / "data"
+    / "processed"
+    / "c3_na"
+    / "all_ffids_per_ffid_random_split_amplitude_qc"
 )
 OUTPUT_DIRECTORY = REPOSITORY_ROOT / "runs" / "study_all_ffid_temp" / "current"
 
@@ -102,6 +106,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Best epoch: {metrics['best_epoch']}")
     if "amplitude_scaling" in metrics:
         print(f"Amplitude scaling: {metrics['amplitude_scaling']}")
+    trace_quality = metrics.get("trace_quality")
+    if isinstance(trace_quality, dict):
+        print(f"Excluded traces: {trace_quality['excluded_trace_count']}")
     if metrics.get("validation_metric_domain") == "oracle_per_trace_unit_rms":
         print("Validation metric domain: oracle per-trace unit RMS")
         validation_label = "Best oracle-normalized validation global S/N"

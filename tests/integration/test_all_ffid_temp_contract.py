@@ -28,6 +28,8 @@ def test_temp_study_preserves_the_existing_processed_data_contract() -> None:
         "sampling.random_trace_holdout_fraction",
         "sampling.validation_fraction_of_holdout",
         "sampling.split_scope",
+        "sampling.trace_amplitude_filter.exclude_all_zero",
+        "sampling.trace_amplitude_filter.max_abs_amplitude",
         "normalization.coordinates",
         "normalization.amplitude",
     )
@@ -52,5 +54,9 @@ def test_temp_study_reuses_the_all_ffid_input_contract() -> None:
     processed = Path(dataset["processed"])
     assert not processed.is_absolute()
     assert (TEMP_STUDY_DIRECTORY / processed).resolve() == (
-        REPOSITORY_ROOT / "data" / "processed" / "c3_na" / "all_ffids_per_ffid_random_split"
+        REPOSITORY_ROOT
+        / "data"
+        / "processed"
+        / "c3_na"
+        / "all_ffids_per_ffid_random_split_amplitude_qc"
     )

@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-08-28 — Exclude amplitude-invalid traces before splitting and normalization
+
+**Status:** active
+
+**Decision:**
+Exclude a complete trace when all raw samples are exactly zero or when any raw sample has an
+absolute amplitude greater than `1.0e4`. Apply this filter before split assignment and before
+fitting coordinate or amplitude normalization, independently of the later training-target
+amplitude scaling.
+
+**Reason:**
+The locked input contains one isolated invalid block at FFID 1746. Its 544 traces consist of 107
+all-zero traces and 437 non-zero traces whose peak absolute amplitudes start at `115210.0` and
+extend nearly to the float32 limit. Outside FFID 1746 the observed maximum is `4298.765625`, so
+`1.0e4` lies in a wide measured gap and excludes no other FFID. Retaining these rows makes
+per-trace RMS undefined for zero traces and contaminates the training-global RMS with extreme
+values. The excluded rows remain explicit in the processed split artifact for auditability.
+
 ## 2026-08-28 — Include the observed final FFID 4782
 
 **Status:** active
@@ -46,6 +64,6 @@ Run at most ten epochs with patience of three epochs and select only by streamin
 validation S/N.
 
 **Reason:**
-With 4,781 FFIDs per epoch, ten epochs allow at most 47,810 optimizer updates, which remains
-comparable to Study 014's 50,000 updates. This is a budget anchor, not an optimum or convergence
-claim.
+With 4,780 amplitude-eligible FFIDs per epoch, ten epochs allow at most 47,800 optimizer updates,
+which remains comparable to Study 014's 50,000 updates. This is a budget anchor, not an optimum or
+convergence claim.
