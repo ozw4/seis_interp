@@ -50,3 +50,19 @@ primary metric.
 This is the success rule requested for the staged investigation. It isolates waveform recovery
 from trace gain, but cannot reconstruct physical amplitudes because target RMS is unavailable at
 an unseen coordinate. Keeping raw predictions avoids a second prediction-dependent postprocess.
+
+## 2026-08-28 — Accept the canonical all-FFID formal run
+
+**Status:** active
+
+**Decision:**
+Accept run `20260828T194620Z_edb2561_all_ffids` as the successful Study 017 result and close the
+study as completed.
+
+**Reason:**
+The fresh seed-42 run trained after global physical-cell canonicalization and reached
+18.111870025656728 dB at step 2,500, exceeding the strict 15 dB rule by 3.111870025656728 dB.
+All formal scope and leakage checks passed: 4,780 eligible FFIDs, 625 samples, effective
+train/validation/test counts 1,842,090/114,490/346,885, no remaining duplicate or overlapping
+physical cells, no target-center neighbors, and no materialized test or excluded amplitude
+values. Reloading the selected checkpoint reproduced the accepted validation metric.
