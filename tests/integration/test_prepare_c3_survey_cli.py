@@ -104,7 +104,7 @@ def test_prepare_c3_survey_cli_verifies_then_preserves_manifest_order(
         "dataset_id": "seg_c3_na",
         "expected_complete_trace_count": 544,
         "expected_ffid_ranges": [(2, 3), (4, 5)],
-        "expected_survey_ffid_range": (2, 4781),
+        "expected_survey_ffid_range": (2, 4782),
         "source_sha256": SOURCE_SHA256,
         "overwrite": True,
     }

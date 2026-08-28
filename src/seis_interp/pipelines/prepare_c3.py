@@ -33,7 +33,7 @@ from seis_interp.processing.ffid_selection import annotate_ffid_quality, select_
 # have fewer. Other surveys have their own count, so this stays out of
 # seis_interp.processing.ffid_selection.
 C3_COMPLETE_SHOT_TRACE_COUNT = 544
-C3_SURVEY_FFID_RANGE = (2, 4781)
+C3_SURVEY_FFID_RANGE = (2, 4782)
 
 _SURVEY_AMPLITUDE_CHUNK_ROWS = 4096
 

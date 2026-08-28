@@ -10,6 +10,7 @@ from seis_interp.configuration import (
     get_required_config_value,
     load_resolved_config,
 )
+from seis_interp.pipelines.prepare_c3 import C3_SURVEY_FFID_RANGE
 
 STUDY_DIRECTORY = REPOSITORY_ROOT / "studies" / "study_016_all_ffid_siren"
 
@@ -54,18 +55,39 @@ def test_all_ffid_inputs_lock_the_manifest_sources_without_reading_raw_data() ->
         )
     )
     (dataset,) = inputs["datasets"]
+    manifest_ranges = [(item["ffid_min"], item["ffid_max"]) for item in manifest["files"]]
 
     assert [item["name"] for item in dataset["files"]] == [
         item["name"] for item in manifest["files"]
     ]
+    assert manifest_ranges == [
+        (2, 1200),
+        (1201, 2400),
+        (2401, 3600),
+        (3601, 4782),
+    ]
+    assert all(
+        current_max + 1 == next_min
+        for (_, current_max), (next_min, _) in zip(
+            manifest_ranges[:-1],
+            manifest_ranges[1:],
+            strict=True,
+        )
+    )
+    assert (manifest_ranges[0][0], manifest_ranges[-1][1]) == C3_SURVEY_FFID_RANGE
+    assert sum(maximum - minimum + 1 for minimum, maximum in manifest_ranges) == 4781
     assert all(re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) for item in dataset["files"])
     assert dataset["subset"] == {
         "ffid_min": 2,
-        "ffid_max": 4781,
+        "ffid_max": 4782,
         "include_incomplete_ffids": True,
         "expected_complete_trace_count": 544,
         "time_window_s": None,
     }
+    assert (
+        dataset["subset"]["ffid_min"],
+        dataset["subset"]["ffid_max"],
+    ) == C3_SURVEY_FFID_RANGE
     for key in ("manifest", "interim", "processed"):
         value = Path(dataset[key])
         assert not value.is_absolute()

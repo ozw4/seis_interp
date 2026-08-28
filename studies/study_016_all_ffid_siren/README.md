@@ -26,7 +26,7 @@ called this experiment Study 015.
 
 ## Input scope
 
-The input is all four files declared by the SEG C3 NA manifest, covering FFIDs 2 through 4781.
+The input is all four files declared by the SEG C3 NA manifest, covering FFIDs 2 through 4782.
 Sail-line-end FFIDs with fewer than the 544 traces of a complete shot remain part of the dataset.
 All 625 samples of every selected training or validation trace are used; no time window is cut.
 The measured source checksums are locked in `inputs.yaml`.
@@ -59,9 +59,9 @@ both equal to 30. Adam minimizes point-wise L2 at learning rate `1.0e-4` with se
 
 One optimizer update is all training traces of one FFID multiplied by all time samples. Batch size
 therefore varies for incomplete FFIDs. One epoch visits every training FFID exactly once in a
-seeded shuffled order. The ten-epoch budget is about 47,800 updates, chosen only to approximate
-Study 014's 50,000-update budget; it is not claimed to be optimal. Early-stopping patience is
-three epochs.
+seeded shuffled order. The 4,781 FFIDs produce 4,781 optimizer updates per epoch and a ten-epoch
+maximum of 47,810 updates. This budget was chosen only to approximate Study 014's 50,000-update
+budget; it is not claimed to be optimal. Early-stopping patience is three epochs.
 
 ## Validation and checkpoint selection
 
@@ -115,7 +115,7 @@ SEG-Y data, checkpoints, and run outputs are not committed.
 
 ## Acceptance criteria
 
-- Preparation locks all four manifest sources, covers FFIDs 2-4781, and retains incomplete FFIDs.
+- Preparation locks all four manifest sources, covers FFIDs 2-4782, and retains incomplete FFIDs.
 - Every FFID has train, validation, and test traces without time-sample leakage.
 - Every epoch visits each training FFID once, with one complete-FFID optimizer update per visit.
 - Training writes immutable provenance records and a loadable best checkpoint.

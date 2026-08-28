@@ -31,6 +31,7 @@ files:
   - name: SEG_C3NA_ffid_3601-4781.sgy
     url: https://s3.amazonaws.com/open.source.geoscience/open_data/seg_eage_salt/SEG_C3NA_ffid_3601-4781.sgy
     ffid_min: 3601
-    ffid_max: 4781
+    # Verified trace headers contain the continuous FFID range 3601-4782.
+    ffid_max: 4782
     size_bytes: null
     sha256: null
