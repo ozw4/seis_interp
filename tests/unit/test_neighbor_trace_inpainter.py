@@ -15,6 +15,10 @@ def test_successful_architecture_contract_and_parameter_count() -> None:
     model = NeighborTraceInpainter(neighbor_count=104)
 
     assert model.width == 128
+    assert model.target_coordinate_count == 3
+    assert model.stem_kernel_size == 15
+    assert model.residual_kernel_size == 7
+    assert model.temporal_dilations == TEMPORAL_DILATIONS
     assert model.input_channels == 212
     assert model.dilations == (1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1)
     assert model.dilations is TEMPORAL_DILATIONS
@@ -33,6 +37,36 @@ def test_successful_architecture_contract_and_parameter_count() -> None:
     assert isinstance(model.head[-1], nn.Conv1d)
     assert model.head[-1].out_channels == 1
     assert sum(parameter.numel() for parameter in model.parameters()) == 983_041
+
+
+def test_custom_architecture_preserves_configured_shapes_and_provenance() -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=2,
+        width=8,
+        target_coordinate_count=5,
+        stem_kernel_size=5,
+        residual_kernel_size=3,
+        temporal_dilations=(1, 3, 2),
+    )
+
+    output = model(
+        torch.randn(4, 2, 19),
+        torch.ones(4, 2, dtype=torch.bool),
+        torch.randn(4, 5),
+    )
+
+    assert output.shape == (4, 19)
+    assert model.input_channels == 10
+    assert model.target_coordinate_count == 5
+    assert model.stem_kernel_size == 5
+    assert model.residual_kernel_size == 3
+    assert model.temporal_dilations == (1, 3, 2)
+    assert model.dilations == model.temporal_dilations
+    assert model.stem.kernel_size == (5,)
+    assert model.stem.padding == (2,)
+    assert [block.kernel_size for block in model.blocks] == [3, 3, 3]
+    assert [block.dilation for block in model.blocks] == [1, 3, 2]
+    assert [block.depthwise.padding for block in model.blocks] == [(1,), (3,), (2,)]
 
 
 def test_forward_preserves_batch_and_time_and_supports_boolean_availability() -> None:
@@ -101,12 +135,14 @@ def test_gradients_reach_every_parameter_and_all_inputs() -> None:
 
 
 def test_temporal_residual_block_preserves_shape() -> None:
-    block = TemporalResidualBlock(width=16, dilation=4)
+    block = TemporalResidualBlock(width=16, dilation=4, kernel_size=5)
     traces = torch.randn(2, 16, 23, requires_grad=True)
 
     output = block(traces)
 
     assert output.shape == traces.shape
+    assert block.kernel_size == 5
+    assert block.depthwise.padding == (8,)
     output.mean().backward()
     assert traces.grad is not None
 
@@ -118,7 +154,32 @@ def test_temporal_residual_block_preserves_shape() -> None:
         (lambda: NeighborTraceInpainter(neighbor_count=True), "neighbor_count"),
         (lambda: NeighborTraceInpainter(neighbor_count=2, width=0), "width"),
         (lambda: NeighborTraceInpainter(neighbor_count=2, width=10), "divisible by 8"),
+        (
+            lambda: NeighborTraceInpainter(neighbor_count=2, target_coordinate_count=0),
+            "target_coordinate_count",
+        ),
+        (
+            lambda: NeighborTraceInpainter(neighbor_count=2, target_coordinate_count=True),
+            "target_coordinate_count",
+        ),
+        (lambda: NeighborTraceInpainter(neighbor_count=2, stem_kernel_size=0), "stem_kernel_size"),
+        (lambda: NeighborTraceInpainter(neighbor_count=2, stem_kernel_size=4), "odd"),
+        (
+            lambda: NeighborTraceInpainter(neighbor_count=2, residual_kernel_size=2),
+            "odd",
+        ),
+        (lambda: NeighborTraceInpainter(neighbor_count=2, temporal_dilations=()), "not be empty"),
+        (
+            lambda: NeighborTraceInpainter(neighbor_count=2, temporal_dilations=(1, 0)),
+            "temporal_dilations\\[1\\]",
+        ),
+        (
+            lambda: NeighborTraceInpainter(neighbor_count=2, temporal_dilations=(True,)),
+            "temporal_dilations\\[0\\]",
+        ),
         (lambda: TemporalResidualBlock(width=8, dilation=0), "dilation"),
+        (lambda: TemporalResidualBlock(width=8, dilation=1, kernel_size=2), "odd"),
+        (lambda: TemporalResidualBlock(width=8, dilation=1, kernel_size=True), "kernel_size"),
         (lambda: TemporalResidualBlock(width=7, dilation=1), "divisible by 8"),
     ],
 )

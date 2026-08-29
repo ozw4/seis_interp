@@ -459,7 +459,7 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
     ("section", "key", "drifted_value", "message"),
     [
         ("sampling", "duplicate_physical_coordinate_policy", "keep_last", "duplicate"),
-        ("model", "stem_kernel_size", 13, "stem_kernel_size"),
+        ("model", "stem_kernel_size", 14, "stem_kernel_size.*odd"),
         ("training", "optimizer", "sgd", "optimizer"),
         ("evaluation", "comparison", "greater_than_or_equal", "comparison"),
         ("evaluation", "required_eligible_ffid_count", 0, "positive integer"),

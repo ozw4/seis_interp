@@ -255,9 +255,11 @@ def _validated_batch(
             f"batch availability must have shape {expected_neighbors}, "
             f"got {tuple(availability.shape)}"
         )
-    if target_coordinates.shape != (batch_size, 3):
+    target_coordinate_count = getattr(model, "target_coordinate_count", 3)
+    if target_coordinates.shape != (batch_size, target_coordinate_count):
         raise ValueError(
-            f"batch target_coordinates must have shape ({batch_size}, 3), "
+            "batch target_coordinates must have shape "
+            f"({batch_size}, {target_coordinate_count}), "
             f"got {tuple(target_coordinates.shape)}"
         )
     if targets.shape != (batch_size, time_count):

@@ -9,7 +9,13 @@ from pathlib import Path
 
 import torch
 
-from seis_interp.models.neighbor_trace_inpainter import NeighborTraceInpainter
+from seis_interp.models.neighbor_trace_inpainter import (
+    DEFAULT_RESIDUAL_KERNEL_SIZE,
+    DEFAULT_STEM_KERNEL_SIZE,
+    DEFAULT_TARGET_COORDINATE_COUNT,
+    TEMPORAL_DILATIONS,
+    NeighborTraceInpainter,
+)
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
@@ -51,6 +57,10 @@ def save_neighbor_inpainter_checkpoint(
             "model_config": {
                 "neighbor_count": model.neighbor_count,
                 "width": model.width,
+                "target_coordinate_count": model.target_coordinate_count,
+                "stem_kernel_size": model.stem_kernel_size,
+                "residual_kernel_size": model.residual_kernel_size,
+                "temporal_dilations": list(model.temporal_dilations),
             },
             "model_state_dict": state_dict,
             "amplitude_scaling": PER_TRACE_RMS_SCALING,
@@ -91,6 +101,14 @@ def load_neighbor_inpainter_checkpoint(
         model = NeighborTraceInpainter(
             neighbor_count=model_config["neighbor_count"],
             width=model_config["width"],
+            target_coordinate_count=model_config.get(
+                "target_coordinate_count", DEFAULT_TARGET_COORDINATE_COUNT
+            ),
+            stem_kernel_size=model_config.get("stem_kernel_size", DEFAULT_STEM_KERNEL_SIZE),
+            residual_kernel_size=model_config.get(
+                "residual_kernel_size", DEFAULT_RESIDUAL_KERNEL_SIZE
+            ),
+            temporal_dilations=model_config.get("temporal_dilations", TEMPORAL_DILATIONS),
         )
     except KeyError as error:
         raise ValueError(

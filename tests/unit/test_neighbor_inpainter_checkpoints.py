@@ -17,10 +17,17 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
     tmp_path: Path,
 ) -> None:
     torch.manual_seed(11)
-    model = NeighborTraceInpainter(neighbor_count=3, width=8)
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        target_coordinate_count=2,
+        stem_kernel_size=5,
+        residual_kernel_size=3,
+        temporal_dilations=(1, 3, 2),
+    )
     neighbors = torch.randn(2, 3, 9)
     availability = torch.tensor([[True, False, True], [True, True, False]])
-    coordinates = torch.randn(2, 3)
+    coordinates = torch.randn(2, 2)
     expected = model(neighbors, availability, coordinates).detach()
     checkpoint_path = tmp_path / "nested" / "best.pt"
 
@@ -34,17 +41,64 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
     loaded = load_neighbor_inpainter_checkpoint(checkpoint_path, device="cpu")
 
     assert payload["model_type"] == "neighbor_trace_inpainter"
-    assert payload["model_config"] == {"neighbor_count": 3, "width": 8}
+    assert payload["model_config"] == {
+        "neighbor_count": 3,
+        "width": 8,
+        "target_coordinate_count": 2,
+        "stem_kernel_size": 5,
+        "residual_kernel_size": 3,
+        "temporal_dilations": [1, 3, 2],
+    }
     assert all(tensor.device.type == "cpu" for tensor in payload["model_state_dict"].values())
     assert payload["amplitude_scaling"] == "per_trace_rms"
     assert payload["validation_metric_domain"] == "oracle_per_trace_unit_rms"
     assert loaded.model.neighbor_count == 3
     assert loaded.model.width == 8
+    assert loaded.model.target_coordinate_count == 2
+    assert loaded.model.stem_kernel_size == 5
+    assert loaded.model.residual_kernel_size == 3
+    assert loaded.model.temporal_dilations == (1, 3, 2)
     assert all(parameter.device.type == "cpu" for parameter in loaded.model.parameters())
     assert loaded.amplitude_scaling == "per_trace_rms"
     assert loaded.validation_metric_domain == "oracle_per_trace_unit_rms"
     assert loaded.best_step == 2300
     assert loaded.best_validation_global_snr_db == pytest.approx(16.182)
+    torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
+
+
+def test_neighbor_inpainter_checkpoint_loads_study017_legacy_model_config(
+    tmp_path: Path,
+) -> None:
+    torch.manual_seed(19)
+    model = NeighborTraceInpainter(neighbor_count=3, width=8)
+    neighbors = torch.randn(2, 3, 9)
+    availability = torch.tensor([[True, False, True], [True, True, False]])
+    coordinates = torch.randn(2, 3)
+    expected = model(neighbors, availability, coordinates).detach()
+    checkpoint_path = tmp_path / "best.pt"
+    legacy_checkpoint_path = tmp_path / "legacy.pt"
+    save_neighbor_inpainter_checkpoint(
+        checkpoint_path,
+        model,
+        best_step=2500,
+        best_validation_global_snr_db=18.111870025656728,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    for field in (
+        "target_coordinate_count",
+        "stem_kernel_size",
+        "residual_kernel_size",
+        "temporal_dilations",
+    ):
+        payload["model_config"].pop(field)
+    torch.save(payload, legacy_checkpoint_path)
+
+    loaded = load_neighbor_inpainter_checkpoint(legacy_checkpoint_path)
+
+    assert loaded.model.target_coordinate_count == 3
+    assert loaded.model.stem_kernel_size == 15
+    assert loaded.model.residual_kernel_size == 7
+    assert loaded.model.temporal_dilations == (1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1)
     torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
 
 

@@ -29,7 +29,6 @@ from seis_interp.data.trace_store import (
     canonical_source_files,
 )
 from seis_interp.models.neighbor_trace_inpainter import (
-    TEMPORAL_DILATIONS,
     NeighborTraceInpainter,
 )
 from seis_interp.pipelines.train_siren import (
@@ -48,8 +47,15 @@ from seis_interp.pipelines.train_siren import (
     _validated_preparation_contract,
     _write_run_outputs,
 )
+from seis_interp.processing.multiline_neighbor_geometry import (
+    SOURCE_X_LINE_SPACING_M,
+    SOURCE_Y_HALF_SHOT_SPACING_M,
+    MultilineNeighborGeometryLookup,
+)
+from seis_interp.processing.multiline_neighbor_geometry import (
+    TARGET_COORDINATE_ORDER as MULTILINE_TARGET_COORDINATE_ORDER,
+)
 from seis_interp.processing.neighbor_geometry import (
-    NEIGHBOR_OFFSETS,
     RECEIVER_SPACING_M,
     SOURCE_SHOT_SPACING_M,
     TARGET_COORDINATE_ORDER,
@@ -90,6 +96,8 @@ DUPLICATE_PHYSICAL_COORDINATE_POLICY = "keep_lowest_array_row"
 TARGET_COORDINATE_SCALING = "train_minmax"
 STEM_KERNEL_SIZE = 15
 RESIDUAL_KERNEL_SIZE = 7
+SINGLE_LINE_GEOMETRY = "single_source_line"
+MULTILINE_GEOMETRY = "multiline_staggered_source"
 CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE = 1.0e-8
 CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE = 1.0e-8
 
@@ -102,6 +110,16 @@ _EXPECTED_NEIGHBORHOOD = {
     "relative_receiver_spacing_m": RECEIVER_SPACING_M,
     "source_shot_spacing_m": SOURCE_SHOT_SPACING_M,
     "same_source_x_only": True,
+}
+_MULTILINE_NEIGHBORHOOD_KEYS = {
+    "type",
+    "relative_receiver_x_radius",
+    "source_x_line_radius",
+    "source_y_half_shot_radius",
+    "relative_receiver_y_radius",
+    "relative_receiver_spacing_m",
+    "source_x_line_spacing_m",
+    "source_y_half_shot_spacing_m",
 }
 _PHYSICAL_COORDINATE_COLUMNS = (
     "source_x_m",
@@ -118,6 +136,15 @@ _AVAILABILITY_CHUNK_SIZE = 65536
 class _TrainingSettings:
     random_seed: int
     hidden_width: int
+    target_coordinates: tuple[str, ...]
+    stem_kernel_size: int
+    residual_kernel_size: int
+    temporal_dilations: tuple[int, ...]
+    neighbor_geometry: str
+    relative_receiver_x_radius: int
+    source_x_line_radius: int
+    source_y_half_shot_radius: int
+    relative_receiver_y_radius: int
     learning_rate: float
     weight_decay: float
     minimum_learning_rate: float
@@ -155,7 +182,7 @@ class _NeighborTensorSource:
 
     def __init__(
         self,
-        lookup: NeighborGeometryLookup,
+        lookup: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
         *,
         train_positions: np.ndarray,
         train_amplitudes: torch.Tensor,
@@ -427,12 +454,12 @@ def train_neighbor_inpainter_run(
         )
 
     available = selected_split == TRAIN_SPLIT
-    geometry = NeighborGeometryLookup(selected_table, available)
+    geometry = _build_neighbor_geometry(selected_table, available, settings=settings)
     if geometry.collision_count != 0:
         raise RuntimeError(
             "canonicalized TRAIN geometry still contains physical coordinate collisions"
         )
-    geometry_contract = _geometry_contract(geometry)
+    geometry_contract = _geometry_contract(geometry, settings=settings)
     availability_contract = {
         TRAIN_SPLIT: _neighbor_availability(geometry, train_positions),
         VALIDATION_SPLIT: _neighbor_availability(geometry, validation_positions),
@@ -490,6 +517,10 @@ def train_neighbor_inpainter_run(
     model = NeighborTraceInpainter(
         neighbor_count=geometry.neighbor_count,
         width=settings.hidden_width,
+        target_coordinate_count=len(settings.target_coordinates),
+        stem_kernel_size=settings.stem_kernel_size,
+        residual_kernel_size=settings.residual_kernel_size,
+        temporal_dilations=settings.temporal_dilations,
     )
     generator = torch.Generator(device=device).manual_seed(settings.random_seed + 1)
     result = train_neighbor_trace_inpainter(
@@ -586,10 +617,10 @@ def train_neighbor_inpainter_run(
         "neighbor_count": geometry.neighbor_count,
         "input_channels": checkpoint.model.input_channels,
         "parameter_count": sum(parameter.numel() for parameter in checkpoint.model.parameters()),
-        "temporal_dilations": list(checkpoint.model.dilations),
+        "temporal_dilations": list(checkpoint.model.temporal_dilations),
         "stem_kernel_size": checkpoint.model.stem.kernel_size[0],
         "residual_kernel_size": checkpoint.model.blocks[0].kernel_size,
-        "target_coordinates": list(TARGET_COORDINATE_ORDER),
+        "target_coordinates": list(settings.target_coordinates),
         "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
     }
     checkpoint_contract = {
@@ -630,7 +661,7 @@ def train_neighbor_inpainter_run(
         "model": model_contract,
         "neighborhood": geometry_contract,
         "target_coordinates": {
-            "order": list(TARGET_COORDINATE_ORDER),
+            "order": list(settings.target_coordinates),
             "fit_split": TRAIN_SPLIT,
             "scaling": TARGET_COORDINATE_SCALING,
             "minimum": list(geometry.coordinate_min),
@@ -683,19 +714,38 @@ def _validated_settings(
     device_override: str | None,
 ) -> _TrainingSettings:
     _require_exact(config, "model.name", MODEL_NAME)
-    _require_exact(config, "model.target_coordinates", list(TARGET_COORDINATE_ORDER))
     _require_exact(config, "model.target_coordinate_scaling", TARGET_COORDINATE_SCALING)
-    _require_exact(config, "model.stem_kernel_size", STEM_KERNEL_SIZE)
-    _require_exact(config, "model.residual_kernel_size", RESIDUAL_KERNEL_SIZE)
-    _require_exact(config, "model.temporal_dilations", list(TEMPORAL_DILATIONS))
+    (
+        neighbor_geometry,
+        relative_receiver_x_radius,
+        source_x_line_radius,
+        source_y_half_shot_radius,
+        relative_receiver_y_radius,
+        expected_target_coordinates,
+    ) = _validated_neighborhood(get_required_config_value(config, "model.neighborhood"))
+    target_coordinates = _validated_target_coordinate_names(
+        get_required_config_value(config, "model.target_coordinates")
+    )
+    if target_coordinates != expected_target_coordinates:
+        raise ConfigurationError(
+            "model.target_coordinates must match model.neighborhood geometry: "
+            f"{list(expected_target_coordinates)!r}"
+        )
+    stem_kernel_size = _odd_positive_integer(
+        get_required_config_value(config, "model.stem_kernel_size"),
+        "model.stem_kernel_size",
+    )
+    residual_kernel_size = _odd_positive_integer(
+        get_required_config_value(config, "model.residual_kernel_size"),
+        "model.residual_kernel_size",
+    )
+    temporal_dilations = _validated_positive_integer_list(
+        get_required_config_value(config, "model.temporal_dilations"),
+        "model.temporal_dilations",
+    )
     hidden_width = _positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
-    neighborhood = get_required_config_value(config, "model.neighborhood")
-    if not isinstance(neighborhood, Mapping) or dict(neighborhood) != _EXPECTED_NEIGHBORHOOD:
-        raise ConfigurationError(
-            f"model.neighborhood must equal the fixed SEG C3 contract {_EXPECTED_NEIGHBORHOOD}"
-        )
     _require_exact(
         config,
         "sampling.duplicate_physical_coordinate_policy",
@@ -755,6 +805,15 @@ def _validated_settings(
     return _TrainingSettings(
         random_seed=random_seed,
         hidden_width=hidden_width,
+        target_coordinates=target_coordinates,
+        stem_kernel_size=stem_kernel_size,
+        residual_kernel_size=residual_kernel_size,
+        temporal_dilations=temporal_dilations,
+        neighbor_geometry=neighbor_geometry,
+        relative_receiver_x_radius=relative_receiver_x_radius,
+        source_x_line_radius=source_x_line_radius,
+        source_y_half_shot_radius=source_y_half_shot_radius,
+        relative_receiver_y_radius=relative_receiver_y_radius,
         learning_rate=learning_rate,
         weight_decay=_nonnegative_float(
             get_required_config_value(config, "training.weight_decay"),
@@ -797,6 +856,98 @@ def _validated_settings(
         required_sample_count=required_sample_count,
         required_effective_split_counts=required_effective_split_counts,
         required_fully_excluded_ffids=required_fully_excluded_ffids,
+    )
+
+
+def _validated_neighborhood(
+    value: object,
+) -> tuple[str, int, int, int, int, tuple[str, ...]]:
+    if not isinstance(value, Mapping):
+        raise ConfigurationError("model.neighborhood must be a mapping")
+    neighborhood = dict(value)
+    if neighborhood == _EXPECTED_NEIGHBORHOOD:
+        return (
+            SINGLE_LINE_GEOMETRY,
+            int(_EXPECTED_NEIGHBORHOOD["relative_receiver_x_radius"]),
+            0,
+            2 * int(_EXPECTED_NEIGHBORHOOD["source_shot_radius"]),
+            int(_EXPECTED_NEIGHBORHOOD["relative_receiver_y_radius"]),
+            tuple(TARGET_COORDINATE_ORDER),
+        )
+
+    if set(neighborhood) != _MULTILINE_NEIGHBORHOOD_KEYS:
+        raise ConfigurationError(
+            "model.neighborhood must be the legacy single-line contract or contain exactly "
+            f"{sorted(_MULTILINE_NEIGHBORHOOD_KEYS)}"
+        )
+    if neighborhood["type"] != MULTILINE_GEOMETRY:
+        raise ConfigurationError(f"model.neighborhood.type must be {MULTILINE_GEOMETRY!r}")
+    expected_spacings = {
+        "relative_receiver_spacing_m": RECEIVER_SPACING_M,
+        "source_x_line_spacing_m": SOURCE_X_LINE_SPACING_M,
+        "source_y_half_shot_spacing_m": SOURCE_Y_HALF_SHOT_SPACING_M,
+    }
+    for name, expected in expected_spacings.items():
+        actual = neighborhood[name]
+        if isinstance(actual, bool) or not isinstance(actual, Real) or float(actual) != expected:
+            raise ConfigurationError(f"model.neighborhood.{name} must be {expected:g}")
+    radii = tuple(
+        _nonnegative_integer(neighborhood[name], f"model.neighborhood.{name}")
+        for name in (
+            "relative_receiver_x_radius",
+            "source_x_line_radius",
+            "source_y_half_shot_radius",
+            "relative_receiver_y_radius",
+        )
+    )
+    if not any(radii):
+        raise ConfigurationError("model.neighborhood must include at least one non-zero radius")
+    return (MULTILINE_GEOMETRY, *radii, tuple(MULTILINE_TARGET_COORDINATE_ORDER))
+
+
+def _validated_target_coordinate_names(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or not value:
+        raise ConfigurationError("model.target_coordinates must be a non-empty list")
+    if any(not isinstance(name, str) or not name for name in value):
+        raise ConfigurationError("model.target_coordinates must contain non-empty strings")
+    converted = tuple(value)
+    if len(set(converted)) != len(converted):
+        raise ConfigurationError("model.target_coordinates must not contain duplicates")
+    return converted
+
+
+def _validated_positive_integer_list(value: object, name: str) -> tuple[int, ...]:
+    if not isinstance(value, list) or not value:
+        raise ConfigurationError(f"{name} must be a non-empty list")
+    return tuple(_positive_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
+
+
+def _odd_positive_integer(value: object, name: str) -> int:
+    converted = _positive_integer(value, name)
+    if converted % 2 == 0:
+        raise ConfigurationError(f"{name} must be odd")
+    return converted
+
+
+def _build_neighbor_geometry(
+    table: pd.DataFrame,
+    available: np.ndarray,
+    *,
+    settings: _TrainingSettings,
+) -> NeighborGeometryLookup | MultilineNeighborGeometryLookup:
+    if settings.neighbor_geometry == SINGLE_LINE_GEOMETRY:
+        return NeighborGeometryLookup(table, available)
+    if settings.neighbor_geometry != MULTILINE_GEOMETRY:
+        raise AssertionError(
+            f"unsupported validated neighbor geometry: {settings.neighbor_geometry}"
+        )
+    return MultilineNeighborGeometryLookup(
+        table,
+        available,
+        relative_receiver_x_radius=settings.relative_receiver_x_radius,
+        source_x_line_radius=settings.source_x_line_radius,
+        source_y_half_shot_radius=settings.source_y_half_shot_radius,
+        relative_receiver_y_radius=settings.relative_receiver_y_radius,
     )
 
 
@@ -1043,19 +1194,48 @@ def _selection_contract(
     return contract
 
 
-def _geometry_contract(geometry: NeighborGeometryLookup) -> dict[str, object]:
-    return {
-        **_EXPECTED_NEIGHBORHOOD,
-        "neighbor_count": geometry.neighbor_count,
-        "offset_order": [list(value) for value in NEIGHBOR_OFFSETS],
-        "offset_order_axes": [
+def _geometry_contract(
+    geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
+    *,
+    settings: _TrainingSettings,
+) -> dict[str, object]:
+    if settings.neighbor_geometry == SINGLE_LINE_GEOMETRY:
+        condition: dict[str, object] = {
+            "type": SINGLE_LINE_GEOMETRY,
+            **_EXPECTED_NEIGHBORHOOD,
+        }
+        axes = [
             "relative_receiver_x_index",
             "source_shot_index",
             "relative_receiver_y_index",
-        ],
+        ]
+    else:
+        condition = {
+            "type": MULTILINE_GEOMETRY,
+            "relative_receiver_x_radius": settings.relative_receiver_x_radius,
+            "source_x_line_radius": settings.source_x_line_radius,
+            "source_y_half_shot_radius": settings.source_y_half_shot_radius,
+            "relative_receiver_y_radius": settings.relative_receiver_y_radius,
+            "relative_receiver_spacing_m": RECEIVER_SPACING_M,
+            "source_x_line_spacing_m": SOURCE_X_LINE_SPACING_M,
+            "source_y_half_shot_spacing_m": SOURCE_Y_HALF_SHOT_SPACING_M,
+            "same_source_x_only": settings.source_x_line_radius == 0,
+        }
+        axes = [
+            "relative_receiver_x_index",
+            "source_x_line_index",
+            "source_y_half_shot_index",
+            "relative_receiver_y_index",
+        ]
+    offsets = geometry.offsets
+    return {
+        **condition,
+        "neighbor_count": geometry.neighbor_count,
+        "offset_order": [list(value) for value in offsets],
+        "offset_order_axes": axes,
         "available_training_rows": geometry.available_count,
         "indexed_training_cells": geometry.indexed_available_count,
-        "center_offset_count": sum(offset == (0, 0, 0) for offset in NEIGHBOR_OFFSETS),
+        "center_offset_count": sum(not any(offset) for offset in offsets),
     }
 
 

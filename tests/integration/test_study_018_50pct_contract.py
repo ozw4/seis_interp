@@ -65,3 +65,20 @@ def test_study_018_inputs_lock_split_and_canonical_counts() -> None:
         path = Path(dataset[key])
         assert not path.is_absolute()
         assert (STUDY_DIRECTORY / path).resolve().is_relative_to(REPOSITORY_ROOT)
+
+
+def test_stage02_changes_only_to_four_coordinate_equivalent_aperture() -> None:
+    config = load_resolved_config(STUDY_DIRECTORY / "variants" / "stage02_source_x_coordinate.yaml")
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.target_coordinates == (
+        "source_x_m",
+        "source_y_m",
+        "relative_receiver_x_m",
+        "relative_receiver_y_m",
+    )
+    assert settings.neighbor_geometry == "multiline_staggered_source"
+    assert settings.relative_receiver_x_radius == 1
+    assert settings.source_x_line_radius == 0
+    assert settings.source_y_half_shot_radius == 4
+    assert settings.relative_receiver_y_radius == 3
