@@ -34,11 +34,14 @@ only for checkpoint selection and metrics; test and excluded amplitudes are not
 materialized. Raw model predictions are compared with oracle per-trace unit-RMS
 validation targets. Prediction self-normalization is diagnostic only.
 
-The investigation starts from the accepted Study 017 temporal CNN, measures the
-50% baseline, and then isolates training budget, capacity, target coordinates,
-neighborhood extent, and residual/reference formulations one change at a time.
-Only a fresh full-scope run whose leakage and provenance checks all pass may be
-accepted.
+The investigation started from the accepted Study 017 temporal CNN and isolated
+target coordinates, neighborhood extent, training budget, capacity, conditioning,
+sampling, temporal alignment, and objective regularization. The frozen formal
+candidate uses a K274 same-source-line aperture, four target coordinates, width
+384, full-trace temporal receptive field, FiLM, a target-coordinate neighbor gate,
+and an identity-initialized 31-tap depthwise alignment FIR. It trains for 50,000
+updates with the established replacement sampler. Only its fresh full-scope run
+may be accepted.
 
 ## Acceptance criteria
 
@@ -53,8 +56,11 @@ accepted.
 
 ## Current result
 
-No formal result has been accepted yet. Staged immutable runs are recorded under
-`runs/study_018_all_ffid_50pct_neighbor_inpainter/` and will be summarized here
-after the condition is frozen.
+The formal condition is frozen and its fresh run is pending. The strongest
+completed diagnostic is Stage 09 at 18.24842244059429 dB after 10,000 updates.
+At 2,500 updates, combining width 384, coordinate-dependent neighbor gating, and
+the lightweight alignment FIR reached 16.80368309012617 dB, 0.437127913217366 dB
+above the width-256 comparison. Staged immutable runs are recorded under
+`runs/study_018_all_ffid_50pct_neighbor_inpainter/`.
 
 Historical rationale is recorded in [decisions.md](decisions.md).

@@ -23,22 +23,28 @@ normalization:
 
 model:
   name: neighbor_trace_inpainter
-  hidden_width: 128
+  hidden_width: 384
   target_coordinates:
-    - relative_receiver_x_m
+    - source_x_m
     - source_y_m
+    - relative_receiver_x_m
     - relative_receiver_y_m
   target_coordinate_scaling: train_minmax
+  coordinate_conditioning: film
+  neighbor_gating: target_coordinate_masked_softmax
+  neighbor_alignment_kernel_size: 31
   stem_kernel_size: 15
   residual_kernel_size: 7
-  temporal_dilations: [1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1]
+  temporal_dilations: [1, 2, 4, 8, 16, 32, 64, 32, 16, 8, 4, 2, 1]
   neighborhood:
-    relative_receiver_x_radius: 1
-    source_shot_radius: 2
-    relative_receiver_y_radius: 3
+    type: multiline_staggered_source
+    relative_receiver_x_radius: 2
+    source_x_line_radius: 0
+    source_y_half_shot_radius: 4
+    relative_receiver_y_radius: 5
     relative_receiver_spacing_m: 40.0
-    source_shot_spacing_m: 80.0
-    same_source_x_only: true
+    source_x_line_spacing_m: 160.0
+    source_y_half_shot_spacing_m: 40.0
 
 training:
   amplitude_scaling: per_trace_rms
@@ -48,13 +54,14 @@ training:
   weight_decay: 1.0e-5
   learning_rate_schedule: cosine
   minimum_learning_rate: 1.5e-5
-  total_steps: 2500
+  total_steps: 50000
   batch_size: 96
+  target_sampling: with_replacement
   neighbor_dropout: 0.05
   derivative_weight: 0.1
   gradient_clip_norm: 1.0
-  evaluation_interval_steps: 500
-  validation_batch_size: 2048
+  evaluation_interval_steps: 5000
+  validation_batch_size: 1024
   training_audit_count: 287933
   mixed_precision: bfloat16
   device: cuda:1

@@ -34,6 +34,33 @@ def test_study_018_locks_the_50pct_per_ffid_baseline_contract() -> None:
     assert settings.required_fully_excluded_ffids == (1746,)
 
 
+def test_study_018_locks_the_formal_model_and_training_contract() -> None:
+    config = load_resolved_config(STUDY_DIRECTORY / "config.yaml")
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 384
+    assert settings.target_coordinates == (
+        "source_x_m",
+        "source_y_m",
+        "relative_receiver_x_m",
+        "relative_receiver_y_m",
+    )
+    assert settings.coordinate_conditioning == "film"
+    assert settings.neighbor_gating == "target_coordinate_masked_softmax"
+    assert settings.neighbor_alignment_kernel_size == 31
+    assert settings.temporal_dilations == (1, 2, 4, 8, 16, 32, 64, 32, 16, 8, 4, 2, 1)
+    assert settings.relative_receiver_x_radius == 2
+    assert settings.source_x_line_radius == 0
+    assert settings.source_y_half_shot_radius == 4
+    assert settings.relative_receiver_y_radius == 5
+    assert settings.total_steps == 50000
+    assert settings.batch_size == 96
+    assert settings.target_sampling == "with_replacement"
+    assert settings.evaluation_interval_steps == 5000
+    assert settings.validation_batch_size == 1024
+    assert settings.training_audit_count == 287933
+
+
 def test_study_018_inputs_lock_split_and_canonical_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]
