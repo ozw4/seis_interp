@@ -101,6 +101,11 @@ SINGLE_LINE_GEOMETRY = "single_source_line"
 MULTILINE_GEOMETRY = "multiline_staggered_source"
 CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE = 1.0e-8
 CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE = 1.0e-8
+WITH_REPLACEMENT_TARGET_SAMPLING = "with_replacement"
+EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING = "epoch_without_replacement"
+NEIGHBOR_DROPOUT_SEED_OFFSET = 1
+TRAINING_AUDIT_SEED_OFFSET = 2
+EPOCH_TARGET_SAMPLING_SEED_OFFSET = 3
 
 ProgressReporter = Callable[[str], None]
 
@@ -152,6 +157,7 @@ class _TrainingSettings:
     minimum_learning_rate: float
     total_steps: int
     batch_size: int
+    target_sampling: str
     neighbor_dropout: float
     derivative_weight: float
     evaluation_interval_steps: int
@@ -241,8 +247,32 @@ class _NeighborTensorSource:
 class _RandomTrainBatchProvider:
     """Sample target traces while tracking exact draw coverage for provenance."""
 
-    def __init__(self, source: _NeighborTensorSource) -> None:
+    def __init__(
+        self,
+        source: _NeighborTensorSource,
+        *,
+        target_sampling: str = WITH_REPLACEMENT_TARGET_SAMPLING,
+        target_generator: torch.Generator | None = None,
+    ) -> None:
+        if target_sampling not in {
+            WITH_REPLACEMENT_TARGET_SAMPLING,
+            EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+        }:
+            raise ValueError(f"unsupported target sampling mode: {target_sampling!r}")
+        if target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
+            if not isinstance(target_generator, torch.Generator):
+                raise TypeError(
+                    "target_generator is required for epoch_without_replacement sampling"
+                )
+        elif target_generator is not None:
+            raise ValueError(
+                "target_generator must be omitted for legacy with_replacement sampling"
+            )
         self.source = source
+        self.target_sampling = target_sampling
+        self._target_generator = target_generator
+        self._epoch_order: torch.Tensor | None = None
+        self._epoch_cursor = 0
         self._seen = np.zeros(len(source.train_positions), dtype=bool)
         self.draw_count = 0
 
@@ -257,12 +287,18 @@ class _RandomTrainBatchProvider:
         generator: torch.Generator,
         neighbor_dropout: float,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        compact_indices = torch.randint(
-            len(self.source.train_positions),
-            (batch_size,),
-            generator=generator,
-            device=self.source.device,
-        )
+        if self.target_sampling == WITH_REPLACEMENT_TARGET_SAMPLING:
+            # Keep this legacy path on the caller's generator: target draws and
+            # neighbor dropout retain their established interleaved RNG sequence
+            # when training.target_sampling is absent.
+            compact_indices = torch.randint(
+                len(self.source.train_positions),
+                (batch_size,),
+                generator=generator,
+                device=self.source.device,
+            )
+        else:
+            compact_indices = self._next_epoch_indices(batch_size)
         compact_numpy = compact_indices.cpu().numpy()
         self._seen[compact_numpy] = True
         self.draw_count += batch_size
@@ -274,6 +310,28 @@ class _RandomTrainBatchProvider:
         )
         targets = self.source.train_amplitudes[compact_indices]
         return neighbors, availability, coordinates, targets
+
+    def _next_epoch_indices(self, batch_size: int) -> torch.Tensor:
+        """Draw from consecutive deterministic permutations, wrapping as needed."""
+        if self._target_generator is None:
+            raise AssertionError("validated epoch sampler is missing its generator")
+        trace_count = len(self.source.train_positions)
+        chunks: list[torch.Tensor] = []
+        remaining = batch_size
+        while remaining:
+            if self._epoch_order is None or self._epoch_cursor == trace_count:
+                self._epoch_order = torch.randperm(
+                    trace_count,
+                    generator=self._target_generator,
+                    device=self.source.device,
+                )
+                self._epoch_cursor = 0
+            take = min(remaining, trace_count - self._epoch_cursor)
+            stop = self._epoch_cursor + take
+            chunks.append(self._epoch_order[self._epoch_cursor : stop])
+            self._epoch_cursor = stop
+            remaining -= take
+        return chunks[0] if len(chunks) == 1 else torch.cat(chunks)
 
 
 class _RawGlobalSnrEvaluator:
@@ -507,7 +565,17 @@ def train_neighbor_inpainter_run(
         train_amplitudes=train_amplitudes,
         device=device,
     )
-    batch_provider = _RandomTrainBatchProvider(tensor_source)
+    target_sampling_seed = _target_sampling_seed(settings)
+    target_sampling_generator = (
+        torch.Generator(device=device).manual_seed(target_sampling_seed)
+        if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+        else None
+    )
+    batch_provider = _RandomTrainBatchProvider(
+        tensor_source,
+        target_sampling=settings.target_sampling,
+        target_generator=target_sampling_generator,
+    )
     validation_evaluator = _RawGlobalSnrEvaluator(
         tensor_source,
         target_positions=validation_positions,
@@ -525,7 +593,9 @@ def train_neighbor_inpainter_run(
         temporal_dilations=settings.temporal_dilations,
         coordinate_conditioning=settings.coordinate_conditioning,
     )
-    generator = torch.Generator(device=device).manual_seed(settings.random_seed + 1)
+    generator = torch.Generator(device=device).manual_seed(
+        settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
+    )
     result = train_neighbor_trace_inpainter(
         model,
         batch_provider,
@@ -563,7 +633,7 @@ def train_neighbor_inpainter_run(
     if not checkpoint_revalidation_matches:
         raise RuntimeError("loaded best checkpoint does not reproduce its validation S/N")
 
-    audit_generator = np.random.default_rng(settings.random_seed + 2)
+    audit_generator = np.random.default_rng(settings.random_seed + TRAINING_AUDIT_SEED_OFFSET)
     audit_compact = np.sort(
         audit_generator.choice(
             len(train_positions),
@@ -833,6 +903,7 @@ def _validated_settings(
         batch_size=_positive_integer(
             get_required_config_value(config, "training.batch_size"), "training.batch_size"
         ),
+        target_sampling=_validated_target_sampling(config),
         neighbor_dropout=_probability(
             get_required_config_value(config, "training.neighbor_dropout"),
             "training.neighbor_dropout",
@@ -937,6 +1008,22 @@ def _validated_coordinate_conditioning(config: Mapping[str, object]) -> str:
     if not isinstance(value, str) or value not in supported:
         raise ConfigurationError(
             f"model.coordinate_conditioning must be one of {sorted(supported)}, got {value!r}"
+        )
+    return value
+
+
+def _validated_target_sampling(config: Mapping[str, object]) -> str:
+    training = config.get("training")
+    if not isinstance(training, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    value = training.get("target_sampling", WITH_REPLACEMENT_TARGET_SAMPLING)
+    supported = {
+        WITH_REPLACEMENT_TARGET_SAMPLING,
+        EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+    }
+    if not isinstance(value, str) or value not in supported:
+        raise ConfigurationError(
+            f"training.target_sampling must be one of {sorted(supported)}, got {value!r}"
         )
     return value
 
@@ -1278,6 +1365,12 @@ def _training_contract(
         "gradient_clip_norm": MAX_GRADIENT_NORM,
         "total_steps": settings.total_steps,
         "batch_size": settings.batch_size,
+        "target_sampling": settings.target_sampling,
+        "target_sampling_seed": _target_sampling_seed(settings),
+        "neighbor_dropout_seed": settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET,
+        "target_sampling_rng_independent_of_neighbor_dropout": (
+            settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+        ),
         "neighbor_dropout": settings.neighbor_dropout,
         "derivative_weight": settings.derivative_weight,
         "evaluation_interval_steps": settings.evaluation_interval_steps,
@@ -1295,8 +1388,14 @@ def _training_contract(
         "drawn_training_targets": provider.draw_count,
         "unique_training_targets_seen": provider.unique_target_count,
         "training_audit_count": settings.training_audit_count,
-        "training_audit_seed": settings.random_seed + 2,
+        "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
     }
+
+
+def _target_sampling_seed(settings: _TrainingSettings) -> int:
+    if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
+        return settings.random_seed + EPOCH_TARGET_SAMPLING_SEED_OFFSET
+    return settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
 
 
 def _formal_scope_audit(
@@ -1443,7 +1542,7 @@ def _metrics_payload(
             "clean_validation_raw_global_snr_db": best_validation.clean_raw_global_snr_db,
             "clean_validation_global_snr_db": best_validation.clean_raw_global_snr_db,
             "training_audit_trace_count": settings.training_audit_count,
-            "training_audit_seed": settings.random_seed + 2,
+            "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
             "training_audit_global_snr_db": training_audit.raw_global_snr_db,
             "training_audit_predicted_unit_rms_global_snr_db": (
                 training_audit.predicted_unit_rms_global_snr_db

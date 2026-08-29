@@ -260,6 +260,10 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert inputs_lock["split_counts"] == metrics["split_counts"]
     assert inputs_lock["training"]["minimum_learning_rate_factor"] == 0.03
     assert inputs_lock["training"]["gradient_clip_norm"] == 1.0
+    assert inputs_lock["training"]["target_sampling"] == "with_replacement"
+    assert inputs_lock["training"]["target_sampling_seed"] == 6
+    assert inputs_lock["training"]["neighbor_dropout_seed"] == 6
+    assert inputs_lock["training"]["target_sampling_rng_independent_of_neighbor_dropout"] is False
     assert inputs_lock["interim_files"] == {
         name: {"sha256": hashlib.sha256((interim / name).read_bytes()).hexdigest()}
         for name in ("traces.parquet", "amplitudes.npy", "time_s.npy", "dataset.json")
@@ -278,6 +282,9 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert run["random_seed"] == 5
     assert run["validation_metric_domain"] == "oracle_per_trace_unit_rms"
     assert run["training"]["effective_bfloat16"] is False
+    assert run["training"]["target_sampling"] == "with_replacement"
+    assert run["training"]["target_sampling_seed"] == 6
+    assert run["training"]["neighbor_dropout_seed"] == 6
     assert run["checkpoint"]["revalidation_matches"] is True
 
 
