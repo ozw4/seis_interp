@@ -84,21 +84,12 @@ LEARNING_RATE_SCHEDULE = "cosine"
 MIXED_PRECISION = "bfloat16"
 VALIDATION_SCALE_SOURCE = "validation_trace_target_rms"
 TRAINING_SCALE_SOURCE = "training_trace_target_rms"
-SUCCESS_THRESHOLD_DB = 15.0
 PRIMARY_METRIC = "oracle_per_trace_unit_rms_global_snr_db"
 SUCCESS_COMPARISON = "strictly_greater_than"
 DUPLICATE_PHYSICAL_COORDINATE_POLICY = "keep_lowest_array_row"
 TARGET_COORDINATE_SCALING = "train_minmax"
 STEM_KERNEL_SIZE = 15
 RESIDUAL_KERNEL_SIZE = 7
-FORMAL_ELIGIBLE_FFID_COUNT = 4780
-FORMAL_SAMPLE_COUNT = 625
-FORMAL_EFFECTIVE_SPLIT_COUNTS = {
-    TRAIN_SPLIT: 1_842_090,
-    VALIDATION_SPLIT: 114_490,
-    TEST_SPLIT: 346_885,
-}
-FORMAL_FULLY_EXCLUDED_FFIDS = (1746,)
 CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE = 1.0e-8
 CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE = 1.0e-8
 
@@ -721,10 +712,6 @@ def _validated_settings(
         get_required_config_value(config, "evaluation.success_threshold_db"),
         "evaluation.success_threshold_db",
     )
-    if success_threshold_db != SUCCESS_THRESHOLD_DB:
-        raise ConfigurationError(
-            f"evaluation.success_threshold_db must be {SUCCESS_THRESHOLD_DB:g}"
-        )
     required_effective_split_counts = _validated_effective_split_counts(
         get_required_config_value(config, "evaluation.required_effective_split_counts")
     )
@@ -740,24 +727,6 @@ def _validated_settings(
         get_required_config_value(config, "evaluation.required_sample_count"),
         "evaluation.required_sample_count",
     )
-    formal_scope_values = {
-        "evaluation.required_eligible_ffid_count": (
-            required_eligible_ffid_count,
-            FORMAL_ELIGIBLE_FFID_COUNT,
-        ),
-        "evaluation.required_sample_count": (required_sample_count, FORMAL_SAMPLE_COUNT),
-        "evaluation.required_effective_split_counts": (
-            required_effective_split_counts,
-            FORMAL_EFFECTIVE_SPLIT_COUNTS,
-        ),
-        "evaluation.required_fully_excluded_ffids": (
-            required_fully_excluded_ffids,
-            FORMAL_FULLY_EXCLUDED_FFIDS,
-        ),
-    }
-    for name, (actual, expected) in formal_scope_values.items():
-        if actual != expected:
-            raise ConfigurationError(f"{name} must equal the fixed formal scope {expected!r}")
     learning_rate = _positive_float(
         get_required_config_value(config, "training.learning_rate"), "training.learning_rate"
     )

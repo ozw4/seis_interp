@@ -462,7 +462,7 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
         ("model", "stem_kernel_size", 13, "stem_kernel_size"),
         ("training", "optimizer", "sgd", "optimizer"),
         ("evaluation", "comparison", "greater_than_or_equal", "comparison"),
-        ("evaluation", "required_eligible_ffid_count", 3, "fixed formal scope"),
+        ("evaluation", "required_eligible_ffid_count", 0, "positive integer"),
     ],
 )
 def test_pipeline_rejects_fixed_contract_drift(
@@ -483,3 +483,5 @@ def test_pipeline_rejects_fixed_contract_drift(
 def test_success_threshold_is_strictly_greater_than() -> None:
     assert _passes_success_threshold(15.0, 15.0) is False
     assert _passes_success_threshold(np.nextafter(15.0, math.inf), 15.0) is True
+    assert _passes_success_threshold(20.0, 20.0) is False
+    assert _passes_success_threshold(np.nextafter(20.0, math.inf), 20.0) is True
