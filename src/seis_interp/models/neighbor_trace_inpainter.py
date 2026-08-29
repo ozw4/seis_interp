@@ -15,6 +15,7 @@ TEMPORAL_DILATIONS = (1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1)
 _GROUP_COUNT = 8
 DEFAULT_RESIDUAL_KERNEL_SIZE = 7
 DEFAULT_STEM_KERNEL_SIZE = 15
+DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE = 1
 DEFAULT_TARGET_COORDINATE_COUNT = 3
 DEFAULT_COORDINATE_CONDITIONING = "stem"
 DEFAULT_NEIGHBOR_GATING = "none"
@@ -114,6 +115,26 @@ def _availability_masked_softmax_gates(
     return unnormalized * available_count / denominator
 
 
+def _identity_initialized_neighbor_alignment(
+    neighbor_count: int,
+    kernel_size: int,
+) -> nn.Conv1d:
+    """Build a trainable depthwise FIR without advancing the caller's RNG."""
+    with torch.random.fork_rng(devices=[]):
+        alignment = nn.Conv1d(
+            neighbor_count,
+            neighbor_count,
+            kernel_size=kernel_size,
+            padding=kernel_size // 2,
+            groups=neighbor_count,
+            bias=False,
+        )
+    with torch.no_grad():
+        alignment.weight.zero_()
+        alignment.weight[:, 0, kernel_size // 2] = 1.0
+    return alignment
+
+
 class TemporalResidualBlock(nn.Module):
     """Gated depthwise temporal residual block with a configurable odd kernel."""
 
@@ -199,6 +220,7 @@ class NeighborTraceInpainter(nn.Module):
         temporal_dilations: Iterable[int] = TEMPORAL_DILATIONS,
         coordinate_conditioning: str = DEFAULT_COORDINATE_CONDITIONING,
         neighbor_gating: str = DEFAULT_NEIGHBOR_GATING,
+        neighbor_alignment_kernel_size: int = DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
     ) -> None:
         super().__init__()
         self.neighbor_count = _positive_integer(neighbor_count, "neighbor_count")
@@ -213,6 +235,10 @@ class NeighborTraceInpainter(nn.Module):
         self.temporal_dilations = _validated_temporal_dilations(temporal_dilations)
         self.coordinate_conditioning = _validated_coordinate_conditioning(coordinate_conditioning)
         self.neighbor_gating = _validated_neighbor_gating(neighbor_gating)
+        self.neighbor_alignment_kernel_size = _odd_positive_integer(
+            neighbor_alignment_kernel_size,
+            "neighbor_alignment_kernel_size",
+        )
         # Preserve the original public attribute while exposing the constructor field name.
         self.dilations = self.temporal_dilations
         self.input_channels = 2 * self.neighbor_count + self.target_coordinate_count + 1
@@ -253,6 +279,14 @@ class NeighborTraceInpainter(nn.Module):
             )
             nn.init.zeros_(self.neighbor_gate_projection.weight)
             nn.init.zeros_(self.neighbor_gate_projection.bias)
+        # Construct the optional module after every legacy module so their
+        # initialization is unchanged. The helper also restores the CPU RNG.
+        self.neighbor_alignment: nn.Conv1d | None = None
+        if self.neighbor_alignment_kernel_size > 1:
+            self.neighbor_alignment = _identity_initialized_neighbor_alignment(
+                self.neighbor_count,
+                self.neighbor_alignment_kernel_size,
+            )
 
     def forward(
         self,
@@ -313,6 +347,12 @@ class NeighborTraceInpainter(nn.Module):
             gate_logits = self.neighbor_gate_projection(target_coordinates)
             gates = _availability_masked_softmax_gates(gate_logits, availability)
             gated_neighbors = neighbors * gates[..., None]
+        if self.neighbor_alignment is not None:
+            # Gating is a time-invariant scalar per neighbor and therefore
+            # commutes with a depthwise temporal FIR. Apply it first, then make
+            # unavailable channels explicitly zero before alignment.
+            available = (availability > 0.0).to(dtype=neighbors.dtype)
+            gated_neighbors = self.neighbor_alignment(gated_neighbors * available[..., None])
 
         availability_channels = availability[..., None].expand(-1, -1, time_count)
         time_channel = (

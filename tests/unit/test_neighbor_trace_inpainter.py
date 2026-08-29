@@ -22,6 +22,8 @@ def test_successful_architecture_contract_and_parameter_count() -> None:
     assert model.coordinate_conditioning == "stem"
     assert model.neighbor_gating == "none"
     assert model.neighbor_gate_projection is None
+    assert model.neighbor_alignment_kernel_size == 1
+    assert model.neighbor_alignment is None
     assert model.stem_kernel_size == 15
     assert model.residual_kernel_size == 7
     assert model.temporal_dilations == TEMPORAL_DILATIONS
@@ -189,6 +191,130 @@ def test_masked_softmax_neighbor_gate_is_neutral_at_initialization() -> None:
     )
 
 
+def test_neighbor_alignment_is_exact_identity_without_changing_legacy_rng_or_weights() -> None:
+    torch.manual_seed(29)
+    legacy = NeighborTraceInpainter(neighbor_count=3, width=8, temporal_dilations=(1,))
+    legacy_rng_state = torch.random.get_rng_state()
+    torch.manual_seed(29)
+    aligned = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_alignment_kernel_size=31,
+    )
+    aligned_rng_state = torch.random.get_rng_state()
+    neighbors = torch.randn(2, 3, 19)
+    availability = torch.ones(2, 3, dtype=torch.bool)
+    coordinates = torch.randn(2, 3)
+
+    assert aligned.neighbor_alignment is not None
+    assert aligned.neighbor_alignment.in_channels == 3
+    assert aligned.neighbor_alignment.out_channels == 3
+    assert aligned.neighbor_alignment.groups == 3
+    assert aligned.neighbor_alignment.padding == (15,)
+    assert aligned.neighbor_alignment.bias is None
+    assert torch.equal(aligned_rng_state, legacy_rng_state)
+    for name, tensor in legacy.state_dict().items():
+        torch.testing.assert_close(aligned.state_dict()[name], tensor, rtol=0.0, atol=0.0)
+    expected_weights = torch.zeros_like(aligned.neighbor_alignment.weight)
+    expected_weights[:, 0, 15] = 1.0
+    torch.testing.assert_close(
+        aligned.neighbor_alignment.weight,
+        expected_weights,
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        aligned.neighbor_alignment(neighbors),
+        neighbors,
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        aligned(neighbors, availability, coordinates),
+        legacy(neighbors, availability, coordinates),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_neighbor_alignment_can_learn_offset_specific_temporal_shifts() -> None:
+    torch.manual_seed(31)
+    model = NeighborTraceInpainter(
+        neighbor_count=2,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_alignment_kernel_size=3,
+    ).double()
+    alignment = model.neighbor_alignment
+    assert alignment is not None
+    neighbors = torch.randn(12, 2, 23, dtype=torch.float64)
+    desired_weights = torch.zeros_like(alignment.weight)
+    desired_weights[0, 0, 0] = 1.0
+    desired_weights[1, 0, 2] = 1.0
+    target = torch.nn.functional.conv1d(
+        neighbors,
+        desired_weights,
+        padding=1,
+        groups=2,
+    )
+    optimizer = torch.optim.SGD(alignment.parameters(), lr=0.01)
+
+    initial_loss = torch.nn.functional.mse_loss(alignment(neighbors), target)
+    initial_loss.backward()
+    assert alignment.weight.grad is not None
+    assert alignment.weight.grad[0, 0, 0] != 0.0
+    assert alignment.weight.grad[1, 0, 2] != 0.0
+    optimizer.step()
+    updated_loss = torch.nn.functional.mse_loss(alignment(neighbors), target)
+
+    assert updated_loss < initial_loss
+    with torch.no_grad():
+        alignment.weight.copy_(desired_weights)
+    torch.testing.assert_close(alignment(neighbors), target, rtol=0.0, atol=0.0)
+
+
+def test_neighbor_alignment_runs_after_gating_and_keeps_unavailable_channels_zero() -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+    )
+    assert model.neighbor_gate_projection is not None
+    assert model.neighbor_alignment is not None
+    with torch.no_grad():
+        model.neighbor_gate_projection.weight.copy_(torch.eye(3))
+        model.neighbor_alignment.weight.fill_(1.0)
+    neighbors = torch.tensor(
+        [
+            [[1.0, 2.0, 3.0], [20.0, 30.0, 40.0], [4.0, 5.0, 6.0]],
+            [[7.0, 8.0, 9.0], [50.0, 60.0, 70.0], [10.0, 11.0, 12.0]],
+        ]
+    )
+    availability = torch.tensor([[True, False, True], [False, False, False]])
+    coordinates = torch.tensor([[2.0, 9.0, 0.0], [1.0, 2.0, 3.0]])
+    alignment_inputs: list[torch.Tensor] = []
+    stem_inputs: list[torch.Tensor] = []
+    alignment_handle = model.neighbor_alignment.register_forward_pre_hook(
+        lambda _module, inputs: alignment_inputs.append(inputs[0].detach().clone())
+    )
+    stem_handle = model.stem.register_forward_pre_hook(
+        lambda _module, inputs: stem_inputs.append(inputs[0].detach().clone())
+    )
+    try:
+        model(neighbors, availability, coordinates)
+    finally:
+        alignment_handle.remove()
+        stem_handle.remove()
+
+    gates = _availability_masked_softmax_gates(coordinates, availability)
+    torch.testing.assert_close(alignment_inputs[0], neighbors * gates[..., None])
+    torch.testing.assert_close(stem_inputs[0][:, 1], torch.zeros(2, 3))
+    torch.testing.assert_close(stem_inputs[0][1, :3], torch.zeros(3, 3))
+
+
 def test_masked_softmax_neighbor_gates_mask_and_preserve_available_mean() -> None:
     logits = torch.tensor([[2.0, -3.0, 1.0], [7.0, 8.0, 9.0]], requires_grad=True)
     availability = torch.tensor([[True, False, True], [False, False, False]])
@@ -339,6 +465,20 @@ def test_temporal_residual_block_preserves_shape() -> None:
         ),
         (lambda: NeighborTraceInpainter(neighbor_count=2, stem_kernel_size=0), "stem_kernel_size"),
         (lambda: NeighborTraceInpainter(neighbor_count=2, stem_kernel_size=4), "odd"),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                neighbor_alignment_kernel_size=0,
+            ),
+            "neighbor_alignment_kernel_size",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                neighbor_alignment_kernel_size=4,
+            ),
+            "odd",
+        ),
         (
             lambda: NeighborTraceInpainter(neighbor_count=2, residual_kernel_size=2),
             "odd",

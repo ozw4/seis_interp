@@ -30,6 +30,7 @@ from seis_interp.data.trace_store import (
 )
 from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COORDINATE_CONDITIONING,
+    DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
     DEFAULT_NEIGHBOR_GATING,
     TARGET_COORDINATE_MASKED_SOFTMAX_GATING,
     NeighborTraceInpainter,
@@ -150,6 +151,7 @@ class _TrainingSettings:
     temporal_dilations: tuple[int, ...]
     coordinate_conditioning: str
     neighbor_gating: str
+    neighbor_alignment_kernel_size: int
     neighbor_geometry: str
     relative_receiver_x_radius: int
     source_x_line_radius: int
@@ -596,6 +598,7 @@ def train_neighbor_inpainter_run(
         temporal_dilations=settings.temporal_dilations,
         coordinate_conditioning=settings.coordinate_conditioning,
         neighbor_gating=settings.neighbor_gating,
+        neighbor_alignment_kernel_size=settings.neighbor_alignment_kernel_size,
     )
     generator = torch.Generator(device=device).manual_seed(
         settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
@@ -701,6 +704,8 @@ def train_neighbor_inpainter_run(
         "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
         "coordinate_conditioning": checkpoint.model.coordinate_conditioning,
         "neighbor_gating": checkpoint.model.neighbor_gating,
+        "neighbor_alignment_kernel_size": checkpoint.model.neighbor_alignment_kernel_size,
+        "neighbor_alignment": _neighbor_alignment_contract(checkpoint.model),
     }
     checkpoint_contract = {
         "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
@@ -824,6 +829,7 @@ def _validated_settings(
     )
     coordinate_conditioning = _validated_coordinate_conditioning(config)
     neighbor_gating = _validated_neighbor_gating(config)
+    neighbor_alignment_kernel_size = _validated_neighbor_alignment_kernel_size(config)
     hidden_width = _positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
@@ -892,6 +898,7 @@ def _validated_settings(
         temporal_dilations=temporal_dilations,
         coordinate_conditioning=coordinate_conditioning,
         neighbor_gating=neighbor_gating,
+        neighbor_alignment_kernel_size=neighbor_alignment_kernel_size,
         neighbor_geometry=neighbor_geometry,
         relative_receiver_x_radius=relative_receiver_x_radius,
         source_x_line_radius=source_x_line_radius,
@@ -1030,6 +1037,19 @@ def _validated_neighbor_gating(config: Mapping[str, object]) -> str:
             f"model.neighbor_gating must be one of {sorted(supported)}, got {value!r}"
         )
     return value
+
+
+def _validated_neighbor_alignment_kernel_size(config: Mapping[str, object]) -> int:
+    model = config.get("model")
+    if not isinstance(model, Mapping):
+        raise ConfigurationError("model configuration must be a mapping")
+    return _odd_positive_integer(
+        model.get(
+            "neighbor_alignment_kernel_size",
+            DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
+        ),
+        "model.neighbor_alignment_kernel_size",
+    )
 
 
 def _validated_target_sampling(config: Mapping[str, object]) -> str:
@@ -1409,6 +1429,20 @@ def _training_contract(
         "unique_training_targets_seen": provider.unique_target_count,
         "training_audit_count": settings.training_audit_count,
         "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+    }
+
+
+def _neighbor_alignment_contract(model: NeighborTraceInpainter) -> dict[str, object]:
+    alignment = model.neighbor_alignment
+    return {
+        "enabled": alignment is not None,
+        "type": "depthwise_fir" if alignment is not None else "none",
+        "kernel_size": model.neighbor_alignment_kernel_size,
+        "groups": alignment.groups if alignment is not None else None,
+        "bias": alignment.bias is not None if alignment is not None else None,
+        "initialization": "identity_center_tap" if alignment is not None else None,
+        "applied_after_time_invariant_neighbor_gating": True,
+        "unavailable_channels_zeroed_before_fir": alignment is not None,
     }
 
 

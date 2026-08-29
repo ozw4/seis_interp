@@ -242,6 +242,8 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert checkpoint.model.neighbor_count == 104
     assert checkpoint.model.width == 8
     assert checkpoint.model.neighbor_gating == "none"
+    assert checkpoint.model.neighbor_alignment_kernel_size == 1
+    assert checkpoint.model.neighbor_alignment is None
 
     inputs_lock_text = (output / "inputs.lock.json").read_text(encoding="utf-8")
     inputs_lock = json.loads(inputs_lock_text)
@@ -259,6 +261,8 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert inputs_lock["target_coordinates"]["fit_split"] == "train"
     assert inputs_lock["target_coordinates"]["scaling"] == "train_minmax"
     assert inputs_lock["model"]["neighbor_gating"] == "none"
+    assert inputs_lock["model"]["neighbor_alignment_kernel_size"] == 1
+    assert inputs_lock["model"]["neighbor_alignment"]["enabled"] is False
     assert inputs_lock["split_counts"] == metrics["split_counts"]
     assert inputs_lock["training"]["minimum_learning_rate_factor"] == 0.03
     assert inputs_lock["training"]["gradient_clip_norm"] == 1.0
@@ -288,6 +292,7 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert run["training"]["target_sampling_seed"] == 6
     assert run["training"]["neighbor_dropout_seed"] == 6
     assert run["model"]["neighbor_gating"] == "none"
+    assert run["model"]["neighbor_alignment_kernel_size"] == 1
     assert run["checkpoint"]["revalidation_matches"] is True
 
 
@@ -313,6 +318,42 @@ def test_pipeline_persists_target_coordinate_neighbor_gating(tmp_path: Path) -> 
     assert checkpoint.model.neighbor_gate_projection is not None
     assert inputs_lock["model"]["neighbor_gating"] == "target_coordinate_masked_softmax"
     assert run["model"]["neighbor_gating"] == "target_coordinate_masked_softmax"
+
+
+def test_pipeline_persists_depthwise_neighbor_alignment_contract(tmp_path: Path) -> None:
+    config, interim, processed = _build_neighbor_training_fixture(tmp_path)
+    configured = yaml.safe_load(config.read_text(encoding="utf-8"))
+    configured["model"]["neighbor_alignment_kernel_size"] = 3
+    configured["training"]["total_steps"] = 1
+    config.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "alignment-run"
+
+    train_neighbor_inpainter_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+    )
+
+    checkpoint = load_neighbor_inpainter_checkpoint(output / "artifacts/best.pt")
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert checkpoint.model.neighbor_alignment_kernel_size == 3
+    assert checkpoint.model.neighbor_alignment is not None
+    expected_contract = {
+        "enabled": True,
+        "type": "depthwise_fir",
+        "kernel_size": 3,
+        "groups": 104,
+        "bias": False,
+        "initialization": "identity_center_tap",
+        "applied_after_time_invariant_neighbor_gating": True,
+        "unavailable_channels_zeroed_before_fir": True,
+    }
+    assert inputs_lock["model"]["neighbor_alignment_kernel_size"] == 3
+    assert inputs_lock["model"]["neighbor_alignment"] == expected_contract
+    assert run["model"]["neighbor_alignment_kernel_size"] == 3
+    assert run["model"]["neighbor_alignment"] == expected_contract
 
 
 def test_pipeline_never_materializes_test_or_excluded_amplitude_values(tmp_path: Path) -> None:
@@ -478,6 +519,7 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
     assert settings.validation_batch_size == 2048
     assert settings.training_audit_count == 114492
     assert settings.neighbor_gating == "none"
+    assert settings.neighbor_alignment_kernel_size == 1
     assert settings.minimum_learning_rate == 1.5e-5
     assert settings.ffid_range is None
     assert settings.required_eligible_ffid_count == 4780
@@ -496,6 +538,12 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
         ("sampling", "duplicate_physical_coordinate_policy", "keep_last", "duplicate"),
         ("model", "stem_kernel_size", 14, "stem_kernel_size.*odd"),
         ("model", "neighbor_gating", "sigmoid", "neighbor_gating"),
+        (
+            "model",
+            "neighbor_alignment_kernel_size",
+            4,
+            "neighbor_alignment_kernel_size.*odd",
+        ),
         ("training", "optimizer", "sgd", "optimizer"),
         ("evaluation", "comparison", "greater_than_or_equal", "comparison"),
         ("evaluation", "required_eligible_ffid_count", 0, "positive integer"),
