@@ -17,8 +17,13 @@ DEFAULT_RESIDUAL_KERNEL_SIZE = 7
 DEFAULT_STEM_KERNEL_SIZE = 15
 DEFAULT_TARGET_COORDINATE_COUNT = 3
 DEFAULT_COORDINATE_CONDITIONING = "stem"
+DEFAULT_NEIGHBOR_GATING = "none"
+TARGET_COORDINATE_MASKED_SOFTMAX_GATING = "target_coordinate_masked_softmax"
 
 _COORDINATE_CONDITIONING_MODES = frozenset((DEFAULT_COORDINATE_CONDITIONING, "film"))
+_NEIGHBOR_GATING_MODES = frozenset(
+    (DEFAULT_NEIGHBOR_GATING, TARGET_COORDINATE_MASKED_SOFTMAX_GATING)
+)
 
 
 def _positive_integer(value: int, name: str) -> int:
@@ -68,6 +73,13 @@ def _validated_coordinate_conditioning(value: str) -> str:
     return value
 
 
+def _validated_neighbor_gating(value: str) -> str:
+    if not isinstance(value, str) or value not in _NEIGHBOR_GATING_MODES:
+        choices = ", ".join(repr(mode) for mode in sorted(_NEIGHBOR_GATING_MODES))
+        raise ValueError(f"neighbor_gating must be one of {choices}, got {value!r}")
+    return value
+
+
 def _require_tensor(value: object, name: str) -> torch.Tensor:
     if not isinstance(value, torch.Tensor):
         raise TypeError(f"{name} must be a torch.Tensor, got {type(value).__name__}")
@@ -79,6 +91,27 @@ def _require_floating_tensor(value: object, name: str) -> torch.Tensor:
     if not tensor.is_floating_point():
         raise TypeError(f"{name} must have a floating-point dtype, got {tensor.dtype}")
     return tensor
+
+
+def _availability_masked_softmax_gates(
+    logits: torch.Tensor,
+    availability: torch.Tensor,
+) -> torch.Tensor:
+    """Normalize available-neighbor logits to gates with mean one.
+
+    Unavailable entries receive zero. A row without any available neighbor also
+    receives all-zero, finite gates instead of the NaNs produced by a softmax of
+    all negative infinity values.
+    """
+    available = availability > 0.0
+    minimum = torch.finfo(logits.dtype).min
+    masked_logits = logits.masked_fill(~available, minimum)
+    row_maximum = masked_logits.max(dim=1, keepdim=True).values
+    shifted = (masked_logits - row_maximum).masked_fill(~available, 0.0)
+    unnormalized = shifted.exp() * available.to(dtype=logits.dtype)
+    denominator = unnormalized.sum(dim=1, keepdim=True).clamp_min(1.0)
+    available_count = available.sum(dim=1, keepdim=True).to(dtype=logits.dtype)
+    return unnormalized * available_count / denominator
 
 
 class TemporalResidualBlock(nn.Module):
@@ -165,6 +198,7 @@ class NeighborTraceInpainter(nn.Module):
         residual_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
         temporal_dilations: Iterable[int] = TEMPORAL_DILATIONS,
         coordinate_conditioning: str = DEFAULT_COORDINATE_CONDITIONING,
+        neighbor_gating: str = DEFAULT_NEIGHBOR_GATING,
     ) -> None:
         super().__init__()
         self.neighbor_count = _positive_integer(neighbor_count, "neighbor_count")
@@ -178,6 +212,7 @@ class NeighborTraceInpainter(nn.Module):
         )
         self.temporal_dilations = _validated_temporal_dilations(temporal_dilations)
         self.coordinate_conditioning = _validated_coordinate_conditioning(coordinate_conditioning)
+        self.neighbor_gating = _validated_neighbor_gating(neighbor_gating)
         # Preserve the original public attribute while exposing the constructor field name.
         self.dilations = self.temporal_dilations
         self.input_channels = 2 * self.neighbor_count + self.target_coordinate_count + 1
@@ -210,6 +245,14 @@ class NeighborTraceInpainter(nn.Module):
                 nn.init.zeros_(projection.weight)
                 nn.init.zeros_(projection.bias)
                 self.coordinate_modulations.append(projection)
+        self.neighbor_gate_projection: nn.Linear | None = None
+        if self.neighbor_gating == TARGET_COORDINATE_MASKED_SOFTMAX_GATING:
+            self.neighbor_gate_projection = nn.Linear(
+                self.target_coordinate_count,
+                self.neighbor_count,
+            )
+            nn.init.zeros_(self.neighbor_gate_projection.weight)
+            nn.init.zeros_(self.neighbor_gate_projection.bias)
 
     def forward(
         self,
@@ -265,6 +308,12 @@ class NeighborTraceInpainter(nn.Module):
                 f"got {target_coordinates.dtype} and {neighbors.dtype}"
             )
 
+        gated_neighbors = neighbors
+        if self.neighbor_gate_projection is not None:
+            gate_logits = self.neighbor_gate_projection(target_coordinates)
+            gates = _availability_masked_softmax_gates(gate_logits, availability)
+            gated_neighbors = neighbors * gates[..., None]
+
         availability_channels = availability[..., None].expand(-1, -1, time_count)
         time_channel = (
             torch.linspace(
@@ -279,7 +328,7 @@ class NeighborTraceInpainter(nn.Module):
         )
         geometry_channels = target_coordinates[..., None].expand(-1, -1, time_count)
         features = torch.cat(
-            (neighbors, availability_channels, geometry_channels, time_channel),
+            (gated_neighbors, availability_channels, geometry_channels, time_channel),
             dim=1,
         )
         hidden = self.stem(features)

@@ -9,6 +9,9 @@ from seis_interp.models import (
     NeighborTraceInpainter,
     TemporalResidualBlock,
 )
+from seis_interp.models.neighbor_trace_inpainter import (
+    _availability_masked_softmax_gates,
+)
 
 
 def test_successful_architecture_contract_and_parameter_count() -> None:
@@ -17,6 +20,8 @@ def test_successful_architecture_contract_and_parameter_count() -> None:
     assert model.width == 128
     assert model.target_coordinate_count == 3
     assert model.coordinate_conditioning == "stem"
+    assert model.neighbor_gating == "none"
+    assert model.neighbor_gate_projection is None
     assert model.stem_kernel_size == 15
     assert model.residual_kernel_size == 7
     assert model.temporal_dilations == TEMPORAL_DILATIONS
@@ -157,6 +162,88 @@ def test_film_projection_parameters_receive_gradients() -> None:
         assert torch.count_nonzero(projection.bias.grad) > 0
 
 
+def test_masked_softmax_neighbor_gate_is_neutral_at_initialization() -> None:
+    torch.manual_seed(23)
+    plain = NeighborTraceInpainter(neighbor_count=3, width=8, temporal_dilations=(1,))
+    torch.manual_seed(23)
+    gated = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_gating="target_coordinate_masked_softmax",
+    )
+    availability = torch.tensor([[True, False, True], [True, True, True]])
+    neighbors = torch.randn(2, 3, 11) * availability[..., None]
+    coordinates = torch.randn(2, 3)
+
+    assert gated.neighbor_gate_projection is not None
+    assert torch.count_nonzero(gated.neighbor_gate_projection.weight) == 0
+    assert torch.count_nonzero(gated.neighbor_gate_projection.bias) == 0
+    for name, tensor in plain.state_dict().items():
+        torch.testing.assert_close(gated.state_dict()[name], tensor, rtol=0.0, atol=0.0)
+    torch.testing.assert_close(
+        gated(neighbors, availability, coordinates),
+        plain(neighbors, availability, coordinates),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_masked_softmax_neighbor_gates_mask_and_preserve_available_mean() -> None:
+    logits = torch.tensor([[2.0, -3.0, 1.0], [7.0, 8.0, 9.0]], requires_grad=True)
+    availability = torch.tensor([[True, False, True], [False, False, False]])
+
+    gates = _availability_masked_softmax_gates(logits, availability)
+
+    assert torch.isfinite(gates).all()
+    assert gates[0, 1] == 0.0
+    assert float(gates[0].sum().detach()) == pytest.approx(2.0)
+    torch.testing.assert_close(gates[1], torch.zeros(3))
+    gates.sum().backward()
+    assert logits.grad is not None and torch.isfinite(logits.grad).all()
+
+
+def test_neighbor_gate_changes_only_amplitude_channels_and_handles_no_neighbors() -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_gating="target_coordinate_masked_softmax",
+    )
+    assert model.neighbor_gate_projection is not None
+    with torch.no_grad():
+        model.neighbor_gate_projection.weight.copy_(torch.eye(3))
+    neighbors = torch.tensor(
+        [
+            [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]],
+            [[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]],
+        ]
+    )
+    availability = torch.tensor([[True, False, True], [False, False, False]])
+    coordinates = torch.tensor([[2.0, 9.0, 0.0], [1.0, 2.0, 3.0]])
+    captured: list[torch.Tensor] = []
+    handle = model.stem.register_forward_pre_hook(
+        lambda _module, inputs: captured.append(inputs[0].detach().clone())
+    )
+    try:
+        output = model(neighbors, availability, coordinates)
+    finally:
+        handle.remove()
+
+    expected_gates = _availability_masked_softmax_gates(coordinates, availability)
+    torch.testing.assert_close(captured[0][:, :3], neighbors * expected_gates[..., None])
+    torch.testing.assert_close(
+        captured[0][:, 3:6],
+        availability.to(dtype=neighbors.dtype)[..., None].expand(-1, -1, 2),
+    )
+    assert torch.isfinite(captured[0]).all()
+    assert torch.isfinite(output).all()
+    output.square().mean().backward()
+    assert model.neighbor_gate_projection.weight.grad is not None
+    assert torch.isfinite(model.neighbor_gate_projection.weight.grad).all()
+    assert torch.count_nonzero(model.neighbor_gate_projection.weight.grad) > 0
+
+
 def test_forward_preserves_batch_and_time_and_supports_boolean_availability() -> None:
     torch.manual_seed(0)
     model = NeighborTraceInpainter(neighbor_count=4, width=16)
@@ -278,6 +365,17 @@ def test_temporal_residual_block_preserves_shape() -> None:
                 coordinate_conditioning=1,  # type: ignore[arg-type]
             ),
             "coordinate_conditioning",
+        ),
+        (
+            lambda: NeighborTraceInpainter(neighbor_count=2, neighbor_gating="sigmoid"),
+            "neighbor_gating",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                neighbor_gating=1,  # type: ignore[arg-type]
+            ),
+            "neighbor_gating",
         ),
         (lambda: TemporalResidualBlock(width=8, dilation=0), "dilation"),
         (lambda: TemporalResidualBlock(width=8, dilation=1, kernel_size=2), "odd"),

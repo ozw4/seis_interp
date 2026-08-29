@@ -30,6 +30,8 @@ from seis_interp.data.trace_store import (
 )
 from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COORDINATE_CONDITIONING,
+    DEFAULT_NEIGHBOR_GATING,
+    TARGET_COORDINATE_MASKED_SOFTMAX_GATING,
     NeighborTraceInpainter,
 )
 from seis_interp.pipelines.train_siren import (
@@ -147,6 +149,7 @@ class _TrainingSettings:
     residual_kernel_size: int
     temporal_dilations: tuple[int, ...]
     coordinate_conditioning: str
+    neighbor_gating: str
     neighbor_geometry: str
     relative_receiver_x_radius: int
     source_x_line_radius: int
@@ -592,6 +595,7 @@ def train_neighbor_inpainter_run(
         residual_kernel_size=settings.residual_kernel_size,
         temporal_dilations=settings.temporal_dilations,
         coordinate_conditioning=settings.coordinate_conditioning,
+        neighbor_gating=settings.neighbor_gating,
     )
     generator = torch.Generator(device=device).manual_seed(
         settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
@@ -696,6 +700,7 @@ def train_neighbor_inpainter_run(
         "target_coordinates": list(settings.target_coordinates),
         "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
         "coordinate_conditioning": checkpoint.model.coordinate_conditioning,
+        "neighbor_gating": checkpoint.model.neighbor_gating,
     }
     checkpoint_contract = {
         "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
@@ -818,6 +823,7 @@ def _validated_settings(
         "model.temporal_dilations",
     )
     coordinate_conditioning = _validated_coordinate_conditioning(config)
+    neighbor_gating = _validated_neighbor_gating(config)
     hidden_width = _positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
@@ -885,6 +891,7 @@ def _validated_settings(
         residual_kernel_size=residual_kernel_size,
         temporal_dilations=temporal_dilations,
         coordinate_conditioning=coordinate_conditioning,
+        neighbor_gating=neighbor_gating,
         neighbor_geometry=neighbor_geometry,
         relative_receiver_x_radius=relative_receiver_x_radius,
         source_x_line_radius=source_x_line_radius,
@@ -1008,6 +1015,19 @@ def _validated_coordinate_conditioning(config: Mapping[str, object]) -> str:
     if not isinstance(value, str) or value not in supported:
         raise ConfigurationError(
             f"model.coordinate_conditioning must be one of {sorted(supported)}, got {value!r}"
+        )
+    return value
+
+
+def _validated_neighbor_gating(config: Mapping[str, object]) -> str:
+    model = config.get("model")
+    if not isinstance(model, Mapping):
+        raise ConfigurationError("model configuration must be a mapping")
+    value = model.get("neighbor_gating", DEFAULT_NEIGHBOR_GATING)
+    supported = {DEFAULT_NEIGHBOR_GATING, TARGET_COORDINATE_MASKED_SOFTMAX_GATING}
+    if not isinstance(value, str) or value not in supported:
+        raise ConfigurationError(
+            f"model.neighbor_gating must be one of {sorted(supported)}, got {value!r}"
         )
     return value
 

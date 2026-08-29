@@ -11,6 +11,7 @@ import torch
 
 from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COORDINATE_CONDITIONING,
+    DEFAULT_NEIGHBOR_GATING,
     DEFAULT_RESIDUAL_KERNEL_SIZE,
     DEFAULT_STEM_KERNEL_SIZE,
     DEFAULT_TARGET_COORDINATE_COUNT,
@@ -63,6 +64,7 @@ def save_neighbor_inpainter_checkpoint(
                 "residual_kernel_size": model.residual_kernel_size,
                 "temporal_dilations": list(model.temporal_dilations),
                 "coordinate_conditioning": model.coordinate_conditioning,
+                "neighbor_gating": model.neighbor_gating,
             },
             "model_state_dict": state_dict,
             "amplitude_scaling": PER_TRACE_RMS_SCALING,
@@ -114,6 +116,7 @@ def load_neighbor_inpainter_checkpoint(
             coordinate_conditioning=model_config.get(
                 "coordinate_conditioning", DEFAULT_COORDINATE_CONDITIONING
             ),
+            neighbor_gating=model_config.get("neighbor_gating", DEFAULT_NEIGHBOR_GATING),
         )
     except KeyError as error:
         raise ValueError(
