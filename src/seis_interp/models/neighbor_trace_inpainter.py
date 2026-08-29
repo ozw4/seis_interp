@@ -16,6 +16,9 @@ _GROUP_COUNT = 8
 DEFAULT_RESIDUAL_KERNEL_SIZE = 7
 DEFAULT_STEM_KERNEL_SIZE = 15
 DEFAULT_TARGET_COORDINATE_COUNT = 3
+DEFAULT_COORDINATE_CONDITIONING = "stem"
+
+_COORDINATE_CONDITIONING_MODES = frozenset((DEFAULT_COORDINATE_CONDITIONING, "film"))
 
 
 def _positive_integer(value: int, name: str) -> int:
@@ -58,6 +61,13 @@ def _validated_temporal_dilations(dilations: Iterable[int]) -> tuple[int, ...]:
     return validated
 
 
+def _validated_coordinate_conditioning(value: str) -> str:
+    if not isinstance(value, str) or value not in _COORDINATE_CONDITIONING_MODES:
+        choices = ", ".join(repr(mode) for mode in sorted(_COORDINATE_CONDITIONING_MODES))
+        raise ValueError(f"coordinate_conditioning must be one of {choices}, got {value!r}")
+    return value
+
+
 def _require_tensor(value: object, name: str) -> torch.Tensor:
     if not isinstance(value, torch.Tensor):
         raise TypeError(f"{name} must be a torch.Tensor, got {type(value).__name__}")
@@ -97,7 +107,11 @@ class TemporalResidualBlock(nn.Module):
         self.expand = nn.Conv1d(self.width, self.width * 2, kernel_size=1)
         self.contract = nn.Conv1d(self.width, self.width, kernel_size=1)
 
-    def forward(self, traces: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        traces: torch.Tensor,
+        modulation: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Transform ``[batch, width, time]`` while preserving its shape."""
         traces = _require_floating_tensor(traces, "traces")
         if traces.ndim != 3:
@@ -109,7 +123,25 @@ class TemporalResidualBlock(nn.Module):
         if traces.shape[0] == 0 or traces.shape[2] == 0:
             raise ValueError("traces batch and time dimensions must be non-empty")
 
-        transformed = self.depthwise(F.silu(self.norm(traces)))
+        normalized = self.norm(traces)
+        if modulation is not None:
+            modulation = _require_floating_tensor(modulation, "modulation")
+            expected_shape = (traces.shape[0], self.width * 2)
+            if modulation.shape != expected_shape:
+                raise ValueError(
+                    f"modulation must have shape {expected_shape}, got {tuple(modulation.shape)}"
+                )
+            if modulation.device != traces.device:
+                raise ValueError("modulation and traces must share a device")
+            if modulation.dtype != traces.dtype:
+                raise TypeError(
+                    "modulation must share the traces dtype, "
+                    f"got {modulation.dtype} and {traces.dtype}"
+                )
+            scale_delta, shift = modulation.chunk(2, dim=1)
+            normalized = normalized * (1.0 + scale_delta[..., None]) + shift[..., None]
+
+        transformed = self.depthwise(F.silu(normalized))
         value, gate = self.expand(transformed).chunk(2, dim=1)
         return traces + self.contract(F.silu(value) * torch.sigmoid(gate))
 
@@ -132,6 +164,7 @@ class NeighborTraceInpainter(nn.Module):
         stem_kernel_size: int = DEFAULT_STEM_KERNEL_SIZE,
         residual_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
         temporal_dilations: Iterable[int] = TEMPORAL_DILATIONS,
+        coordinate_conditioning: str = DEFAULT_COORDINATE_CONDITIONING,
     ) -> None:
         super().__init__()
         self.neighbor_count = _positive_integer(neighbor_count, "neighbor_count")
@@ -144,6 +177,7 @@ class NeighborTraceInpainter(nn.Module):
             residual_kernel_size, "residual_kernel_size"
         )
         self.temporal_dilations = _validated_temporal_dilations(temporal_dilations)
+        self.coordinate_conditioning = _validated_coordinate_conditioning(coordinate_conditioning)
         # Preserve the original public attribute while exposing the constructor field name.
         self.dilations = self.temporal_dilations
         self.input_channels = 2 * self.neighbor_count + self.target_coordinate_count + 1
@@ -169,6 +203,13 @@ class NeighborTraceInpainter(nn.Module):
             nn.SiLU(),
             nn.Conv1d(self.width, 1, kernel_size=1),
         )
+        self.coordinate_modulations = nn.ModuleList()
+        if self.coordinate_conditioning == "film":
+            for _ in self.temporal_dilations:
+                projection = nn.Linear(self.target_coordinate_count, self.width * 2)
+                nn.init.zeros_(projection.weight)
+                nn.init.zeros_(projection.bias)
+                self.coordinate_modulations.append(projection)
 
     def forward(
         self,
@@ -225,7 +266,6 @@ class NeighborTraceInpainter(nn.Module):
             )
 
         availability_channels = availability[..., None].expand(-1, -1, time_count)
-        geometry_channels = target_coordinates[..., None].expand(-1, -1, time_count)
         time_channel = (
             torch.linspace(
                 -1.0,
@@ -237,11 +277,20 @@ class NeighborTraceInpainter(nn.Module):
             .view(1, 1, time_count)
             .expand(batch_size, 1, time_count)
         )
+        geometry_channels = target_coordinates[..., None].expand(-1, -1, time_count)
         features = torch.cat(
             (neighbors, availability_channels, geometry_channels, time_channel),
             dim=1,
         )
         hidden = self.stem(features)
-        for block in self.blocks:
-            hidden = block(hidden)
+        if self.coordinate_conditioning == "film":
+            for block, projection in zip(
+                self.blocks,
+                self.coordinate_modulations,
+                strict=True,
+            ):
+                hidden = block(hidden, projection(target_coordinates))
+        else:
+            for block in self.blocks:
+                hidden = block(hidden)
         return self.head(hidden)[:, 0]

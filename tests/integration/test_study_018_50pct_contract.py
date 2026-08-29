@@ -82,3 +82,15 @@ def test_stage02_changes_only_to_four_coordinate_equivalent_aperture() -> None:
     assert settings.source_x_line_radius == 0
     assert settings.source_y_half_shot_radius == 4
     assert settings.relative_receiver_y_radius == 3
+
+
+def test_stage06_enables_film_conditioning() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage06_receiver_aperture_film.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.coordinate_conditioning == "film"
+    assert settings.relative_receiver_x_radius == 2
+    assert settings.source_x_line_radius == 0
+    assert settings.relative_receiver_y_radius == 5

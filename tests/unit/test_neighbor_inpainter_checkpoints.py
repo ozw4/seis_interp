@@ -24,6 +24,7 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
         stem_kernel_size=5,
         residual_kernel_size=3,
         temporal_dilations=(1, 3, 2),
+        coordinate_conditioning="film",
     )
     neighbors = torch.randn(2, 3, 9)
     availability = torch.tensor([[True, False, True], [True, True, False]])
@@ -48,6 +49,7 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
         "stem_kernel_size": 5,
         "residual_kernel_size": 3,
         "temporal_dilations": [1, 3, 2],
+        "coordinate_conditioning": "film",
     }
     assert all(tensor.device.type == "cpu" for tensor in payload["model_state_dict"].values())
     assert payload["amplitude_scaling"] == "per_trace_rms"
@@ -58,6 +60,7 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
     assert loaded.model.stem_kernel_size == 5
     assert loaded.model.residual_kernel_size == 3
     assert loaded.model.temporal_dilations == (1, 3, 2)
+    assert loaded.model.coordinate_conditioning == "film"
     assert all(parameter.device.type == "cpu" for parameter in loaded.model.parameters())
     assert loaded.amplitude_scaling == "per_trace_rms"
     assert loaded.validation_metric_domain == "oracle_per_trace_unit_rms"
@@ -89,6 +92,7 @@ def test_neighbor_inpainter_checkpoint_loads_study017_legacy_model_config(
         "stem_kernel_size",
         "residual_kernel_size",
         "temporal_dilations",
+        "coordinate_conditioning",
     ):
         payload["model_config"].pop(field)
     torch.save(payload, legacy_checkpoint_path)
@@ -99,6 +103,7 @@ def test_neighbor_inpainter_checkpoint_loads_study017_legacy_model_config(
     assert loaded.model.stem_kernel_size == 15
     assert loaded.model.residual_kernel_size == 7
     assert loaded.model.temporal_dilations == (1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1)
+    assert loaded.model.coordinate_conditioning == "stem"
     torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
 
 

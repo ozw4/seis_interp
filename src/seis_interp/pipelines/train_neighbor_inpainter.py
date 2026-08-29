@@ -29,6 +29,7 @@ from seis_interp.data.trace_store import (
     canonical_source_files,
 )
 from seis_interp.models.neighbor_trace_inpainter import (
+    DEFAULT_COORDINATE_CONDITIONING,
     NeighborTraceInpainter,
 )
 from seis_interp.pipelines.train_siren import (
@@ -140,6 +141,7 @@ class _TrainingSettings:
     stem_kernel_size: int
     residual_kernel_size: int
     temporal_dilations: tuple[int, ...]
+    coordinate_conditioning: str
     neighbor_geometry: str
     relative_receiver_x_radius: int
     source_x_line_radius: int
@@ -521,6 +523,7 @@ def train_neighbor_inpainter_run(
         stem_kernel_size=settings.stem_kernel_size,
         residual_kernel_size=settings.residual_kernel_size,
         temporal_dilations=settings.temporal_dilations,
+        coordinate_conditioning=settings.coordinate_conditioning,
     )
     generator = torch.Generator(device=device).manual_seed(settings.random_seed + 1)
     result = train_neighbor_trace_inpainter(
@@ -622,6 +625,7 @@ def train_neighbor_inpainter_run(
         "residual_kernel_size": checkpoint.model.blocks[0].kernel_size,
         "target_coordinates": list(settings.target_coordinates),
         "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
+        "coordinate_conditioning": checkpoint.model.coordinate_conditioning,
     }
     checkpoint_contract = {
         "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
@@ -743,6 +747,7 @@ def _validated_settings(
         get_required_config_value(config, "model.temporal_dilations"),
         "model.temporal_dilations",
     )
+    coordinate_conditioning = _validated_coordinate_conditioning(config)
     hidden_width = _positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
@@ -809,6 +814,7 @@ def _validated_settings(
         stem_kernel_size=stem_kernel_size,
         residual_kernel_size=residual_kernel_size,
         temporal_dilations=temporal_dilations,
+        coordinate_conditioning=coordinate_conditioning,
         neighbor_geometry=neighbor_geometry,
         relative_receiver_x_radius=relative_receiver_x_radius,
         source_x_line_radius=source_x_line_radius,
@@ -920,6 +926,19 @@ def _validated_positive_integer_list(value: object, name: str) -> tuple[int, ...
     if not isinstance(value, list) or not value:
         raise ConfigurationError(f"{name} must be a non-empty list")
     return tuple(_positive_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
+
+
+def _validated_coordinate_conditioning(config: Mapping[str, object]) -> str:
+    model = config.get("model")
+    if not isinstance(model, Mapping):
+        raise ConfigurationError("model configuration must be a mapping")
+    value = model.get("coordinate_conditioning", DEFAULT_COORDINATE_CONDITIONING)
+    supported = {DEFAULT_COORDINATE_CONDITIONING, "film"}
+    if not isinstance(value, str) or value not in supported:
+        raise ConfigurationError(
+            f"model.coordinate_conditioning must be one of {sorted(supported)}, got {value!r}"
+        )
+    return value
 
 
 def _odd_positive_integer(value: object, name: str) -> int:

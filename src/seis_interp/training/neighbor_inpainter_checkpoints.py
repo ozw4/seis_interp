@@ -10,6 +10,7 @@ from pathlib import Path
 import torch
 
 from seis_interp.models.neighbor_trace_inpainter import (
+    DEFAULT_COORDINATE_CONDITIONING,
     DEFAULT_RESIDUAL_KERNEL_SIZE,
     DEFAULT_STEM_KERNEL_SIZE,
     DEFAULT_TARGET_COORDINATE_COUNT,
@@ -61,6 +62,7 @@ def save_neighbor_inpainter_checkpoint(
                 "stem_kernel_size": model.stem_kernel_size,
                 "residual_kernel_size": model.residual_kernel_size,
                 "temporal_dilations": list(model.temporal_dilations),
+                "coordinate_conditioning": model.coordinate_conditioning,
             },
             "model_state_dict": state_dict,
             "amplitude_scaling": PER_TRACE_RMS_SCALING,
@@ -109,6 +111,9 @@ def load_neighbor_inpainter_checkpoint(
                 "residual_kernel_size", DEFAULT_RESIDUAL_KERNEL_SIZE
             ),
             temporal_dilations=model_config.get("temporal_dilations", TEMPORAL_DILATIONS),
+            coordinate_conditioning=model_config.get(
+                "coordinate_conditioning", DEFAULT_COORDINATE_CONDITIONING
+            ),
         )
     except KeyError as error:
         raise ValueError(

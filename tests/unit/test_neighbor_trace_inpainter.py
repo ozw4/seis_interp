@@ -16,6 +16,7 @@ def test_successful_architecture_contract_and_parameter_count() -> None:
 
     assert model.width == 128
     assert model.target_coordinate_count == 3
+    assert model.coordinate_conditioning == "stem"
     assert model.stem_kernel_size == 15
     assert model.residual_kernel_size == 7
     assert model.temporal_dilations == TEMPORAL_DILATIONS
@@ -23,6 +24,7 @@ def test_successful_architecture_contract_and_parameter_count() -> None:
     assert model.dilations == (1, 2, 4, 8, 16, 32, 16, 8, 4, 2, 1)
     assert model.dilations is TEMPORAL_DILATIONS
     assert len(model.blocks) == 11
+    assert len(model.coordinate_modulations) == 0
     assert [block.dilation for block in model.blocks] == list(model.dilations)
     assert model.stem.kernel_size == (15,)
     assert model.stem.padding == (7,)
@@ -67,6 +69,92 @@ def test_custom_architecture_preserves_configured_shapes_and_provenance() -> Non
     assert [block.kernel_size for block in model.blocks] == [3, 3, 3]
     assert [block.dilation for block in model.blocks] == [1, 3, 2]
     assert [block.depthwise.padding for block in model.blocks] == [(1,), (3,), (2,)]
+
+
+def test_film_conditioning_preserves_shapes_and_adds_one_projection_per_block() -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=2,
+        width=8,
+        target_coordinate_count=4,
+        temporal_dilations=(1, 3),
+        coordinate_conditioning="film",
+    )
+
+    output = model(
+        torch.randn(3, 2, 17),
+        torch.ones(3, 2, dtype=torch.bool),
+        torch.randn(3, 4),
+    )
+
+    assert output.shape == (3, 17)
+    assert model.coordinate_conditioning == "film"
+    assert model.input_channels == 9
+    assert model.stem.in_channels == 9
+    assert len(model.coordinate_modulations) == 2
+    assert all(projection.in_features == 4 for projection in model.coordinate_modulations)
+    assert all(projection.out_features == 16 for projection in model.coordinate_modulations)
+
+
+def test_film_conditioning_is_neutral_at_initialization() -> None:
+    torch.manual_seed(5)
+    stem_model = NeighborTraceInpainter(
+        neighbor_count=2,
+        width=8,
+        temporal_dilations=(1,),
+    )
+    torch.manual_seed(5)
+    film_model = NeighborTraceInpainter(
+        neighbor_count=2,
+        width=8,
+        temporal_dilations=(1,),
+        coordinate_conditioning="film",
+    )
+    projection = film_model.coordinate_modulations[0]
+    traces = torch.randn(3, 8, 13)
+    neighbors = torch.randn(3, 2, 13)
+    availability = torch.ones(3, 2, dtype=torch.bool)
+    coordinates = torch.randn(3, 3)
+
+    modulation = projection(coordinates)
+
+    assert torch.count_nonzero(projection.weight) == 0
+    assert torch.count_nonzero(projection.bias) == 0
+    assert torch.count_nonzero(modulation) == 0
+    torch.testing.assert_close(
+        film_model.blocks[0](traces, modulation),
+        film_model.blocks[0](traces),
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        film_model(neighbors, availability, coordinates),
+        stem_model(neighbors, availability, coordinates),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_film_projection_parameters_receive_gradients() -> None:
+    torch.manual_seed(7)
+    model = NeighborTraceInpainter(
+        neighbor_count=2,
+        width=8,
+        temporal_dilations=(1, 2),
+        coordinate_conditioning="film",
+    ).double()
+    neighbors = torch.randn(2, 2, 17, dtype=torch.float64, requires_grad=True)
+    availability = torch.rand(2, 2, dtype=torch.float64, requires_grad=True)
+    coordinates = torch.randn(2, 3, dtype=torch.float64, requires_grad=True)
+
+    model(neighbors, availability, coordinates).square().mean().backward()
+
+    for projection in model.coordinate_modulations:
+        assert projection.weight.grad is not None
+        assert projection.bias.grad is not None
+        assert torch.isfinite(projection.weight.grad).all()
+        assert torch.isfinite(projection.bias.grad).all()
+        assert torch.count_nonzero(projection.weight.grad) > 0
+        assert torch.count_nonzero(projection.bias.grad) > 0
 
 
 def test_forward_preserves_batch_and_time_and_supports_boolean_availability() -> None:
@@ -177,6 +265,20 @@ def test_temporal_residual_block_preserves_shape() -> None:
             lambda: NeighborTraceInpainter(neighbor_count=2, temporal_dilations=(True,)),
             "temporal_dilations\\[0\\]",
         ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                coordinate_conditioning="concatenate",
+            ),
+            "coordinate_conditioning",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                coordinate_conditioning=1,  # type: ignore[arg-type]
+            ),
+            "coordinate_conditioning",
+        ),
         (lambda: TemporalResidualBlock(width=8, dilation=0), "dilation"),
         (lambda: TemporalResidualBlock(width=8, dilation=1, kernel_size=2), "odd"),
         (lambda: TemporalResidualBlock(width=8, dilation=1, kernel_size=True), "kernel_size"),
@@ -259,3 +361,17 @@ def test_temporal_residual_block_validates_forward_input() -> None:
         block(torch.randn(2, 7, 9))
     with pytest.raises(TypeError, match="floating-point"):
         block(torch.ones(2, 8, 9, dtype=torch.int64))
+
+
+def test_temporal_residual_block_validates_optional_modulation() -> None:
+    block = TemporalResidualBlock(width=8, dilation=1)
+    traces = torch.randn(2, 8, 9)
+
+    with pytest.raises(TypeError, match="torch.Tensor"):
+        block(traces, modulation=object())  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="floating-point"):
+        block(traces, modulation=torch.ones(2, 16, dtype=torch.int64))
+    with pytest.raises(ValueError, match=r"shape \(2, 16\)"):
+        block(traces, modulation=torch.randn(2, 8))
+    with pytest.raises(TypeError, match="share the traces dtype"):
+        block(traces, modulation=torch.randn(2, 16, dtype=torch.float64))
