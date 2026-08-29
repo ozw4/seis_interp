@@ -1,0 +1,76 @@
+study:
+  status: diagnostic
+
+project:
+  random_seed: 42
+
+data:
+  dataset_id: seg_c3_na
+  data_root_env: SEIS_INTERP_DATA_ROOT
+
+sampling:
+  random_trace_holdout_fraction: 0.50
+  validation_fraction_of_holdout: 0.25
+  split_scope: per_ffid
+  trace_amplitude_filter:
+    exclude_all_zero: true
+    max_abs_amplitude: 10000.0
+  duplicate_physical_coordinate_policy: keep_lowest_array_row
+
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
+
+model:
+  name: neighbor_trace_inpainter
+  hidden_width: 256
+  target_coordinates:
+    - source_x_m
+    - source_y_m
+    - relative_receiver_x_m
+    - relative_receiver_y_m
+  target_coordinate_scaling: train_minmax
+  coordinate_conditioning: film
+  stem_kernel_size: 15
+  residual_kernel_size: 7
+  temporal_dilations: [1, 2, 4, 8, 16, 32, 64, 32, 16, 8, 4, 2, 1]
+  neighborhood:
+    type: multiline_staggered_source
+    relative_receiver_x_radius: 2
+    source_x_line_radius: 0
+    source_y_half_shot_radius: 4
+    relative_receiver_y_radius: 5
+    relative_receiver_spacing_m: 40.0
+    source_x_line_spacing_m: 160.0
+    source_y_half_shot_spacing_m: 40.0
+
+training:
+  amplitude_scaling: per_trace_rms
+  loss: l2_plus_first_difference
+  optimizer: adamw
+  learning_rate: 5.0e-4
+  weight_decay: 1.0e-5
+  learning_rate_schedule: cosine
+  minimum_learning_rate: 1.5e-5
+  total_steps: 2500
+  batch_size: 96
+  neighbor_dropout: 0.05
+  derivative_weight: 0.1
+  gradient_clip_norm: 1.0
+  evaluation_interval_steps: 2500
+  validation_batch_size: 512
+  training_audit_count: 10000
+  mixed_precision: bfloat16
+  device: cuda:1
+
+evaluation:
+  primary_metric: oracle_per_trace_unit_rms_global_snr_db
+  success_threshold_db: 20.0
+  comparison: strictly_greater_than
+  required_eligible_ffid_count: 4780
+  required_sample_count: 625
+  required_effective_split_counts:
+    train: 1151731
+    validation: 287933
+    test: 863801
+  required_fully_excluded_ffids: [1746]
