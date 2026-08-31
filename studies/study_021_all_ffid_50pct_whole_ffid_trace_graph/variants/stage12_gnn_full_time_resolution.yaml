@@ -2,3 +2,6 @@ extends: stage03_gnn_trace_lattice_mask_only.yaml
 
 model:
   time_downsample_factor: 1
+
+training:
+  batch_size: 1
