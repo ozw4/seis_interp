@@ -122,6 +122,7 @@ class _TrainingSettings:
     stem_kernel_size: int
     residual_kernel_size: int
     temporal_dilations: tuple[int, ...]
+    spatial_y_dilations: tuple[int, ...]
     distance_epsilon: float
     source_gather_count: int
     learning_rate: float
@@ -655,6 +656,7 @@ def train_shot_gather_inpainter_run(
     model = ShotGatherInpainter(
         width=settings.hidden_width,
         temporal_dilations=settings.temporal_dilations,
+        spatial_y_dilations=settings.spatial_y_dilations,
         stem_kernel_size=settings.stem_kernel_size,
         residual_kernel_size=settings.residual_kernel_size,
         distance_epsilon=settings.distance_epsilon,
@@ -928,6 +930,26 @@ def _validated_settings(
     evaluation = config.get("evaluation")
     if not isinstance(evaluation, Mapping):
         raise ConfigurationError("evaluation must be a mapping")
+    temporal_dilations = _validated_positive_integer_list(
+        get_required_config_value(config, "model.temporal_dilations"),
+        "model.temporal_dilations",
+    )
+    model_config = config.get("model")
+    if not isinstance(model_config, Mapping):
+        raise ConfigurationError("model must be a mapping")
+    raw_spatial_y_dilations = model_config.get("spatial_y_dilations")
+    spatial_y_dilations = (
+        (1,) * len(temporal_dilations)
+        if raw_spatial_y_dilations is None
+        else _validated_positive_integer_list(
+            raw_spatial_y_dilations,
+            "model.spatial_y_dilations",
+        )
+    )
+    if len(spatial_y_dilations) != len(temporal_dilations):
+        raise ConfigurationError(
+            "model.spatial_y_dilations must have the same length as model.temporal_dilations"
+        )
     return _TrainingSettings(
         random_seed=_nonnegative_integer(
             get_required_config_value(config, "project.random_seed"),
@@ -945,10 +967,8 @@ def _validated_settings(
             get_required_config_value(config, "model.residual_kernel_size"),
             "model.residual_kernel_size",
         ),
-        temporal_dilations=_validated_positive_integer_list(
-            get_required_config_value(config, "model.temporal_dilations"),
-            "model.temporal_dilations",
-        ),
+        temporal_dilations=temporal_dilations,
+        spatial_y_dilations=spatial_y_dilations,
         distance_epsilon=_positive_float(
             get_required_config_value(config, "model.distance_epsilon"),
             "model.distance_epsilon",
@@ -1246,6 +1266,7 @@ def _model_contract(
         "input_feature_names": list(input_feature_names),
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "temporal_dilations": list(model.temporal_dilations),
+        "spatial_y_dilations": list(model.spatial_y_dilations),
         "stem_kernel_size": model.stem_kernel_size,
         "residual_kernel_size": model.residual_kernel_size,
         "distance_epsilon": model.distance_epsilon,

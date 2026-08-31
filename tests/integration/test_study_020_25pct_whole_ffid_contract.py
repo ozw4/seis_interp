@@ -192,6 +192,7 @@ def test_stage09_is_an_explicit_memory_bounded_joint_shot_gather_condition() -> 
     assert settings.validation_batch_size == 4
     assert settings.total_steps == 2500
     assert settings.target_sampling == "epoch_without_replacement"
+    assert settings.spatial_y_dilations == (1, 1, 1, 1, 1, 1, 1)
     assert settings.required_eligible_ffid_count == 4780
     assert dict(settings.required_ffid_split_counts) == {
         "train": 1195,
@@ -203,6 +204,21 @@ def test_stage09_is_an_explicit_memory_bounded_joint_shot_gather_condition() -> 
         "validation": 437087,
         "test": 1287693,
     }
+
+
+def test_stage10_changes_only_the_receiver_y_receptive_field_from_stage09() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage10_joint_shot_gather_receiver_y_dilation.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 32
+    assert settings.source_gather_count == 8
+    assert settings.batch_size == 1
+    assert settings.validation_batch_size == 4
+    assert settings.total_steps == 2500
+    assert settings.temporal_dilations == (1, 2, 4, 8, 4, 2, 1)
+    assert settings.spatial_y_dilations == (1, 2, 4, 8, 4, 2, 1)
 
 
 def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:

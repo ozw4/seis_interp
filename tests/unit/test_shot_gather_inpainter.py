@@ -94,6 +94,29 @@ def test_zero_initialized_model_returns_exact_inverse_distance_reference() -> No
     assert isinstance(model.head[-1], nn.Conv3d)
     assert torch.count_nonzero(model.head[-1].weight) == 0
     assert torch.count_nonzero(model.head[-1].bias) == 0
+    assert model.spatial_y_dilations == (1, 1)
+    assert all(block.spatial.dilation == (1, 1, 1) for block in model.blocks)
+    assert all(block.spatial.padding == (1, 1, 0) for block in model.blocks)
+
+
+def test_default_spatial_y_dilations_match_explicit_ones_exactly() -> None:
+    torch.manual_seed(37)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(37)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        spatial_y_dilations=(1, 1),
+    )
+
+    assert default_model.spatial_y_dilations == (1, 1)
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
 
 
 def test_stem_feature_contract_includes_signed_moments_and_receiver_coordinates() -> None:
@@ -197,6 +220,7 @@ def test_custom_architecture_preserves_shape_and_factorized_block_contract() -> 
     model = ShotGatherInpainter(
         width=16,
         temporal_dilations=(1, 3, 2),
+        spatial_y_dilations=(1, 2, 4),
         stem_kernel_size=5,
         residual_kernel_size=3,
     )
@@ -209,6 +233,7 @@ def test_custom_architecture_preserves_shape_and_factorized_block_contract() -> 
     assert model.input_channels == len(SHOT_GATHER_INPUT_FEATURE_NAMES) == 11
     assert model.stem.in_channels == 11
     assert model.temporal_dilations == (1, 3, 2)
+    assert model.spatial_y_dilations == (1, 2, 4)
     assert model.stem.kernel_size == (1, 1, 5)
     assert [block.temporal.dilation for block in model.blocks] == [
         (1, 1, 1),
@@ -218,6 +243,37 @@ def test_custom_architecture_preserves_shape_and_factorized_block_contract() -> 
     assert all(block.temporal.groups == 16 for block in model.blocks)
     assert all(block.spatial.kernel_size == (3, 3, 1) for block in model.blocks)
     assert all(block.spatial.groups == 16 for block in model.blocks)
+    assert [block.spatial_y_dilation for block in model.blocks] == [1, 2, 4]
+    assert [block.spatial.dilation for block in model.blocks] == [
+        (1, 1, 1),
+        (1, 2, 1),
+        (1, 4, 1),
+    ]
+    assert [block.spatial.padding for block in model.blocks] == [
+        (1, 1, 0),
+        (1, 2, 0),
+        (1, 4, 0),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("spatial_y_dilations", "match"),
+    [
+        ((1,), "length must equal"),
+        ((1, 0), r"spatial_y_dilations\[1\].*positive integer"),
+        ("1,2", "must be an iterable"),
+    ],
+)
+def test_model_rejects_invalid_spatial_y_dilations(
+    spatial_y_dilations: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1, 2),
+            spatial_y_dilations=spatial_y_dilations,
+        )
 
 
 def test_synthetic_forward_backward_reaches_reference_and_residual_parameters() -> None:

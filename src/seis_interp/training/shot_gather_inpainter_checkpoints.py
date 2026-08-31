@@ -60,6 +60,7 @@ def save_shot_gather_inpainter_checkpoint(
             "model_config": {
                 "width": model.width,
                 "temporal_dilations": list(model.temporal_dilations),
+                "spatial_y_dilations": list(model.spatial_y_dilations),
                 "stem_kernel_size": model.stem_kernel_size,
                 "residual_kernel_size": model.residual_kernel_size,
                 "distance_epsilon": model.distance_epsilon,
@@ -107,6 +108,7 @@ def load_shot_gather_inpainter_checkpoint(
         model = ShotGatherInpainter(
             width=model_config["width"],
             temporal_dilations=model_config["temporal_dilations"],
+            spatial_y_dilations=model_config.get("spatial_y_dilations"),
             stem_kernel_size=model_config["stem_kernel_size"],
             residual_kernel_size=model_config["residual_kernel_size"],
             distance_epsilon=model_config["distance_epsilon"],

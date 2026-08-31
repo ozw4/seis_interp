@@ -69,6 +69,7 @@ class FactorizedGatherResidualBlock(nn.Module):
         temporal_dilation: int,
         *,
         temporal_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
+        spatial_y_dilation: int = 1,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
@@ -79,6 +80,10 @@ class FactorizedGatherResidualBlock(nn.Module):
         self.temporal_kernel_size = _odd_positive_integer(
             temporal_kernel_size,
             "temporal_kernel_size",
+        )
+        self.spatial_y_dilation = _positive_integer(
+            spatial_y_dilation,
+            "spatial_y_dilation",
         )
 
         self.norm = nn.GroupNorm(_GROUP_COUNT, self.width)
@@ -94,7 +99,8 @@ class FactorizedGatherResidualBlock(nn.Module):
             self.width,
             self.width,
             kernel_size=(3, 3, 1),
-            padding=(1, 1, 0),
+            padding=(1, self.spatial_y_dilation, 0),
+            dilation=(1, self.spatial_y_dilation, 1),
             groups=self.width,
         )
         self.expand = nn.Conv3d(self.width, self.width * 2, kernel_size=1)
@@ -140,6 +146,7 @@ class ShotGatherInpainter(nn.Module):
         *,
         width: int = DEFAULT_WIDTH,
         temporal_dilations: Iterable[int] = DEFAULT_TEMPORAL_DILATIONS,
+        spatial_y_dilations: Iterable[int] | None = None,
         stem_kernel_size: int = DEFAULT_STEM_KERNEL_SIZE,
         residual_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
@@ -147,6 +154,10 @@ class ShotGatherInpainter(nn.Module):
         super().__init__()
         self.width = _validated_width(width)
         self.temporal_dilations = _validated_temporal_dilations(temporal_dilations)
+        self.spatial_y_dilations = _validated_spatial_y_dilations(
+            spatial_y_dilations,
+            block_count=len(self.temporal_dilations),
+        )
         self.stem_kernel_size = _odd_positive_integer(stem_kernel_size, "stem_kernel_size")
         self.residual_kernel_size = _odd_positive_integer(
             residual_kernel_size,
@@ -168,10 +179,15 @@ class ShotGatherInpainter(nn.Module):
         self.blocks = nn.ModuleList(
             FactorizedGatherResidualBlock(
                 self.width,
-                dilation,
+                temporal_dilation,
                 temporal_kernel_size=self.residual_kernel_size,
+                spatial_y_dilation=spatial_y_dilation,
             )
-            for dilation in self.temporal_dilations
+            for temporal_dilation, spatial_y_dilation in zip(
+                self.temporal_dilations,
+                self.spatial_y_dilations,
+                strict=True,
+            )
         )
         self.head = nn.Sequential(
             nn.GroupNorm(_GROUP_COUNT, self.width),
@@ -459,6 +475,30 @@ def _validated_temporal_dilations(values: Iterable[int]) -> tuple[int, ...]:
         raise ValueError("temporal_dilations must not be empty")
     return tuple(
         _positive_integer(value, f"temporal_dilations[{index}]")
+        for index, value in enumerate(raw_values)
+    )
+
+
+def _validated_spatial_y_dilations(
+    values: Iterable[int] | None,
+    *,
+    block_count: int,
+) -> tuple[int, ...]:
+    if values is None:
+        return (1,) * block_count
+    if isinstance(values, (str, bytes)):
+        raise ValueError("spatial_y_dilations must be an iterable of positive integers")
+    try:
+        raw_values = tuple(values)
+    except TypeError as error:
+        raise ValueError("spatial_y_dilations must be an iterable of positive integers") from error
+    if len(raw_values) != block_count:
+        raise ValueError(
+            "spatial_y_dilations length must equal temporal_dilations length "
+            f"{block_count}, got {len(raw_values)}"
+        )
+    return tuple(
+        _positive_integer(value, f"spatial_y_dilations[{index}]")
         for index, value in enumerate(raw_values)
     )
 

@@ -1,0 +1,4 @@
+extends: stage09_joint_shot_gather_k8.yaml
+
+model:
+  spatial_y_dilations: [1, 2, 4, 8, 4, 2, 1]

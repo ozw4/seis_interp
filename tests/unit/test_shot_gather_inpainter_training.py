@@ -29,6 +29,7 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
     model = ShotGatherInpainter(
         width=8,
         temporal_dilations=(1, 2),
+        spatial_y_dilations=(1, 3),
         stem_kernel_size=5,
         residual_kernel_size=3,
         distance_epsilon=2.0e-5,
@@ -43,6 +44,8 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
         best_step=0,
         best_validation_global_snr_db=3.5,
     )
+    payload = torch.load(path, weights_only=True)
+    assert payload["model_config"]["spatial_y_dilations"] == [1, 3]
     loaded = load_shot_gather_inpainter_checkpoint(path)
 
     assert loaded.best_step == 0
@@ -51,6 +54,7 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
     assert loaded.input_feature_names == model.input_feature_names
     assert loaded.model.width == 8
     assert loaded.model.temporal_dilations == (1, 2)
+    assert loaded.model.spatial_y_dilations == (1, 3)
     assert loaded.model.distance_epsilon == 2.0e-5
     for expected, actual in zip(
         model.state_dict().values(),
@@ -58,6 +62,29 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
         strict=True,
     ):
         torch.testing.assert_close(actual, expected)
+
+
+def test_checkpoint_without_spatial_y_dilations_defaults_to_stage09_behavior(
+    tmp_path: Path,
+) -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    path = tmp_path / "stage09.pt"
+    save_shot_gather_inpainter_checkpoint(
+        path,
+        model,
+        best_step=0,
+        best_validation_global_snr_db=3.5,
+    )
+    payload = torch.load(path, weights_only=True)
+    del payload["model_config"]["spatial_y_dilations"]
+    torch.save(payload, path)
+
+    loaded = load_shot_gather_inpainter_checkpoint(path)
+
+    assert loaded.model.spatial_y_dilations == (1, 1)
+    for block in loaded.model.blocks:
+        assert block.spatial.dilation == (1, 1, 1)
+        assert block.spatial.padding == (1, 1, 0)
 
 
 def test_checkpoint_rejects_changed_input_feature_order(tmp_path: Path) -> None:
