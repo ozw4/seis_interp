@@ -322,7 +322,7 @@ class TraceGraphMessagePassingRound(nn.Module):
         logits = torch.einsum("bixya,bjxya->bxyij", queries.float(), keys.float())
         logits = logits / math.sqrt(self.attention_width)
         sender_mask = presence.permute(0, 2, 3, 1)[:, :, :, None, :]
-        logits = logits.masked_fill(~sender_mask, torch.finfo(torch.float32).min)
+        logits = logits.masked_fill(~sender_mask, torch.finfo(logits.dtype).min)
         weights = torch.softmax(logits, dim=4).to(dtype=latents.dtype)
         values = self.value_projection(normalized.permute(0, 1, 2, 3, 5, 4))
         aggregated = torch.einsum("bxyij,bjxytc->bixytc", weights, values)
@@ -354,7 +354,7 @@ class TraceGraphMessagePassingRound(nn.Module):
         ).float()
         receiver_logits = receiver_logits.masked_fill(
             ~presence,
-            torch.finfo(torch.float32).min,
+            torch.finfo(receiver_logits.dtype).min,
         )
         receiver_weights = torch.softmax(receiver_logits, dim=1).to(dtype=latents.dtype)
         edge_values = self.receiver_value(normalized.permute(0, 1, 2, 3, 5, 4))
@@ -382,7 +382,7 @@ class TraceGraphMessagePassingRound(nn.Module):
         shot_present = presence_fraction > 0.0
         source_logits = source_logits.masked_fill(
             ~shot_present[:, None, :],
-            torch.finfo(torch.float32).min,
+            torch.finfo(source_logits.dtype).min,
         )
         source_weights = torch.softmax(source_logits, dim=2).to(dtype=latents.dtype)
         source_nodes = source_nodes + torch.einsum("bij,bjtc->bitc", source_weights, source_nodes)
