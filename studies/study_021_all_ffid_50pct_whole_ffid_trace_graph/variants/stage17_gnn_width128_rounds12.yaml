@@ -5,3 +5,4 @@ model:
   attention_width: 64
   message_passing_rounds: 12
   temporal_dilations: [1, 2, 4, 8, 16, 32, 32, 16, 8, 4, 2, 1]
+  use_gradient_checkpointing: true
