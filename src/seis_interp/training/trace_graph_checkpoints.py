@@ -69,6 +69,7 @@ def save_trace_graph_checkpoint(
                 "attention_time_resolution": model.attention_time_resolution,
                 "distance_epsilon": model.distance_epsilon,
                 "use_gradient_checkpointing": model.use_gradient_checkpointing,
+                "refinement_passes": model.refinement_passes,
             },
             "model_state_dict": state_dict,
             "amplitude_scaling": PER_TRACE_RMS_SCALING,
@@ -121,6 +122,7 @@ def load_trace_graph_checkpoint(
             ),
             distance_epsilon=model_config["distance_epsilon"],
             use_gradient_checkpointing=bool(model_config.get("use_gradient_checkpointing", False)),
+            refinement_passes=model_config.get("refinement_passes", 1),
         )
     except KeyError as error:
         raise ValueError(f"checkpoint model_config is missing {error.args[0]!r}") from error

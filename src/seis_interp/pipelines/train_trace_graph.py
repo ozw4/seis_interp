@@ -135,6 +135,7 @@ class _TrainingSettings:
     graph_mode: str
     attention_time_resolution: str
     use_gradient_checkpointing: bool
+    refinement_passes: int
     message_passing_rounds: int
     time_downsample_factor: int
     stem_kernel_size: int
@@ -333,6 +334,7 @@ def train_trace_graph_run(
         graph_mode=settings.graph_mode,
         attention_time_resolution=settings.attention_time_resolution,
         use_gradient_checkpointing=settings.use_gradient_checkpointing,
+        refinement_passes=settings.refinement_passes,
         message_passing_rounds=settings.message_passing_rounds,
         time_downsample_factor=settings.time_downsample_factor,
         stem_kernel_size=settings.stem_kernel_size,
@@ -572,6 +574,10 @@ def _validated_settings(
     use_gradient_checkpointing = model_section.get("use_gradient_checkpointing", False)
     if not isinstance(use_gradient_checkpointing, bool):
         raise ConfigurationError("model.use_gradient_checkpointing must be a boolean")
+    refinement_passes = _positive_integer(
+        model_section.get("refinement_passes", 1),
+        "model.refinement_passes",
+    )
     _require_exact(config, "sampling.split_scope", "whole_ffid")
     _require_exact(
         config,
@@ -642,6 +648,7 @@ def _validated_settings(
         graph_mode=str(graph_mode),
         attention_time_resolution=str(attention_time_resolution),
         use_gradient_checkpointing=use_gradient_checkpointing,
+        refinement_passes=refinement_passes,
         message_passing_rounds=_positive_integer(
             get_required_config_value(config, "model.message_passing_rounds"),
             "model.message_passing_rounds",
@@ -756,6 +763,7 @@ def _model_contract(
         "graph_mode": model.graph_mode,
         "attention_time_resolution": model.attention_time_resolution,
         "use_gradient_checkpointing": model.use_gradient_checkpointing,
+        "refinement_passes": model.refinement_passes,
         "message_passing_rounds": model.message_passing_rounds,
         "time_downsample_factor": model.time_downsample_factor,
         "stem_kernel_size": model.stem_kernel_size,

@@ -278,3 +278,41 @@ def test_gradient_checkpointing_preserves_outputs_and_gradients() -> None:
 def test_rejects_non_boolean_gradient_checkpointing() -> None:
     with pytest.raises(ValueError, match="use_gradient_checkpointing"):
         TraceGraphInterpolator(width=8, use_gradient_checkpointing="yes")
+
+
+def test_refinement_passes_start_at_reference_and_stay_permutation_invariant() -> None:
+    torch.manual_seed(0)
+    model = TraceGraphInterpolator(
+        width=8,
+        graph_mode=TRACE_LATTICE_GRAPH_MODE,
+        message_passing_rounds=2,
+        time_downsample_factor=5,
+        stem_kernel_size=3,
+        temporal_kernel_size=3,
+        temporal_dilations=(1, 2),
+        spatial_kernel_size=3,
+        attention_width=4,
+        refinement_passes=2,
+    )
+    neighbors, availability, source_deltas, target_coordinates = _inputs()
+    output = model(neighbors, availability, source_deltas, target_coordinates)
+    reference = inverse_distance_reference(neighbors, availability, source_deltas)
+    assert torch.allclose(output, reference)
+    _train_one_step(model)
+    model.eval()
+    permutation = torch.tensor([1, 2, 0])
+    with torch.no_grad():
+        direct = model(neighbors, availability, source_deltas, target_coordinates)
+        permuted = model(
+            neighbors[:, permutation],
+            availability[:, permutation],
+            source_deltas[:, permutation],
+            target_coordinates,
+        )
+    assert not torch.allclose(direct, reference)
+    assert torch.allclose(direct, permuted, atol=1.0e-5)
+
+
+def test_rejects_non_positive_refinement_passes() -> None:
+    with pytest.raises(ValueError, match="refinement_passes"):
+        TraceGraphInterpolator(width=8, refinement_passes=0)

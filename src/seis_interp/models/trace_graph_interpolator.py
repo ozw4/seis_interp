@@ -513,6 +513,7 @@ class TraceGraphInterpolator(nn.Module):
         attention_time_resolution: str = POOLED_ATTENTION_TIME_RESOLUTION,
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
         use_gradient_checkpointing: bool = False,
+        refinement_passes: int = 1,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
@@ -520,6 +521,7 @@ class TraceGraphInterpolator(nn.Module):
         if not isinstance(use_gradient_checkpointing, bool):
             raise ValueError("use_gradient_checkpointing must be a boolean")
         self.use_gradient_checkpointing = use_gradient_checkpointing
+        self.refinement_passes = _positive_integer(refinement_passes, "refinement_passes")
         self.attention_time_resolution = _validated_attention_time_resolution(
             attention_time_resolution,
             graph_mode=self.graph_mode,
@@ -628,57 +630,66 @@ class TraceGraphInterpolator(nn.Module):
             reference_coverage=availability.any(dim=1),
         )
 
-        latents = self.encoder(waveforms.reshape(-1, 1, time_count))
-        frame_count = latents.shape[2]
-        latents = (
-            latents
-            + self.static_embedding(static_features.reshape(-1, len(NODE_STATIC_FEATURE_NAMES)))[
-                :, :, None
-            ]
-        )
-        latents = latents.reshape(
-            batch_size,
-            shot_count,
-            RECEIVER_X_COUNT,
-            RECEIVER_Y_COUNT,
-            self.width,
-            frame_count,
-        ).permute(0, 1, 4, 2, 3, 5)
+        static_embeddings = self.static_embedding(
+            static_features.reshape(-1, len(NODE_STATIC_FEATURE_NAMES))
+        )[:, :, None]
         run_checkpointed = (
             self.use_gradient_checkpointing and self.training and torch.is_grad_enabled()
         )
-        for message_round in self.rounds:
-            if run_checkpointed:
-                latents = torch.utils.checkpoint.checkpoint(
-                    _run_message_round,
-                    message_round,
-                    latents,
-                    presence,
-                    shot_descriptors,
-                    use_reentrant=False,
+        prediction = reference
+        for _refinement_pass in range(self.refinement_passes):
+            if _refinement_pass > 0:
+                waveforms = torch.cat(
+                    (prediction[:, None], neighbors * availability_feature[..., None]),
+                    dim=1,
                 )
-            else:
-                latents = message_round(
-                    latents,
-                    presence=presence,
-                    shot_descriptors=shot_descriptors,
+            latents = self.encoder(waveforms.reshape(-1, 1, time_count))
+            frame_count = latents.shape[2]
+            latents = (
+                (latents + static_embeddings)
+                .reshape(
+                    batch_size,
+                    shot_count,
+                    RECEIVER_X_COUNT,
+                    RECEIVER_Y_COUNT,
+                    self.width,
+                    frame_count,
                 )
-        target_latents = (
-            latents[:, 0]
-            .permute(0, 2, 3, 1, 4)
-            .reshape(
-                -1,
-                self.width,
-                frame_count,
+                .permute(0, 1, 4, 2, 3, 5)
             )
-        )
-        residual = self.decoder(target_latents).reshape(
-            batch_size,
-            RECEIVER_X_COUNT,
-            RECEIVER_Y_COUNT,
-            time_count,
-        )
-        return reference + residual
+            for message_round in self.rounds:
+                if run_checkpointed:
+                    latents = torch.utils.checkpoint.checkpoint(
+                        _run_message_round,
+                        message_round,
+                        latents,
+                        presence,
+                        shot_descriptors,
+                        use_reentrant=False,
+                    )
+                else:
+                    latents = message_round(
+                        latents,
+                        presence=presence,
+                        shot_descriptors=shot_descriptors,
+                    )
+            target_latents = (
+                latents[:, 0]
+                .permute(0, 2, 3, 1, 4)
+                .reshape(
+                    -1,
+                    self.width,
+                    frame_count,
+                )
+            )
+            residual = self.decoder(target_latents).reshape(
+                batch_size,
+                RECEIVER_X_COUNT,
+                RECEIVER_Y_COUNT,
+                time_count,
+            )
+            prediction = prediction + residual
+        return prediction
 
 
 def _run_message_round(
