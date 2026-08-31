@@ -101,6 +101,20 @@ def test_stage03_uses_k274_shared_offset_attention() -> None:
     assert settings.total_steps == 2500
 
 
+def test_stage03a_smoke_limits_only_scope_and_diagnostic_budget() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage03a_shared_attention_ffid2348_2363_smoke.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.model_name == "shared_offset_attention_inpainter"
+    assert settings.ffid_range == (2348, 2363)
+    assert settings.total_steps == 100
+    assert settings.evaluation_interval_steps == 50
+    assert settings.validation_batch_size == 128
+    assert settings.training_audit_count == 1000
+
+
 def test_stage04_changes_only_the_aperture_and_diagnostic_audit_schedule() -> None:
     config = load_resolved_config(STUDY_DIRECTORY / "variants" / "stage04_same_line_k734.yaml")
     settings = _validated_settings(config, device_override="cpu")

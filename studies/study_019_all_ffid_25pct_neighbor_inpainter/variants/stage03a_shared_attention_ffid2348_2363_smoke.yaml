@@ -1,0 +1,8 @@
+extends: stage03_shared_offset_attention.yaml
+
+training:
+  total_steps: 100
+  evaluation_interval_steps: 50
+  validation_batch_size: 128
+  training_audit_count: 1000
+  ffid_range: [2348, 2363]
