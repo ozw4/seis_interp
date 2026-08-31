@@ -41,9 +41,9 @@ original source-y radius; Stage 03 then isolates complete source-y coverage.
 
 **Status:** active
 
-**Decision:** For every training target, mask all neighbor offsets whose source
-coordinates equal the target source coordinates. Apply the same deterministic
-mask during training audit and validation.
+**Decision:** For every training target, mask all neighbor offsets whose exact
+FFID ID equals the target FFID ID. Apply the same deterministic mask during
+training audit and validation.
 
 **Reason:** A validation FFID contributes no neighbor amplitudes, whereas an
 unmasked training target can use hundreds of traces from its own FFID. That
@@ -100,3 +100,19 @@ finite-aperture context, while the reference supplies a direct long-range
 source-axis interpolation. Testing them independently before their combination
 separates their main effects from interaction and avoids adding mechanisms only
 after seeing the combined metric.
+
+## 2026-08-31 — Stop budget-only escalation after Stage 05
+
+**Status:** active
+
+**Decision:** Complete the study without a 10,000- or 50,000-step extension.
+Retain Stage 03 K1374 as the best validated candidate at
+8.719953365995504 dB. Record the strict 25 dB criterion as not reached.
+
+**Reason:** Stage 03 was 16.280046634004496 dB below the threshold. The matching
+Study 018 architecture gained 3.656672439472694 dB from 2,500 to 50,000
+updates, so a short-run candidate needed 21.343327560527307 dB to retain that
+empirical path. Stage 03 was 12.623374194531802 dB below the promotion gate.
+Stage 05 did not provide positive interaction: 8.595997409114656 dB was
+0.123955956880849 dB below Stage 03. More budget or the previously observed
+small width gain has no evidence-backed route across the remaining gap.

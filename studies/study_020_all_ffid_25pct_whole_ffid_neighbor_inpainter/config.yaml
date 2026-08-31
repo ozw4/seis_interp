@@ -1,5 +1,5 @@
 study:
-  status: running
+  status: completed
 
 project:
   random_seed: 42
@@ -54,7 +54,7 @@ training:
   weight_decay: 1.0e-5
   learning_rate_schedule: cosine
   minimum_learning_rate: 1.5e-5
-  total_steps: 10000
+  total_steps: 2500
   batch_size: 96
   target_sampling: with_replacement
   exclude_target_ffid_neighbors: true

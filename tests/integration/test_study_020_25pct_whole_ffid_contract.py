@@ -17,7 +17,7 @@ def test_study_020_locks_the_25pct_whole_ffid_split_contract() -> None:
     config = load_resolved_config(STUDY_DIRECTORY / "config.yaml")
     settings = _validated_settings(config, device_override="cpu")
 
-    assert config["study"]["status"] == "running"
+    assert config["study"]["status"] == "completed"
     assert config["sampling"] == {
         "random_ffid_holdout_fraction": 0.75,
         "validation_fraction_of_holdout": 0.25,
@@ -42,9 +42,10 @@ def test_study_020_locks_the_25pct_whole_ffid_split_contract() -> None:
     }
     assert settings.required_fully_excluded_ffids == (1746,)
     assert settings.exclude_target_ffid_neighbors is True
+    assert settings.total_steps == 2500
 
 
-def test_stage01_changes_only_the_diagnostic_schedule_from_the_base_candidate() -> None:
+def test_stage01_locks_the_matched_2500_step_baseline() -> None:
     config = load_resolved_config(
         STUDY_DIRECTORY / "variants" / "stage01_study018_formal_k274_2500_steps.yaml"
     )
