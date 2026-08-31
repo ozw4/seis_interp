@@ -41,7 +41,7 @@ reconstructing a baseline waveform from zero. The mode is optional so legacy
 models and checkpoints retain their exact behavior.
 
 **Result:** Stage 02 reached `14.22890961173312 dB`, only
-`+0.006065316774276797 dB` above Stage 01 at the same 2,500-update budget. This
+`+0.006065316774277463 dB` above Stage 01 at the same 2,500-update budget. This
 is not a material gain, so the condition is not promoted to longer training.
 
 ## 2026-08-31 — Isolate geometry-aware fusion from aperture density
@@ -68,7 +68,7 @@ nearly eliminate gradients to distant offsets before learning.
 `9.822922017404714 dB`, so the loss is not explained by overfitting; compressing
 all K274 inputs into one shared attended feature is the observed bottleneck.
 Stage 04 raised mean validation availability from 54.788 to 132.690 but reached
-only `14.089875885195529 dB`, or `-0.132968409763314 dB` relative to Stage 01.
+only `14.089875885195529 dB`, or `-0.1329684097633148 dB` relative to Stage 01.
 Neither condition is promoted.
 
 ## 2026-08-31 — Isolate deterministic receiver-y moveout alignment

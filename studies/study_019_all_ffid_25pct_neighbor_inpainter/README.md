@@ -63,12 +63,12 @@ allowed only if the Stage 07 absolute result leaves an evidence-backed path to
 The strict 25 dB target was not reached. Stage 01 reached
 `14.222844294958843 dB` after 2,500 updates. This is 2.580838795167327 dB below
 the same architecture and budget at 50% density. Stage 02's explicit neighbor
-reference reached `14.22890961173312 dB`, only 0.006065316774276797 dB above
+reference reached `14.22890961173312 dB`, only 0.006065316774277463 dB above
 Stage 01, and was not promoted. Stage 03's single shared-attention fusion fell
 to `9.819645233036228 dB` (`-4.403199061922615 dB` versus Stage 01), so early
 compression of K274 neighbors was rejected. Stage 04 increased mean validation
 availability from 54.788 to 132.690 traces with K734 but reached only
-`14.089875885195529 dB` (`-0.132968409763314 dB` versus Stage 01), so aperture
+`14.089875885195529 dB` (`-0.1329684097633148 dB` versus Stage 01), so aperture
 growth was also rejected. Stage 05's deterministic coarse shift reached
 `14.204319211934315 dB` (`-0.018525083024528 dB` versus Stage 01), so it was not
 promoted. All five full-scope runs passed the complete leakage and scope audit

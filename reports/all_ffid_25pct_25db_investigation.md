@@ -40,7 +40,7 @@ amplitude-eligible trace を whole-trace 単位で 25% train に割り当てる�
 | validation | holdout 75% の 25% = 全体の 18.75% |
 | test | holdout 75% の 75% = 全体の 56.25% |
 | amplitude QC | all-zero を除外、`max_abs_amplitude <= 10000` |
-| duplicate policy | 全 split の前に物理座標ごとの最低 `array_row` を保持 |
+| duplicate policy | prepared split 後、全 split 横断で物理座標ごとの最低 `array_row` を保持（winner 選択は split / amplitude を非参照） |
 | eligible FFID | 4,780 |
 | fully excluded FFID | 1746 |
 | samples / trace | 625 |
@@ -79,8 +79,9 @@ success
 architecture を 25% train に移した Stage 01 は `14.222844294958843 dB` で、density
 低下だけで `-2.580838795167327 dB` となった。
 
-2,500-step ablation は Stage 01 比 `+0.20 dB` 以上かつ best が最終 step の場合だけ
-10,000 step へ昇格することとした。10,000-step winner は、Study 018 の実測 tail gain
+2,500-step ablation の正式な昇格基準は、Stage 01 比 `+0.20 dB` 以上かつ best が最終
+step であることとした。Stage 05 にはこれとは別に、`+0.10 dB` 未満なら打ち切る
+事前 stop gate も設定した。10,000-step winner は、Study 018 の実測 tail gain
 を足しても 25 dB に届くために `23.250265351941493 dB` 以上を必要条件とした。
 
 ## 段階実験の結果
@@ -91,9 +92,9 @@ full-scope Stage の差分は Stage 01 比である。全 full-scope run で
 | Stage | 切り分け条件 | K / width / steps | Validation dB | Stage 01 差 | 採否 |
 |---:|---|---|---:|---:|---|
 | [01](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T010022Z_8e6b250_stage01_study018_formal_2500_steps/metrics.json) | Study 018 formal architecture を 25% split へ移植 | 274 / 384 / 2,500 | 14.222844294958843 | 基準 | baseline |
-| [02](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T012028Z_fda4b9d_stage02_residual_neighbor_reference/metrics.json) | aligned-neighbor reference + zero-init residual | 274 / 384 / 2,500 | 14.22890961173312 | +0.006065316774277 | 不採用 |
+| [02](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T012028Z_fda4b9d_stage02_residual_neighbor_reference/metrics.json) | aligned-neighbor reference + zero-init residual | 274 / 384 / 2,500 | 14.22890961173312 | +0.006065316774277463 | 不採用 |
 | [03](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T015611Z_71e2e93_stage03_shared_offset_attention/metrics.json) | shared temporal encoder + single masked attention fusion | 274 / 384 / 2,500 | 9.819645233036228 | -4.403199061922615 | 不採用 |
-| [04](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T020919Z_71e2e93_stage04_same_line_k734/metrics.json) | legacy CNN の aperture だけ K734 へ拡大 | 734 / 384 / 2,500 | 14.089875885195529 | -0.132968409763315 | 不採用 |
+| [04](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T020919Z_71e2e93_stage04_same_line_k734/metrics.json) | legacy CNN の aperture だけ K734 へ拡大 | 734 / 384 / 2,500 | 14.089875885195529 | -0.1329684097633148 | 不採用 |
 | [05](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T023909Z_d361c40_stage05_legacy_coarse_shift_k274/metrics.json) | `shift = 3 * dry` の zero-padded coarse alignment | 274 / 384 / 2,500 | 14.204319211934315 | -0.018525083024528 | 不採用 |
 | [06](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T025138Z_4283dfd_stage06_width512_k274/metrics.json) | unshifted baseline の width だけ 384→512 | 274 / 512 / 2,500 | 14.438497913078372 | +0.215653618119529 | 10k へ昇格 |
 | [07](../runs/study_019_all_ffid_25pct_neighbor_inpainter/20260831T030617Z_05dc7d9_stage07_width512_k274_10000_steps/metrics.json) | Stage 06 を fresh 10,000-step cosine horizon へ延長 | 274 / 512 / 10,000 | **16.348938587526803** | **+2.126094292567959** | study best、50k は停止 |
@@ -235,7 +236,7 @@ python -m seis_interp.cli train neighbor-inpainter \
 | Gate | 結果 |
 |---|---|
 | `ruff check .` | pass、`All checks passed!` |
-| `ruff format --check .` | pass、`197 files already formatted` |
+| `ruff format --check .` | pass、`198 files already formatted` |
 | `pytest -q` | pass、`1150 passed in 41.72s` |
 | `python -m seis_interp.cli doctor` | exit 0 |
 
