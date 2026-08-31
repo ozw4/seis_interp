@@ -90,3 +90,10 @@ reaches 7.089 dB at K=8 while aligning neighbors at the same physical receiver
 collapses to -0.996 dB. Cross-shot edges must therefore connect equal
 relative-receiver cells, which the trace-lattice source-axis attention already
 does. Effective same-line shot spacing is 80 m (staggered 40 m grid).
+
+## Reject two-pass recurrent refinement at this budget
+
+Stage 20 fed the first-pass prediction back as the target-node waveform and
+reran the shared rounds (8.777 dB, +0.04 dB against Stage 03), below the
++0.20 dB gate. Iterating the same weights does not add usable capacity here;
+the data-scaling axis (batch and steps) remains the productive direction.
