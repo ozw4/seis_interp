@@ -1210,11 +1210,15 @@ def _validated_preparation_contract(
     trace_amplitude_filter: TraceAmplitudeFilterConfig | None,
     batch_mode: str,
 ) -> dict[str, object]:
+    configured_split_scope = _configured_split_scope(config)
+    holdout_config_path = (
+        "sampling.random_ffid_holdout_fraction"
+        if configured_split_scope == "whole_ffid"
+        else "sampling.random_trace_holdout_fraction"
+    )
     expected = {
         "random_seed": get_required_config_value(config, "project.random_seed"),
-        "holdout_fraction": get_required_config_value(
-            config, "sampling.random_trace_holdout_fraction"
-        ),
+        "holdout_fraction": get_required_config_value(config, holdout_config_path),
         "validation_fraction_of_holdout": get_required_config_value(
             config, "sampling.validation_fraction_of_holdout"
         ),
@@ -1223,19 +1227,33 @@ def _validated_preparation_contract(
             "amplitude": get_required_config_value(config, "normalization.amplitude"),
         },
     }
-    configured_split_scope = _configured_split_scope(config)
     prepared_split_scope = preparation.get("split_scope", "global")
     if prepared_split_scope != configured_split_scope:
         raise ValueError(
             f"{PREPARATION_FILE_NAME} does not match the resolved configuration: ['split_scope']"
         )
-    if batch_mode in _STREAMING_GLOBAL_BATCH_MODES:
+    if batch_mode == FULL_FFID_EPOCH_BATCH_MODE:
         if prepared_split_scope != "per_ffid":
             raise ValueError(
                 f"{batch_mode} requires preparation split_scope 'per_ffid', "
                 f"got {prepared_split_scope!r}"
             )
-        expected["split_scope"] = "per_ffid"
+        expected["split_scope"] = prepared_split_scope
+    elif batch_mode == RANDOM_COMPLETE_TRACES_BATCH_MODE:
+        supported_random_trace_scopes = {"per_ffid", "whole_ffid"}
+        if prepared_split_scope not in supported_random_trace_scopes:
+            raise ValueError(
+                f"{batch_mode} requires preparation split_scope in "
+                f"{sorted(supported_random_trace_scopes)}, "
+                f"got {prepared_split_scope!r}"
+            )
+        expected["split_scope"] = prepared_split_scope
+        if prepared_split_scope == "whole_ffid":
+            expected["ffid_split_counts"] = _validated_whole_ffid_split_counts(
+                preparation.get("ffid_split_counts"),
+                split_table,
+                trace_table,
+            )
     expected_trace_filter = (
         trace_amplitude_filter.to_dict() if trace_amplitude_filter is not None else None
     )
@@ -1370,6 +1388,39 @@ def _validated_trace_quality_contract(
             f"{TRACE_SPLIT_FILE_NAME}: {mismatched_ffids}"
         )
     return dict(value)
+
+
+def _validated_whole_ffid_split_counts(
+    value: object,
+    split_table: pd.DataFrame,
+    trace_table: pd.DataFrame,
+) -> dict[str, int]:
+    expected_splits = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
+    if not isinstance(value, Mapping) or set(value) != set(expected_splits):
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} ffid_split_counts must contain exactly "
+            f"{list(expected_splits)}"
+        )
+
+    joined = trace_table[["array_row", "ffid"]].merge(
+        split_table[["array_row", SPLIT_COLUMN]],
+        on="array_row",
+        how="inner",
+        validate="one_to_one",
+    )
+    eligible = joined.loc[joined[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)]
+    splits_per_ffid = eligible.groupby("ffid")[SPLIT_COLUMN].nunique()
+    if not splits_per_ffid.eq(1).all():
+        raise ValueError(f"{TRACE_SPLIT_FILE_NAME} does not contain disjoint whole-FFID splits")
+    expected = {
+        split: int(eligible.loc[eligible[SPLIT_COLUMN].eq(split), "ffid"].nunique())
+        for split in expected_splits
+    }
+    if dict(value) != expected:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} ffid_split_counts do not match {TRACE_SPLIT_FILE_NAME}"
+        )
+    return expected
 
 
 def _configured_split_scope(config: Mapping[str, object]) -> object:

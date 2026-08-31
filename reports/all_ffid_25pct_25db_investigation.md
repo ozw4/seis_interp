@@ -1,5 +1,10 @@
 # 全 FFID・train 25% 条件で 25 dB を目指した段階実験レポート
 
+> このレポートは各FFID内のtraceを25% trainにした旧解釈の実行履歴である。FFID自体を
+> 25%選ぶ修正条件は
+> [`study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter`](../studies/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/README.md)
+> で別に実施する。
+
 ## 結論
 
 - 対象: SEG C3 Narrow-Azimuth、全 amplitude-eligible FFID

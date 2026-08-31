@@ -4,6 +4,10 @@
 
 `completed` — the 25 dB threshold was not reached
 
+This within-FFID trace-ratio interpretation is retained as completed history.
+The user's corrected whole-FFID condition is handled by
+[`study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter`](../study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/README.md).
+
 ## Research question
 
 Can a leakage-safe geometry-conditioned trace inpainter exceed

@@ -102,6 +102,49 @@ def assign_random_trace_splits_by_ffid(
     return result
 
 
+def assign_random_whole_ffid_splits(
+    trace_table: pd.DataFrame,
+    *,
+    holdout_fraction: float,
+    validation_fraction_of_holdout: float,
+    random_seed: int,
+) -> pd.DataFrame:
+    """Assign each eligible FFID wholly to train, validation, or test.
+
+    Split counts are computed from the number of distinct FFIDs. FFIDs are
+    sorted before permutation, so membership is independent of trace row order
+    and DataFrame index values. Every row belonging to one FFID receives the
+    same split label.
+    """
+    array_rows = validated_array_rows(trace_table)
+    ffids = _validated_ffids(trace_table)
+    holdout = _validated_fraction("holdout_fraction", holdout_fraction)
+    validation_of_holdout = _validated_fraction(
+        "validation_fraction_of_holdout", validation_fraction_of_holdout
+    )
+    seed = _validated_random_seed(random_seed)
+
+    unique_ffids = np.unique(ffids)
+    split_counts = _split_counts(
+        len(unique_ffids),
+        holdout_fraction=holdout,
+        validation_fraction_of_holdout=validation_of_holdout,
+        context="eligible FFIDs",
+    )
+    permutation = np.random.default_rng(seed).permutation(unique_ffids)
+    assignments = _split_assignments(
+        permutation,
+        validation_count=split_counts[VALIDATION_SPLIT],
+        test_count=split_counts[TEST_SPLIT],
+    )
+
+    result = trace_table.copy()
+    result[SPLIT_COLUMN] = [assignments[int(ffid)] for ffid in ffids]
+    if not np.array_equal(result["array_row"].to_numpy(dtype=np.int64), array_rows):
+        raise AssertionError("whole-FFID splitting changed array-row order")
+    return result
+
+
 def _split_counts(
     trace_count: int,
     *,

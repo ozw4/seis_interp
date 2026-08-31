@@ -190,6 +190,7 @@ class _TrainingSettings:
     total_steps: int
     batch_size: int
     target_sampling: str
+    exclude_target_ffid_neighbors: bool
     neighbor_dropout: float
     derivative_weight: float
     evaluation_interval_steps: int
@@ -203,6 +204,7 @@ class _TrainingSettings:
     required_eligible_ffid_count: int
     required_sample_count: int
     required_effective_split_counts: Mapping[str, int]
+    required_ffid_split_counts: Mapping[str, int] | None
     required_fully_excluded_ffids: tuple[int, ...]
 
 
@@ -227,11 +229,13 @@ class _NeighborTensorSource:
         train_positions: np.ndarray,
         train_amplitudes: torch.Tensor,
         device: torch.device,
+        exclude_target_ffid_neighbors: bool = False,
     ) -> None:
         self.lookup = lookup
         self.train_positions = np.asarray(train_positions, dtype=np.int64)
         self.train_amplitudes = train_amplitudes
         self.device = device
+        self.exclude_target_ffid_neighbors = exclude_target_ffid_neighbors
         self._train_index_by_position = np.full(lookup.row_count, -1, dtype=np.int64)
         self._train_index_by_position[self.train_positions] = np.arange(
             len(self.train_positions), dtype=np.int64
@@ -245,7 +249,11 @@ class _NeighborTensorSource:
         neighbor_dropout: float = 0.0,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         positions = np.asarray(target_positions, dtype=np.int64)
-        neighbor_positions = self.lookup.neighbor_positions(positions)
+        neighbor_positions = _neighbor_positions(
+            self.lookup,
+            positions,
+            exclude_target_ffid_neighbors=self.exclude_target_ffid_neighbors,
+        )
         availability = neighbor_positions >= 0
         safe_positions = np.maximum(neighbor_positions, 0)
         compact_indices = self._train_index_by_position[safe_positions]
@@ -539,7 +547,10 @@ def train_neighbor_inpainter_run(
     selected_split = selected_table[SPLIT_COLUMN].to_numpy()
     train_positions = np.flatnonzero(selected_split == TRAIN_SPLIT).astype(np.int64)
     validation_positions = np.flatnonzero(selected_split == VALIDATION_SPLIT).astype(np.int64)
-    _validate_selected_split_coverage(selected_table)
+    _validate_selected_split_coverage(
+        selected_table,
+        split_scope=str(preparation_contract["split_scope"]),
+    )
     if settings.training_audit_count > len(train_positions):
         raise ConfigurationError(
             "training.training_audit_count must not exceed selected training trace count"
@@ -553,8 +564,16 @@ def train_neighbor_inpainter_run(
         )
     geometry_contract = _geometry_contract(geometry, settings=settings)
     availability_contract = {
-        TRAIN_SPLIT: _neighbor_availability(geometry, train_positions),
-        VALIDATION_SPLIT: _neighbor_availability(geometry, validation_positions),
+        TRAIN_SPLIT: _neighbor_availability(
+            geometry,
+            train_positions,
+            exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+        ),
+        VALIDATION_SPLIT: _neighbor_availability(
+            geometry,
+            validation_positions,
+            exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+        ),
     }
     overlap_mask, overlap_train_positions = _train_validation_coordinate_overlap(
         selected_table,
@@ -596,6 +615,7 @@ def train_neighbor_inpainter_run(
         train_positions=train_positions,
         train_amplitudes=train_amplitudes,
         device=device,
+        exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
     )
     target_sampling_seed = _target_sampling_seed(settings)
     target_sampling_generator = (
@@ -907,6 +927,12 @@ def _validated_settings(
     required_effective_split_counts = _validated_effective_split_counts(
         get_required_config_value(config, "evaluation.required_effective_split_counts")
     )
+    evaluation = config.get("evaluation")
+    required_ffid_split_counts = (
+        _validated_ffid_split_counts(evaluation["required_ffid_split_counts"])
+        if isinstance(evaluation, Mapping) and "required_ffid_split_counts" in evaluation
+        else None
+    )
     required_fully_excluded_ffids = _validated_sorted_ffids(
         get_required_config_value(config, "evaluation.required_fully_excluded_ffids"),
         "evaluation.required_fully_excluded_ffids",
@@ -981,6 +1007,7 @@ def _validated_settings(
             get_required_config_value(config, "training.batch_size"), "training.batch_size"
         ),
         target_sampling=_validated_target_sampling(config),
+        exclude_target_ffid_neighbors=_validated_exclude_target_ffid_neighbors(config),
         neighbor_dropout=_probability(
             get_required_config_value(config, "training.neighbor_dropout"),
             "training.neighbor_dropout",
@@ -1009,6 +1036,7 @@ def _validated_settings(
         required_eligible_ffid_count=required_eligible_ffid_count,
         required_sample_count=required_sample_count,
         required_effective_split_counts=required_effective_split_counts,
+        required_ffid_split_counts=required_ffid_split_counts,
         required_fully_excluded_ffids=required_fully_excluded_ffids,
     )
 
@@ -1415,14 +1443,28 @@ def _selected_trace_table(
     return result
 
 
-def _validate_selected_split_coverage(table: pd.DataFrame) -> None:
-    for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT):
-        missing = sorted(
-            set(int(value) for value in table["ffid"].unique())
-            - set(int(value) for value in table.loc[table[SPLIT_COLUMN].eq(split), "ffid"].unique())
+def _validate_selected_split_coverage(table: pd.DataFrame, *, split_scope: str) -> None:
+    present_splits = set(str(value) for value in table[SPLIT_COLUMN].unique())
+    missing_splits = set(_EFFECTIVE_SPLITS) - present_splits
+    if missing_splits:
+        raise ValueError(f"selected eligible traces contain no rows for: {sorted(missing_splits)}")
+
+    split_counts_by_ffid = table.groupby("ffid")[SPLIT_COLUMN].nunique()
+    if split_scope == "per_ffid":
+        incomplete = sorted(
+            int(ffid)
+            for ffid, count in split_counts_by_ffid.items()
+            if count != len(_EFFECTIVE_SPLITS)
         )
-        if missing:
-            raise ValueError(f"selected eligible FFIDs contain no {split} rows: {missing}")
+        if incomplete:
+            raise ValueError(f"selected eligible FFIDs do not contain every split: {incomplete}")
+        return
+    if split_scope == "whole_ffid":
+        mixed = sorted(int(ffid) for ffid, count in split_counts_by_ffid.items() if count != 1)
+        if mixed:
+            raise ValueError(f"whole-FFID split assigns FFIDs to multiple splits: {mixed}")
+        return
+    raise ValueError(f"neighbor inpainter does not support split_scope {split_scope!r}")
 
 
 def _load_unit_rms_rows(amplitudes: np.ndarray, array_rows: np.ndarray) -> np.ndarray:
@@ -1437,15 +1479,46 @@ def _load_unit_rms_rows(amplitudes: np.ndarray, array_rows: np.ndarray) -> np.nd
     return scaled
 
 
-def _neighbor_availability(
-    geometry: NeighborGeometryLookup,
+def _neighbor_positions(
+    geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
     positions: np.ndarray,
+    *,
+    exclude_target_ffid_neighbors: bool,
+) -> np.ndarray:
+    neighbors = geometry.neighbor_positions(positions)
+    if exclude_target_ffid_neighbors:
+        neighbors[:, _same_source_offset_mask(geometry)] = -1
+    return neighbors
+
+
+def _same_source_offset_mask(
+    geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
+) -> np.ndarray:
+    return np.asarray(
+        [
+            (offset[1] == 0 if len(offset) == 3 else offset[1] == 0 and offset[2] == 0)
+            for offset in geometry.offsets
+        ],
+        dtype=bool,
+    )
+
+
+def _neighbor_availability(
+    geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
+    positions: np.ndarray,
+    *,
+    exclude_target_ffid_neighbors: bool,
 ) -> dict[str, object]:
     counts = np.empty(len(positions), dtype=np.int16)
     for start in range(0, len(positions), _AVAILABILITY_CHUNK_SIZE):
         stop = min(start + _AVAILABILITY_CHUNK_SIZE, len(positions))
         counts[start:stop] = np.count_nonzero(
-            geometry.neighbor_positions(positions[start:stop]) >= 0,
+            _neighbor_positions(
+                geometry,
+                positions[start:stop],
+                exclude_target_ffid_neighbors=exclude_target_ffid_neighbors,
+            )
+            >= 0,
             axis=1,
         )
     quantile_values = np.quantile(
@@ -1537,6 +1610,14 @@ def _selection_contract(
     full_split = canonical_table[SPLIT_COLUMN].to_numpy()
     excluded_count = int(np.count_nonzero(in_range & (full_split == EXCLUDED_SPLIT)))
     ffids = sorted(int(value) for value in selected_table["ffid"].unique())
+    ffids_by_split = {
+        split: sorted(
+            int(value)
+            for value in selected_table.loc[selected_table[SPLIT_COLUMN].eq(split), "ffid"].unique()
+        )
+        for split in _EFFECTIVE_SPLITS
+    }
+    split_memberships_per_ffid = selected_table.groupby("ffid")[SPLIT_COLUMN].nunique()
     contract: dict[str, object] = {
         "configured_ffid_range": (
             list(configured_ffid_range) if configured_ffid_range is not None else None
@@ -1544,6 +1625,12 @@ def _selection_contract(
         "selected_ffid_count": len(ffids),
         "selected_ffid_range": [ffids[0], ffids[-1]],
         "selected_ffids": ffids,
+        "ffids_by_split": ffids_by_split,
+        "ffid_split_counts": {
+            split: len(split_ffids) for split, split_ffids in ffids_by_split.items()
+        },
+        "ffid_split_overlap_count": int(split_memberships_per_ffid.gt(1).sum()),
+        "maximum_splits_per_ffid": int(split_memberships_per_ffid.max()),
         "sample_count": sample_count,
         "effective_eligible_trace_count": sum(split_counts.values()),
         "split_counts": {**split_counts, EXCLUDED_SPLIT: excluded_count},
@@ -1593,6 +1680,12 @@ def _geometry_contract(
         "available_training_rows": geometry.available_count,
         "indexed_training_cells": geometry.indexed_available_count,
         "center_offset_count": sum(not any(offset) for offset in offsets),
+        "target_ffid_neighbor_policy": (
+            "exclude_same_source"
+            if settings.exclude_target_ffid_neighbors
+            else "allow_same_source_except_target_center"
+        ),
+        "same_source_offset_count": int(np.count_nonzero(_same_source_offset_mask(geometry))),
     }
 
 
@@ -1617,6 +1710,7 @@ def _training_contract(
         "total_steps": settings.total_steps,
         "batch_size": settings.batch_size,
         "target_sampling": settings.target_sampling,
+        "exclude_target_ffid_neighbors": settings.exclude_target_ffid_neighbors,
         "target_sampling_seed": _target_sampling_seed(settings),
         "neighbor_dropout_seed": settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET,
         "target_sampling_rng_independent_of_neighbor_dropout": (
@@ -1763,6 +1857,16 @@ def _target_sampling_seed(settings: _TrainingSettings) -> int:
     return settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
 
 
+def _validated_exclude_target_ffid_neighbors(config: Mapping[str, object]) -> bool:
+    training = config.get("training")
+    if not isinstance(training, Mapping) or "exclude_target_ffid_neighbors" not in training:
+        return False
+    value = training["exclude_target_ffid_neighbors"]
+    if not isinstance(value, bool):
+        raise ConfigurationError("training.exclude_target_ffid_neighbors must be a boolean")
+    return value
+
+
 def _formal_scope_audit(
     settings: _TrainingSettings,
     *,
@@ -1781,6 +1885,15 @@ def _formal_scope_audit(
 
     required_split_counts = dict(settings.required_effective_split_counts)
     actual_split_counts = {split: int(split_counts[split]) for split in _EFFECTIVE_SPLITS}
+    raw_actual_ffid_split_counts = selection_contract.get("ffid_split_counts")
+    if not isinstance(raw_actual_ffid_split_counts, Mapping):
+        raise RuntimeError("selection ffid_split_counts must be an object")
+    actual_ffid_split_counts = {
+        split: int(raw_actual_ffid_split_counts[split]) for split in _EFFECTIVE_SPLITS
+    }
+    split_scope = preparation_contract.get("split_scope")
+    if split_scope not in {"per_ffid", "whole_ffid"}:
+        raise RuntimeError("validated preparation contract has unsupported split_scope")
     checks = {
         "ffid_range_not_configured": settings.ffid_range is None,
         "eligible_ffid_count_matches": (
@@ -1793,20 +1906,46 @@ def _formal_scope_audit(
         "fully_excluded_ffids_match": (
             fully_excluded_ffids == list(settings.required_fully_excluded_ffids)
         ),
+        "split_scope_structure_matches": (
+            selection_contract["ffid_split_overlap_count"] == 0
+            and selection_contract["maximum_splits_per_ffid"] == 1
+            and sum(actual_ffid_split_counts.values()) == selection_contract["selected_ffid_count"]
+            if split_scope == "whole_ffid"
+            else all(
+                count == selection_contract["selected_ffid_count"]
+                for count in actual_ffid_split_counts.values()
+            )
+        ),
+        "target_ffid_context_matches": (
+            split_scope != "whole_ffid" or settings.exclude_target_ffid_neighbors
+        ),
     }
+    if settings.required_ffid_split_counts is not None:
+        checks["ffid_split_counts_match"] = actual_ffid_split_counts == dict(
+            settings.required_ffid_split_counts
+        )
     return {
         "requirements": {
             "ffid_range": None,
+            "split_scope": split_scope,
             "eligible_ffid_count": settings.required_eligible_ffid_count,
             "sample_count": settings.required_sample_count,
             "effective_split_counts": required_split_counts,
+            "ffid_split_counts": (
+                dict(settings.required_ffid_split_counts)
+                if settings.required_ffid_split_counts is not None
+                else None
+            ),
             "fully_excluded_ffids": list(settings.required_fully_excluded_ffids),
         },
         "actual": {
             "ffid_range": (list(settings.ffid_range) if settings.ffid_range is not None else None),
+            "split_scope": split_scope,
             "eligible_ffid_count": selection_contract["selected_ffid_count"],
             "sample_count": selection_contract["sample_count"],
             "effective_split_counts": actual_split_counts,
+            "ffid_split_counts": actual_ffid_split_counts,
+            "ffid_split_overlap_count": selection_contract["ffid_split_overlap_count"],
             "fully_excluded_ffids": list(fully_excluded_ffids),
         },
         "checks": checks,
@@ -1995,6 +2134,20 @@ def _validated_effective_split_counts(value: object) -> dict[str, int]:
         split: _positive_integer(
             value[split],
             f"evaluation.required_effective_split_counts.{split}",
+        )
+        for split in _EFFECTIVE_SPLITS
+    }
+
+
+def _validated_ffid_split_counts(value: object) -> dict[str, int]:
+    if not isinstance(value, Mapping) or set(value) != set(_EFFECTIVE_SPLITS):
+        raise ConfigurationError(
+            f"evaluation.required_ffid_split_counts must contain exactly {list(_EFFECTIVE_SPLITS)}"
+        )
+    return {
+        split: _positive_integer(
+            value[split],
+            f"evaluation.required_ffid_split_counts.{split}",
         )
         for split in _EFFECTIVE_SPLITS
     }

@@ -341,21 +341,26 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             config,
             "project.random_seed",
         )
-        holdout_fraction = _config_value_or_override(
-            args.holdout_fraction,
-            config,
-            "sampling.random_trace_holdout_fraction",
-        )
-        validation_fraction = _config_value_or_override(
-            args.validation_fraction_of_holdout,
-            config,
-            "sampling.validation_fraction_of_holdout",
-        )
         split_scope = _config_value_or_optional_default(
             args.split_scope,
             config,
             "sampling.split_scope",
             "global",
+        )
+        holdout_config_path = (
+            "sampling.random_ffid_holdout_fraction"
+            if split_scope == "whole_ffid"
+            else "sampling.random_trace_holdout_fraction"
+        )
+        holdout_fraction = _config_value_or_override(
+            args.holdout_fraction,
+            config,
+            holdout_config_path,
+        )
+        validation_fraction = _config_value_or_override(
+            args.validation_fraction_of_holdout,
+            config,
+            "sampling.validation_fraction_of_holdout",
         )
         coordinate_normalization = _required_supported_config_value(
             config,
@@ -727,7 +732,7 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     prepare_baseline.add_argument(
         "--holdout-fraction",
         type=float,
-        help="Override sampling.random_trace_holdout_fraction.",
+        help=("Override the configured trace or FFID holdout fraction, according to split scope."),
     )
     prepare_baseline.add_argument(
         "--validation-fraction-of-holdout",
@@ -741,7 +746,7 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     prepare_baseline.add_argument(
         "--split-scope",
-        choices=("global", "per_ffid"),
+        choices=("global", "per_ffid", "whole_ffid"),
         help="Override sampling.split_scope (default: global).",
     )
     prepare_baseline.add_argument(

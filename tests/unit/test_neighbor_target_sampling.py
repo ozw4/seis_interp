@@ -6,6 +6,7 @@ import torch
 
 from seis_interp.pipelines.train_neighbor_inpainter import (
     EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+    _NeighborTensorSource,
     _RandomTrainBatchProvider,
 )
 
@@ -35,6 +36,21 @@ class _FakeTensorSource:
         neighbors = torch.zeros(batch_size, 3, 2)
         coordinates = torch.zeros(batch_size, 3)
         return neighbors, availability, coordinates
+
+
+class _FakeGeometryLookup:
+    row_count = 3
+    offsets = (
+        (1, 0, 0, 0),
+        (0, 1, 1, 0),
+        (0, 0, 0, 1),
+    )
+
+    def neighbor_positions(self, target_positions: np.ndarray) -> np.ndarray:
+        return np.tile(np.asarray([0, 1, 2], dtype=np.int64), (len(target_positions), 1))
+
+    def target_coordinates(self, target_positions: np.ndarray) -> np.ndarray:
+        return np.zeros((len(target_positions), 4), dtype=np.float64)
 
 
 def _epoch_provider(trace_count: int, seed: int) -> _RandomTrainBatchProvider:
@@ -169,3 +185,22 @@ def test_epoch_sampler_requires_a_dedicated_target_generator() -> None:
             _FakeTensorSource(3),
             target_sampling=EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
         )
+
+
+def test_tensor_source_can_exclude_every_neighbor_from_the_target_ffid() -> None:
+    amplitudes = torch.tensor([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
+    source = _NeighborTensorSource(
+        _FakeGeometryLookup(),  # type: ignore[arg-type]
+        train_positions=np.arange(3, dtype=np.int64),
+        train_amplitudes=amplitudes,
+        device=torch.device("cpu"),
+        exclude_target_ffid_neighbors=True,
+    )
+
+    neighbors, availability, _coordinates = source.gather(np.asarray([0], dtype=np.int64))
+
+    assert availability.tolist() == [[False, True, False]]
+    torch.testing.assert_close(
+        neighbors,
+        torch.tensor([[[0.0, 0.0], [2.0, 2.0], [0.0, 0.0]]]),
+    )

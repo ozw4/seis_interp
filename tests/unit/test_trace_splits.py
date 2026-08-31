@@ -11,6 +11,7 @@ from seis_interp.processing.trace_splits import (
     VALIDATION_SPLIT,
     assign_random_trace_splits,
     assign_random_trace_splits_by_ffid,
+    assign_random_whole_ffid_splits,
 )
 
 
@@ -52,6 +53,15 @@ def assign_by_ffid(trace_table: pd.DataFrame, *, seed: int = 42) -> pd.DataFrame
     return assign_random_trace_splits_by_ffid(
         trace_table,
         holdout_fraction=0.20,
+        validation_fraction_of_holdout=0.25,
+        random_seed=seed,
+    )
+
+
+def assign_whole_ffids(trace_table: pd.DataFrame, *, seed: int = 42) -> pd.DataFrame:
+    return assign_random_whole_ffid_splits(
+        trace_table,
+        holdout_fraction=0.75,
         validation_fraction_of_holdout=0.25,
         random_seed=seed,
     )
@@ -288,6 +298,45 @@ def test_per_ffid_split_accepts_signed_integer_ffids_deterministically() -> None
     second = assignments_by_array_row(assign_by_ffid(trace_table))
 
     assert first == second
+
+
+def test_whole_ffid_split_assigns_each_ffid_to_exactly_one_split() -> None:
+    result = assign_whole_ffids(make_multi_ffid_trace_table((2,) * 8))
+
+    splits_per_ffid = result.groupby("ffid")[SPLIT_COLUMN].nunique()
+    ffid_counts = result.groupby(SPLIT_COLUMN)["ffid"].nunique().to_dict()
+
+    assert splits_per_ffid.eq(1).all()
+    assert ffid_counts == {
+        TEST_SPLIT: 4,
+        TRAIN_SPLIT: 2,
+        VALIDATION_SPLIT: 2,
+    }
+
+
+def test_whole_ffid_membership_is_independent_of_trace_order_and_index() -> None:
+    trace_table = make_multi_ffid_trace_table((2,) * 8).sample(frac=1.0, random_state=7)
+    reordered = trace_table.iloc[::-1].copy()
+    reordered.index = np.arange(1000, 1000 + len(reordered))
+
+    assert assignments_by_array_row(assign_whole_ffids(trace_table)) == assignments_by_array_row(
+        assign_whole_ffids(reordered)
+    )
+
+
+def test_whole_ffid_seed_changes_membership() -> None:
+    trace_table = make_multi_ffid_trace_table((2,) * 8)
+
+    first = assign_whole_ffids(trace_table, seed=1)
+    second = assign_whole_ffids(trace_table, seed=2)
+
+    assert assignments_by_array_row(first) != assignments_by_array_row(second)
+    assert first.groupby("ffid")[SPLIT_COLUMN].nunique().eq(1).all()
+
+
+def test_whole_ffid_split_error_identifies_too_few_eligible_ffids() -> None:
+    with pytest.raises(ValueError, match=r"eligible FFIDs.*counts="):
+        assign_whole_ffids(make_multi_ffid_trace_table((20, 20, 20)))
 
 
 def test_global_exact_membership_remains_unchanged() -> None:

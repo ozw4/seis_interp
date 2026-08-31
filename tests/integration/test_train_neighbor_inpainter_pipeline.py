@@ -34,6 +34,7 @@ def _build_neighbor_training_fixture(
     ffid_range: list[int] | None = None,
     include_excluded_trace: bool = False,
     formal_candidate: bool = False,
+    split_scope: str = "per_ffid",
 ) -> tuple[Path, Path, Path]:
     source = tmp_path / "source.sgy"
     source.write_bytes(b"synthetic neighbor-inpainter source")
@@ -97,7 +98,7 @@ def _build_neighbor_training_fixture(
         holdout_fraction=0.5,
         validation_fraction_of_holdout=0.5,
         random_seed=5,
-        split_scope="per_ffid",
+        split_scope=split_scope,
         trace_amplitude_filter=trace_filter,
         config_source="studies/synthetic_neighbor/config.yaml",
     )
@@ -111,6 +112,7 @@ def _build_neighbor_training_fixture(
         "minimum_learning_rate": 3.0e-5,
         "total_steps": 2,
         "batch_size": 4,
+        "exclude_target_ffid_neighbors": split_scope == "whole_ffid",
         "neighbor_dropout": 0.05,
         "derivative_weight": 0.1,
         "gradient_clip_norm": 1.0,
@@ -128,9 +130,13 @@ def _build_neighbor_training_fixture(
             {
                 "project": {"random_seed": 5},
                 "sampling": {
-                    "random_trace_holdout_fraction": 0.5,
+                    (
+                        "random_ffid_holdout_fraction"
+                        if split_scope == "whole_ffid"
+                        else "random_trace_holdout_fraction"
+                    ): 0.5,
                     "validation_fraction_of_holdout": 0.5,
-                    "split_scope": "per_ffid",
+                    "split_scope": split_scope,
                     "trace_amplitude_filter": trace_filter.to_dict(),
                     "duplicate_physical_coordinate_policy": "keep_lowest_array_row",
                 },
@@ -179,6 +185,41 @@ def _build_neighbor_training_fixture(
         encoding="utf-8",
     )
     return config, interim, processed
+
+
+def test_pipeline_supports_disjoint_whole_ffid_splits(tmp_path: Path) -> None:
+    config, interim, processed = _build_neighbor_training_fixture(
+        tmp_path,
+        split_scope="whole_ffid",
+    )
+    output = tmp_path / "run"
+
+    metrics = train_neighbor_inpainter_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+    )
+
+    trace_table = pd.read_parquet(interim / "traces.parquet")
+    split_table = pd.read_parquet(processed / "trace_split.parquet")
+    joined = trace_table[["array_row", "ffid"]].merge(split_table, on="array_row")
+    assert joined.groupby("ffid")["split"].nunique().eq(1).all()
+    assert metrics["split_counts"] == {
+        "train": 8,
+        "validation": 8,
+        "test": 8,
+        "excluded": 0,
+    }
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    assert inputs_lock["preparation"]["split_scope"] == "whole_ffid"
+    assert inputs_lock["preparation"]["ffid_split_counts"] == {
+        "train": 1,
+        "validation": 1,
+        "test": 1,
+    }
+    assert inputs_lock["training"]["exclude_target_ffid_neighbors"] is True
+    assert metrics["formal_success_scope"]["checks"]["target_ffid_context_matches"] is True
 
 
 def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) -> None:
