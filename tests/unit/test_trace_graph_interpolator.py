@@ -233,3 +233,48 @@ def test_rejects_per_frame_attention_for_bipartite_mode() -> None:
             graph_mode=SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE,
             attention_time_resolution="per_frame",
         )
+
+
+def test_gradient_checkpointing_preserves_outputs_and_gradients() -> None:
+    torch.manual_seed(0)
+    reference_model = _small_model(TRACE_LATTICE_GRAPH_MODE)
+    torch.manual_seed(0)
+    checkpointed_model = TraceGraphInterpolator(
+        width=8,
+        graph_mode=TRACE_LATTICE_GRAPH_MODE,
+        message_passing_rounds=2,
+        time_downsample_factor=5,
+        stem_kernel_size=3,
+        temporal_kernel_size=3,
+        temporal_dilations=(1, 2),
+        spatial_kernel_size=3,
+        attention_width=4,
+        use_gradient_checkpointing=True,
+    )
+    checkpointed_model.load_state_dict(reference_model.state_dict())
+    _train_one_step(reference_model)
+    _train_one_step(checkpointed_model)
+    neighbors, availability, source_deltas, target_coordinates = _inputs()
+    reference_model.train()
+    checkpointed_model.train()
+    direct = reference_model(neighbors, availability, source_deltas, target_coordinates)
+    checkpointed = checkpointed_model(
+        neighbors,
+        availability,
+        source_deltas,
+        target_coordinates,
+    )
+    assert torch.allclose(direct, checkpointed, atol=1.0e-6)
+    direct.square().mean().backward()
+    checkpointed.square().mean().backward()
+    for direct_param, checkpointed_param in zip(
+        reference_model.parameters(),
+        checkpointed_model.parameters(),
+        strict=True,
+    ):
+        assert torch.allclose(direct_param.grad, checkpointed_param.grad, atol=1.0e-6)
+
+
+def test_rejects_non_boolean_gradient_checkpointing() -> None:
+    with pytest.raises(ValueError, match="use_gradient_checkpointing"):
+        TraceGraphInterpolator(width=8, use_gradient_checkpointing="yes")

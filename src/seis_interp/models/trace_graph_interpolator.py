@@ -512,10 +512,14 @@ class TraceGraphInterpolator(nn.Module):
         attention_width: int = DEFAULT_ATTENTION_WIDTH,
         attention_time_resolution: str = POOLED_ATTENTION_TIME_RESOLUTION,
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
+        use_gradient_checkpointing: bool = False,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
         self.graph_mode = _validated_graph_mode(graph_mode)
+        if not isinstance(use_gradient_checkpointing, bool):
+            raise ValueError("use_gradient_checkpointing must be a boolean")
+        self.use_gradient_checkpointing = use_gradient_checkpointing
         self.attention_time_resolution = _validated_attention_time_resolution(
             attention_time_resolution,
             graph_mode=self.graph_mode,
@@ -640,12 +644,25 @@ class TraceGraphInterpolator(nn.Module):
             self.width,
             frame_count,
         ).permute(0, 1, 4, 2, 3, 5)
+        run_checkpointed = (
+            self.use_gradient_checkpointing and self.training and torch.is_grad_enabled()
+        )
         for message_round in self.rounds:
-            latents = message_round(
-                latents,
-                presence=presence,
-                shot_descriptors=shot_descriptors,
-            )
+            if run_checkpointed:
+                latents = torch.utils.checkpoint.checkpoint(
+                    _run_message_round,
+                    message_round,
+                    latents,
+                    presence,
+                    shot_descriptors,
+                    use_reentrant=False,
+                )
+            else:
+                latents = message_round(
+                    latents,
+                    presence=presence,
+                    shot_descriptors=shot_descriptors,
+                )
         target_latents = (
             latents[:, 0]
             .permute(0, 2, 3, 1, 4)
@@ -662,6 +679,16 @@ class TraceGraphInterpolator(nn.Module):
             time_count,
         )
         return reference + residual
+
+
+def _run_message_round(
+    message_round: TraceGraphMessagePassingRound,
+    latents: torch.Tensor,
+    presence: torch.Tensor,
+    shot_descriptors: torch.Tensor,
+) -> torch.Tensor:
+    """Invoke one round positionally so activation checkpointing can rerun it."""
+    return message_round(latents, presence=presence, shot_descriptors=shot_descriptors)
 
 
 def _shot_descriptors(
