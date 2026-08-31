@@ -1,0 +1,4 @@
+extends: stage09_joint_shot_gather_k8.yaml
+
+training:
+  neighbor_dropout: 0.0

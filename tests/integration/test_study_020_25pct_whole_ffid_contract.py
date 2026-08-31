@@ -290,6 +290,32 @@ def test_stage15_changes_only_joint_shot_gather_source_count_from_stage09() -> N
     assert settings.spatial_y_dilations == (1, 1, 1, 1, 1, 1, 1)
 
 
+def test_stage17_matches_training_loss_to_the_primary_metric() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage17_joint_shot_gather_primary_mse.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 32
+    assert settings.source_gather_count == 8
+    assert settings.derivative_weight == 0.0
+    assert settings.neighbor_dropout == 0.05
+    assert settings.total_steps == 2500
+
+
+def test_stage18_removes_only_joint_shot_gather_neighbor_dropout() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage18_joint_shot_gather_no_neighbor_dropout.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 32
+    assert settings.source_gather_count == 8
+    assert settings.derivative_weight == 0.1
+    assert settings.neighbor_dropout == 0.0
+    assert settings.total_steps == 2500
+
+
 def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]
