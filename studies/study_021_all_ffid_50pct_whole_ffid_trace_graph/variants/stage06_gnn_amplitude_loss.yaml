@@ -1,0 +1,4 @@
+extends: stage03_gnn_trace_lattice_mask_only.yaml
+
+training:
+  amplitude_weight: 0.05

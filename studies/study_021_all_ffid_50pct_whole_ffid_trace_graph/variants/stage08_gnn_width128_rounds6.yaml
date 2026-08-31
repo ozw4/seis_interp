@@ -1,0 +1,7 @@
+extends: stage03_gnn_trace_lattice_mask_only.yaml
+
+model:
+  hidden_width: 128
+  message_passing_rounds: 6
+  temporal_dilations: [1, 2, 4, 8, 4, 2]
+  attention_width: 64

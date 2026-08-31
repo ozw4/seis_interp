@@ -1,0 +1,7 @@
+extends: stage03_gnn_trace_lattice_mask_only.yaml
+
+model:
+  neighborhood:
+    type: nearest_train_source_gathers
+    distance: euclidean_source_xy_m
+    source_gather_count: 16
