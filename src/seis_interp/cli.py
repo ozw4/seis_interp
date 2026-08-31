@@ -348,11 +348,10 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             "global",
         )
         split_scope = args.split_scope or configured_split_scope
-        if (
-            args.split_scope is not None
-            and args.split_scope != configured_split_scope
-            and args.holdout_fraction is None
-        ):
+        split_unit_changes = (split_scope == "whole_ffid") != (
+            configured_split_scope == "whole_ffid"
+        )
+        if split_unit_changes and args.holdout_fraction is None:
             raise ConfigurationError(
                 "--holdout-fraction is required when --split-scope changes the configured "
                 "split unit"

@@ -200,8 +200,6 @@ def test_cli_resolves_split_scope_from_config_and_override(
                 *_arguments(tmp_path, config_path),
                 "--split-scope",
                 "global",
-                "--holdout-fraction",
-                "0.2",
             ]
         )
         == 0
