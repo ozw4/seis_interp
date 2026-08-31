@@ -9,7 +9,10 @@ from pathlib import Path
 
 import torch
 
-from seis_interp.models.trace_graph_interpolator import TraceGraphInterpolator
+from seis_interp.models.trace_graph_interpolator import (
+    POOLED_ATTENTION_TIME_RESOLUTION,
+    TraceGraphInterpolator,
+)
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
@@ -63,6 +66,7 @@ def save_trace_graph_checkpoint(
                 "temporal_dilations": list(model.temporal_dilations),
                 "spatial_kernel_size": model.spatial_kernel_size,
                 "attention_width": model.attention_width,
+                "attention_time_resolution": model.attention_time_resolution,
                 "distance_epsilon": model.distance_epsilon,
             },
             "model_state_dict": state_dict,
@@ -110,6 +114,10 @@ def load_trace_graph_checkpoint(
             temporal_dilations=model_config["temporal_dilations"],
             spatial_kernel_size=model_config["spatial_kernel_size"],
             attention_width=model_config["attention_width"],
+            attention_time_resolution=model_config.get(
+                "attention_time_resolution",
+                POOLED_ATTENTION_TIME_RESOLUTION,
+            ),
             distance_epsilon=model_config["distance_epsilon"],
         )
     except KeyError as error:

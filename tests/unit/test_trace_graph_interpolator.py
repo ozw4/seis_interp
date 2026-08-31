@@ -185,3 +185,51 @@ def _train_one_step(model: TraceGraphInterpolator) -> None:
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
+
+
+@pytest.mark.parametrize("resolution", ["per_frame", "per_frame_shifted"])
+def test_per_frame_attention_forward_and_zero_initialization(resolution: str) -> None:
+    torch.manual_seed(0)
+    model = TraceGraphInterpolator(
+        width=8,
+        graph_mode=TRACE_LATTICE_GRAPH_MODE,
+        message_passing_rounds=2,
+        time_downsample_factor=5,
+        stem_kernel_size=3,
+        temporal_kernel_size=3,
+        temporal_dilations=(1, 2),
+        spatial_kernel_size=3,
+        attention_width=4,
+        attention_time_resolution=resolution,
+    )
+    neighbors, availability, source_deltas, target_coordinates = _inputs()
+    output = model(neighbors, availability, source_deltas, target_coordinates)
+    assert output.shape == (BATCH, 8, 68, TIME)
+    reference = inverse_distance_reference(neighbors, availability, source_deltas)
+    assert torch.allclose(output, reference)
+    permutation = torch.tensor([1, 2, 0])
+    _train_one_step(model)
+    model.eval()
+    with torch.no_grad():
+        direct = model(neighbors, availability, source_deltas, target_coordinates)
+        permuted = model(
+            neighbors[:, permutation],
+            availability[:, permutation],
+            source_deltas[:, permutation],
+            target_coordinates,
+        )
+    assert torch.allclose(direct, permuted, atol=1.0e-5)
+
+
+def test_rejects_unknown_attention_time_resolution() -> None:
+    with pytest.raises(ValueError, match="attention_time_resolution"):
+        TraceGraphInterpolator(width=8, attention_time_resolution="continuous")
+
+
+def test_rejects_per_frame_attention_for_bipartite_mode() -> None:
+    with pytest.raises(ValueError, match="bipartite"):
+        TraceGraphInterpolator(
+            width=8,
+            graph_mode=SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE,
+            attention_time_resolution="per_frame",
+        )

@@ -22,6 +22,15 @@ GRAPH_MODES = (
     TRACE_LATTICE_GRAPH_MODE,
     SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE,
 )
+POOLED_ATTENTION_TIME_RESOLUTION = "pooled"
+PER_FRAME_ATTENTION_TIME_RESOLUTION = "per_frame"
+PER_FRAME_SHIFTED_ATTENTION_TIME_RESOLUTION = "per_frame_shifted"
+ATTENTION_TIME_RESOLUTIONS = (
+    POOLED_ATTENTION_TIME_RESOLUTION,
+    PER_FRAME_ATTENTION_TIME_RESOLUTION,
+    PER_FRAME_SHIFTED_ATTENTION_TIME_RESOLUTION,
+)
+_ATTENTION_FRAME_SHIFTS = (-1, 0, 1)
 DEFAULT_WIDTH = 64
 DEFAULT_MESSAGE_PASSING_ROUNDS = 4
 DEFAULT_TIME_DOWNSAMPLE_FACTOR = 5
@@ -168,10 +177,15 @@ class TraceGraphMessagePassingRound(nn.Module):
         temporal_dilation: int,
         spatial_kernel_size: int,
         attention_width: int,
+        attention_time_resolution: str = POOLED_ATTENTION_TIME_RESOLUTION,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
         self.graph_mode = _validated_graph_mode(graph_mode)
+        self.attention_time_resolution = _validated_attention_time_resolution(
+            attention_time_resolution,
+            graph_mode=self.graph_mode,
+        )
         self.temporal_kernel_size = _odd_positive_integer(
             temporal_kernel_size,
             "temporal_kernel_size",
@@ -215,6 +229,8 @@ class TraceGraphMessagePassingRound(nn.Module):
             self.query_descriptor = nn.Linear(descriptor_count, self.attention_width)
             self.key_descriptor = nn.Linear(descriptor_count, self.attention_width)
             self.value_projection = nn.Linear(self.width, self.width)
+            if self.attention_time_resolution == PER_FRAME_SHIFTED_ATTENTION_TIME_RESOLUTION:
+                self.frame_shift_bias = nn.Parameter(torch.zeros(len(_ATTENTION_FRAME_SHIFTS)))
             self.message_expand = nn.Conv1d(self.width, self.width * 2, kernel_size=1)
             self.message_contract = nn.Conv1d(self.width, self.width, kernel_size=1)
         else:
@@ -314,18 +330,33 @@ class TraceGraphMessagePassingRound(nn.Module):
     ) -> torch.Tensor:
         batch_size, shot_count, width, receiver_x, receiver_y, frame_count = latents.shape
         normalized, pooled = self._normalized_pooled(latents)
-        queries = (
-            self.query_projection(pooled)
-            + self.query_descriptor(shot_descriptors)[:, :, None, None]
-        )
-        keys = self.key_projection(pooled) + self.key_descriptor(shot_descriptors)[:, :, None, None]
-        logits = torch.einsum("bixya,bjxya->bxyij", queries.float(), keys.float())
-        logits = logits / math.sqrt(self.attention_width)
-        sender_mask = presence.permute(0, 2, 3, 1)[:, :, :, None, :]
-        logits = logits.masked_fill(~sender_mask, torch.finfo(logits.dtype).min)
-        weights = torch.softmax(logits, dim=4).to(dtype=latents.dtype)
         values = self.value_projection(normalized.permute(0, 1, 2, 3, 5, 4))
-        aggregated = torch.einsum("bxyij,bjxytc->bixytc", weights, values)
+        if self.attention_time_resolution == POOLED_ATTENTION_TIME_RESOLUTION:
+            queries = (
+                self.query_projection(pooled)
+                + self.query_descriptor(shot_descriptors)[:, :, None, None]
+            )
+            keys = (
+                self.key_projection(pooled)
+                + self.key_descriptor(shot_descriptors)[:, :, None, None]
+            )
+            logits = torch.einsum("bixya,bjxya->bxyij", queries.float(), keys.float())
+            logits = logits / math.sqrt(self.attention_width)
+            sender_mask = presence.permute(0, 2, 3, 1)[:, :, :, None, :]
+            logits = logits.masked_fill(~sender_mask, torch.finfo(logits.dtype).min)
+            weights = torch.softmax(logits, dim=4).to(dtype=latents.dtype)
+            aggregated = torch.einsum("bxyij,bjxytc->bixytc", weights, values)
+        else:
+            frames = normalized.permute(0, 1, 2, 3, 5, 4)
+            queries = (
+                self.query_projection(frames)
+                + self.query_descriptor(shot_descriptors)[:, :, None, None, None]
+            )
+            keys = (
+                self.key_projection(frames)
+                + self.key_descriptor(shot_descriptors)[:, :, None, None, None]
+            )
+            aggregated = self._per_frame_aggregate(queries, keys, values, presence)
         message = aggregated.permute(0, 1, 2, 3, 5, 4).reshape(-1, width, frame_count)
         value, gate = self.message_expand(message).chunk(2, dim=1)
         update = self.message_contract(F.silu(value) * torch.sigmoid(gate))
@@ -338,6 +369,52 @@ class TraceGraphMessagePassingRound(nn.Module):
             frame_count,
         ).permute(0, 1, 4, 2, 3, 5)
         return latents + update
+
+    def _per_frame_aggregate(
+        self,
+        queries: torch.Tensor,
+        keys: torch.Tensor,
+        values: torch.Tensor,
+        presence: torch.Tensor,
+    ) -> torch.Tensor:
+        """Attend per latent frame, optionally over shifted sender frames."""
+        frame_count = queries.shape[4]
+        scale = math.sqrt(self.attention_width)
+        sender_mask = presence.permute(0, 2, 3, 1)[:, :, :, None, None, :]
+        if self.attention_time_resolution == PER_FRAME_ATTENTION_TIME_RESOLUTION:
+            logits = torch.einsum("bixyta,bjxyta->bxytij", queries.float(), keys.float()) / scale
+            logits = logits.masked_fill(~sender_mask, torch.finfo(logits.dtype).min)
+            weights = torch.softmax(logits, dim=5).to(dtype=values.dtype)
+            return torch.einsum("bxytij,bjxytc->bixytc", weights, values)
+
+        shift_logits = []
+        shift_values = []
+        for shift_index, shift in enumerate(_ATTENTION_FRAME_SHIFTS):
+            shifted_keys = torch.roll(keys, shifts=-shift, dims=4)
+            shifted_values = torch.roll(values, shifts=-shift, dims=4)
+            logits = (
+                torch.einsum("bixyta,bjxyta->bxytij", queries.float(), shifted_keys.float()) / scale
+                + self.frame_shift_bias[shift_index].float()
+            )
+            frame_index = torch.arange(frame_count, device=queries.device)
+            frame_valid = (frame_index + shift >= 0) & (frame_index + shift < frame_count)
+            valid = sender_mask & frame_valid[None, None, None, :, None, None]
+            logits = logits.masked_fill(~valid, torch.finfo(logits.dtype).min)
+            shift_logits.append(logits)
+            shift_values.append(shifted_values)
+        stacked_logits = torch.stack(shift_logits, dim=6)
+        flat_logits = stacked_logits.flatten(start_dim=5)
+        weights = torch.softmax(flat_logits, dim=5).to(dtype=values.dtype)
+        weights = weights.reshape(stacked_logits.shape)
+        aggregated = None
+        for shift_index in range(len(_ATTENTION_FRAME_SHIFTS)):
+            contribution = torch.einsum(
+                "bxytij,bjxytc->bixytc",
+                weights[..., shift_index],
+                shift_values[shift_index],
+            )
+            aggregated = contribution if aggregated is None else aggregated + contribution
+        return aggregated
 
     def _bipartite_update(
         self,
@@ -433,11 +510,16 @@ class TraceGraphInterpolator(nn.Module):
         temporal_dilations: Iterable[int] = DEFAULT_TEMPORAL_DILATIONS,
         spatial_kernel_size: int = DEFAULT_SPATIAL_KERNEL_SIZE,
         attention_width: int = DEFAULT_ATTENTION_WIDTH,
+        attention_time_resolution: str = POOLED_ATTENTION_TIME_RESOLUTION,
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
         self.graph_mode = _validated_graph_mode(graph_mode)
+        self.attention_time_resolution = _validated_attention_time_resolution(
+            attention_time_resolution,
+            graph_mode=self.graph_mode,
+        )
         self.message_passing_rounds = _positive_integer(
             message_passing_rounds,
             "message_passing_rounds",
@@ -479,6 +561,7 @@ class TraceGraphInterpolator(nn.Module):
                 temporal_dilation=temporal_dilation,
                 spatial_kernel_size=self.spatial_kernel_size,
                 attention_width=self.attention_width,
+                attention_time_resolution=self.attention_time_resolution,
             )
             for temporal_dilation in self.temporal_dilations
         )
@@ -787,6 +870,19 @@ def _validated_width(value: object) -> int:
 def _validated_graph_mode(value: object) -> str:
     if not isinstance(value, str) or value not in GRAPH_MODES:
         raise ValueError(f"graph_mode must be one of {GRAPH_MODES}, got {value!r}")
+    return value
+
+
+def _validated_attention_time_resolution(value: object, *, graph_mode: str) -> str:
+    if not isinstance(value, str) or value not in ATTENTION_TIME_RESOLUTIONS:
+        raise ValueError(
+            f"attention_time_resolution must be one of {ATTENTION_TIME_RESOLUTIONS}, got {value!r}"
+        )
+    if (
+        graph_mode == SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE
+        and value != POOLED_ATTENTION_TIME_RESOLUTION
+    ):
+        raise ValueError("attention_time_resolution must be 'pooled' for the bipartite graph mode")
     return value
 
 

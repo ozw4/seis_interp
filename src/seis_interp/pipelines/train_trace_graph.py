@@ -26,8 +26,10 @@ from seis_interp.models.shot_gather_inpainter import (
     RECEIVER_Y_COUNT,
 )
 from seis_interp.models.trace_graph_interpolator import (
+    ATTENTION_TIME_RESOLUTIONS,
     GRAPH_MODES,
     NODE_STATIC_FEATURE_NAMES,
+    POOLED_ATTENTION_TIME_RESOLUTION,
     TraceGraphInterpolator,
 )
 from seis_interp.pipelines.train_neighbor_inpainter import (
@@ -131,6 +133,7 @@ class _TrainingSettings:
     random_seed: int
     hidden_width: int
     graph_mode: str
+    attention_time_resolution: str
     message_passing_rounds: int
     time_downsample_factor: int
     stem_kernel_size: int
@@ -327,6 +330,7 @@ def train_trace_graph_run(
     model = TraceGraphInterpolator(
         width=settings.hidden_width,
         graph_mode=settings.graph_mode,
+        attention_time_resolution=settings.attention_time_resolution,
         message_passing_rounds=settings.message_passing_rounds,
         time_downsample_factor=settings.time_downsample_factor,
         stem_kernel_size=settings.stem_kernel_size,
@@ -552,6 +556,17 @@ def _validated_settings(
     graph_mode = get_required_config_value(config, "model.graph_mode")
     if graph_mode not in GRAPH_MODES:
         raise ConfigurationError(f"model.graph_mode must be one of {GRAPH_MODES}")
+    model_section = config.get("model")
+    if not isinstance(model_section, Mapping):
+        raise ConfigurationError("model must be a mapping")
+    attention_time_resolution = model_section.get(
+        "attention_time_resolution",
+        POOLED_ATTENTION_TIME_RESOLUTION,
+    )
+    if attention_time_resolution not in ATTENTION_TIME_RESOLUTIONS:
+        raise ConfigurationError(
+            f"model.attention_time_resolution must be one of {ATTENTION_TIME_RESOLUTIONS}"
+        )
     _require_exact(config, "sampling.split_scope", "whole_ffid")
     _require_exact(
         config,
@@ -620,6 +635,7 @@ def _validated_settings(
             "model.hidden_width",
         ),
         graph_mode=str(graph_mode),
+        attention_time_resolution=str(attention_time_resolution),
         message_passing_rounds=_positive_integer(
             get_required_config_value(config, "model.message_passing_rounds"),
             "model.message_passing_rounds",
@@ -732,6 +748,7 @@ def _model_contract(
         "name": MODEL_NAME,
         "hidden_width": model.width,
         "graph_mode": model.graph_mode,
+        "attention_time_resolution": model.attention_time_resolution,
         "message_passing_rounds": model.message_passing_rounds,
         "time_downsample_factor": model.time_downsample_factor,
         "stem_kernel_size": model.stem_kernel_size,

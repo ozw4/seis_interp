@@ -23,8 +23,12 @@ from seis_interp.models.shot_gather_inpainter import (
 )
 from seis_interp.models.siren import SineLayer, Siren
 from seis_interp.models.trace_graph_interpolator import (
+    ATTENTION_TIME_RESOLUTIONS,
     GRAPH_MODES,
     NODE_STATIC_FEATURE_NAMES,
+    PER_FRAME_ATTENTION_TIME_RESOLUTION,
+    PER_FRAME_SHIFTED_ATTENTION_TIME_RESOLUTION,
+    POOLED_ATTENTION_TIME_RESOLUTION,
     SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE,
     TRACE_LATTICE_GRAPH_MODE,
     TraceGraphInterpolator,
@@ -34,6 +38,7 @@ from seis_interp.models.trace_graph_interpolator import (
 )
 
 __all__ = [
+    "ATTENTION_TIME_RESOLUTIONS",
     "TEMPORAL_DILATIONS",
     "FactorizedGatherResidualBlock",
     "GRAPH_MODES",
@@ -43,6 +48,9 @@ __all__ = [
     "NeighborTraceInpainter",
     "NO_RECEIVER_POSITION_CONDITIONING",
     "ORDERED_RAW_SOURCE_FEATURE_MODE",
+    "PER_FRAME_ATTENTION_TIME_RESOLUTION",
+    "PER_FRAME_SHIFTED_ATTENTION_TIME_RESOLUTION",
+    "POOLED_ATTENTION_TIME_RESOLUTION",
     "RECEIVER_POSITION_CONDITIONING_MODES",
     "ReceiverPositionFiLM",
     "SHOT_GATHER_INPUT_FEATURE_NAMES",
