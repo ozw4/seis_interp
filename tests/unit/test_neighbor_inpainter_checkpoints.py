@@ -57,6 +57,8 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
         "neighbor_alignment_kernel_size": 3,
         "prediction_reference": "masked_aligned_neighbor_mean",
     }
+    assert "neighbor_offsets" not in payload["model_state_dict"]
+    assert "coarse_sample_shifts" not in payload["model_state_dict"]
     assert all(tensor.device.type == "cpu" for tensor in payload["model_state_dict"].values())
     assert payload["amplitude_scaling"] == "per_trace_rms"
     assert payload["validation_metric_domain"] == "oracle_per_trace_unit_rms"
@@ -78,6 +80,81 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
     assert loaded.best_step == 2300
     assert loaded.best_validation_global_snr_db == pytest.approx(16.182)
     torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
+
+
+def test_neighbor_trace_coarse_alignment_checkpoint_round_trip_preserves_exact_offsets(
+    tmp_path: Path,
+) -> None:
+    offsets = ((0, 0, 0, -1), (0, 0, 0, 1), (1, 0, 0, 0))
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        target_coordinate_count=4,
+        stem_kernel_size=5,
+        residual_kernel_size=3,
+        temporal_dilations=(1,),
+        coordinate_conditioning="film",
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+        coarse_shift_samples_per_relative_receiver_y_index=2,
+        neighbor_offsets=offsets,
+    )
+    neighbors = torch.randn(2, 3, 9)
+    availability = torch.tensor([[True, False, True], [True, True, False]])
+    coordinates = torch.randn(2, 4)
+    expected = model(neighbors, availability, coordinates).detach()
+    checkpoint_path = tmp_path / "coarse" / "best.pt"
+
+    save_neighbor_inpainter_checkpoint(
+        checkpoint_path,
+        model,
+        best_step=50,
+        best_validation_global_snr_db=14.5,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    loaded = load_neighbor_inpainter_checkpoint(checkpoint_path)
+
+    assert payload["model_config"]["neighbor_offsets"] == [list(offset) for offset in offsets]
+    assert payload["model_config"]["coarse_shift_samples_per_relative_receiver_y_index"] == 2
+    torch.testing.assert_close(
+        payload["model_state_dict"]["neighbor_offsets"],
+        torch.tensor(offsets),
+    )
+    torch.testing.assert_close(
+        payload["model_state_dict"]["coarse_sample_shifts"],
+        torch.tensor([-2, 2, 0]),
+    )
+    assert isinstance(loaded.model, NeighborTraceInpainter)
+    assert loaded.model.neighbor_offsets is not None
+    assert loaded.model.coarse_sample_shifts is not None
+    assert loaded.model.neighbor_offsets.tolist() == [list(offset) for offset in offsets]
+    assert loaded.model.coarse_sample_shifts.tolist() == [-2, 2, 0]
+    assert loaded.model.coarse_shift_samples_per_relative_receiver_y_index == 2
+    torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
+
+
+def test_neighbor_trace_checkpoint_rejects_corrupted_derived_coarse_shift_buffer(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = tmp_path / "corrupt-coarse-shift.pt"
+    save_neighbor_inpainter_checkpoint(
+        checkpoint_path,
+        NeighborTraceInpainter(
+            neighbor_count=2,
+            width=8,
+            temporal_dilations=(1,),
+            coarse_shift_samples_per_relative_receiver_y_index=3,
+            neighbor_offsets=((0, 0, 0, -1), (0, 0, 0, 1)),
+        ),
+        best_step=1,
+        best_validation_global_snr_db=1.0,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    payload["model_state_dict"]["coarse_sample_shifts"] = torch.tensor([-2, 2])
+    torch.save(payload, checkpoint_path)
+
+    with pytest.raises(ValueError, match="derived coarse alignment buffer 'coarse_sample_shifts'"):
+        load_neighbor_inpainter_checkpoint(checkpoint_path)
 
 
 def test_shared_offset_attention_checkpoint_round_trip_preserves_exact_offsets(

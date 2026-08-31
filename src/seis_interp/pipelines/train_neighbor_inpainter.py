@@ -29,6 +29,9 @@ from seis_interp.data.trace_store import (
     canonical_source_files,
 )
 from seis_interp.models.neighbor_trace_inpainter import (
+    DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX as DEFAULT_LEGACY_COARSE_SHIFT,
+)
+from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COORDINATE_CONDITIONING,
     DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
     DEFAULT_NEIGHBOR_GATING,
@@ -40,12 +43,14 @@ from seis_interp.models.neighbor_trace_inpainter import (
 from seis_interp.models.shared_offset_attention_inpainter import (
     DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
     DEFAULT_ATTENTION_WIDTH,
-    DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
     DEFAULT_NEIGHBOR_FEATURE_WIDTH,
     DISTANCE_PRIOR_SHIFTED_NEIGHBOR_REFERENCE,
     OFFSET_ORDER_AXES,
     OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING,
     SharedOffsetAttentionInpainter,
+)
+from seis_interp.models.shared_offset_attention_inpainter import (
+    DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX as DEFAULT_SHARED_COARSE_SHIFT,
 )
 from seis_interp.models.shared_offset_attention_inpainter import (
     MODEL_NAME as SHARED_OFFSET_ATTENTION_MODEL_NAME,
@@ -869,11 +874,20 @@ def _validated_settings(
                 f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}; coarse alignment "
                 "is controlled by model.coarse_shift_samples_per_relative_receiver_y_index"
             )
-    elif neighbor_gating == OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING:
-        raise ConfigurationError(
-            f"model.neighbor_gating={OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING!r} requires "
-            f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}"
-        )
+    else:
+        if neighbor_gating == OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING:
+            raise ConfigurationError(
+                f"model.neighbor_gating={OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING!r} requires "
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}"
+            )
+        if (
+            coarse_shift_samples_per_relative_receiver_y_index > 0
+            and neighbor_geometry != MULTILINE_GEOMETRY
+        ):
+            raise ConfigurationError(
+                "model.coarse_shift_samples_per_relative_receiver_y_index > 0 requires "
+                f"model.neighborhood.type={MULTILINE_GEOMETRY!r}"
+            )
     _require_exact(
         config,
         "sampling.duplicate_physical_coordinate_policy",
@@ -1082,7 +1096,6 @@ def _validated_shared_offset_attention_settings(
         shared_only_fields = {
             "neighbor_feature_width",
             "attention_width",
-            "coarse_shift_samples_per_relative_receiver_y_index",
             "attention_geometry_prior_scale",
         }
         unexpected = sorted(shared_only_fields.intersection(model))
@@ -1094,7 +1107,13 @@ def _validated_shared_offset_attention_settings(
         return (
             DEFAULT_NEIGHBOR_FEATURE_WIDTH,
             DEFAULT_ATTENTION_WIDTH,
-            DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
+            _nonnegative_integer(
+                model.get(
+                    "coarse_shift_samples_per_relative_receiver_y_index",
+                    DEFAULT_LEGACY_COARSE_SHIFT,
+                ),
+                "model.coarse_shift_samples_per_relative_receiver_y_index",
+            ),
             DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
         )
     return (
@@ -1109,7 +1128,7 @@ def _validated_shared_offset_attention_settings(
         _nonnegative_integer(
             model.get(
                 "coarse_shift_samples_per_relative_receiver_y_index",
-                DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
+                DEFAULT_SHARED_COARSE_SHIFT,
             ),
             "model.coarse_shift_samples_per_relative_receiver_y_index",
         ),
@@ -1259,6 +1278,14 @@ def _build_inpainter_model(
             neighbor_gating=settings.neighbor_gating,
             neighbor_alignment_kernel_size=settings.neighbor_alignment_kernel_size,
             prediction_reference=settings.prediction_reference,
+            coarse_shift_samples_per_relative_receiver_y_index=(
+                settings.coarse_shift_samples_per_relative_receiver_y_index
+            ),
+            neighbor_offsets=(
+                geometry.offsets
+                if settings.coarse_shift_samples_per_relative_receiver_y_index > 0
+                else None
+            ),
         )
     if settings.model_name != SHARED_OFFSET_ATTENTION_MODEL_NAME:
         raise AssertionError(f"unsupported validated model: {settings.model_name}")
@@ -1638,11 +1665,38 @@ def _model_contract(
         "prediction_reference": model.prediction_reference,
     }
     if isinstance(model, NeighborTraceInpainter):
-        return {
+        contract = {
             **common,
             "neighbor_alignment_kernel_size": model.neighbor_alignment_kernel_size,
             "neighbor_alignment": _neighbor_alignment_contract(model),
         }
+        if model.coarse_shift_samples_per_relative_receiver_y_index == 0:
+            return contract
+        if model.neighbor_offsets is None or model.coarse_sample_shifts is None:
+            raise RuntimeError("coarse-aligned checkpoint model is missing derived buffers")
+        exact_offsets = tuple(
+            tuple(int(component) for component in offset)
+            for offset in model.neighbor_offsets.detach().cpu().tolist()
+        )
+        if exact_offsets != geometry.offsets:
+            raise RuntimeError("checkpoint model offsets do not match pipeline geometry order")
+        contract["coarse_alignment"] = {
+            "type": "zero_padded_integer_shift",
+            "offset_order": [list(offset) for offset in exact_offsets],
+            "offset_order_axes": list(OFFSET_ORDER_AXES),
+            "offset_order_source": "pipeline_geometry_exact",
+            "samples_per_relative_receiver_y_index": (
+                model.coarse_shift_samples_per_relative_receiver_y_index
+            ),
+            "sample_shifts": [
+                int(value) for value in model.coarse_sample_shifts.detach().cpu().tolist()
+            ],
+            "source_sample_index": "output_sample_index_minus_shift",
+            "circular_wrap": False,
+            "valid_sample_availability_channels": "time_dependent",
+            "applied_before_target_gate_fir_and_stem": True,
+        }
+        return contract
     if not isinstance(model, SharedOffsetAttentionInpainter):
         raise TypeError(f"unsupported neighbor inpainter model: {type(model).__name__}")
     exact_offsets = tuple(
@@ -1685,16 +1739,22 @@ def _model_contract(
 
 def _neighbor_alignment_contract(model: NeighborTraceInpainter) -> dict[str, object]:
     alignment = model.neighbor_alignment
-    return {
+    contract = {
         "enabled": alignment is not None,
         "type": "depthwise_fir" if alignment is not None else "none",
         "kernel_size": model.neighbor_alignment_kernel_size,
         "groups": alignment.groups if alignment is not None else None,
         "bias": alignment.bias is not None if alignment is not None else None,
         "initialization": "identity_center_tap" if alignment is not None else None,
-        "applied_after_time_invariant_neighbor_gating": True,
+        "applied_after_time_invariant_neighbor_gating": (
+            model.coarse_shift_samples_per_relative_receiver_y_index == 0
+        ),
         "unavailable_channels_zeroed_before_fir": alignment is not None,
     }
+    if model.coarse_shift_samples_per_relative_receiver_y_index > 0:
+        contract["applied_after_time_dependent_target_gating"] = True
+        contract["coarse_alignment_applied_before_fir"] = True
+    return contract
 
 
 def _target_sampling_seed(settings: _TrainingSettings) -> int:

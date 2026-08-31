@@ -46,7 +46,7 @@ is not a material gain, so the condition is not promoted to longer training.
 
 ## 2026-08-31 — Isolate geometry-aware fusion from aperture density
 
-**Status:** active
+**Status:** rejected
 
 **Decision:** After the residual-reference control, Stage 03 keeps K274 and
 replaces the offset-specific input stem with a shared temporal encoder,
@@ -62,3 +62,29 @@ changes separate identifies representation versus neighbor-density effects.
 The Stage 03 distance-prior scale is 0.1: at scale 1.0 the sparse K274 mask
 would leave an effective attention support of only about 2.5 neighbors and
 nearly eliminate gradients to distant offsets before learning.
+
+**Result:** Stage 03 reached `9.819645233036228 dB`, which is
+`-4.403199061922615 dB` relative to Stage 01. Its training audit was
+`9.822922017404714 dB`, so the loss is not explained by overfitting; compressing
+all K274 inputs into one shared attended feature is the observed bottleneck.
+Stage 04 raised mean validation availability from 54.788 to 132.690 but reached
+only `14.089875885195529 dB`, or `-0.132968409763314 dB` relative to Stage 01.
+Neither condition is promoted.
+
+## 2026-08-31 — Isolate deterministic receiver-y moveout alignment
+
+**Status:** active
+
+**Decision:** Stage 05 returns to the Stage 01 K274 architecture and changes
+only neighbor preprocessing. Offset `(drx, dsx, dsy, dry)` is shifted by
+`3 * dry` samples with zero padding before the existing target-coordinate gate,
+depthwise FIR, and temporal CNN. The source index convention is
+`source_sample = output_sample - shift`; circular wrap is forbidden.
+
+**Reason:** A train-only cross-correlation probe identifies three samples per
+relative receiver-y index as the stable coarse moveout. In the Stage 01
+checkpoint, all 274 learned FIR channels still have their largest coefficient
+at the center tap, and only 8.76% of expected moveout taps coincide with that
+maximum. Hard alignment therefore tests a mechanism that the accepted FIR did
+not absorb. The legacy default remains zero so existing models and checkpoints
+retain exact behavior.

@@ -39,9 +39,11 @@ and evaluates it after 2,500 updates. Stage 02 keeps that condition fixed and
 tests an explicit aligned-neighbor reference with a zero-initialized CNN
 residual. Stage 03 tests offset-aware shared temporal encoding and time-dependent
 masked attention at the same K274 aperture. Stage 04 changes only the accepted
-CNN's same-line aperture from K274 to K734. Later stages will promote only
-measured gains and isolate alignment, capacity, objective, and training budget.
-A final candidate must be frozen before a fresh full-scope acceptance run.
+CNN's same-line aperture from K274 to K734. Stage 05 returns to K274 and tests a
+deterministic train-derived receiver-y moveout shift before the existing gate,
+FIR, and temporal CNN. Later stages will promote only measured gains and isolate
+capacity and training budget. A final candidate must be frozen before a fresh
+full-scope acceptance run.
 
 ## Acceptance criteria
 
@@ -60,8 +62,13 @@ No 25% training run has been accepted yet. Stage 01 reached
 `14.222844294958843 dB` after 2,500 updates. This is 2.580838795167327 dB below
 the same architecture and budget at 50% density. Stage 02's explicit neighbor
 reference reached `14.22890961173312 dB`, only 0.006065316774276797 dB above
-Stage 01, and was not promoted. Both runs passed the complete leakage and scope
-audit and reproduced their saved checkpoint metric.
+Stage 01, and was not promoted. Stage 03's single shared-attention fusion fell
+to `9.819645233036228 dB` (`-4.403199061922615 dB` versus Stage 01), so early
+compression of K274 neighbors was rejected. Stage 04 increased mean validation
+availability from 54.788 to 132.690 traces with K734 but reached only
+`14.089875885195529 dB` (`-0.132968409763314 dB` versus Stage 01), so aperture
+growth was also rejected. All four full-scope runs passed the complete leakage
+and scope audit and reproduced their saved checkpoint metric.
 
 Immutable staged runs are stored under
 `runs/study_019_all_ffid_25pct_neighbor_inpainter/` and will be summarized in

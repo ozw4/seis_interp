@@ -10,6 +10,7 @@ from seis_interp.models import (
     TemporalResidualBlock,
 )
 from seis_interp.models.neighbor_trace_inpainter import (
+    DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
     DEFAULT_PREDICTION_REFERENCE,
     MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
     _availability_masked_softmax_gates,
@@ -316,6 +317,120 @@ def test_neighbor_alignment_runs_after_gating_and_keeps_unavailable_channels_zer
     torch.testing.assert_close(alignment_inputs[0], neighbors * gates[..., None])
     torch.testing.assert_close(stem_inputs[0][:, 1], torch.zeros(2, 3))
     torch.testing.assert_close(stem_inputs[0][1, :3], torch.zeros(3, 3))
+
+
+def test_coarse_alignment_precedes_time_dependent_gate_fir_and_stem() -> None:
+    offsets = ((0, 0, 0, -1), (0, 0, 0, 1), (1, 0, 0, 0))
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+        coarse_shift_samples_per_relative_receiver_y_index=2,
+        neighbor_offsets=offsets,
+    )
+    assert model.neighbor_gate_projection is not None
+    assert model.neighbor_alignment is not None
+    assert model.neighbor_offsets is not None
+    assert model.coarse_sample_shifts is not None
+    with torch.no_grad():
+        model.neighbor_gate_projection.weight.zero_()
+        model.neighbor_gate_projection.bias.copy_(torch.tensor([0.0, 1.0, 2.0]))
+    neighbors = torch.tensor(
+        [
+            [
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                [7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+                [13.0, 14.0, 15.0, 16.0, 17.0, 18.0],
+            ]
+        ]
+    )
+    availability = torch.ones(1, 3, dtype=torch.bool)
+    coordinates = torch.zeros(1, 3)
+    alignment_inputs: list[torch.Tensor] = []
+    stem_inputs: list[torch.Tensor] = []
+    alignment_handle = model.neighbor_alignment.register_forward_pre_hook(
+        lambda _module, inputs: alignment_inputs.append(inputs[0].detach().clone())
+    )
+    stem_handle = model.stem.register_forward_pre_hook(
+        lambda _module, inputs: stem_inputs.append(inputs[0].detach().clone())
+    )
+    try:
+        model(neighbors, availability, coordinates)
+    finally:
+        alignment_handle.remove()
+        stem_handle.remove()
+
+    expected_aligned = torch.tensor(
+        [
+            [
+                [3.0, 4.0, 5.0, 6.0, 0.0, 0.0],
+                [0.0, 0.0, 7.0, 8.0, 9.0, 10.0],
+                [13.0, 14.0, 15.0, 16.0, 17.0, 18.0],
+            ]
+        ]
+    )
+    expected_availability = torch.tensor(
+        [
+            [
+                [True, True, True, True, False, False],
+                [False, False, True, True, True, True],
+                [True, True, True, True, True, True],
+            ]
+        ]
+    )
+    logits = model.neighbor_gate_projection(coordinates)[..., None].expand(-1, -1, 6)
+    expected_gates = _availability_masked_softmax_gates(logits, expected_availability)
+
+    assert model.neighbor_offsets.tolist() == [list(offset) for offset in offsets]
+    assert model.coarse_sample_shifts.tolist() == [-2, 2, 0]
+    torch.testing.assert_close(alignment_inputs[0], expected_aligned * expected_gates)
+    torch.testing.assert_close(stem_inputs[0][:, :3], expected_aligned * expected_gates)
+    torch.testing.assert_close(
+        stem_inputs[0][:, 3:6],
+        expected_availability.to(dtype=neighbors.dtype),
+    )
+
+
+def test_zero_coarse_shift_preserves_exact_legacy_rng_state_weights_and_output() -> None:
+    kwargs = {
+        "neighbor_count": 3,
+        "width": 8,
+        "temporal_dilations": (1, 2),
+        "coordinate_conditioning": "film",
+        "neighbor_gating": "target_coordinate_masked_softmax",
+        "neighbor_alignment_kernel_size": 3,
+    }
+    torch.manual_seed(41)
+    legacy = NeighborTraceInpainter(**kwargs)
+    legacy_rng_state = torch.random.get_rng_state()
+    torch.manual_seed(41)
+    explicit_zero = NeighborTraceInpainter(
+        **kwargs,
+        coarse_shift_samples_per_relative_receiver_y_index=(
+            DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX
+        ),
+    )
+    explicit_rng_state = torch.random.get_rng_state()
+    neighbors = torch.randn(2, 3, 13)
+    availability = torch.tensor([[True, False, True], [True, True, False]])
+    coordinates = torch.randn(2, 3)
+
+    assert torch.equal(explicit_rng_state, legacy_rng_state)
+    assert explicit_zero.neighbor_offsets is None
+    assert explicit_zero.coarse_sample_shifts is None
+    assert "neighbor_offsets" not in explicit_zero.state_dict()
+    assert "coarse_sample_shifts" not in explicit_zero.state_dict()
+    assert legacy.state_dict().keys() == explicit_zero.state_dict().keys()
+    for name, tensor in legacy.state_dict().items():
+        torch.testing.assert_close(explicit_zero.state_dict()[name], tensor, rtol=0.0, atol=0.0)
+    torch.testing.assert_close(
+        explicit_zero(neighbors, availability, coordinates),
+        legacy(neighbors, availability, coordinates),
+        rtol=0.0,
+        atol=0.0,
+    )
 
 
 def test_masked_aligned_neighbor_mean_is_exact_initial_prediction_reference() -> None:
@@ -650,6 +765,43 @@ def test_temporal_residual_block_preserves_shape() -> None:
                 prediction_reference=1,  # type: ignore[arg-type]
             ),
             "prediction_reference",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                coarse_shift_samples_per_relative_receiver_y_index=-1,
+            ),
+            "coarse_shift_samples",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                coarse_shift_samples_per_relative_receiver_y_index=1,
+            ),
+            "neighbor_offsets",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                coarse_shift_samples_per_relative_receiver_y_index=1,
+                neighbor_offsets=((0, 0, 0, -1),),
+            ),
+            "must contain 2 offsets",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                coarse_shift_samples_per_relative_receiver_y_index=1,
+                neighbor_offsets=((0, 0, -1), (0, 0, 1)),
+            ),
+            "four integers",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                neighbor_offsets=((0, 0, 0, -1), (0, 0, 0, 1)),
+            ),
+            "must be omitted",
         ),
         (lambda: TemporalResidualBlock(width=8, dilation=0), "dilation"),
         (lambda: TemporalResidualBlock(width=8, dilation=1, kernel_size=2), "odd"),

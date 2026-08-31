@@ -48,6 +48,7 @@ def test_study_019_starts_from_the_study_018_formal_model() -> None:
     assert settings.coordinate_conditioning == "film"
     assert settings.neighbor_gating == "target_coordinate_masked_softmax"
     assert settings.neighbor_alignment_kernel_size == 31
+    assert settings.coarse_shift_samples_per_relative_receiver_y_index == 0
     assert settings.temporal_dilations == (1, 2, 4, 8, 16, 32, 64, 32, 16, 8, 4, 2, 1)
     assert settings.relative_receiver_x_radius == 2
     assert settings.source_x_line_radius == 0
@@ -126,6 +127,27 @@ def test_stage04_changes_only_the_aperture_and_diagnostic_audit_schedule() -> No
     assert settings.source_y_half_shot_radius == 6
     assert settings.relative_receiver_y_radius == 7
     assert settings.neighbor_alignment_kernel_size == 31
+    assert settings.evaluation_interval_steps == 2500
+    assert settings.training_audit_count == 10000
+
+
+def test_stage05_adds_only_deterministic_coarse_shift_and_diagnostic_schedule() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage05_legacy_coarse_shift_k274.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.model_name == "neighbor_trace_inpainter"
+    assert settings.hidden_width == 384
+    assert settings.relative_receiver_x_radius == 2
+    assert settings.source_x_line_radius == 0
+    assert settings.source_y_half_shot_radius == 4
+    assert settings.relative_receiver_y_radius == 5
+    assert settings.neighbor_gating == "target_coordinate_masked_softmax"
+    assert settings.neighbor_alignment_kernel_size == 31
+    assert settings.prediction_reference == "none"
+    assert settings.coarse_shift_samples_per_relative_receiver_y_index == 3
+    assert settings.total_steps == 2500
     assert settings.evaluation_interval_steps == 2500
     assert settings.training_audit_count == 10000
 

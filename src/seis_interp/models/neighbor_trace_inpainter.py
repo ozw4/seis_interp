@@ -16,6 +16,7 @@ _GROUP_COUNT = 8
 DEFAULT_RESIDUAL_KERNEL_SIZE = 7
 DEFAULT_STEM_KERNEL_SIZE = 15
 DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE = 1
+DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX = 0
 DEFAULT_TARGET_COORDINATE_COUNT = 3
 DEFAULT_COORDINATE_CONDITIONING = "stem"
 DEFAULT_NEIGHBOR_GATING = "none"
@@ -35,6 +36,12 @@ _PREDICTION_REFERENCE_MODES = frozenset(
 def _positive_integer(value: int, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, Integral) or value <= 0:
         raise ValueError(f"{name} must be a positive integer, got {value!r}")
+    return int(value)
+
+
+def _nonnegative_integer(value: int, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer, got {value!r}")
     return int(value)
 
 
@@ -91,6 +98,51 @@ def _validated_prediction_reference(value: str) -> str:
         choices = ", ".join(repr(mode) for mode in sorted(_PREDICTION_REFERENCE_MODES))
         raise ValueError(f"prediction_reference must be one of {choices}, got {value!r}")
     return value
+
+
+def _validated_coarse_alignment_offsets(
+    value: Iterable[Iterable[int]] | None,
+    *,
+    neighbor_count: int,
+    samples_per_relative_receiver_y_index: int,
+) -> tuple[tuple[int, int, int, int], ...] | None:
+    if samples_per_relative_receiver_y_index == 0:
+        if value is not None:
+            raise ValueError(
+                "neighbor_offsets must be omitted when "
+                "coarse_shift_samples_per_relative_receiver_y_index is 0"
+            )
+        return None
+    if value is None or isinstance(value, (str, bytes)):
+        raise ValueError(
+            "neighbor_offsets must contain the exact four-axis multiline offsets when "
+            "coarse_shift_samples_per_relative_receiver_y_index is positive"
+        )
+    try:
+        raw_offsets = tuple(tuple(offset) for offset in value)
+    except TypeError as error:
+        raise ValueError(
+            "neighbor_offsets must contain the exact four-axis multiline offsets"
+        ) from error
+    if len(raw_offsets) != neighbor_count:
+        raise ValueError(
+            f"neighbor_offsets must contain {neighbor_count} offsets, got {len(raw_offsets)}"
+        )
+    offsets: list[tuple[int, int, int, int]] = []
+    for index, offset in enumerate(raw_offsets):
+        if len(offset) != 4:
+            raise ValueError(f"neighbor_offsets[{index}] must contain four integers")
+        if any(
+            isinstance(component, bool) or not isinstance(component, Integral)
+            for component in offset
+        ):
+            raise ValueError(f"neighbor_offsets[{index}] must contain integers")
+        offsets.append(tuple(int(component) for component in offset))
+    if len(set(offsets)) != len(offsets):
+        raise ValueError("neighbor_offsets must not contain duplicates")
+    if (0, 0, 0, 0) in offsets:
+        raise ValueError("neighbor_offsets must exclude the target center offset")
+    return tuple(offsets)
 
 
 def _require_tensor(value: object, name: str) -> torch.Tensor:
@@ -234,6 +286,10 @@ class NeighborTraceInpainter(nn.Module):
         neighbor_gating: str = DEFAULT_NEIGHBOR_GATING,
         neighbor_alignment_kernel_size: int = DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
         prediction_reference: str = DEFAULT_PREDICTION_REFERENCE,
+        coarse_shift_samples_per_relative_receiver_y_index: int = (
+            DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX
+        ),
+        neighbor_offsets: Iterable[Iterable[int]] | None = None,
     ) -> None:
         super().__init__()
         self.neighbor_count = _positive_integer(neighbor_count, "neighbor_count")
@@ -253,6 +309,25 @@ class NeighborTraceInpainter(nn.Module):
             "neighbor_alignment_kernel_size",
         )
         self.prediction_reference = _validated_prediction_reference(prediction_reference)
+        self.coarse_shift_samples_per_relative_receiver_y_index = _nonnegative_integer(
+            coarse_shift_samples_per_relative_receiver_y_index,
+            "coarse_shift_samples_per_relative_receiver_y_index",
+        )
+        coarse_alignment_offsets = _validated_coarse_alignment_offsets(
+            neighbor_offsets,
+            neighbor_count=self.neighbor_count,
+            samples_per_relative_receiver_y_index=(
+                self.coarse_shift_samples_per_relative_receiver_y_index
+            ),
+        )
+        self.register_buffer("neighbor_offsets", None)
+        self.register_buffer("coarse_sample_shifts", None)
+        if coarse_alignment_offsets is not None:
+            offset_tensor = torch.tensor(coarse_alignment_offsets, dtype=torch.int64)
+            self.neighbor_offsets = offset_tensor
+            self.coarse_sample_shifts = (
+                offset_tensor[:, 3] * self.coarse_shift_samples_per_relative_receiver_y_index
+            )
         # Preserve the original public attribute while exposing the constructor field name.
         self.dilations = self.temporal_dilations
         self.input_channels = 2 * self.neighbor_count + self.target_coordinate_count + 1
@@ -365,27 +440,56 @@ class NeighborTraceInpainter(nn.Module):
             )
 
         gated_neighbors = neighbors
+        aligned_availability: torch.Tensor | None = None
+        if self.coarse_shift_samples_per_relative_receiver_y_index > 0:
+            gated_neighbors, aligned_availability = self._coarse_align_neighbors(
+                neighbors,
+                availability,
+            )
         if self.neighbor_gate_projection is not None:
             gate_logits = self.neighbor_gate_projection(target_coordinates)
-            gates = _availability_masked_softmax_gates(gate_logits, availability)
-            gated_neighbors = neighbors * gates[..., None]
+            if aligned_availability is None:
+                gates = _availability_masked_softmax_gates(gate_logits, availability)
+                gated_neighbors = neighbors * gates[..., None]
+            else:
+                time_dependent_logits = gate_logits[..., None].expand(-1, -1, time_count)
+                gates = _availability_masked_softmax_gates(
+                    time_dependent_logits,
+                    aligned_availability,
+                )
+                gated_neighbors = gated_neighbors * gates
         if self.neighbor_alignment is not None:
             # Gating is a time-invariant scalar per neighbor and therefore
             # commutes with a depthwise temporal FIR. Apply it first, then make
             # unavailable channels explicitly zero before alignment.
-            available = (availability > 0.0).to(dtype=neighbors.dtype)
-            gated_neighbors = self.neighbor_alignment(gated_neighbors * available[..., None])
+            if aligned_availability is None:
+                available = (availability > 0.0).to(dtype=neighbors.dtype)
+                alignment_input = gated_neighbors * available[..., None]
+            else:
+                alignment_input = gated_neighbors * aligned_availability.to(dtype=neighbors.dtype)
+            gated_neighbors = self.neighbor_alignment(alignment_input)
 
         prediction_reference: torch.Tensor | None = None
         if self.prediction_reference == MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE:
-            available = availability > 0.0
-            available_float = available.to(dtype=neighbors.dtype)
-            available_count = available_float.sum(dim=1, keepdim=True).clamp_min(1.0)
-            prediction_reference = (gated_neighbors * available_float[..., None]).sum(
-                dim=1
-            ) / available_count
+            if aligned_availability is None:
+                available = availability > 0.0
+                available_float = available.to(dtype=neighbors.dtype)
+                available_count = available_float.sum(dim=1, keepdim=True).clamp_min(1.0)
+                prediction_reference = (gated_neighbors * available_float[..., None]).sum(
+                    dim=1
+                ) / available_count
+            else:
+                available_float = aligned_availability.to(dtype=neighbors.dtype)
+                available_count = available_float.sum(dim=1).clamp_min(1.0)
+                prediction_reference = (gated_neighbors * available_float).sum(
+                    dim=1
+                ) / available_count
 
-        availability_channels = availability[..., None].expand(-1, -1, time_count)
+        availability_channels = (
+            availability[..., None].expand(-1, -1, time_count)
+            if aligned_availability is None
+            else aligned_availability.to(dtype=neighbors.dtype)
+        )
         time_channel = (
             torch.linspace(
                 -1.0,
@@ -417,3 +521,26 @@ class NeighborTraceInpainter(nn.Module):
         if prediction_reference is not None:
             prediction = prediction + prediction_reference
         return prediction
+
+    def _coarse_align_neighbors(
+        self,
+        neighbors: torch.Tensor,
+        availability: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.coarse_sample_shifts is None:
+            raise AssertionError("coarse alignment requires configured sample shifts")
+        time_count = neighbors.shape[2]
+        output_indices = torch.arange(time_count, device=neighbors.device)
+        source_indices = output_indices[None, :] - self.coarse_sample_shifts[:, None]
+        valid_samples = (source_indices >= 0) & (source_indices < time_count)
+        safe_indices = source_indices.clamp(0, time_count - 1)
+        aligned = torch.gather(
+            neighbors,
+            dim=2,
+            index=safe_indices[None, :, :].expand(neighbors.shape[0], -1, -1),
+        )
+        aligned_availability = valid_samples[None, :, :] & (availability > 0.0)[..., None]
+        return (
+            aligned * aligned_availability.to(dtype=neighbors.dtype),
+            aligned_availability,
+        )

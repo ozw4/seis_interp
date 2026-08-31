@@ -13,6 +13,7 @@ import torch
 from torch import nn
 
 from seis_interp.models.neighbor_trace_inpainter import (
+    DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
     DEFAULT_COORDINATE_CONDITIONING,
     DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
     DEFAULT_NEIGHBOR_GATING,
@@ -66,6 +67,10 @@ _SHARED_DERIVED_BUFFER_NAMES = (
     "attention_geometry_prior",
     "coarse_sample_shifts",
 )
+_NEIGHBOR_TRACE_COARSE_ALIGNMENT_DERIVED_BUFFER_NAMES = (
+    "neighbor_offsets",
+    "coarse_sample_shifts",
+)
 
 
 @dataclass(frozen=True)
@@ -108,6 +113,20 @@ def save_neighbor_inpainter_checkpoint(
             "neighbor_alignment_kernel_size": model.neighbor_alignment_kernel_size,
             "prediction_reference": model.prediction_reference,
         }
+        if model.coarse_shift_samples_per_relative_receiver_y_index > 0:
+            if model.neighbor_offsets is None or model.coarse_sample_shifts is None:
+                raise AssertionError("coarse-aligned neighbor model is missing derived buffers")
+            model_config.update(
+                {
+                    "neighbor_offsets": [
+                        [int(component) for component in offset]
+                        for offset in model.neighbor_offsets.detach().cpu().tolist()
+                    ],
+                    "coarse_shift_samples_per_relative_receiver_y_index": (
+                        model.coarse_shift_samples_per_relative_receiver_y_index
+                    ),
+                }
+            )
     elif isinstance(model, SharedOffsetAttentionInpainter):
         model_type = SHARED_OFFSET_ATTENTION_MODEL_NAME
         model_config = {
@@ -204,6 +223,11 @@ def load_neighbor_inpainter_checkpoint(
                     "prediction_reference",
                     DEFAULT_PREDICTION_REFERENCE,
                 ),
+                coarse_shift_samples_per_relative_receiver_y_index=model_config.get(
+                    "coarse_shift_samples_per_relative_receiver_y_index",
+                    DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
+                ),
+                neighbor_offsets=model_config.get("neighbor_offsets"),
             )
         else:
             model = SharedOffsetAttentionInpainter(
@@ -239,6 +263,21 @@ def load_neighbor_inpainter_checkpoint(
             ):
                 raise ValueError(
                     f"shared offset attention checkpoint derived buffer {name!r} "
+                    "does not match model_config"
+                )
+    elif (
+        isinstance(model, NeighborTraceInpainter)
+        and model.coarse_shift_samples_per_relative_receiver_y_index > 0
+    ):
+        expected_state = model.state_dict()
+        for name in _NEIGHBOR_TRACE_COARSE_ALIGNMENT_DERIVED_BUFFER_NAMES:
+            stored = state_dict.get(name)
+            if not isinstance(stored, torch.Tensor) or not torch.equal(
+                stored,
+                expected_state[name],
+            ):
+                raise ValueError(
+                    f"neighbor trace checkpoint derived coarse alignment buffer {name!r} "
                     "does not match model_config"
                 )
     model.load_state_dict(state_dict, strict=True)

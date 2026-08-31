@@ -14,7 +14,7 @@ import yaml
 from seis_interp.configuration import REPOSITORY_ROOT, ConfigurationError, load_resolved_config
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.trace_store import write_interim_trace_dataset
-from seis_interp.models import SharedOffsetAttentionInpainter
+from seis_interp.models import NeighborTraceInpainter, SharedOffsetAttentionInpainter
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.train_neighbor_inpainter import (
     _passes_success_threshold,
@@ -369,6 +369,92 @@ def test_pipeline_trains_shared_offset_attention_with_exact_geometry_offsets(
     assert metrics["prediction_reference"] == "distance_prior_shifted_neighbor_mean"
 
 
+def test_pipeline_trains_legacy_inpainter_with_exact_coarse_alignment_offsets(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_neighbor_training_fixture(tmp_path)
+    configured = yaml.safe_load(config.read_text(encoding="utf-8"))
+    configured["model"].update(
+        {
+            "target_coordinates": [
+                "source_x_m",
+                "source_y_m",
+                "relative_receiver_x_m",
+                "relative_receiver_y_m",
+            ],
+            "coordinate_conditioning": "film",
+            "neighbor_gating": "target_coordinate_masked_softmax",
+            "neighbor_alignment_kernel_size": 3,
+            "coarse_shift_samples_per_relative_receiver_y_index": 2,
+            "stem_kernel_size": 5,
+            "residual_kernel_size": 3,
+            "temporal_dilations": [1],
+            "neighborhood": {
+                "type": "multiline_staggered_source",
+                "relative_receiver_x_radius": 1,
+                "source_x_line_radius": 0,
+                "source_y_half_shot_radius": 2,
+                "relative_receiver_y_radius": 1,
+                "relative_receiver_spacing_m": 40.0,
+                "source_x_line_spacing_m": 160.0,
+                "source_y_half_shot_spacing_m": 40.0,
+            },
+        }
+    )
+    configured["training"]["total_steps"] = 1
+    config.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "legacy-coarse-alignment-run"
+
+    train_neighbor_inpainter_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+    )
+
+    checkpoint = load_neighbor_inpainter_checkpoint(output / "artifacts" / "best.pt")
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert isinstance(checkpoint.model, NeighborTraceInpainter)
+    assert checkpoint.model.neighbor_offsets is not None
+    assert checkpoint.model.coarse_sample_shifts is not None
+    checkpoint_offsets = checkpoint.model.neighbor_offsets.tolist()
+    expected_shifts = [2 * offset[3] for offset in checkpoint_offsets]
+    assert checkpoint_offsets == inputs_lock["neighborhood"]["offset_order"]
+    assert checkpoint_offsets == inputs_lock["model"]["coarse_alignment"]["offset_order"]
+    assert checkpoint.model.coarse_sample_shifts.tolist() == expected_shifts
+    assert inputs_lock["model"]["coarse_alignment"] == {
+        "type": "zero_padded_integer_shift",
+        "offset_order": checkpoint_offsets,
+        "offset_order_axes": [
+            "relative_receiver_x_index",
+            "source_x_line_index",
+            "source_y_half_shot_index",
+            "relative_receiver_y_index",
+        ],
+        "offset_order_source": "pipeline_geometry_exact",
+        "samples_per_relative_receiver_y_index": 2,
+        "sample_shifts": expected_shifts,
+        "source_sample_index": "output_sample_index_minus_shift",
+        "circular_wrap": False,
+        "valid_sample_availability_channels": "time_dependent",
+        "applied_before_target_gate_fir_and_stem": True,
+    }
+    assert inputs_lock["model"] == run["model"]
+    assert inputs_lock["model"]["neighbor_alignment"] == {
+        "enabled": True,
+        "type": "depthwise_fir",
+        "kernel_size": 3,
+        "groups": 26,
+        "bias": False,
+        "initialization": "identity_center_tap",
+        "applied_after_time_invariant_neighbor_gating": False,
+        "unavailable_channels_zeroed_before_fir": True,
+        "applied_after_time_dependent_target_gating": True,
+        "coarse_alignment_applied_before_fir": True,
+    }
+
+
 def test_pipeline_persists_target_coordinate_neighbor_gating(tmp_path: Path) -> None:
     config, interim, processed = _build_neighbor_training_fixture(tmp_path)
     configured = yaml.safe_load(config.read_text(encoding="utf-8"))
@@ -621,6 +707,7 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
     assert settings.neighbor_gating == "none"
     assert settings.neighbor_alignment_kernel_size == 1
     assert settings.prediction_reference == "none"
+    assert settings.coarse_shift_samples_per_relative_receiver_y_index == 0
     assert settings.minimum_learning_rate == 1.5e-5
     assert settings.ffid_range is None
     assert settings.required_eligible_ffid_count == 4780
@@ -707,6 +794,15 @@ def test_legacy_neighbor_model_rejects_shared_attention_only_fields() -> None:
     config["model"]["attention_width"] = 16
 
     with pytest.raises(ConfigurationError, match="shared offset attention fields require"):
+        _validated_settings(config, device_override="cpu")
+
+
+def test_legacy_coarse_alignment_requires_multiline_geometry(tmp_path: Path) -> None:
+    config_path, _interim, _processed = _build_neighbor_training_fixture(tmp_path)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["model"]["coarse_shift_samples_per_relative_receiver_y_index"] = 2
+
+    with pytest.raises(ConfigurationError, match="requires model.neighborhood.type"):
         _validated_settings(config, device_override="cpu")
 
 
