@@ -114,7 +114,7 @@ forward without any rejected mechanism changes.
 
 ## 2026-08-31 — Measure the promoted candidate at 10,000 updates
 
-**Status:** active
+**Status:** accepted
 
 **Decision:** Stage 07 reruns the unshifted width-512 K274 condition from a fresh
 initialization with `total_steps: 10000`, evaluation every 2,500 steps, and a
@@ -125,3 +125,12 @@ whose cosine schedule has already reached its minimum learning rate.
 Under that observed tail, Stage 07 must reach at least `23.250265351941493 dB`
 to leave a budget-only path to the strict 25 dB target. A lower result stops the
 50,000-step formal run unless the measured tail is demonstrably much steeper.
+
+**Result:** Stage 07 reached `16.348938587526803 dB` at step 10,000, a
+`+1.910440674448431 dB` gain over Stage 06 and `+2.126094292567959 dB` over
+Stage 01. The late 2,500-step gains contracted from `+0.999179080543796 dB` to
+`+0.575298687927150 dB` and then `+0.215778544578125 dB`. The result is
+`6.901326764414691 dB` below the 50,000-step promotion gate, so the formal
+extension is rejected. The study closes with a best full-scope result of
+`16.348938587526803 dB`, below the strict 25 dB target by
+`8.651061412473197 dB`.

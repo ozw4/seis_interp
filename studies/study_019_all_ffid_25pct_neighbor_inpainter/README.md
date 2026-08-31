@@ -2,7 +2,7 @@
 
 ## Status
 
-`in_progress`
+`completed` — the 25 dB threshold was not reached
 
 ## Research question
 
@@ -60,7 +60,7 @@ allowed only if the Stage 07 absolute result leaves an evidence-backed path to
 
 ## Current result
 
-No 25% training run has been accepted yet. Stage 01 reached
+The strict 25 dB target was not reached. Stage 01 reached
 `14.222844294958843 dB` after 2,500 updates. This is 2.580838795167327 dB below
 the same architecture and budget at 50% density. Stage 02's explicit neighbor
 reference reached `14.22890961173312 dB`, only 0.006065316774276797 dB above
@@ -76,8 +76,16 @@ and reproduced their saved checkpoint metric. Stage 06 reached
 `14.438497913078372 dB`, a `+0.215653618119529 dB` gain over Stage 01 and just
 passed the predeclared `+0.20 dB` gate for a fresh 10,000-update diagnostic.
 
+That Stage 07 run reached the study best of `16.348938587526803 dB` at step
+10,000, `8.651061412473197 dB` below the strict target. Its late 2,500-step gain
+had fallen to `+0.215778544578125 dB`, and it missed the evidence-based
+50,000-step promotion gate by `6.901326764414691 dB`. The budget-only formal
+extension was therefore stopped. The best checkpoint reproduced exactly,
+the training audit reached `16.592268072774452 dB`, and all scope and leakage
+checks passed.
+
 Immutable staged runs are stored under
-`runs/study_019_all_ffid_25pct_neighbor_inpainter/` and will be summarized in
+`runs/study_019_all_ffid_25pct_neighbor_inpainter/` and are summarized in
 `reports/all_ffid_25pct_25db_investigation.md`.
 
 Historical rationale is recorded in [decisions.md](decisions.md).
