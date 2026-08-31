@@ -51,7 +51,7 @@ def test_stage01_changes_only_the_diagnostic_schedule_from_the_base_candidate() 
     settings = _validated_settings(config, device_override="cpu")
 
     assert settings.total_steps == 2500
-    assert settings.evaluation_interval_steps == 500
+    assert settings.evaluation_interval_steps == 2500
     assert settings.training_audit_count == 10000
     assert settings.hidden_width == 384
     assert settings.relative_receiver_x_radius == 2

@@ -2,5 +2,5 @@ extends: ../config.yaml
 
 training:
   total_steps: 2500
-  evaluation_interval_steps: 500
+  evaluation_interval_steps: 2500
   training_audit_count: 10000
