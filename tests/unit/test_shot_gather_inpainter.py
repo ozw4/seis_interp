@@ -5,12 +5,15 @@ import torch
 from torch import nn
 
 from seis_interp.models.shot_gather_inpainter import (
+    LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
     MOMENTS_SOURCE_FEATURE_MODE,
+    NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
     SHOT_GATHER_INPUT_FEATURE_NAMES,
     FactorizedGatherResidualBlock,
+    ReceiverPositionFiLM,
     ShotGatherInpainter,
     inverse_distance_reference,
     ordered_raw_input_feature_names,
@@ -143,6 +146,92 @@ def test_default_moments_mode_matches_explicit_mode_and_state_exactly() -> None:
             rtol=0.0,
             atol=0.0,
         )
+
+
+def test_default_receiver_conditioning_matches_explicit_none_state_exactly() -> None:
+    torch.manual_seed(43)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(43)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        receiver_position_conditioning=NO_RECEIVER_POSITION_CONDITIONING,
+    )
+
+    assert default_model.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
+    assert all(
+        block.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
+        for block in default_model.blocks
+    )
+    assert all(not hasattr(block, "receiver_film") for block in default_model.blocks)
+    assert default_model.state_dict().keys() == explicit_model.state_dict().keys()
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_receiver_position_film_is_zero_initialized_and_cell_specific() -> None:
+    film = ReceiverPositionFiLM(width=8).double()
+    normalized = torch.randn(2, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3, dtype=torch.float64)
+
+    initial = film(normalized)
+
+    torch.testing.assert_close(initial, normalized, rtol=0.0, atol=0.0)
+    assert film.scale.shape == (1, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 1)
+    assert film.shift.shape == film.scale.shape
+    assert torch.count_nonzero(film.scale) == 0
+    assert torch.count_nonzero(film.shift) == 0
+
+    with torch.no_grad():
+        film.scale[0, 2, 3, 4, 0] = 1.0
+        film.shift[0, 2, 3, 4, 0] = 0.5
+    conditioned = film(normalized)
+
+    expected = normalized.clone()
+    expected[:, 2, 3, 4] = 2.0 * normalized[:, 2, 3, 4] + 0.5
+    torch.testing.assert_close(conditioned, expected, rtol=0.0, atol=0.0)
+
+
+def test_learned_receiver_film_is_present_in_every_block_and_initially_exact() -> None:
+    torch.manual_seed(47)
+    unconditioned = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(47)
+    conditioned = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        receiver_position_conditioning=LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
+    )
+    features = torch.randn(2, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 5)
+
+    assert conditioned.receiver_position_conditioning == (
+        LEARNED_FILM_RECEIVER_POSITION_CONDITIONING
+    )
+    for index, (plain_block, film_block) in enumerate(
+        zip(unconditioned.blocks, conditioned.blocks, strict=True)
+    ):
+        assert film_block.receiver_position_conditioning == (
+            LEARNED_FILM_RECEIVER_POSITION_CONDITIONING
+        )
+        assert isinstance(film_block.receiver_film, ReceiverPositionFiLM)
+        assert torch.count_nonzero(film_block.receiver_film.scale) == 0
+        assert torch.count_nonzero(film_block.receiver_film.shift) == 0
+        assert f"blocks.{index}.receiver_film.scale" in conditioned.state_dict()
+        assert f"blocks.{index}.receiver_film.shift" in conditioned.state_dict()
+        torch.testing.assert_close(
+            film_block(features),
+            plain_block(features),
+            rtol=0.0,
+            atol=0.0,
+        )
+
+    plain_state = unconditioned.state_dict()
+    film_state = conditioned.state_dict()
+    for name, expected in plain_state.items():
+        torch.testing.assert_close(film_state[name], expected, rtol=0.0, atol=0.0)
 
 
 def test_ordered_raw_feature_contract_preserves_each_masked_source() -> None:
@@ -432,6 +521,46 @@ def test_model_rejects_invalid_source_feature_configuration(
             temporal_dilations=(1,),
             source_feature_mode=source_feature_mode,
             source_gather_count=source_gather_count,
+        )
+
+
+@pytest.mark.parametrize("value", ["unknown", "", None, True])
+def test_model_and_block_reject_invalid_receiver_position_conditioning(
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match="receiver_position_conditioning must be one of"):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1,),
+            receiver_position_conditioning=value,
+        )
+    with pytest.raises(ValueError, match="receiver_position_conditioning must be one of"):
+        FactorizedGatherResidualBlock(
+            width=8,
+            temporal_dilation=1,
+            receiver_position_conditioning=value,
+        )
+
+
+def test_receiver_position_film_validates_shape_dtype_and_device() -> None:
+    film = ReceiverPositionFiLM(width=8)
+
+    with pytest.raises(ValueError, match="normalized must have shape"):
+        film(torch.randn(1, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT - 1, 3))
+    with pytest.raises(TypeError, match="normalized dtype must match"):
+        film(
+            torch.randn(
+                1,
+                8,
+                RECEIVER_X_COUNT,
+                RECEIVER_Y_COUNT,
+                3,
+                dtype=torch.float64,
+            )
+        )
+    with pytest.raises(ValueError, match="parameters must share a device"):
+        ReceiverPositionFiLM(width=8).to("meta")(
+            torch.randn(1, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3)
         )
 
 

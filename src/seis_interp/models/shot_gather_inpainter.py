@@ -23,6 +23,12 @@ SOURCE_FEATURE_MODES = (
     MOMENTS_SOURCE_FEATURE_MODE,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
 )
+NO_RECEIVER_POSITION_CONDITIONING = "none"
+LEARNED_FILM_RECEIVER_POSITION_CONDITIONING = "learned_film"
+RECEIVER_POSITION_CONDITIONING_MODES = (
+    NO_RECEIVER_POSITION_CONDITIONING,
+    LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
+)
 SHOT_GATHER_INPUT_FEATURE_NAMES: tuple[str, ...] = (
     "inverse_distance_reference",
     "weighted_absolute_deviation",
@@ -90,6 +96,7 @@ class FactorizedGatherResidualBlock(nn.Module):
         *,
         temporal_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
         spatial_y_dilation: int = 1,
+        receiver_position_conditioning: str = NO_RECEIVER_POSITION_CONDITIONING,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
@@ -105,8 +112,13 @@ class FactorizedGatherResidualBlock(nn.Module):
             spatial_y_dilation,
             "spatial_y_dilation",
         )
+        self.receiver_position_conditioning = _validated_receiver_position_conditioning(
+            receiver_position_conditioning
+        )
 
         self.norm = nn.GroupNorm(_GROUP_COUNT, self.width)
+        if self.receiver_position_conditioning == LEARNED_FILM_RECEIVER_POSITION_CONDITIONING:
+            self.receiver_film = ReceiverPositionFiLM(self.width)
         self.temporal = nn.Conv3d(
             self.width,
             self.width,
@@ -145,10 +157,48 @@ class FactorizedGatherResidualBlock(nn.Module):
         if features.shape[0] == 0 or features.shape[4] == 0:
             raise ValueError("features batch and time dimensions must be non-empty")
 
-        transformed = self.temporal(F.silu(self.norm(features)))
+        normalized = self.norm(features)
+        if self.receiver_position_conditioning == LEARNED_FILM_RECEIVER_POSITION_CONDITIONING:
+            normalized = self.receiver_film(normalized)
+        transformed = self.temporal(F.silu(normalized))
         transformed = self.spatial(F.silu(transformed))
         value, gate = self.expand(transformed).chunk(2, dim=1)
         return features + self.contract(F.silu(value) * torch.sigmoid(gate))
+
+
+class ReceiverPositionFiLM(nn.Module):
+    """Apply zero-initialized channel-and-cell FiLM on the fixed receiver grid."""
+
+    def __init__(self, width: int) -> None:
+        super().__init__()
+        self.width = _validated_width(width)
+        parameter_shape = (1, self.width, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 1)
+        self.scale = nn.Parameter(torch.zeros(parameter_shape))
+        self.shift = nn.Parameter(torch.zeros(parameter_shape))
+
+    def forward(self, normalized: torch.Tensor) -> torch.Tensor:
+        """Return ``normalized * (1 + scale) + shift`` without changing shape."""
+        normalized = _require_floating_tensor(normalized, "normalized")
+        if normalized.ndim != 5 or normalized.shape[1:4] != (
+            self.width,
+            RECEIVER_X_COUNT,
+            RECEIVER_Y_COUNT,
+        ):
+            raise ValueError(
+                "normalized must have shape "
+                f"(batch, {self.width}, {RECEIVER_X_COUNT}, {RECEIVER_Y_COUNT}, time), "
+                f"got {tuple(normalized.shape)}"
+            )
+        if normalized.shape[0] == 0 or normalized.shape[4] == 0:
+            raise ValueError("normalized batch and time dimensions must be non-empty")
+        if normalized.dtype != self.scale.dtype:
+            raise TypeError(
+                "normalized dtype must match receiver FiLM parameters, "
+                f"got {normalized.dtype} and {self.scale.dtype}"
+            )
+        if normalized.device != self.scale.device:
+            raise ValueError("normalized and receiver FiLM parameters must share a device")
+        return normalized * (1.0 + self.scale) + self.shift
 
 
 class ShotGatherInpainter(nn.Module):
@@ -172,6 +222,7 @@ class ShotGatherInpainter(nn.Module):
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
         source_feature_mode: str = MOMENTS_SOURCE_FEATURE_MODE,
         source_gather_count: int | None = None,
+        receiver_position_conditioning: str = NO_RECEIVER_POSITION_CONDITIONING,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
@@ -194,6 +245,9 @@ class ShotGatherInpainter(nn.Module):
             source_gather_count,
             source_feature_mode=self.source_feature_mode,
         )
+        self.receiver_position_conditioning = _validated_receiver_position_conditioning(
+            receiver_position_conditioning
+        )
         if self.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
             self.input_feature_names = SHOT_GATHER_INPUT_FEATURE_NAMES
         else:
@@ -214,6 +268,7 @@ class ShotGatherInpainter(nn.Module):
                 temporal_dilation,
                 temporal_kernel_size=self.residual_kernel_size,
                 spatial_y_dilation=spatial_y_dilation,
+                receiver_position_conditioning=self.receiver_position_conditioning,
             )
             for temporal_dilation, spatial_y_dilation in zip(
                 self.temporal_dilations,
@@ -664,6 +719,15 @@ def _validated_source_gather_count(
     if value is None:
         raise ValueError("source_gather_count is required for ordered_raw mode")
     return _positive_integer(value, "source_gather_count")
+
+
+def _validated_receiver_position_conditioning(value: object) -> str:
+    if not isinstance(value, str) or value not in RECEIVER_POSITION_CONDITIONING_MODES:
+        raise ValueError(
+            "receiver_position_conditioning must be one of "
+            f"{RECEIVER_POSITION_CONDITIONING_MODES}, got {value!r}"
+        )
+    return value
 
 
 def _odd_positive_integer(value: object, name: str) -> int:

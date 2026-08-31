@@ -12,6 +12,7 @@ import torch
 
 from seis_interp.models.shot_gather_inpainter import (
     MOMENTS_SOURCE_FEATURE_MODE,
+    NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
     ShotGatherInpainter,
 )
@@ -38,6 +39,7 @@ class LoadedShotGatherInpainterCheckpoint:
     input_feature_names: tuple[str, ...]
     source_feature_mode: str
     source_gather_count: int | None
+    receiver_position_conditioning: str
     best_step: int
     best_validation_global_snr_db: float
 
@@ -76,6 +78,7 @@ def save_shot_gather_inpainter_checkpoint(
                 "distance_epsilon": model.distance_epsilon,
                 "source_feature_mode": model.source_feature_mode,
                 "source_gather_count": model.source_gather_count,
+                "receiver_position_conditioning": model.receiver_position_conditioning,
             },
             "model_state_dict": state_dict,
             "amplitude_scaling": PER_TRACE_RMS_SCALING,
@@ -131,6 +134,10 @@ def load_shot_gather_inpainter_checkpoint(
                 MOMENTS_SOURCE_FEATURE_MODE,
             ),
             source_gather_count=model_config.get("source_gather_count"),
+            receiver_position_conditioning=model_config.get(
+                "receiver_position_conditioning",
+                NO_RECEIVER_POSITION_CONDITIONING,
+            ),
         )
     except KeyError as error:
         raise ValueError(f"checkpoint model_config is missing {error.args[0]!r}") from error
@@ -199,6 +206,7 @@ def load_shot_gather_inpainter_checkpoint(
         input_feature_names=stored_input_feature_names,
         source_feature_mode=model.source_feature_mode,
         source_gather_count=model.source_gather_count,
+        receiver_position_conditioning=model.receiver_position_conditioning,
         best_step=best_step,
         best_validation_global_snr_db=best_validation,
     )

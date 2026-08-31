@@ -8,7 +8,9 @@ import torch
 
 from seis_interp.cli import build_parser
 from seis_interp.models.shot_gather_inpainter import (
+    LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
     MOMENTS_SOURCE_FEATURE_MODE,
+    NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
@@ -56,6 +58,10 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
     assert loaded.input_feature_names == model.input_feature_names
     assert loaded.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
     assert loaded.source_gather_count is None
+    assert loaded.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
+    assert payload["model_config"]["receiver_position_conditioning"] == (
+        NO_RECEIVER_POSITION_CONDITIONING
+    )
     assert loaded.model.width == 8
     assert loaded.model.temporal_dilations == (1, 2)
     assert loaded.model.spatial_y_dilations == (1, 3)
@@ -111,6 +117,46 @@ def test_ordered_raw_checkpoint_round_trip_preserves_mode_count_and_schema(
         torch.testing.assert_close(loaded.model.state_dict()[name], expected)
 
 
+def test_learned_receiver_film_checkpoint_round_trip_preserves_mode_and_parameters(
+    tmp_path: Path,
+) -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        receiver_position_conditioning=LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
+    )
+    with torch.no_grad():
+        model.blocks[0].receiver_film.scale[0, 1, 2, 3, 0] = 0.25
+        model.blocks[1].receiver_film.shift[0, 4, 5, 6, 0] = -0.5
+    path = tmp_path / "learned-film.pt"
+
+    save_shot_gather_inpainter_checkpoint(
+        path,
+        model,
+        best_step=9,
+        best_validation_global_snr_db=5.5,
+    )
+    payload = torch.load(path, weights_only=True)
+    assert payload["model_config"]["receiver_position_conditioning"] == (
+        LEARNED_FILM_RECEIVER_POSITION_CONDITIONING
+    )
+
+    loaded = load_shot_gather_inpainter_checkpoint(path)
+
+    assert loaded.receiver_position_conditioning == (LEARNED_FILM_RECEIVER_POSITION_CONDITIONING)
+    assert loaded.model.receiver_position_conditioning == (
+        LEARNED_FILM_RECEIVER_POSITION_CONDITIONING
+    )
+    assert loaded.best_step == 9
+    for name, expected in model.state_dict().items():
+        torch.testing.assert_close(
+            loaded.model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
 def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
     tmp_path: Path,
 ) -> None:
@@ -126,6 +172,7 @@ def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
     payload = torch.load(path, weights_only=True)
     del payload["model_config"]["source_feature_mode"]
     del payload["model_config"]["source_gather_count"]
+    del payload["model_config"]["receiver_position_conditioning"]
     del payload["input_feature_schema"]["source_feature_mode"]
     del payload["input_feature_schema"]["source_gather_count"]
     torch.save(payload, path)
@@ -135,6 +182,7 @@ def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
     assert loaded.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
     assert loaded.source_gather_count is None
     assert loaded.input_feature_schema_version == 1
+    assert loaded.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
     assert loaded.model.state_dict().keys() == model.state_dict().keys()
     for name, expected in model.state_dict().items():
         torch.testing.assert_close(
