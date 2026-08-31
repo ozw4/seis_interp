@@ -96,7 +96,7 @@ therefore fails the `+0.10 dB` continuation gate and is not promoted.
 
 ## 2026-08-31 — Isolate model width after mechanism tests
 
-**Status:** active
+**Status:** accepted
 
 **Decision:** Stage 06 returns to the unshifted Stage 01 K274 condition and
 changes only `hidden_width` from 384 to 512. Split, aperture, gate, FIR, loss,
@@ -106,3 +106,22 @@ sampler, and 2,500-update horizon remain fixed.
 alignment did not improve the matched baseline. Width is the remaining
 low-complexity capacity control supported by the existing pipeline. It must gain
 at least `0.20 dB` at 2,500 updates to become the longer-budget candidate.
+
+**Result:** Stage 06 reached `14.438497913078372 dB`, or
+`+0.215653618119529 dB` relative to Stage 01, with the best checkpoint at the
+final step. The gain narrowly passes the promotion gate, so width 512 is carried
+forward without any rejected mechanism changes.
+
+## 2026-08-31 — Measure the promoted candidate at 10,000 updates
+
+**Status:** active
+
+**Decision:** Stage 07 reruns the unshifted width-512 K274 condition from a fresh
+initialization with `total_steps: 10000`, evaluation every 2,500 steps, and a
+10,000-trace training audit. It does not continue the 2,500-step checkpoint,
+whose cosine schedule has already reached its minimum learning rate.
+
+**Reason:** Study 018 gained 1.7497346480585065 dB from 10,000 to 50,000 updates.
+Under that observed tail, Stage 07 must reach at least `23.250265351941493 dB`
+to leave a budget-only path to the strict 25 dB target. A lower result stops the
+50,000-step formal run unless the measured tail is demonstrably much steeper.

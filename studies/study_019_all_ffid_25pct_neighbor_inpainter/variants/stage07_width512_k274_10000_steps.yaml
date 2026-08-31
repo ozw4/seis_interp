@@ -1,0 +1,6 @@
+extends: stage06_width512_k274.yaml
+
+training:
+  total_steps: 10000
+  evaluation_interval_steps: 2500
+  training_audit_count: 10000

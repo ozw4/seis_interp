@@ -171,6 +171,27 @@ def test_stage06_changes_only_width_and_diagnostic_schedule() -> None:
     assert settings.training_audit_count == 10000
 
 
+def test_stage07_extends_only_the_promoted_width512_training_horizon() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage07_width512_k274_10000_steps.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.model_name == "neighbor_trace_inpainter"
+    assert settings.hidden_width == 512
+    assert settings.relative_receiver_x_radius == 2
+    assert settings.source_x_line_radius == 0
+    assert settings.source_y_half_shot_radius == 4
+    assert settings.relative_receiver_y_radius == 5
+    assert settings.neighbor_gating == "target_coordinate_masked_softmax"
+    assert settings.neighbor_alignment_kernel_size == 31
+    assert settings.prediction_reference == "none"
+    assert settings.coarse_shift_samples_per_relative_receiver_y_index == 0
+    assert settings.total_steps == 10000
+    assert settings.evaluation_interval_steps == 2500
+    assert settings.training_audit_count == 10000
+
+
 def test_study_019_inputs_lock_split_and_canonical_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]
