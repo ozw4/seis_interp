@@ -1,0 +1,4 @@
+extends: stage08_gnn_width128_rounds6.yaml
+
+model:
+  hidden_width: 192
