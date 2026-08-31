@@ -41,8 +41,9 @@ residual. Stage 03 tests offset-aware shared temporal encoding and time-dependen
 masked attention at the same K274 aperture. Stage 04 changes only the accepted
 CNN's same-line aperture from K274 to K734. Stage 05 returns to K274 and tests a
 deterministic train-derived receiver-y moveout shift before the existing gate,
-FIR, and temporal CNN. Later stages will promote only measured gains and isolate
-capacity and training budget. A final candidate must be frozen before a fresh
+FIR, and temporal CNN. Stage 06 returns to the unshifted K274 model and changes
+only hidden width from 384 to 512. Later stages will promote only measured gains
+and isolate training budget. A final candidate must be frozen before a fresh
 full-scope acceptance run.
 
 ## Acceptance criteria
@@ -67,8 +68,10 @@ to `9.819645233036228 dB` (`-4.403199061922615 dB` versus Stage 01), so early
 compression of K274 neighbors was rejected. Stage 04 increased mean validation
 availability from 54.788 to 132.690 traces with K734 but reached only
 `14.089875885195529 dB` (`-0.132968409763314 dB` versus Stage 01), so aperture
-growth was also rejected. All four full-scope runs passed the complete leakage
-and scope audit and reproduced their saved checkpoint metric.
+growth was also rejected. Stage 05's deterministic coarse shift reached
+`14.204319211934315 dB` (`-0.018525083024528 dB` versus Stage 01), so it was not
+promoted. All five full-scope runs passed the complete leakage and scope audit
+and reproduced their saved checkpoint metric.
 
 Immutable staged runs are stored under
 `runs/study_019_all_ffid_25pct_neighbor_inpainter/` and will be summarized in

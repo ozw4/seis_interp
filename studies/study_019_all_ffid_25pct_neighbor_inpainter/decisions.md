@@ -73,7 +73,7 @@ Neither condition is promoted.
 
 ## 2026-08-31 — Isolate deterministic receiver-y moveout alignment
 
-**Status:** active
+**Status:** rejected
 
 **Decision:** Stage 05 returns to the Stage 01 K274 architecture and changes
 only neighbor preprocessing. Offset `(drx, dsx, dsy, dry)` is shifted by
@@ -88,3 +88,21 @@ at the center tap, and only 8.76% of expected moveout taps coincide with that
 maximum. Hard alignment therefore tests a mechanism that the accepted FIR did
 not absorb. The legacy default remains zero so existing models and checkpoints
 retain exact behavior.
+
+**Result:** Stage 05 reached `14.204319211934315 dB`, or
+`-0.018525083024528 dB` relative to Stage 01. The checkpoint metric reproduced
+exactly and the training audit reached `14.278501922544663 dB`; the condition
+therefore fails the `+0.10 dB` continuation gate and is not promoted.
+
+## 2026-08-31 — Isolate model width after mechanism tests
+
+**Status:** active
+
+**Decision:** Stage 06 returns to the unshifted Stage 01 K274 condition and
+changes only `hidden_width` from 384 to 512. Split, aperture, gate, FIR, loss,
+sampler, and 2,500-update horizon remain fixed.
+
+**Reason:** Residual reference, shared fusion, wider aperture, and deterministic
+alignment did not improve the matched baseline. Width is the remaining
+low-complexity capacity control supported by the existing pipeline. It must gain
+at least `0.20 dB` at 2,500 updates to become the longer-budget candidate.
