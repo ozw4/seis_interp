@@ -92,12 +92,17 @@ success
 | 02 | source-x line radius `0 -> 1` | 714 | 15,560（3.5599%） |
 | 03 | source-y half-shot radius `4 -> 8` | 1,374 | 0 |
 | 04 | K274 + exact-receiver shot-bracketing reference | 274 + reference 1 | localはStage 01と同じ |
+| 05 | promoted K1374 + shot-bracketing reference | 1,374 + reference 1 | 0 |
 
 geometry-onlyのbracketing監査では、train 578,685行のうち524,285行、validation
 437,087行のうち397,535行が両側bracketを持った。残り54,400 / 39,552行は片側nearestで、
 未解決、non-train source、target-FFID source、same-source-y sourceはすべて0だった。
 比較診断ではnearest-shotコピーが4.3999236270 dB、線形bracketing単体が
 5.4785273632 dBだった。これは独立した正式runではなく、Stage 04を選ぶための診断値である。
+
+Stage 05は、Stage 03とStage 04がそれぞれStage 01比`+0.20 dB`以上かつ全scope check合格の
+場合だけ実行する。両者は有限aperture coverageとlong-range shot referenceという異なる
+要因なので、独立効果を確認してから組み合わせる。
 
 ## Finite-aperture切り分けの結果
 
@@ -115,4 +120,3 @@ K274からcrossline K714への変更はvalidation zero-neighborを30.28%から3.
 したがってwhole-FFID条件ではcrosslineを含むsource coverageが主要因の一つである。一方、
 被覆を完全化しても25 dBとの差は16.280046634004496 dB残り、有限aperture拡大だけでは
 目標へ届かなかった。
-

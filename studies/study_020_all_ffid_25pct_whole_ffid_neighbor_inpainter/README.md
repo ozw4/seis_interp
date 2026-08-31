@@ -44,8 +44,10 @@ only the prediction reference: it linearly interpolates the nearest strict
 lower/upper train shots at the exact same-line receiver geometry, then learns a
 zero-initialized CNN residual. The reference is built only from train amplitudes,
 is not dropped out, and excludes the target FFID and same source-y. Later stages
-change one of capacity or budget at a time. A longer run is promoted only when
-its matched diagnostic shows a material gain and the measured curve leaves an
+change one mechanism at a time. If both complete K1374 coverage and the
+bracketing reference improve Stage 01 by at least 0.20 dB, Stage 05 combines
+only those two promoted changes. A longer run is promoted only when its matched
+diagnostic shows a material gain and the measured curve leaves an
 evidence-backed path to 25 dB.
 
 ## Acceptance criteria

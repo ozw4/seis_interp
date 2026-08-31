@@ -84,3 +84,19 @@ trace. The deterministic reference alone measured 5.4785273632 dB, versus
 itself, but it supplies a source-axis-aligned waveform while leaving the K274
 CNN to learn the residual. Formal audits require zero unresolved rows, zero
 non-train sources, zero target-FFID sources, and zero same-source-y sources.
+
+## 2026-08-31 — Combine coverage and source reference only after independent promotion
+
+**Status:** active
+
+**Decision:** Run a 2,500-step Stage 05 with K1374 plus the exact-receiver
+bracketing reference only if K1374 and K274-plus-reference each improve the
+matched Stage 01 result by at least 0.20 dB and pass every scope check. Change no
+other model or training setting. Do not promote capacity or budget if the
+combined result remains below the predeclared evidence-backed 25 dB path.
+
+**Reason:** The two stages address distinct failure modes: K1374 removes missing
+finite-aperture context, while the reference supplies a direct long-range
+source-axis interpolation. Testing them independently before their combination
+separates their main effects from interaction and avoids adding mechanisms only
+after seeing the combined metric.
