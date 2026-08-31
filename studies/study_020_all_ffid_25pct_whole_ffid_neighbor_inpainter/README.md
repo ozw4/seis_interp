@@ -33,14 +33,19 @@ neighbor from the target trace's source/FFID is masked. This pseudo-held-out-FFI
 context matches validation, where the target FFID is absent from the train pool.
 
 Stage 01 moves the accepted Study 018 architecture to the corrected whole-FFID
-split and matched target-FFID mask for 2,500 updates. Before changing the model, deterministic geometry
-probes measure zero-neighbor coverage and the useful source aperture. K274 leaves
+split and matched target-FFID mask for 2,500 updates. Before changing the model,
+deterministic geometry probes measure zero-neighbor coverage and the useful source
+aperture. K274 leaves
 132,336 validation traces (30.28%) without any train neighbor. Stage 02 changes
 only source-line support to crossline K714, reducing this to 15,560 traces
 (3.56%). Stage 03 changes only its source-y radius to crossline K1374, yielding
-zero missing-neighbor validation traces. Later stages change one of fusion,
-sampling, capacity, or budget at a time. A longer run is promoted only when its
-matched diagnostic shows a material gain and the measured curve leaves an
+zero missing-neighbor validation traces. Stage 04 returns to K274 and changes
+only the prediction reference: it linearly interpolates the nearest strict
+lower/upper train shots at the exact same-line receiver geometry, then learns a
+zero-initialized CNN residual. The reference is built only from train amplitudes,
+is not dropped out, and excludes the target FFID and same source-y. Later stages
+change one of capacity or budget at a time. A longer run is promoted only when
+its matched diagnostic shows a material gain and the measured curve leaves an
 evidence-backed path to 25 dB.
 
 ## Acceptance criteria

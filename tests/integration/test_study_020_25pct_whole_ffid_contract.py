@@ -86,6 +86,21 @@ def test_stage03_changes_only_source_y_radius_and_validation_batch() -> None:
     assert settings.validation_batch_size == 512
 
 
+def test_stage04_changes_only_the_prediction_reference_from_stage01() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage04_k274_source_bracketing_residual.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.total_steps == 2500
+    assert settings.hidden_width == 384
+    assert settings.relative_receiver_x_radius == 2
+    assert settings.source_x_line_radius == 0
+    assert settings.source_y_half_shot_radius == 4
+    assert settings.relative_receiver_y_radius == 5
+    assert settings.prediction_reference == ("same_line_exact_receiver_linear_bracketing")
+
+
 def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]

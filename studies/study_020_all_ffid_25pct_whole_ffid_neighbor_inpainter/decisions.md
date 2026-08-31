@@ -64,3 +64,23 @@ path to the strict 25 dB target.
 **Reason:** Full validation covers 437,087 traces and longer GPU runs are
 expensive. Predeclared gates keep the staged search interpretable and prevent
 budget-only escalation after a clearly flattened curve.
+
+## 2026-08-31 — Isolate an exact-receiver shot-axis prediction reference
+
+**Status:** active
+
+**Decision:** After the finite-aperture coverage stages, compare Stage 01 with a
+K274 model whose initial prediction is the distance-weighted interpolation of
+the nearest strict lower/upper train shots on the same source-x line and at the
+same relative receiver coordinates. Use the nearest side without extrapolation
+when only one side exists. Append the synthesized reference after local-neighbor
+dropout and zero-initialize the residual head.
+
+**Reason:** Whole-FFID withholding removes an entire source point. A
+geometry-only diagnostic found exact-receiver two-sided brackets for 397,535 of
+437,087 validation traces and a one-sided train source for every remaining
+trace. The deterministic reference alone measured 5.4785273632 dB, versus
+4.3999236270 dB for nearest-shot copying. This is not a 25 dB candidate by
+itself, but it supplies a source-axis-aligned waveform while leaving the K274
+CNN to learn the residual. Formal audits require zero unresolved rows, zero
+non-train sources, zero target-FFID sources, and zero same-source-y sources.

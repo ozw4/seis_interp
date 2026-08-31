@@ -82,6 +82,39 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
     torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
 
 
+def test_bracketing_reference_checkpoint_round_trip_uses_last_channel(
+    tmp_path: Path,
+) -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        prediction_reference="same_line_exact_receiver_linear_bracketing",
+    )
+    neighbors = torch.randn(2, 3, 9)
+    availability = torch.ones(2, 3, dtype=torch.bool)
+    coordinates = torch.randn(2, 3)
+    expected = model(neighbors, availability, coordinates)
+    checkpoint_path = tmp_path / "bracketing.pt"
+
+    save_neighbor_inpainter_checkpoint(
+        checkpoint_path,
+        model,
+        best_step=10,
+        best_validation_global_snr_db=5.5,
+    )
+    loaded = load_neighbor_inpainter_checkpoint(checkpoint_path)
+
+    assert loaded.model.prediction_reference == ("same_line_exact_receiver_linear_bracketing")
+    assert loaded.model.local_neighbor_count == 2
+    torch.testing.assert_close(
+        loaded.model(neighbors, availability, coordinates),
+        expected,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
 def test_neighbor_trace_coarse_alignment_checkpoint_round_trip_preserves_exact_offsets(
     tmp_path: Path,
 ) -> None:

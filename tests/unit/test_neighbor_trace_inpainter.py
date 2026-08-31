@@ -13,8 +13,31 @@ from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
     DEFAULT_PREDICTION_REFERENCE,
     MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+    SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
     _availability_masked_softmax_gates,
 )
+
+
+def test_same_line_bracketing_reference_uses_raw_last_channel_at_initialization() -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+        prediction_reference=SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
+    )
+    neighbors = torch.randn(2, 3, 13)
+    availability = torch.tensor(((True, True, True), (True, True, False)))
+    coordinates = torch.randn(2, 3)
+
+    output = model(neighbors, availability, coordinates)
+
+    torch.testing.assert_close(output[0], neighbors[0, -1], rtol=0.0, atol=0.0)
+    torch.testing.assert_close(output[1], torch.zeros(13), rtol=0.0, atol=0.0)
+    assert model.local_neighbor_count == 2
+    assert torch.count_nonzero(model.head[-1].weight) == 0
+    assert torch.count_nonzero(model.head[-1].bias) == 0
 
 
 def test_successful_architecture_contract_and_parameter_count() -> None:

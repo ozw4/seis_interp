@@ -37,6 +37,7 @@ from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_NEIGHBOR_GATING,
     DEFAULT_PREDICTION_REFERENCE,
     MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+    SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
     TARGET_COORDINATE_MASKED_SOFTMAX_GATING,
     NeighborTraceInpainter,
 )
@@ -85,6 +86,7 @@ from seis_interp.processing.neighbor_geometry import (
     TARGET_COORDINATE_ORDER,
     NeighborGeometryLookup,
 )
+from seis_interp.processing.source_bracketing import SameLineReceiverBracketingLookup
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
     SPLIT_COLUMN,
@@ -231,6 +233,7 @@ class _NeighborTensorSource:
         device: torch.device,
         exclude_target_ffid_neighbors: bool = False,
         ffids_by_position: np.ndarray | None = None,
+        source_bracketing: SameLineReceiverBracketingLookup | None = None,
     ) -> None:
         self.lookup = lookup
         self.train_positions = np.asarray(train_positions, dtype=np.int64)
@@ -240,6 +243,7 @@ class _NeighborTensorSource:
         self.ffids_by_position = (
             np.asarray(ffids_by_position, dtype=np.int64) if ffids_by_position is not None else None
         )
+        self.source_bracketing = source_bracketing
         if self.exclude_target_ffid_neighbors and (
             self.ffids_by_position is None or self.ffids_by_position.shape != (lookup.row_count,)
         ):
@@ -287,6 +291,39 @@ class _NeighborTensorSource:
             availability_tensor &= keep
         neighbors = self.train_amplitudes[compact_tensor]
         neighbors = neighbors * availability_tensor[..., None]
+        if self.source_bracketing is not None:
+            bracket = self.source_bracketing.batch(positions)
+            bracket_available = bracket.positions >= 0
+            safe_bracket_positions = np.maximum(bracket.positions, 0)
+            bracket_compact = self._train_index_by_position[safe_bracket_positions]
+            if np.any(bracket_compact[bracket_available] < 0):
+                raise RuntimeError(
+                    "source bracket returned a row outside the TRAIN amplitude store"
+                )
+            safe_bracket_compact = np.maximum(bracket_compact, 0)
+            bracket_indices = torch.as_tensor(
+                safe_bracket_compact,
+                dtype=torch.long,
+                device=self.device,
+            )
+            bracket_weights = torch.as_tensor(
+                bracket.weights,
+                dtype=self.train_amplitudes.dtype,
+                device=self.device,
+            )
+            reference = (self.train_amplitudes[bracket_indices] * bracket_weights[..., None]).sum(
+                dim=1
+            )
+            reference_available = torch.as_tensor(
+                np.any(bracket_available, axis=1),
+                dtype=torch.bool,
+                device=self.device,
+            )
+            neighbors = torch.cat((neighbors, reference[:, None, :]), dim=1)
+            availability_tensor = torch.cat(
+                (availability_tensor, reference_available[:, None]),
+                dim=1,
+            )
         coordinates = torch.as_tensor(
             self.lookup.target_coordinates(positions),
             dtype=torch.float32,
@@ -590,6 +627,19 @@ def train_neighbor_inpainter_run(
             ffids_by_position=selected_ffids,
         ),
     }
+    source_bracketing: SameLineReceiverBracketingLookup | None = None
+    source_bracketing_contract: dict[str, object] | None = None
+    if settings.prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE:
+        source_bracketing = SameLineReceiverBracketingLookup(
+            selected_table,
+            available,
+            ffids_by_position=selected_ffids,
+        )
+        source_bracketing_contract = _source_bracketing_contract(
+            source_bracketing,
+            train_positions=train_positions,
+            validation_positions=validation_positions,
+        )
     overlap_mask, overlap_train_positions = _train_validation_coordinate_overlap(
         selected_table,
         train_positions,
@@ -632,6 +682,7 @@ def train_neighbor_inpainter_run(
         device=device,
         exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
         ffids_by_position=selected_ffids,
+        source_bracketing=source_bracketing,
     )
     target_sampling_seed = _target_sampling_seed(settings)
     target_sampling_generator = (
@@ -739,6 +790,7 @@ def train_neighbor_inpainter_run(
         collision_audit=collision_audit,
         geometry_contract=geometry_contract,
         availability_contract=availability_contract,
+        source_bracketing_contract=source_bracketing_contract,
         amplitude_access=amplitude_access,
         checkpoint_revalidation_matches=checkpoint_revalidation_matches,
         selected_metric=result.best_validation_global_snr_db,
@@ -768,6 +820,7 @@ def train_neighbor_inpainter_run(
         selection_contract=selection_contract,
         collision_audit=collision_audit,
         availability_contract=availability_contract,
+        source_bracketing_contract=source_bracketing_contract,
         duplicate_audit=duplicate_audit,
         scope_audit=scope_audit,
         checkpoint_contract=checkpoint_contract,
@@ -825,6 +878,9 @@ def train_neighbor_inpainter_run(
         "checkpoint": checkpoint_contract,
         "environment": _runtime_resource_metadata(device),
     }
+    if source_bracketing_contract is not None:
+        inputs_lock["source_bracketing"] = source_bracketing_contract
+        run_metadata["source_bracketing"] = source_bracketing_contract
     _write_run_outputs(
         output_directory,
         resolved_config,
@@ -924,6 +980,14 @@ def _validated_settings(
             raise ConfigurationError(
                 "model.coarse_shift_samples_per_relative_receiver_y_index > 0 requires "
                 f"model.neighborhood.type={MULTILINE_GEOMETRY!r}"
+            )
+        if (
+            prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE
+            and coarse_shift_samples_per_relative_receiver_y_index > 0
+        ):
+            raise ConfigurationError(
+                "same-line exact-receiver bracketing cannot be combined with legacy "
+                "coarse alignment"
             )
     _require_exact(
         config,
@@ -1267,6 +1331,7 @@ def _validated_prediction_reference(
     supported = {
         DEFAULT_PREDICTION_REFERENCE,
         MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+        SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
     }
     if not isinstance(value, str) or value not in supported:
         raise ConfigurationError(
@@ -1325,8 +1390,11 @@ def _build_inpainter_model(
     geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
 ) -> NeighborTraceInpainter | SharedOffsetAttentionInpainter:
     if settings.model_name == MODEL_NAME:
+        uses_source_bracketing = (
+            settings.prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE
+        )
         return NeighborTraceInpainter(
-            neighbor_count=geometry.neighbor_count,
+            neighbor_count=geometry.neighbor_count + int(uses_source_bracketing),
             width=settings.hidden_width,
             target_coordinate_count=len(settings.target_coordinates),
             stem_kernel_size=settings.stem_kernel_size,
@@ -1724,6 +1792,32 @@ def _geometry_contract(
     }
 
 
+def _source_bracketing_contract(
+    lookup: SameLineReceiverBracketingLookup,
+    *,
+    train_positions: np.ndarray,
+    validation_positions: np.ndarray,
+) -> dict[str, object]:
+    return {
+        "enabled": True,
+        "type": SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
+        "key": [
+            "source_x_m",
+            "relative_receiver_x_m",
+            "relative_receiver_y_m",
+        ],
+        "source_y_selection": "strict_nearest_lower_and_upper",
+        "two_sided_rule": "linear_source_y_distance",
+        "one_sided_rule": "nearest",
+        "source_split": TRAIN_SPLIT,
+        "target_ffid_policy": "exclude_exact_ffid",
+        "reference_channel": "last",
+        "neighbor_dropout_applied": False,
+        TRAIN_SPLIT: lookup.audit(train_positions),
+        VALIDATION_SPLIT: lookup.audit(validation_positions),
+    }
+
+
 def _training_contract(
     settings: _TrainingSettings,
     result: NeighborInpainterTrainingResult,
@@ -1781,7 +1875,7 @@ def _model_contract(
     common = {
         "name": settings.model_name,
         "hidden_width": settings.hidden_width,
-        "neighbor_count": geometry.neighbor_count,
+        "neighbor_count": model.neighbor_count,
         "input_channels": model.input_channels,
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "temporal_dilations": list(model.temporal_dilations),
@@ -1799,6 +1893,16 @@ def _model_contract(
             "neighbor_alignment_kernel_size": model.neighbor_alignment_kernel_size,
             "neighbor_alignment": _neighbor_alignment_contract(model),
         }
+        if settings.prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE:
+            contract.update(
+                {
+                    "local_neighbor_count": geometry.neighbor_count,
+                    "reference_neighbor_count": 1,
+                    "reference_channel_index": model.neighbor_count - 1,
+                    "reference_source": "raw_last_neighbor_channel",
+                    "residual_decoder_initialization": "zero_final_projection",
+                }
+            )
         if model.coarse_shift_samples_per_relative_receiver_y_index == 0:
             return contract
         if model.neighbor_offsets is None or model.coarse_sample_shifts is None:
@@ -1994,6 +2098,7 @@ def _completed_formal_scope_audit(
     collision_audit: Mapping[str, object],
     geometry_contract: Mapping[str, object],
     availability_contract: Mapping[str, object],
+    source_bracketing_contract: Mapping[str, object] | None,
     amplitude_access: Mapping[str, object],
     checkpoint_revalidation_matches: bool,
     selected_metric: float,
@@ -2044,6 +2149,30 @@ def _completed_formal_scope_audit(
             "excluded_value_rows_not_materialized": materialized.get(EXCLUDED_SPLIT) is False,
         }
     )
+    if source_bracketing_contract is not None:
+        bracket_audits = [
+            source_bracketing_contract.get(split) for split in (TRAIN_SPLIT, VALIDATION_SPLIT)
+        ]
+        if not all(isinstance(audit, Mapping) for audit in bracket_audits):
+            raise RuntimeError("source bracketing contract is missing split audits")
+        checks.update(
+            {
+                "source_bracketing_unresolved_rows_zero": all(
+                    audit.get("unresolved_rows") == 0 for audit in bracket_audits
+                ),
+                "source_bracketing_target_ffid_entries_zero": all(
+                    audit.get("target_ffid_reference_entries") == 0 for audit in bracket_audits
+                ),
+                "source_bracketing_same_source_y_entries_zero": all(
+                    audit.get("same_source_y_reference_entries") == 0 for audit in bracket_audits
+                ),
+                "source_bracketing_sources_train_only": all(
+                    isinstance(audit.get("source_split_counts"), Mapping)
+                    and audit["source_split_counts"].get("non_train") == 0
+                    for audit in bracket_audits
+                ),
+            }
+        )
     completed["checks"] = checks
     completed["scope_success"] = all(checks.values())
     return completed
@@ -2058,6 +2187,7 @@ def _metrics_payload(
     selection_contract: Mapping[str, object],
     collision_audit: Mapping[str, object],
     availability_contract: Mapping[str, object],
+    source_bracketing_contract: Mapping[str, object] | None,
     duplicate_audit: Mapping[str, object],
     scope_audit: Mapping[str, object],
     checkpoint_contract: Mapping[str, object],
@@ -2110,6 +2240,8 @@ def _metrics_payload(
             "checkpoint": dict(checkpoint_contract),
         }
     )
+    if source_bracketing_contract is not None:
+        metrics["source_bracketing"] = dict(source_bracketing_contract)
     return metrics
 
 

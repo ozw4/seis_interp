@@ -318,6 +318,7 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert inputs_lock["model"]["neighbor_alignment_kernel_size"] == 1
     assert inputs_lock["model"]["neighbor_alignment"]["enabled"] is False
     assert inputs_lock["model"]["prediction_reference"] == "none"
+    assert "source_bracketing" not in inputs_lock
     assert inputs_lock["split_counts"] == metrics["split_counts"]
     assert inputs_lock["training"]["minimum_learning_rate_factor"] == 0.03
     assert inputs_lock["training"]["gradient_clip_norm"] == 1.0
@@ -349,7 +350,50 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert run["model"]["neighbor_gating"] == "none"
     assert run["model"]["neighbor_alignment_kernel_size"] == 1
     assert run["model"]["prediction_reference"] == "none"
+    assert "source_bracketing" not in run
     assert run["checkpoint"]["revalidation_matches"] is True
+    assert "source_bracketing" not in metrics
+
+
+def test_pipeline_appends_train_only_source_bracketing_reference(tmp_path: Path) -> None:
+    config, interim, processed = _build_neighbor_training_fixture(tmp_path)
+    configured = yaml.safe_load(config.read_text(encoding="utf-8"))
+    configured["model"]["prediction_reference"] = "same_line_exact_receiver_linear_bracketing"
+    config.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "bracketing-run"
+
+    metrics = train_neighbor_inpainter_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+    )
+
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    checkpoint = load_neighbor_inpainter_checkpoint(output / "artifacts" / "best.pt")
+    assert metrics["prediction_reference"] == ("same_line_exact_receiver_linear_bracketing")
+    assert checkpoint.model.neighbor_count == 105
+    assert checkpoint.model.local_neighbor_count == 104
+    assert inputs_lock["model"]["neighbor_count"] == 105
+    assert inputs_lock["model"]["local_neighbor_count"] == 104
+    assert inputs_lock["model"]["reference_neighbor_count"] == 1
+    assert inputs_lock["neighborhood"]["neighbor_count"] == 104
+    assert inputs_lock["source_bracketing"] == metrics["source_bracketing"]
+    assert run["source_bracketing"] == metrics["source_bracketing"]
+    for split in ("train", "validation"):
+        audit = metrics["source_bracketing"][split]
+        assert audit["source_split_counts"]["non_train"] == 0
+        assert audit["target_ffid_reference_entries"] == 0
+        assert audit["same_source_y_reference_entries"] == 0
+        assert (
+            audit["bracketed_rows"] + audit["one_sided_rows"] + audit["unresolved_rows"]
+            == audit["row_count"]
+        )
+    checks = metrics["formal_success_scope"]["checks"]
+    assert checks["source_bracketing_target_ffid_entries_zero"] is True
+    assert checks["source_bracketing_same_source_y_entries_zero"] is True
+    assert checks["source_bracketing_sources_train_only"] is True
 
 
 def test_pipeline_trains_shared_offset_attention_with_exact_geometry_offsets(
@@ -825,6 +869,43 @@ def test_shared_offset_attention_config_rejects_invalid_model_fields(
     config["model"][key] = value
 
     with pytest.raises(ConfigurationError, match=message):
+        _validated_settings(config, device_override="cpu")
+
+
+def test_legacy_model_accepts_same_line_bracketing_reference() -> None:
+    config = load_resolved_config(
+        REPOSITORY_ROOT
+        / "studies/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/config.yaml"
+    )
+    config["model"]["prediction_reference"] = "same_line_exact_receiver_linear_bracketing"
+
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.prediction_reference == ("same_line_exact_receiver_linear_bracketing")
+
+
+def test_bracketing_reference_rejects_legacy_coarse_alignment() -> None:
+    config = load_resolved_config(
+        REPOSITORY_ROOT
+        / "studies/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/config.yaml"
+    )
+    config["model"]["prediction_reference"] = "same_line_exact_receiver_linear_bracketing"
+    config["model"]["coarse_shift_samples_per_relative_receiver_y_index"] = 3
+
+    with pytest.raises(ConfigurationError, match="bracketing cannot be combined"):
+        _validated_settings(config, device_override="cpu")
+
+
+def test_shared_attention_rejects_same_line_bracketing_reference() -> None:
+    config = load_resolved_config(
+        REPOSITORY_ROOT / "studies/study_019_all_ffid_25pct_neighbor_inpainter/config.yaml"
+    )
+    config["model"]["name"] = "shared_offset_attention_inpainter"
+    config["model"]["neighbor_gating"] = "offset_target_time_masked_softmax"
+    config["model"]["neighbor_alignment_kernel_size"] = 1
+    config["model"]["prediction_reference"] = "same_line_exact_receiver_linear_bracketing"
+
+    with pytest.raises(ConfigurationError, match="prediction_reference"):
         _validated_settings(config, device_override="cpu")
 
 
