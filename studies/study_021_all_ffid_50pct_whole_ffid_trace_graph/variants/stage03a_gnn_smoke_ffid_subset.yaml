@@ -1,0 +1,9 @@
+extends: ../config.yaml
+
+training:
+  ffid_range: [2, 400]
+  total_steps: 20
+  batch_size: 2
+  evaluation_interval_steps: 10
+  validation_batch_size: 2
+  training_audit_count: 1000

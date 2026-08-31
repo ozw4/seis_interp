@@ -1,0 +1,56 @@
+# Decisions
+
+## Adopt the 50% whole-FFID split with the established seed-42 rule
+
+The user requires that 50% of all target FFIDs be selected wholly into train,
+with no FFID shared between train, validation, and test. The split reuses
+`assign_random_whole_ffid_splits` exactly as accepted in study 020, changing
+only `random_ffid_holdout_fraction` to 0.5. The holdout keeps the established
+25% validation / 75% test allocation so the validation share stays comparable
+with earlier studies. Observed counts: 2,390 / 598 / 1,792 FFIDs, effective
+1,155,304 / 293,151 / 855,010 traces after the same global physical-coordinate
+canonicalization; FFID 1746 remains fully excluded by amplitude QC.
+
+## Model the task as trace-node graph message passing over whole gathers
+
+The user requires one trace per node with time as an in-trace sequence or
+latent feature, never as a graph coordinate. Study 020 evidence shows the
+whole-FFID task is dominated by cross-shot information transport, and its
+per-trace K-aperture models reached at most 8.72 dB at 25% density while joint
+shot-gather reconstruction preserved gather structure end to end. The GNN
+therefore operates on the joint gather node set — the 544 target-FFID trace
+nodes plus 544 nodes per nearest train shot — and reuses the audited
+shot-gather batch/evaluation machinery (`nearest_train_source_gathers`,
+exact-FFID exclusion, availability masking) unchanged.
+
+Edges are factorized into two sets applied alternately: receiver-lattice edges
+within each shot, and source-axis edges between shots at the same
+relative-receiver cell conditioned on inter-source deltas. This keeps the
+per-round cost linear in nodes while every node can reach every other node
+within a few rounds. A `source_receiver_bipartite` mode implements the
+requested heterogeneous formulation: source nodes and receiver nodes aggregate
+their incident observed-trace edges, and the target shot is a missing-edge set
+reconstructed from its source node, receiver nodes, and geometry.
+
+## Composite objective with isolated weights
+
+`L = L_mask + lambda_spec L_spectrum + lambda_slope L_slope + lambda_amp
+L_amplitude` follows the user's requirement. `L_mask` is the masked gather MSE
+in the unit-RMS training domain (the artificially hidden target FFID).
+`L_spectrum` uses rFFT log-magnitude matching plus magnitude-weighted phase
+error. `L_slope` estimates local plane-wave slope from the target gather with
+a detached structure tensor and penalizes the prediction's
+destruction-residual mismatch along the receiver-y axis. `L_amplitude` matches
+windowed RMS envelopes. All weights default to zero in the study config so
+each stage isolates exactly one term against the mask-only baseline before any
+combination stage.
+
+## Control stages before GNN stages
+
+Stage 01 and Stage 02 rerun the accepted study 020 architectures
+(`shot_gather_inpainter` K8 moments and `neighbor_trace_inpainter` crossline
+K1374) unchanged on the 50% split. They calibrate how much of any GNN result
+comes from the easier split rather than the model, and give the matched
+comparison every promotion decision requires. The promotion gate (+0.20 dB at
+2,500 updates) and the evidence-based budget-extension rule follow studies
+018-020.

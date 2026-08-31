@@ -583,6 +583,45 @@ def _train_shot_gather_inpainter(args: argparse.Namespace) -> int:
     return 0
 
 
+def _train_trace_graph(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.train_trace_graph import (
+        CHECKPOINT_RELATIVE_PATH,
+        train_trace_graph_run,
+    )
+
+    progress_reporter = _print_progress_to_stderr if args.json else None
+    try:
+        summary = train_trace_graph_run(
+            config_path=args.config,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            output_dir=args.output,
+            device_override=args.device,
+            progress_reporter=progress_reporter,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"train trace-graph failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"Output directory: {args.output}")
+        print("Amplitude scaling: per_trace_rms")
+        print("Validation metric domain: oracle per-trace unit RMS")
+        print(f"Best step: {summary['best_step']}")
+        print(
+            "Best oracle per-trace unit-RMS global S/N: "
+            f"{summary['oracle_per_trace_unit_rms_global_snr_db']} dB"
+        )
+        print(f"Success threshold: > {summary['success_threshold_db']} dB")
+        print(f"Metric success: {summary['metric_success']}")
+        print(f"Formal scope success: {summary['scope_success']}")
+        print(f"Success: {summary['success']}")
+        print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
+    return 0
+
+
 def _print_progress_to_stderr(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
@@ -844,6 +883,22 @@ def _add_train_commands(subparsers: argparse._SubParsersAction[argparse.Argument
     shot_gather.add_argument("--device", help="Override training.device for this environment.")
     shot_gather.add_argument("--json", action="store_true", help="Print metrics as JSON.")
     shot_gather.set_defaults(handler=_train_shot_gather_inpainter)
+    trace_graph = train_commands.add_parser(
+        "trace-graph",
+        help="Train the trace-node graph gather interpolator.",
+    )
+    trace_graph.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
+    trace_graph.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
+    trace_graph.add_argument(
+        "--processed",
+        type=Path,
+        required=True,
+        help="Prepared split dataset.",
+    )
+    trace_graph.add_argument("--output", type=Path, required=True, help="Run output directory.")
+    trace_graph.add_argument("--device", help="Override training.device for this environment.")
+    trace_graph.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+    trace_graph.set_defaults(handler=_train_trace_graph)
 
 
 def build_parser() -> argparse.ArgumentParser:
