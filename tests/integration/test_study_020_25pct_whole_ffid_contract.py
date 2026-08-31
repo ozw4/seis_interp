@@ -274,6 +274,22 @@ def test_stage13_expands_only_the_joint_shot_gather_temporal_field() -> None:
     assert temporal_receptive_field == 767
 
 
+def test_stage14_adds_receiver_cell_film_to_promoted_width128_condition() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage14_joint_shot_gather_width128_receiver_film.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 128
+    assert settings.source_gather_count == 8
+    assert settings.source_feature_mode == "moments"
+    assert settings.receiver_position_conditioning == "learned_film"
+    assert settings.batch_size == 1
+    assert settings.total_steps == 2500
+    assert settings.temporal_dilations == (1, 2, 4, 8, 4, 2, 1)
+    assert settings.spatial_y_dilations == (1, 1, 1, 1, 1, 1, 1)
+
+
 def test_stage15_changes_only_joint_shot_gather_source_count_from_stage09() -> None:
     config = load_resolved_config(
         STUDY_DIRECTORY / "variants" / "stage15_joint_shot_gather_k16.yaml"

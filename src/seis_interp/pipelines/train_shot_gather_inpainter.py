@@ -23,7 +23,9 @@ from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
 from seis_interp.models.shot_gather_inpainter import (
     MOMENTS_SOURCE_FEATURE_MODE,
+    NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
+    RECEIVER_POSITION_CONDITIONING_MODES,
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
     SOURCE_FEATURE_MODES,
@@ -127,6 +129,7 @@ class _TrainingSettings:
     spatial_y_dilations: tuple[int, ...]
     distance_epsilon: float
     source_feature_mode: str
+    receiver_position_conditioning: str
     source_gather_count: int
     learning_rate: float
     weight_decay: float
@@ -669,6 +672,7 @@ def train_shot_gather_inpainter_run(
             if settings.source_feature_mode == ORDERED_RAW_SOURCE_FEATURE_MODE
             else None
         ),
+        receiver_position_conditioning=settings.receiver_position_conditioning,
     )
     generator = torch.Generator(device=device).manual_seed(
         settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
@@ -786,6 +790,7 @@ def train_shot_gather_inpainter_run(
         "input_feature_names": list(checkpoint.input_feature_names),
         "source_feature_mode": checkpoint.source_feature_mode,
         "source_gather_count": checkpoint.source_gather_count,
+        "receiver_position_conditioning": checkpoint.receiver_position_conditioning,
     }
     metrics = _metrics_payload(
         result,
@@ -958,6 +963,15 @@ def _validated_settings(
     )
     if source_feature_mode not in SOURCE_FEATURE_MODES:
         raise ConfigurationError(f"model.source_feature_mode must be one of {SOURCE_FEATURE_MODES}")
+    receiver_position_conditioning = model_config.get(
+        "receiver_position_conditioning",
+        NO_RECEIVER_POSITION_CONDITIONING,
+    )
+    if receiver_position_conditioning not in RECEIVER_POSITION_CONDITIONING_MODES:
+        raise ConfigurationError(
+            "model.receiver_position_conditioning must be one of "
+            f"{RECEIVER_POSITION_CONDITIONING_MODES}"
+        )
     raw_spatial_y_dilations = model_config.get("spatial_y_dilations")
     spatial_y_dilations = (
         (1,) * len(temporal_dilations)
@@ -995,6 +1009,7 @@ def _validated_settings(
             "model.distance_epsilon",
         ),
         source_feature_mode=str(source_feature_mode),
+        receiver_position_conditioning=str(receiver_position_conditioning),
         source_gather_count=source_gather_count,
         learning_rate=learning_rate,
         weight_decay=_nonnegative_float(
@@ -1288,6 +1303,7 @@ def _model_contract(
         "input_feature_schema_version": input_feature_schema_version,
         "input_feature_names": list(input_feature_names),
         "source_feature_mode": model.source_feature_mode,
+        "receiver_position_conditioning": model.receiver_position_conditioning,
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "temporal_dilations": list(model.temporal_dilations),
         "spatial_y_dilations": list(model.spatial_y_dilations),

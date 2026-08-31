@@ -210,6 +210,7 @@ def test_cli_runs_leakage_safe_whole_shot_pipeline(
     assert inputs_lock["model"]["input_feature_schema_version"] == 1
     assert inputs_lock["model"]["input_feature_names"]
     assert inputs_lock["model"]["source_feature_mode"] == "moments"
+    assert inputs_lock["model"]["receiver_position_conditioning"] == "none"
     assert inputs_lock["training"]["target_sampling_rng_independent_of_neighbor_dropout"]
     assert (
         inputs_lock["training"]["target_sampling_seed"]
@@ -225,6 +226,10 @@ def test_cli_runs_leakage_safe_whole_shot_pipeline(
     )
     assert list(checkpoint.input_feature_names) == inputs_lock["model"]["input_feature_names"]
     assert checkpoint.source_feature_mode == inputs_lock["model"]["source_feature_mode"]
+    assert (
+        checkpoint.receiver_position_conditioning
+        == (inputs_lock["model"]["receiver_position_conditioning"])
+    )
     assert (
         checkpoint.best_validation_global_snr_db
         == metrics["oracle_per_trace_unit_rms_global_snr_db"]
