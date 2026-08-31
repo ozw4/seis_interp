@@ -17,6 +17,12 @@ DEFAULT_STEM_KERNEL_SIZE = 7
 DEFAULT_RESIDUAL_KERNEL_SIZE = 3
 DEFAULT_TEMPORAL_DILATIONS = (1, 2, 4, 8, 4, 2, 1)
 DEFAULT_DISTANCE_EPSILON = 1.0e-6
+MOMENTS_SOURCE_FEATURE_MODE = "moments"
+ORDERED_RAW_SOURCE_FEATURE_MODE = "ordered_raw"
+SOURCE_FEATURE_MODES = (
+    MOMENTS_SOURCE_FEATURE_MODE,
+    ORDERED_RAW_SOURCE_FEATURE_MODE,
+)
 SHOT_GATHER_INPUT_FEATURE_NAMES: tuple[str, ...] = (
     "inverse_distance_reference",
     "weighted_absolute_deviation",
@@ -31,6 +37,20 @@ SHOT_GATHER_INPUT_FEATURE_NAMES: tuple[str, ...] = (
     "receiver_coordinate_y",
 )
 """Ordered channels presented to :attr:`ShotGatherInpainter.stem`."""
+
+_ORDERED_RAW_PER_SOURCE_FEATURE_NAMES = (
+    "masked_raw_waveform",
+    "availability",
+    "normalized_direction_x",
+    "normalized_direction_y",
+    "normalized_distance",
+)
+_ORDERED_RAW_SHARED_TRAILING_FEATURE_NAMES = (
+    "target_coordinate_x",
+    "target_coordinate_y",
+    "receiver_coordinate_x",
+    "receiver_coordinate_y",
+)
 
 _GROUP_COUNT = 8
 _SOURCE_COORDINATE_COUNT = 2
@@ -134,11 +154,11 @@ class FactorizedGatherResidualBlock(nn.Module):
 class ShotGatherInpainter(nn.Module):
     """Predict a complete ``8 x 68`` target shot gather from neighboring gathers.
 
-    The input source count ``K`` is dynamic. Neighbor gathers are first reduced
-    receiver-by-receiver to an inverse-distance reference, disagreement, and
-    signed source-direction waveform moments. Deterministic receiver coordinates
-    expose far-offset nonstationarity. A compact residual network then alternates
-    temporal and receiver spatial filtering with weights shared over the grid.
+    ``moments`` mode retains the original dynamic-source feature reduction.
+    ``ordered_raw`` mode instead preserves every source waveform and requires a
+    fixed source count. Deterministic receiver coordinates expose far-offset
+    nonstationarity. A compact residual network then alternates temporal and
+    receiver spatial filtering with weights shared over the grid.
     """
 
     def __init__(
@@ -150,6 +170,8 @@ class ShotGatherInpainter(nn.Module):
         stem_kernel_size: int = DEFAULT_STEM_KERNEL_SIZE,
         residual_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
+        source_feature_mode: str = MOMENTS_SOURCE_FEATURE_MODE,
+        source_gather_count: int | None = None,
     ) -> None:
         super().__init__()
         self.width = _validated_width(width)
@@ -167,7 +189,17 @@ class ShotGatherInpainter(nn.Module):
             distance_epsilon,
             "distance_epsilon",
         )
-        self.input_feature_names: tuple[str, ...] = SHOT_GATHER_INPUT_FEATURE_NAMES
+        self.source_feature_mode = _validated_source_feature_mode(source_feature_mode)
+        self.source_gather_count = _validated_source_gather_count(
+            source_gather_count,
+            source_feature_mode=self.source_feature_mode,
+        )
+        if self.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
+            self.input_feature_names = SHOT_GATHER_INPUT_FEATURE_NAMES
+        else:
+            if self.source_gather_count is None:
+                raise AssertionError("validated ordered_raw mode is missing its source count")
+            self.input_feature_names = ordered_raw_input_feature_names(self.source_gather_count)
         self.input_channels = len(self.input_feature_names)
 
         self.stem = nn.Conv3d(
@@ -210,56 +242,82 @@ class ShotGatherInpainter(nn.Module):
         target_coordinates: torch.Tensor,
     ) -> torch.Tensor:
         """Return target amplitudes with shape ``[B, 8, 68, T]``."""
-        batch_size, _source_count, time_count = _validated_inputs(
+        batch_size, source_count, time_count = _validated_inputs(
             neighbors,
             availability,
             source_deltas,
             target_coordinates,
         )
+        if (
+            self.source_feature_mode == ORDERED_RAW_SOURCE_FEATURE_MODE
+            and source_count != self.source_gather_count
+        ):
+            raise ValueError(
+                "ordered_raw neighbors source dimension must equal source_gather_count "
+                f"{self.source_gather_count}, got {source_count}"
+            )
         weights, directions = _inverse_distance_weights(
             availability,
             source_deltas,
             distance_epsilon=self.distance_epsilon,
         )
         reference = torch.sum(neighbors * weights[..., None], dim=1)
-        weighted_centered_neighbors = (neighbors - reference[:, None]) * weights[..., None]
-        disagreement = torch.sum(torch.abs(weighted_centered_neighbors), dim=1)
-        directional_waveform_moments = _directional_waveform_moments(
-            weighted_centered_neighbors,
-            directions,
-        )
+        if self.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
+            weighted_centered_neighbors = (neighbors - reference[:, None]) * weights[..., None]
+            disagreement = torch.sum(torch.abs(weighted_centered_neighbors), dim=1)
+            directional_waveform_moments = _directional_waveform_moments(
+                weighted_centered_neighbors,
+                directions,
+            )
 
-        availability_fraction = availability.to(dtype=neighbors.dtype).mean(dim=1)
-        weighted_direction = torch.einsum("bkxy,bkc->bcxy", weights, directions)
-        target_grid = target_coordinates[:, :, None, None].expand(
-            -1,
-            -1,
-            RECEIVER_X_COUNT,
-            RECEIVER_Y_COUNT,
-        )
-        receiver_coordinates = _normalized_receiver_coordinates(
-            dtype=neighbors.dtype,
-            device=neighbors.device,
-        )[None].expand(batch_size, -1, -1, -1)
-        static_features = torch.cat(
-            (
-                availability_fraction[:, None],
-                weighted_direction,
-                target_grid,
-                receiver_coordinates,
-            ),
-            dim=1,
-        )
-        static_time_features = static_features[..., None].expand(-1, -1, -1, -1, time_count)
-        features = torch.cat(
-            (
-                reference[:, None],
-                disagreement[:, None],
-                directional_waveform_moments,
-                static_time_features,
-            ),
-            dim=1,
-        )
+            availability_fraction = availability.to(dtype=neighbors.dtype).mean(dim=1)
+            weighted_direction = torch.einsum("bkxy,bkc->bcxy", weights, directions)
+            target_grid = target_coordinates[:, :, None, None].expand(
+                -1,
+                -1,
+                RECEIVER_X_COUNT,
+                RECEIVER_Y_COUNT,
+            )
+            receiver_coordinates = _normalized_receiver_coordinates(
+                dtype=neighbors.dtype,
+                device=neighbors.device,
+            )[None].expand(batch_size, -1, -1, -1)
+            static_features = torch.cat(
+                (
+                    availability_fraction[:, None],
+                    weighted_direction,
+                    target_grid,
+                    receiver_coordinates,
+                ),
+                dim=1,
+            )
+            static_time_features = static_features[..., None].expand(
+                -1,
+                -1,
+                -1,
+                -1,
+                time_count,
+            )
+            features = torch.cat(
+                (
+                    reference[:, None],
+                    disagreement[:, None],
+                    directional_waveform_moments,
+                    static_time_features,
+                ),
+                dim=1,
+            )
+        else:
+            _validate_ordered_raw_model_compatibility(self.stem, neighbors)
+            features = _ordered_raw_features(
+                neighbors,
+                availability,
+                source_deltas,
+                target_coordinates,
+                reference=reference,
+                directions=directions,
+                distance_epsilon=self.distance_epsilon,
+            )
 
         hidden = self.stem(features)
         for block in self.blocks:
@@ -268,6 +326,21 @@ class ShotGatherInpainter(nn.Module):
         if residual.shape != (batch_size, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, time_count):
             raise AssertionError("shot-gather residual head changed the target shape")
         return reference + residual
+
+
+def ordered_raw_input_feature_names(source_gather_count: int) -> tuple[str, ...]:
+    """Return the deterministic interleaved feature order for fixed ``K`` sources."""
+    count = _positive_integer(source_gather_count, "source_gather_count")
+    per_source = tuple(
+        f"source_{source_index:03d}_{feature_name}"
+        for source_index in range(count)
+        for feature_name in _ORDERED_RAW_PER_SOURCE_FEATURE_NAMES
+    )
+    return (
+        "inverse_distance_reference",
+        *per_source,
+        *_ORDERED_RAW_SHARED_TRAILING_FEATURE_NAMES,
+    )
 
 
 def _validated_inputs(
@@ -403,6 +476,120 @@ def _directional_waveform_moments(
     )
 
 
+def _ordered_raw_features(
+    neighbors: torch.Tensor,
+    availability: torch.Tensor,
+    source_deltas: torch.Tensor,
+    target_coordinates: torch.Tensor,
+    *,
+    reference: torch.Tensor,
+    directions: torch.Tensor,
+    distance_epsilon: float,
+) -> torch.Tensor:
+    """Preserve each ordered source as one waveform plus four descriptor channels."""
+    batch_size, source_count, receiver_x, receiver_y, time_count = neighbors.shape
+    availability_feature = availability.to(dtype=neighbors.dtype)[..., None].expand(
+        -1,
+        -1,
+        -1,
+        -1,
+        time_count,
+    )
+    masked_neighbors = neighbors * availability_feature
+    direction_x = directions[:, :, 0, None, None, None].expand(
+        -1,
+        -1,
+        receiver_x,
+        receiver_y,
+        time_count,
+    )
+    direction_y = directions[:, :, 1, None, None, None].expand_as(direction_x)
+    normalized_distance = _normalized_source_distances(
+        source_deltas,
+        distance_epsilon=distance_epsilon,
+    )[:, :, None, None, None].expand_as(direction_x)
+    per_source_features = torch.stack(
+        (
+            masked_neighbors,
+            availability_feature,
+            direction_x,
+            direction_y,
+            normalized_distance,
+        ),
+        dim=2,
+    ).flatten(start_dim=1, end_dim=2)
+
+    target_grid = target_coordinates[:, :, None, None].expand(
+        -1,
+        -1,
+        receiver_x,
+        receiver_y,
+    )
+    receiver_coordinates = _normalized_receiver_coordinates(
+        dtype=neighbors.dtype,
+        device=neighbors.device,
+    )[None].expand(batch_size, -1, -1, -1)
+    shared_static_features = torch.cat((target_grid, receiver_coordinates), dim=1)
+    shared_static_time_features = shared_static_features[..., None].expand(
+        -1,
+        -1,
+        -1,
+        -1,
+        time_count,
+    )
+    features = torch.cat(
+        (
+            reference[:, None],
+            per_source_features,
+            shared_static_time_features,
+        ),
+        dim=1,
+    )
+    expected_channels = (
+        1
+        + source_count * len(_ORDERED_RAW_PER_SOURCE_FEATURE_NAMES)
+        + len(_ORDERED_RAW_SHARED_TRAILING_FEATURE_NAMES)
+    )
+    if features.shape != (
+        batch_size,
+        expected_channels,
+        receiver_x,
+        receiver_y,
+        time_count,
+    ):
+        raise AssertionError("ordered_raw feature construction changed its declared schema")
+    return features
+
+
+def _normalized_source_distances(
+    source_deltas: torch.Tensor,
+    *,
+    distance_epsilon: float,
+) -> torch.Tensor:
+    """Scale each target's Euclidean source distances by its farthest source."""
+    calculation_dtype = (
+        torch.float32
+        if source_deltas.dtype in (torch.float16, torch.bfloat16)
+        else source_deltas.dtype
+    )
+    distances = torch.linalg.vector_norm(source_deltas.to(dtype=calculation_dtype), dim=2)
+    scale = distances.amax(dim=1, keepdim=True).clamp_min(distance_epsilon)
+    return (distances / scale).to(dtype=source_deltas.dtype)
+
+
+def _validate_ordered_raw_model_compatibility(
+    stem: nn.Conv3d,
+    neighbors: torch.Tensor,
+) -> None:
+    if neighbors.dtype != stem.weight.dtype:
+        raise TypeError(
+            "ordered_raw neighbors dtype must match the model dtype, "
+            f"got {neighbors.dtype} and {stem.weight.dtype}"
+        )
+    if neighbors.device != stem.weight.device:
+        raise ValueError("ordered_raw neighbors and model parameters must share a device")
+
+
 def _normalized_receiver_coordinates(
     *,
     dtype: torch.dtype,
@@ -455,6 +642,28 @@ def _validated_width(value: object) -> int:
     if width % _GROUP_COUNT != 0:
         raise ValueError(f"width must be divisible by {_GROUP_COUNT}, got {width}")
     return width
+
+
+def _validated_source_feature_mode(value: object) -> str:
+    if not isinstance(value, str) or value not in SOURCE_FEATURE_MODES:
+        raise ValueError(
+            f"source_feature_mode must be one of {SOURCE_FEATURE_MODES}, got {value!r}"
+        )
+    return value
+
+
+def _validated_source_gather_count(
+    value: object,
+    *,
+    source_feature_mode: str,
+) -> int | None:
+    if source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
+        if value is not None:
+            raise ValueError("source_gather_count is only valid for ordered_raw mode")
+        return None
+    if value is None:
+        raise ValueError("source_gather_count is required for ordered_raw mode")
+    return _positive_integer(value, "source_gather_count")
 
 
 def _odd_positive_integer(value: object, name: str) -> int:

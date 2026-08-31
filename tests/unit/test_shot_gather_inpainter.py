@@ -5,12 +5,15 @@ import torch
 from torch import nn
 
 from seis_interp.models.shot_gather_inpainter import (
+    MOMENTS_SOURCE_FEATURE_MODE,
+    ORDERED_RAW_SOURCE_FEATURE_MODE,
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
     SHOT_GATHER_INPUT_FEATURE_NAMES,
     FactorizedGatherResidualBlock,
     ShotGatherInpainter,
     inverse_distance_reference,
+    ordered_raw_input_feature_names,
 )
 
 
@@ -117,6 +120,138 @@ def test_default_spatial_y_dilations_match_explicit_ones_exactly() -> None:
             rtol=0.0,
             atol=0.0,
         )
+
+
+def test_default_moments_mode_matches_explicit_mode_and_state_exactly() -> None:
+    torch.manual_seed(41)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(41)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_feature_mode=MOMENTS_SOURCE_FEATURE_MODE,
+    )
+
+    assert default_model.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
+    assert default_model.source_gather_count is None
+    assert default_model.input_feature_names == SHOT_GATHER_INPUT_FEATURE_NAMES
+    assert default_model.state_dict().keys() == explicit_model.state_dict().keys()
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_ordered_raw_feature_contract_preserves_each_masked_source() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=2,
+    ).double()
+    neighbors = torch.tensor(
+        [[2.0, 4.0], [10.0, 14.0]],
+        dtype=torch.float64,
+    ).view(1, 2, 1, 1, 2)
+    neighbors = neighbors.expand(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2).clone()
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    availability[:, 1, 0, 0] = False
+    source_deltas = torch.tensor(
+        [[[3.0, 4.0], [-6.0, 8.0]]],
+        dtype=torch.float64,
+    )
+    target_coordinates = torch.tensor([[0.25, 0.75]], dtype=torch.float64)
+    captured_features: list[torch.Tensor] = []
+
+    def capture_stem_input(_module: nn.Module, inputs: tuple[torch.Tensor]) -> None:
+        captured_features.append(inputs[0].detach().clone())
+
+    handle = model.stem.register_forward_pre_hook(capture_stem_input)
+    try:
+        output = model(neighbors, availability, source_deltas, target_coordinates)
+    finally:
+        handle.remove()
+
+    expected_names = (
+        "inverse_distance_reference",
+        "source_000_masked_raw_waveform",
+        "source_000_availability",
+        "source_000_normalized_direction_x",
+        "source_000_normalized_direction_y",
+        "source_000_normalized_distance",
+        "source_001_masked_raw_waveform",
+        "source_001_availability",
+        "source_001_normalized_direction_x",
+        "source_001_normalized_direction_y",
+        "source_001_normalized_distance",
+        "target_coordinate_x",
+        "target_coordinate_y",
+        "receiver_coordinate_x",
+        "receiver_coordinate_y",
+    )
+    assert ordered_raw_input_feature_names(2) == expected_names
+    assert model.input_feature_names == expected_names
+    assert model.input_channels == model.stem.in_channels == 15
+    assert len(captured_features) == 1
+    features = captured_features[0]
+    assert features.shape == (1, 15, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2)
+    assert features.dtype == neighbors.dtype
+    assert features.device == neighbors.device
+    channel = {name: index for index, name in enumerate(expected_names)}
+
+    expected_reference = inverse_distance_reference(neighbors, availability, source_deltas)
+    torch.testing.assert_close(output, expected_reference, rtol=0.0, atol=0.0)
+    torch.testing.assert_close(
+        features[:, channel["inverse_distance_reference"]],
+        expected_reference,
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        features[:, channel["source_000_masked_raw_waveform"]],
+        neighbors[:, 0],
+    )
+    torch.testing.assert_close(
+        features[:, channel["source_001_masked_raw_waveform"], 0, 0],
+        torch.zeros(1, 2, dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        features[:, channel["source_001_masked_raw_waveform"], 1:, 1:],
+        neighbors[:, 1, 1:, 1:],
+    )
+    for name, value in (
+        ("source_000_availability", 1.0),
+        ("source_000_normalized_direction_x", 0.6),
+        ("source_000_normalized_direction_y", 0.8),
+        ("source_000_normalized_distance", 0.5),
+        ("source_001_normalized_direction_x", -0.6),
+        ("source_001_normalized_direction_y", 0.8),
+        ("source_001_normalized_distance", 1.0),
+        ("target_coordinate_x", 0.25),
+        ("target_coordinate_y", 0.75),
+    ):
+        torch.testing.assert_close(
+            features[:, channel[name]],
+            torch.full_like(features[:, channel[name]], value),
+        )
+    assert torch.count_nonzero(features[:, channel["source_001_availability"]]) == (
+        RECEIVER_X_COUNT * RECEIVER_Y_COUNT * 2 - 2
+    )
+
+
+def test_ordered_raw_k8_width32_keeps_feature_and_parameter_count_compact() -> None:
+    model = ShotGatherInpainter(
+        width=32,
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=8,
+    )
+
+    assert model.input_channels == 1 + 5 * 8 + 4 == 45
+    assert model.stem.in_channels == 45
+    assert sum(parameter.numel() for parameter in model.parameters()) < 50_000
 
 
 def test_stem_feature_contract_includes_signed_moments_and_receiver_coordinates() -> None:
@@ -274,6 +409,65 @@ def test_model_rejects_invalid_spatial_y_dilations(
             temporal_dilations=(1, 2),
             spatial_y_dilations=spatial_y_dilations,
         )
+
+
+@pytest.mark.parametrize(
+    ("source_feature_mode", "source_gather_count", "match"),
+    [
+        ("unknown", None, "source_feature_mode must be one of"),
+        (ORDERED_RAW_SOURCE_FEATURE_MODE, None, "required for ordered_raw"),
+        (ORDERED_RAW_SOURCE_FEATURE_MODE, 0, "positive integer"),
+        (ORDERED_RAW_SOURCE_FEATURE_MODE, True, "positive integer"),
+        (MOMENTS_SOURCE_FEATURE_MODE, 2, "only valid for ordered_raw"),
+    ],
+)
+def test_model_rejects_invalid_source_feature_configuration(
+    source_feature_mode: str,
+    source_gather_count: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1,),
+            source_feature_mode=source_feature_mode,
+            source_gather_count=source_gather_count,
+        )
+
+
+def test_ordered_raw_rejects_source_count_that_differs_from_constructor() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=3,
+    )
+    inputs = _inputs(source_count=2)
+
+    with pytest.raises(ValueError, match="source dimension must equal source_gather_count 3"):
+        model(*inputs)
+
+
+def test_ordered_raw_rejects_dtype_or_device_that_differs_from_model() -> None:
+    double_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=2,
+    ).double()
+    float_inputs = _inputs(batch_size=1, source_count=2)
+
+    with pytest.raises(TypeError, match="neighbors dtype must match the model dtype"):
+        double_model(*float_inputs)
+
+    meta_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=2,
+    ).to("meta")
+    with pytest.raises(ValueError, match="model parameters must share a device"):
+        meta_model(*float_inputs)
 
 
 def test_synthetic_forward_backward_reaches_reference_and_residual_parameters() -> None:

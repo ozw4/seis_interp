@@ -9,17 +9,22 @@ from seis_interp.models.shared_offset_attention_inpainter import (
     SharedOffsetAttentionInpainter,
 )
 from seis_interp.models.shot_gather_inpainter import (
+    MOMENTS_SOURCE_FEATURE_MODE,
+    ORDERED_RAW_SOURCE_FEATURE_MODE,
     SHOT_GATHER_INPUT_FEATURE_NAMES,
     FactorizedGatherResidualBlock,
     ShotGatherInpainter,
     inverse_distance_reference,
+    ordered_raw_input_feature_names,
 )
 from seis_interp.models.siren import SineLayer, Siren
 
 __all__ = [
     "TEMPORAL_DILATIONS",
     "FactorizedGatherResidualBlock",
+    "MOMENTS_SOURCE_FEATURE_MODE",
     "NeighborTraceInpainter",
+    "ORDERED_RAW_SOURCE_FEATURE_MODE",
     "SHOT_GATHER_INPUT_FEATURE_NAMES",
     "SharedOffsetAttentionInpainter",
     "ShotGatherInpainter",
@@ -27,4 +32,5 @@ __all__ = [
     "Siren",
     "TemporalResidualBlock",
     "inverse_distance_reference",
+    "ordered_raw_input_feature_names",
 ]

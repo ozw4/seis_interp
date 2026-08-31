@@ -8,6 +8,8 @@ import torch
 
 from seis_interp.cli import build_parser
 from seis_interp.models.shot_gather_inpainter import (
+    MOMENTS_SOURCE_FEATURE_MODE,
+    ORDERED_RAW_SOURCE_FEATURE_MODE,
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
     ShotGatherInpainter,
@@ -52,6 +54,8 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
     assert loaded.best_validation_global_snr_db == 3.5
     assert loaded.input_feature_schema_version == 1
     assert loaded.input_feature_names == model.input_feature_names
+    assert loaded.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
+    assert loaded.source_gather_count is None
     assert loaded.model.width == 8
     assert loaded.model.temporal_dilations == (1, 2)
     assert loaded.model.spatial_y_dilations == (1, 3)
@@ -62,6 +66,83 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
         strict=True,
     ):
         torch.testing.assert_close(actual, expected)
+
+
+def test_ordered_raw_checkpoint_round_trip_preserves_mode_count_and_schema(
+    tmp_path: Path,
+) -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=8,
+    )
+    with torch.no_grad():
+        model.head[-1].bias.fill_(0.125)
+    path = tmp_path / "ordered-raw.pt"
+
+    save_shot_gather_inpainter_checkpoint(
+        path,
+        model,
+        best_step=7,
+        best_validation_global_snr_db=4.25,
+    )
+    payload = torch.load(path, weights_only=True)
+    assert payload["model_config"]["source_feature_mode"] == ORDERED_RAW_SOURCE_FEATURE_MODE
+    assert payload["model_config"]["source_gather_count"] == 8
+    assert payload["input_feature_schema"] == {
+        "version": 2,
+        "source_feature_mode": ORDERED_RAW_SOURCE_FEATURE_MODE,
+        "source_gather_count": 8,
+        "names": list(model.input_feature_names),
+    }
+
+    loaded = load_shot_gather_inpainter_checkpoint(path)
+
+    assert loaded.input_feature_schema_version == 2
+    assert loaded.input_feature_names == model.input_feature_names
+    assert loaded.source_feature_mode == ORDERED_RAW_SOURCE_FEATURE_MODE
+    assert loaded.source_gather_count == 8
+    assert loaded.model.source_feature_mode == ORDERED_RAW_SOURCE_FEATURE_MODE
+    assert loaded.model.source_gather_count == 8
+    assert loaded.best_step == 7
+    assert loaded.best_validation_global_snr_db == 4.25
+    for name, expected in model.state_dict().items():
+        torch.testing.assert_close(loaded.model.state_dict()[name], expected)
+
+
+def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
+    tmp_path: Path,
+) -> None:
+    torch.manual_seed(17)
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    path = tmp_path / "legacy-moments.pt"
+    save_shot_gather_inpainter_checkpoint(
+        path,
+        model,
+        best_step=0,
+        best_validation_global_snr_db=3.5,
+    )
+    payload = torch.load(path, weights_only=True)
+    del payload["model_config"]["source_feature_mode"]
+    del payload["model_config"]["source_gather_count"]
+    del payload["input_feature_schema"]["source_feature_mode"]
+    del payload["input_feature_schema"]["source_gather_count"]
+    torch.save(payload, path)
+
+    loaded = load_shot_gather_inpainter_checkpoint(path)
+
+    assert loaded.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
+    assert loaded.source_gather_count is None
+    assert loaded.input_feature_schema_version == 1
+    assert loaded.model.state_dict().keys() == model.state_dict().keys()
+    for name, expected in model.state_dict().items():
+        torch.testing.assert_close(
+            loaded.model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
 
 
 def test_checkpoint_without_spatial_y_dilations_defaults_to_stage09_behavior(
@@ -103,6 +184,42 @@ def test_checkpoint_rejects_changed_input_feature_order(tmp_path: Path) -> None:
     torch.save(payload, path)
 
     with pytest.raises(ValueError, match="feature names"):
+        load_shot_gather_inpainter_checkpoint(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "match"),
+    [
+        ("version", 1, "schema version must be 2"),
+        ("source_feature_mode", MOMENTS_SOURCE_FEATURE_MODE, "source mode"),
+        ("source_gather_count", 7, "source count"),
+        ("source_gather_count", True, "source count"),
+    ],
+)
+def test_ordered_raw_checkpoint_rejects_changed_feature_schema(
+    tmp_path: Path,
+    field: str,
+    replacement: object,
+    match: str,
+) -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=8,
+    )
+    path = tmp_path / "ordered-raw.pt"
+    save_shot_gather_inpainter_checkpoint(
+        path,
+        model,
+        best_step=0,
+        best_validation_global_snr_db=3.5,
+    )
+    payload = torch.load(path, weights_only=True)
+    payload["input_feature_schema"][field] = replacement
+    torch.save(payload, path)
+
+    with pytest.raises(ValueError, match=match):
         load_shot_gather_inpainter_checkpoint(path)
 
 

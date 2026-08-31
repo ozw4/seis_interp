@@ -10,13 +10,20 @@ from pathlib import Path
 
 import torch
 
-from seis_interp.models.shot_gather_inpainter import ShotGatherInpainter
+from seis_interp.models.shot_gather_inpainter import (
+    MOMENTS_SOURCE_FEATURE_MODE,
+    ORDERED_RAW_SOURCE_FEATURE_MODE,
+    ShotGatherInpainter,
+)
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
 )
 
 MODEL_TYPE = "shot_gather_inpainter"
+MOMENTS_INPUT_FEATURE_SCHEMA_VERSION = 1
+ORDERED_RAW_INPUT_FEATURE_SCHEMA_VERSION = 2
+# Backward-compatible alias for the original/default moments feature schema.
 INPUT_FEATURE_SCHEMA_VERSION = 1
 
 
@@ -29,6 +36,8 @@ class LoadedShotGatherInpainterCheckpoint:
     validation_metric_domain: str
     input_feature_schema_version: int
     input_feature_names: tuple[str, ...]
+    source_feature_mode: str
+    source_gather_count: int | None
     best_step: int
     best_validation_global_snr_db: float
 
@@ -51,6 +60,7 @@ def save_shot_gather_inpainter_checkpoint(
     checkpoint_path = Path(path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     input_feature_names = _validated_model_input_feature_names(model)
+    schema_version = _input_feature_schema_version(model)
     state_dict = {
         name: tensor.detach().cpu().clone() for name, tensor in model.state_dict().items()
     }
@@ -64,12 +74,16 @@ def save_shot_gather_inpainter_checkpoint(
                 "stem_kernel_size": model.stem_kernel_size,
                 "residual_kernel_size": model.residual_kernel_size,
                 "distance_epsilon": model.distance_epsilon,
+                "source_feature_mode": model.source_feature_mode,
+                "source_gather_count": model.source_gather_count,
             },
             "model_state_dict": state_dict,
             "amplitude_scaling": PER_TRACE_RMS_SCALING,
             "validation_metric_domain": ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
             "input_feature_schema": {
-                "version": INPUT_FEATURE_SCHEMA_VERSION,
+                "version": schema_version,
+                "source_feature_mode": model.source_feature_mode,
+                "source_gather_count": model.source_gather_count,
                 "names": list(input_feature_names),
             },
             "training": {
@@ -112,6 +126,11 @@ def load_shot_gather_inpainter_checkpoint(
             stem_kernel_size=model_config["stem_kernel_size"],
             residual_kernel_size=model_config["residual_kernel_size"],
             distance_epsilon=model_config["distance_epsilon"],
+            source_feature_mode=model_config.get(
+                "source_feature_mode",
+                MOMENTS_SOURCE_FEATURE_MODE,
+            ),
+            source_gather_count=model_config.get("source_gather_count"),
         )
     except KeyError as error:
         raise ValueError(f"checkpoint model_config is missing {error.args[0]!r}") from error
@@ -125,13 +144,31 @@ def load_shot_gather_inpainter_checkpoint(
     if not isinstance(input_feature_schema, dict):
         raise ValueError("checkpoint input_feature_schema must be a mapping")
     schema_version = input_feature_schema.get("version")
+    expected_schema_version = _input_feature_schema_version(model)
     if (
         isinstance(schema_version, bool)
         or not isinstance(schema_version, Integral)
-        or int(schema_version) != INPUT_FEATURE_SCHEMA_VERSION
+        or int(schema_version) != expected_schema_version
     ):
         raise ValueError(
-            f"checkpoint input feature schema version must be {INPUT_FEATURE_SCHEMA_VERSION}"
+            "checkpoint input feature schema version must be "
+            f"{expected_schema_version} for {model.source_feature_mode!r} mode"
+        )
+    stored_source_feature_mode = input_feature_schema.get(
+        "source_feature_mode",
+        MOMENTS_SOURCE_FEATURE_MODE,
+    )
+    if stored_source_feature_mode != model.source_feature_mode:
+        raise ValueError(
+            "checkpoint input feature source mode does not match the model configuration"
+        )
+    stored_source_gather_count = input_feature_schema.get("source_gather_count")
+    if not _source_gather_counts_match(
+        stored_source_gather_count,
+        model.source_gather_count,
+    ):
+        raise ValueError(
+            "checkpoint input feature source count does not match the model configuration"
         )
     stored_input_feature_names = _validated_feature_names(
         input_feature_schema.get("names"),
@@ -158,8 +195,10 @@ def load_shot_gather_inpainter_checkpoint(
         model=model,
         amplitude_scaling=PER_TRACE_RMS_SCALING,
         validation_metric_domain=ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
-        input_feature_schema_version=INPUT_FEATURE_SCHEMA_VERSION,
+        input_feature_schema_version=expected_schema_version,
         input_feature_names=stored_input_feature_names,
+        source_feature_mode=model.source_feature_mode,
+        source_gather_count=model.source_gather_count,
         best_step=best_step,
         best_validation_global_snr_db=best_validation,
     )
@@ -179,6 +218,20 @@ def _validated_model_input_feature_names(model: ShotGatherInpainter) -> tuple[st
     if len(names) != model.input_channels:
         raise ValueError("model.input_feature_names length must equal model.input_channels")
     return names
+
+
+def _input_feature_schema_version(model: ShotGatherInpainter) -> int:
+    if model.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
+        return MOMENTS_INPUT_FEATURE_SCHEMA_VERSION
+    if model.source_feature_mode == ORDERED_RAW_SOURCE_FEATURE_MODE:
+        return ORDERED_RAW_INPUT_FEATURE_SCHEMA_VERSION
+    raise ValueError(f"unsupported model source feature mode: {model.source_feature_mode!r}")
+
+
+def _source_gather_counts_match(stored: object, expected: int | None) -> bool:
+    if expected is None:
+        return stored is None
+    return not isinstance(stored, bool) and isinstance(stored, Integral) and int(stored) == expected
 
 
 def _validated_feature_names(value: object, name: str) -> tuple[str, ...]:
