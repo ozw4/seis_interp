@@ -1209,6 +1209,7 @@ def _validated_preparation_contract(
     trace_table: pd.DataFrame,
     trace_amplitude_filter: TraceAmplitudeFilterConfig | None,
     batch_mode: str,
+    allow_whole_ffid_split: bool = False,
 ) -> dict[str, object]:
     configured_split_scope = _configured_split_scope(config)
     holdout_config_path = (
@@ -1240,7 +1241,9 @@ def _validated_preparation_contract(
             )
         expected["split_scope"] = prepared_split_scope
     elif batch_mode == RANDOM_COMPLETE_TRACES_BATCH_MODE:
-        supported_random_trace_scopes = {"per_ffid", "whole_ffid"}
+        supported_random_trace_scopes = {"per_ffid"}
+        if allow_whole_ffid_split:
+            supported_random_trace_scopes.add("whole_ffid")
         if prepared_split_scope not in supported_random_trace_scopes:
             raise ValueError(
                 f"{batch_mode} requires preparation split_scope in "
@@ -1400,6 +1403,17 @@ def _validated_whole_ffid_split_counts(
         raise ValueError(
             f"{PREPARATION_FILE_NAME} ffid_split_counts must contain exactly "
             f"{list(expected_splits)}"
+        )
+    invalid_values = [
+        split
+        for split in expected_splits
+        if isinstance(value[split], bool)
+        or not isinstance(value[split], int)
+        or int(value[split]) <= 0
+    ]
+    if invalid_values:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} ffid_split_counts must be positive integers: {invalid_values}"
         )
 
     joined = trace_table[["array_row", "ffid"]].merge(

@@ -341,12 +341,22 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             config,
             "project.random_seed",
         )
-        split_scope = _config_value_or_optional_default(
-            args.split_scope,
+        configured_split_scope = _config_value_or_optional_default(
+            None,
             config,
             "sampling.split_scope",
             "global",
         )
+        split_scope = args.split_scope or configured_split_scope
+        if (
+            args.split_scope is not None
+            and args.split_scope != configured_split_scope
+            and args.holdout_fraction is None
+        ):
+            raise ConfigurationError(
+                "--holdout-fraction is required when --split-scope changes the configured "
+                "split unit"
+            )
         holdout_config_path = (
             "sampling.random_ffid_holdout_fraction"
             if split_scope == "whole_ffid"

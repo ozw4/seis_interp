@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
-from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
+from seis_interp.configuration import REPOSITORY_ROOT, ConfigurationError, load_resolved_config
 from seis_interp.pipelines.train_neighbor_inpainter import _validated_settings
 
 STUDY_DIRECTORY = (
@@ -116,3 +117,19 @@ def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:
         path = Path(dataset[key])
         assert not path.is_absolute()
         assert (STUDY_DIRECTORY / path).resolve().is_relative_to(REPOSITORY_ROOT)
+
+
+def test_whole_ffid_config_requires_exact_ffid_counts() -> None:
+    config = load_resolved_config(STUDY_DIRECTORY / "config.yaml")
+    del config["evaluation"]["required_ffid_split_counts"]
+
+    with pytest.raises(ConfigurationError, match="required_ffid_split_counts"):
+        _validated_settings(config, device_override="cpu")
+
+
+def test_whole_ffid_config_requires_target_ffid_mask() -> None:
+    config = load_resolved_config(STUDY_DIRECTORY / "config.yaml")
+    config["training"]["exclude_target_ffid_neighbors"] = False
+
+    with pytest.raises(ConfigurationError, match="exclude_target_ffid_neighbors"):
+        _validated_settings(config, device_override="cpu")

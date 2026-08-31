@@ -124,6 +124,25 @@ def _build_neighbor_training_fixture(
     }
     if not formal_candidate:
         training["ffid_range"] = ffid_range or [10, 12]
+    evaluation: dict[str, object] = {
+        "primary_metric": "oracle_per_trace_unit_rms_global_snr_db",
+        "success_threshold_db": 15.0,
+        "comparison": "strictly_greater_than",
+        "required_eligible_ffid_count": 4780,
+        "required_sample_count": 625,
+        "required_effective_split_counts": {
+            "train": 1842090,
+            "validation": 114490,
+            "test": 346885,
+        },
+        "required_fully_excluded_ffids": [1746],
+    }
+    if split_scope == "whole_ffid":
+        evaluation["required_ffid_split_counts"] = {
+            "train": 1,
+            "validation": 1,
+            "test": 1,
+        }
     config = tmp_path / "config.yaml"
     config.write_text(
         yaml.safe_dump(
@@ -166,19 +185,7 @@ def _build_neighbor_training_fixture(
                     },
                 },
                 "training": training,
-                "evaluation": {
-                    "primary_metric": "oracle_per_trace_unit_rms_global_snr_db",
-                    "success_threshold_db": 15.0,
-                    "comparison": "strictly_greater_than",
-                    "required_eligible_ffid_count": 4780,
-                    "required_sample_count": 625,
-                    "required_effective_split_counts": {
-                        "train": 1842090,
-                        "validation": 114490,
-                        "test": 346885,
-                    },
-                    "required_fully_excluded_ffids": [1746],
-                },
+                "evaluation": evaluation,
             },
             sort_keys=False,
         ),
@@ -220,6 +227,9 @@ def test_pipeline_supports_disjoint_whole_ffid_splits(tmp_path: Path) -> None:
     }
     assert inputs_lock["training"]["exclude_target_ffid_neighbors"] is True
     assert metrics["formal_success_scope"]["checks"]["target_ffid_context_matches"] is True
+    assert metrics["formal_success_scope"]["checks"]["target_ffid_neighbor_entries_zero"] is True
+    assert metrics["neighbor_availability"]["train"]["target_ffid_neighbor_entries"] == 0
+    assert metrics["neighbor_availability"]["validation"]["target_ffid_neighbor_entries"] == 0
 
 
 def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) -> None:

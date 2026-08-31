@@ -230,12 +230,22 @@ class _NeighborTensorSource:
         train_amplitudes: torch.Tensor,
         device: torch.device,
         exclude_target_ffid_neighbors: bool = False,
+        ffids_by_position: np.ndarray | None = None,
     ) -> None:
         self.lookup = lookup
         self.train_positions = np.asarray(train_positions, dtype=np.int64)
         self.train_amplitudes = train_amplitudes
         self.device = device
         self.exclude_target_ffid_neighbors = exclude_target_ffid_neighbors
+        self.ffids_by_position = (
+            np.asarray(ffids_by_position, dtype=np.int64) if ffids_by_position is not None else None
+        )
+        if self.exclude_target_ffid_neighbors and (
+            self.ffids_by_position is None or self.ffids_by_position.shape != (lookup.row_count,)
+        ):
+            raise ValueError(
+                "ffids_by_position must match lookup rows when target-FFID neighbors are excluded"
+            )
         self._train_index_by_position = np.full(lookup.row_count, -1, dtype=np.int64)
         self._train_index_by_position[self.train_positions] = np.arange(
             len(self.train_positions), dtype=np.int64
@@ -253,6 +263,7 @@ class _NeighborTensorSource:
             self.lookup,
             positions,
             exclude_target_ffid_neighbors=self.exclude_target_ffid_neighbors,
+            ffids_by_position=self.ffids_by_position,
         )
         availability = neighbor_positions >= 0
         safe_positions = np.maximum(neighbor_positions, 0)
@@ -512,6 +523,7 @@ def train_neighbor_inpainter_run(
         trace_table=dataset.trace_table,
         trace_amplitude_filter=trace_amplitude_filter,
         batch_mode=RANDOM_COMPLETE_TRACES_BATCH_MODE,
+        allow_whole_ffid_split=True,
     )
     joined_table = _joined_trace_table(
         dataset.trace_table,
@@ -545,6 +557,7 @@ def train_neighbor_inpainter_run(
             f"{failed_checks}; configure training.ffid_range for a diagnostic subset"
         )
     selected_split = selected_table[SPLIT_COLUMN].to_numpy()
+    selected_ffids = selected_table["ffid"].to_numpy(dtype=np.int64)
     train_positions = np.flatnonzero(selected_split == TRAIN_SPLIT).astype(np.int64)
     validation_positions = np.flatnonzero(selected_split == VALIDATION_SPLIT).astype(np.int64)
     _validate_selected_split_coverage(
@@ -568,11 +581,13 @@ def train_neighbor_inpainter_run(
             geometry,
             train_positions,
             exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+            ffids_by_position=selected_ffids,
         ),
         VALIDATION_SPLIT: _neighbor_availability(
             geometry,
             validation_positions,
             exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+            ffids_by_position=selected_ffids,
         ),
     }
     overlap_mask, overlap_train_positions = _train_validation_coordinate_overlap(
@@ -616,6 +631,7 @@ def train_neighbor_inpainter_run(
         train_amplitudes=train_amplitudes,
         device=device,
         exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+        ffids_by_position=selected_ffids,
     )
     target_sampling_seed = _target_sampling_seed(settings)
     target_sampling_generator = (
@@ -722,6 +738,7 @@ def train_neighbor_inpainter_run(
         configured_scope_audit,
         collision_audit=collision_audit,
         geometry_contract=geometry_contract,
+        availability_contract=availability_contract,
         amplitude_access=amplitude_access,
         checkpoint_revalidation_matches=checkpoint_revalidation_matches,
         selected_metric=result.best_validation_global_snr_db,
@@ -933,6 +950,19 @@ def _validated_settings(
         if isinstance(evaluation, Mapping) and "required_ffid_split_counts" in evaluation
         else None
     )
+    sampling = config.get("sampling")
+    split_scope = (
+        sampling.get("split_scope", "global") if isinstance(sampling, Mapping) else "global"
+    )
+    exclude_target_ffid_neighbors = _validated_exclude_target_ffid_neighbors(config)
+    if split_scope == "whole_ffid" and not exclude_target_ffid_neighbors:
+        raise ConfigurationError(
+            "sampling.split_scope='whole_ffid' requires training.exclude_target_ffid_neighbors=true"
+        )
+    if split_scope == "whole_ffid" and required_ffid_split_counts is None:
+        raise ConfigurationError(
+            "sampling.split_scope='whole_ffid' requires evaluation.required_ffid_split_counts"
+        )
     required_fully_excluded_ffids = _validated_sorted_ffids(
         get_required_config_value(config, "evaluation.required_fully_excluded_ffids"),
         "evaluation.required_fully_excluded_ffids",
@@ -1007,7 +1037,7 @@ def _validated_settings(
             get_required_config_value(config, "training.batch_size"), "training.batch_size"
         ),
         target_sampling=_validated_target_sampling(config),
-        exclude_target_ffid_neighbors=_validated_exclude_target_ffid_neighbors(config),
+        exclude_target_ffid_neighbors=exclude_target_ffid_neighbors,
         neighbor_dropout=_probability(
             get_required_config_value(config, "training.neighbor_dropout"),
             "training.neighbor_dropout",
@@ -1484,23 +1514,19 @@ def _neighbor_positions(
     positions: np.ndarray,
     *,
     exclude_target_ffid_neighbors: bool,
+    ffids_by_position: np.ndarray | None,
 ) -> np.ndarray:
     neighbors = geometry.neighbor_positions(positions)
     if exclude_target_ffid_neighbors:
-        neighbors[:, _same_source_offset_mask(geometry)] = -1
+        if ffids_by_position is None:
+            raise AssertionError("validated target-FFID masking is missing FFID values")
+        available = neighbors >= 0
+        safe_neighbors = np.maximum(neighbors, 0)
+        same_ffid = available & (
+            ffids_by_position[safe_neighbors] == ffids_by_position[positions, None]
+        )
+        neighbors[same_ffid] = -1
     return neighbors
-
-
-def _same_source_offset_mask(
-    geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
-) -> np.ndarray:
-    return np.asarray(
-        [
-            (offset[1] == 0 if len(offset) == 3 else offset[1] == 0 and offset[2] == 0)
-            for offset in geometry.offsets
-        ],
-        dtype=bool,
-    )
 
 
 def _neighbor_availability(
@@ -1508,18 +1534,27 @@ def _neighbor_availability(
     positions: np.ndarray,
     *,
     exclude_target_ffid_neighbors: bool,
+    ffids_by_position: np.ndarray,
 ) -> dict[str, object]:
     counts = np.empty(len(positions), dtype=np.int16)
+    target_ffid_neighbor_entries = 0
     for start in range(0, len(positions), _AVAILABILITY_CHUNK_SIZE):
         stop = min(start + _AVAILABILITY_CHUNK_SIZE, len(positions))
-        counts[start:stop] = np.count_nonzero(
-            _neighbor_positions(
-                geometry,
-                positions[start:stop],
-                exclude_target_ffid_neighbors=exclude_target_ffid_neighbors,
+        batch_positions = positions[start:stop]
+        batch_neighbors = _neighbor_positions(
+            geometry,
+            batch_positions,
+            exclude_target_ffid_neighbors=exclude_target_ffid_neighbors,
+            ffids_by_position=ffids_by_position,
+        )
+        available = batch_neighbors >= 0
+        counts[start:stop] = np.count_nonzero(available, axis=1)
+        safe_neighbors = np.maximum(batch_neighbors, 0)
+        target_ffid_neighbor_entries += int(
+            np.count_nonzero(
+                available
+                & (ffids_by_position[safe_neighbors] == ffids_by_position[batch_positions, None])
             )
-            >= 0,
-            axis=1,
         )
     quantile_values = np.quantile(
         counts,
@@ -1531,6 +1566,7 @@ def _neighbor_availability(
         "row_count": len(positions),
         "mean": float(np.mean(counts, dtype=np.float64)),
         "zero_neighbor_rows": int(histogram[0]),
+        "target_ffid_neighbor_entries": target_ffid_neighbor_entries,
         "quantiles": {
             label: float(value) for label, value in zip(labels, quantile_values, strict=True)
         },
@@ -1681,11 +1717,10 @@ def _geometry_contract(
         "indexed_training_cells": geometry.indexed_available_count,
         "center_offset_count": sum(not any(offset) for offset in offsets),
         "target_ffid_neighbor_policy": (
-            "exclude_same_source"
+            "exclude_exact_ffid"
             if settings.exclude_target_ffid_neighbors
-            else "allow_same_source_except_target_center"
+            else "allow_same_ffid_except_target_center"
         ),
-        "same_source_offset_count": int(np.count_nonzero(_same_source_offset_mask(geometry))),
     }
 
 
@@ -1958,6 +1993,7 @@ def _completed_formal_scope_audit(
     *,
     collision_audit: Mapping[str, object],
     geometry_contract: Mapping[str, object],
+    availability_contract: Mapping[str, object],
     amplitude_access: Mapping[str, object],
     checkpoint_revalidation_matches: bool,
     selected_metric: float,
@@ -1971,6 +2007,14 @@ def _completed_formal_scope_audit(
     if not isinstance(materialized, Mapping):
         raise RuntimeError("amplitude materialization audit must be an object")
     checks = dict(raw_checks)
+    excludes_target_ffid = geometry_contract.get("target_ffid_neighbor_policy") == (
+        "exclude_exact_ffid"
+    )
+    target_ffid_neighbor_entries = [
+        availability_contract[split].get("target_ffid_neighbor_entries")
+        for split in (TRAIN_SPLIT, VALIDATION_SPLIT)
+        if isinstance(availability_contract.get(split), Mapping)
+    ]
     checks.update(
         {
             "validation_metric_domain_matches": (
@@ -1993,6 +2037,9 @@ def _completed_formal_scope_audit(
                 collision_audit["train_validation_coordinate_overlap_rows"] == 0
             ),
             "neighbor_center_offset_count_zero": geometry_contract["center_offset_count"] == 0,
+            "target_ffid_neighbor_entries_zero": (
+                not excludes_target_ffid or target_ffid_neighbor_entries == [0, 0]
+            ),
             "test_value_rows_not_materialized": materialized.get(TEST_SPLIT) is False,
             "excluded_value_rows_not_materialized": materialized.get(EXCLUDED_SPLIT) is False,
         }

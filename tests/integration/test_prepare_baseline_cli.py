@@ -194,7 +194,18 @@ def test_cli_resolves_split_scope_from_config_and_override(
     )
 
     assert main(_arguments(tmp_path, config_path)) == 0
-    assert main([*_arguments(tmp_path, config_path), "--split-scope", "global"]) == 0
+    assert (
+        main(
+            [
+                *_arguments(tmp_path, config_path),
+                "--split-scope",
+                "global",
+                "--holdout-fraction",
+                "0.2",
+            ]
+        )
+        == 0
+    )
     assert received == ["per_ffid", "global"]
 
 
@@ -216,6 +227,51 @@ def test_cli_accepts_whole_ffid_split_scope_override(
 
     assert main(_arguments(tmp_path, config_path)) == 0
     assert received == ["whole_ffid"]
+
+
+def test_cli_requires_holdout_override_when_split_unit_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch, split_scope="per_ffid")
+
+    exit_code = main([*_arguments(tmp_path, config_path), "--split-scope", "whole_ffid"])
+
+    assert exit_code == 1
+    assert "--holdout-fraction is required" in capsys.readouterr().err
+
+
+def test_cli_accepts_split_unit_change_with_explicit_holdout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _write_study_config(tmp_path, monkeypatch, split_scope="per_ffid")
+    received: dict[str, object] = {}
+
+    def fake_prepare_baseline_dataset(**kwargs: Any) -> dict[str, object]:
+        received.update(kwargs)
+        return SUMMARY
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        fake_prepare_baseline_dataset,
+    )
+
+    assert (
+        main(
+            [
+                *_arguments(tmp_path, config_path),
+                "--split-scope",
+                "whole_ffid",
+                "--holdout-fraction",
+                "0.75",
+            ]
+        )
+        == 0
+    )
+    assert received["split_scope"] == "whole_ffid"
+    assert received["holdout_fraction"] == 0.75
 
 
 def test_cli_passes_the_configured_trace_amplitude_filter(

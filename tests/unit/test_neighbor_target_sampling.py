@@ -195,6 +195,7 @@ def test_tensor_source_can_exclude_every_neighbor_from_the_target_ffid() -> None
         train_amplitudes=amplitudes,
         device=torch.device("cpu"),
         exclude_target_ffid_neighbors=True,
+        ffids_by_position=np.asarray([10, 11, 10], dtype=np.int64),
     )
 
     neighbors, availability, _coordinates = source.gather(np.asarray([0], dtype=np.int64))
