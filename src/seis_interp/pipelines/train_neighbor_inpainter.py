@@ -32,6 +32,8 @@ from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COORDINATE_CONDITIONING,
     DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
     DEFAULT_NEIGHBOR_GATING,
+    DEFAULT_PREDICTION_REFERENCE,
+    MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
     TARGET_COORDINATE_MASKED_SOFTMAX_GATING,
     NeighborTraceInpainter,
 )
@@ -152,6 +154,7 @@ class _TrainingSettings:
     coordinate_conditioning: str
     neighbor_gating: str
     neighbor_alignment_kernel_size: int
+    prediction_reference: str
     neighbor_geometry: str
     relative_receiver_x_radius: int
     source_x_line_radius: int
@@ -599,6 +602,7 @@ def train_neighbor_inpainter_run(
         coordinate_conditioning=settings.coordinate_conditioning,
         neighbor_gating=settings.neighbor_gating,
         neighbor_alignment_kernel_size=settings.neighbor_alignment_kernel_size,
+        prediction_reference=settings.prediction_reference,
     )
     generator = torch.Generator(device=device).manual_seed(
         settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
@@ -706,6 +710,7 @@ def train_neighbor_inpainter_run(
         "neighbor_gating": checkpoint.model.neighbor_gating,
         "neighbor_alignment_kernel_size": checkpoint.model.neighbor_alignment_kernel_size,
         "neighbor_alignment": _neighbor_alignment_contract(checkpoint.model),
+        "prediction_reference": checkpoint.model.prediction_reference,
     }
     checkpoint_contract = {
         "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
@@ -830,6 +835,7 @@ def _validated_settings(
     coordinate_conditioning = _validated_coordinate_conditioning(config)
     neighbor_gating = _validated_neighbor_gating(config)
     neighbor_alignment_kernel_size = _validated_neighbor_alignment_kernel_size(config)
+    prediction_reference = _validated_prediction_reference(config)
     hidden_width = _positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
@@ -899,6 +905,7 @@ def _validated_settings(
         coordinate_conditioning=coordinate_conditioning,
         neighbor_gating=neighbor_gating,
         neighbor_alignment_kernel_size=neighbor_alignment_kernel_size,
+        prediction_reference=prediction_reference,
         neighbor_geometry=neighbor_geometry,
         relative_receiver_x_radius=relative_receiver_x_radius,
         source_x_line_radius=source_x_line_radius,
@@ -1050,6 +1057,22 @@ def _validated_neighbor_alignment_kernel_size(config: Mapping[str, object]) -> i
         ),
         "model.neighbor_alignment_kernel_size",
     )
+
+
+def _validated_prediction_reference(config: Mapping[str, object]) -> str:
+    model = config.get("model")
+    if not isinstance(model, Mapping):
+        raise ConfigurationError("model configuration must be a mapping")
+    value = model.get("prediction_reference", DEFAULT_PREDICTION_REFERENCE)
+    supported = {
+        DEFAULT_PREDICTION_REFERENCE,
+        MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+    }
+    if not isinstance(value, str) or value not in supported:
+        raise ConfigurationError(
+            f"model.prediction_reference must be one of {sorted(supported)}, got {value!r}"
+        )
+    return value
 
 
 def _validated_target_sampling(config: Mapping[str, object]) -> str:
@@ -1578,6 +1601,7 @@ def _metrics_payload(
             "validation_scale_source": VALIDATION_SCALE_SOURCE,
             "primary_metric_prediction": "raw_model_output",
             "primary_metric_prediction_self_normalized": False,
+            "prediction_reference": settings.prediction_reference,
             "best_validation_raw_global_snr_db": best_validation.raw_global_snr_db,
             "best_validation_signal_energy": best_validation.signal_energy,
             "best_validation_error_energy": best_validation.error_energy,

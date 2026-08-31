@@ -20,10 +20,15 @@ DEFAULT_TARGET_COORDINATE_COUNT = 3
 DEFAULT_COORDINATE_CONDITIONING = "stem"
 DEFAULT_NEIGHBOR_GATING = "none"
 TARGET_COORDINATE_MASKED_SOFTMAX_GATING = "target_coordinate_masked_softmax"
+DEFAULT_PREDICTION_REFERENCE = "none"
+MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE = "masked_aligned_neighbor_mean"
 
 _COORDINATE_CONDITIONING_MODES = frozenset((DEFAULT_COORDINATE_CONDITIONING, "film"))
 _NEIGHBOR_GATING_MODES = frozenset(
     (DEFAULT_NEIGHBOR_GATING, TARGET_COORDINATE_MASKED_SOFTMAX_GATING)
+)
+_PREDICTION_REFERENCE_MODES = frozenset(
+    (DEFAULT_PREDICTION_REFERENCE, MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE)
 )
 
 
@@ -78,6 +83,13 @@ def _validated_neighbor_gating(value: str) -> str:
     if not isinstance(value, str) or value not in _NEIGHBOR_GATING_MODES:
         choices = ", ".join(repr(mode) for mode in sorted(_NEIGHBOR_GATING_MODES))
         raise ValueError(f"neighbor_gating must be one of {choices}, got {value!r}")
+    return value
+
+
+def _validated_prediction_reference(value: str) -> str:
+    if not isinstance(value, str) or value not in _PREDICTION_REFERENCE_MODES:
+        choices = ", ".join(repr(mode) for mode in sorted(_PREDICTION_REFERENCE_MODES))
+        raise ValueError(f"prediction_reference must be one of {choices}, got {value!r}")
     return value
 
 
@@ -221,6 +233,7 @@ class NeighborTraceInpainter(nn.Module):
         coordinate_conditioning: str = DEFAULT_COORDINATE_CONDITIONING,
         neighbor_gating: str = DEFAULT_NEIGHBOR_GATING,
         neighbor_alignment_kernel_size: int = DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
+        prediction_reference: str = DEFAULT_PREDICTION_REFERENCE,
     ) -> None:
         super().__init__()
         self.neighbor_count = _positive_integer(neighbor_count, "neighbor_count")
@@ -239,6 +252,7 @@ class NeighborTraceInpainter(nn.Module):
             neighbor_alignment_kernel_size,
             "neighbor_alignment_kernel_size",
         )
+        self.prediction_reference = _validated_prediction_reference(prediction_reference)
         # Preserve the original public attribute while exposing the constructor field name.
         self.dilations = self.temporal_dilations
         self.input_channels = 2 * self.neighbor_count + self.target_coordinate_count + 1
@@ -287,6 +301,14 @@ class NeighborTraceInpainter(nn.Module):
                 self.neighbor_count,
                 self.neighbor_alignment_kernel_size,
             )
+        if self.prediction_reference == MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE:
+            # The reference supplies the initial waveform. The CNN starts as an
+            # exact zero correction without consuming additional randomness.
+            final_projection = self.head[-1]
+            if not isinstance(final_projection, nn.Conv1d):
+                raise AssertionError("neighbor inpainter head must end with Conv1d")
+            nn.init.zeros_(final_projection.weight)
+            nn.init.zeros_(final_projection.bias)
 
     def forward(
         self,
@@ -354,6 +376,15 @@ class NeighborTraceInpainter(nn.Module):
             available = (availability > 0.0).to(dtype=neighbors.dtype)
             gated_neighbors = self.neighbor_alignment(gated_neighbors * available[..., None])
 
+        prediction_reference: torch.Tensor | None = None
+        if self.prediction_reference == MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE:
+            available = availability > 0.0
+            available_float = available.to(dtype=neighbors.dtype)
+            available_count = available_float.sum(dim=1, keepdim=True).clamp_min(1.0)
+            prediction_reference = (gated_neighbors * available_float[..., None]).sum(
+                dim=1
+            ) / available_count
+
         availability_channels = availability[..., None].expand(-1, -1, time_count)
         time_channel = (
             torch.linspace(
@@ -382,4 +413,7 @@ class NeighborTraceInpainter(nn.Module):
         else:
             for block in self.blocks:
                 hidden = block(hidden)
-        return self.head(hidden)[:, 0]
+        prediction = self.head(hidden)[:, 0]
+        if prediction_reference is not None:
+            prediction = prediction + prediction_reference
+        return prediction

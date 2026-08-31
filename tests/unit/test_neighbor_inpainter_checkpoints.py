@@ -27,6 +27,7 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
         coordinate_conditioning="film",
         neighbor_gating="target_coordinate_masked_softmax",
         neighbor_alignment_kernel_size=3,
+        prediction_reference="masked_aligned_neighbor_mean",
     )
     neighbors = torch.randn(2, 3, 9)
     availability = torch.tensor([[True, False, True], [True, True, False]])
@@ -54,6 +55,7 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
         "coordinate_conditioning": "film",
         "neighbor_gating": "target_coordinate_masked_softmax",
         "neighbor_alignment_kernel_size": 3,
+        "prediction_reference": "masked_aligned_neighbor_mean",
     }
     assert all(tensor.device.type == "cpu" for tensor in payload["model_state_dict"].values())
     assert payload["amplitude_scaling"] == "per_trace_rms"
@@ -69,6 +71,7 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
     assert loaded.model.neighbor_gate_projection is not None
     assert loaded.model.neighbor_alignment_kernel_size == 3
     assert loaded.model.neighbor_alignment is not None
+    assert loaded.model.prediction_reference == "masked_aligned_neighbor_mean"
     assert all(parameter.device.type == "cpu" for parameter in loaded.model.parameters())
     assert loaded.amplitude_scaling == "per_trace_rms"
     assert loaded.validation_metric_domain == "oracle_per_trace_unit_rms"
@@ -103,6 +106,7 @@ def test_neighbor_inpainter_checkpoint_loads_study017_legacy_model_config(
         "coordinate_conditioning",
         "neighbor_gating",
         "neighbor_alignment_kernel_size",
+        "prediction_reference",
     ):
         payload["model_config"].pop(field)
     torch.save(payload, legacy_checkpoint_path)
@@ -118,6 +122,7 @@ def test_neighbor_inpainter_checkpoint_loads_study017_legacy_model_config(
     assert loaded.model.neighbor_gate_projection is None
     assert loaded.model.neighbor_alignment_kernel_size == 1
     assert loaded.model.neighbor_alignment is None
+    assert loaded.model.prediction_reference == "none"
     torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
 
 

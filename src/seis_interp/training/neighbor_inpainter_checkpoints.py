@@ -13,6 +13,7 @@ from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COORDINATE_CONDITIONING,
     DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
     DEFAULT_NEIGHBOR_GATING,
+    DEFAULT_PREDICTION_REFERENCE,
     DEFAULT_RESIDUAL_KERNEL_SIZE,
     DEFAULT_STEM_KERNEL_SIZE,
     DEFAULT_TARGET_COORDINATE_COUNT,
@@ -67,6 +68,7 @@ def save_neighbor_inpainter_checkpoint(
                 "coordinate_conditioning": model.coordinate_conditioning,
                 "neighbor_gating": model.neighbor_gating,
                 "neighbor_alignment_kernel_size": model.neighbor_alignment_kernel_size,
+                "prediction_reference": model.prediction_reference,
             },
             "model_state_dict": state_dict,
             "amplitude_scaling": PER_TRACE_RMS_SCALING,
@@ -122,6 +124,10 @@ def load_neighbor_inpainter_checkpoint(
             neighbor_alignment_kernel_size=model_config.get(
                 "neighbor_alignment_kernel_size",
                 DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
+            ),
+            prediction_reference=model_config.get(
+                "prediction_reference",
+                DEFAULT_PREDICTION_REFERENCE,
             ),
         )
     except KeyError as error:

@@ -10,6 +10,8 @@ from seis_interp.models import (
     TemporalResidualBlock,
 )
 from seis_interp.models.neighbor_trace_inpainter import (
+    DEFAULT_PREDICTION_REFERENCE,
+    MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
     _availability_masked_softmax_gates,
 )
 
@@ -24,6 +26,7 @@ def test_successful_architecture_contract_and_parameter_count() -> None:
     assert model.neighbor_gate_projection is None
     assert model.neighbor_alignment_kernel_size == 1
     assert model.neighbor_alignment is None
+    assert model.prediction_reference == DEFAULT_PREDICTION_REFERENCE
     assert model.stem_kernel_size == 15
     assert model.residual_kernel_size == 7
     assert model.temporal_dilations == TEMPORAL_DILATIONS
@@ -315,6 +318,126 @@ def test_neighbor_alignment_runs_after_gating_and_keeps_unavailable_channels_zer
     torch.testing.assert_close(stem_inputs[0][1, :3], torch.zeros(3, 3))
 
 
+def test_masked_aligned_neighbor_mean_is_exact_initial_prediction_reference() -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+        prediction_reference=MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+    )
+    assert model.neighbor_gate_projection is not None
+    assert model.neighbor_alignment is not None
+    final_projection = model.head[-1]
+    assert isinstance(final_projection, nn.Conv1d)
+    with torch.no_grad():
+        model.neighbor_gate_projection.weight.copy_(torch.eye(3))
+        model.neighbor_alignment.weight.copy_(
+            torch.tensor([[[0.0, 1.0, 0.0]], [[1.0, 0.0, 0.0]], [[0.0, 0.0, 1.0]]])
+        )
+    neighbors = torch.tensor(
+        [
+            [[1.0, 2.0, 3.0, 4.0], [20.0, 30.0, 40.0, 50.0], [5.0, 6.0, 7.0, 8.0]],
+            [[9.0, 10.0, 11.0, 12.0], [60.0, 70.0, 80.0, 90.0], [13.0, 14.0, 15.0, 16.0]],
+        ]
+    )
+    availability = torch.tensor([[True, False, True], [False, False, False]])
+    coordinates = torch.tensor([[2.0, 9.0, 0.0], [1.0, 2.0, 3.0]])
+    gates = _availability_masked_softmax_gates(
+        model.neighbor_gate_projection(coordinates),
+        availability,
+    )
+    masked_gated = neighbors * gates[..., None]
+    aligned = model.neighbor_alignment(
+        masked_gated * availability.to(dtype=neighbors.dtype)[..., None]
+    )
+    expected = aligned.sum(dim=1) / availability.sum(dim=1, keepdim=True).clamp_min(1).to(
+        dtype=neighbors.dtype
+    )
+
+    prediction = model(neighbors, availability, coordinates)
+
+    assert torch.count_nonzero(final_projection.weight) == 0
+    assert torch.count_nonzero(final_projection.bias) == 0
+    torch.testing.assert_close(prediction, expected, rtol=0.0, atol=0.0)
+    torch.testing.assert_close(prediction[1], torch.zeros(4), rtol=0.0, atol=0.0)
+
+    with torch.no_grad():
+        final_projection.bias.fill_(0.25)
+    torch.testing.assert_close(
+        model(neighbors, availability, coordinates),
+        expected + 0.25,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_prediction_reference_none_preserves_legacy_seed_weights_and_output() -> None:
+    torch.manual_seed(37)
+    legacy = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1, 2),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+    )
+    legacy_rng_state = torch.random.get_rng_state()
+    torch.manual_seed(37)
+    explicit_none = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1, 2),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+        prediction_reference=DEFAULT_PREDICTION_REFERENCE,
+    )
+    explicit_rng_state = torch.random.get_rng_state()
+    neighbors = torch.randn(2, 3, 13)
+    availability = torch.tensor([[True, False, True], [True, True, False]])
+    coordinates = torch.randn(2, 3)
+
+    assert torch.equal(explicit_rng_state, legacy_rng_state)
+    assert explicit_none.prediction_reference == DEFAULT_PREDICTION_REFERENCE
+    for name, tensor in legacy.state_dict().items():
+        torch.testing.assert_close(explicit_none.state_dict()[name], tensor, rtol=0.0, atol=0.0)
+    torch.testing.assert_close(
+        explicit_none(neighbors, availability, coordinates),
+        legacy(neighbors, availability, coordinates),
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_prediction_reference_zero_initialization_does_not_advance_rng() -> None:
+    torch.manual_seed(41)
+    plain = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1, 2),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+    )
+    plain_rng_state = torch.random.get_rng_state()
+    torch.manual_seed(41)
+    referenced = NeighborTraceInpainter(
+        neighbor_count=3,
+        width=8,
+        temporal_dilations=(1, 2),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+        prediction_reference=MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+    )
+    referenced_rng_state = torch.random.get_rng_state()
+
+    assert torch.equal(referenced_rng_state, plain_rng_state)
+    for name, tensor in plain.state_dict().items():
+        if name in {"head.4.weight", "head.4.bias"}:
+            assert torch.count_nonzero(referenced.state_dict()[name]) == 0
+        else:
+            torch.testing.assert_close(referenced.state_dict()[name], tensor, rtol=0.0, atol=0.0)
+
+
 def test_masked_softmax_neighbor_gates_mask_and_preserve_available_mean() -> None:
     logits = torch.tensor([[2.0, -3.0, 1.0], [7.0, 8.0, 9.0]], requires_grad=True)
     availability = torch.tensor([[True, False, True], [False, False, False]])
@@ -516,6 +639,17 @@ def test_temporal_residual_block_preserves_shape() -> None:
                 neighbor_gating=1,  # type: ignore[arg-type]
             ),
             "neighbor_gating",
+        ),
+        (
+            lambda: NeighborTraceInpainter(neighbor_count=2, prediction_reference="mean"),
+            "prediction_reference",
+        ),
+        (
+            lambda: NeighborTraceInpainter(
+                neighbor_count=2,
+                prediction_reference=1,  # type: ignore[arg-type]
+            ),
+            "prediction_reference",
         ),
         (lambda: TemporalResidualBlock(width=8, dilation=0), "dilation"),
         (lambda: TemporalResidualBlock(width=8, dilation=1, kernel_size=2), "odd"),

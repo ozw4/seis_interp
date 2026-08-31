@@ -210,6 +210,7 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert metrics["metric_success"] is (metrics["oracle_per_trace_unit_rms_global_snr_db"] > 15.0)
     assert metrics["scope_success"] is False
     assert metrics["success"] is False
+    assert metrics["prediction_reference"] == "none"
     assert metrics["split_counts"] == {
         "train": 12,
         "validation": 6,
@@ -244,6 +245,7 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert checkpoint.model.neighbor_gating == "none"
     assert checkpoint.model.neighbor_alignment_kernel_size == 1
     assert checkpoint.model.neighbor_alignment is None
+    assert checkpoint.model.prediction_reference == "none"
 
     inputs_lock_text = (output / "inputs.lock.json").read_text(encoding="utf-8")
     inputs_lock = json.loads(inputs_lock_text)
@@ -263,6 +265,7 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert inputs_lock["model"]["neighbor_gating"] == "none"
     assert inputs_lock["model"]["neighbor_alignment_kernel_size"] == 1
     assert inputs_lock["model"]["neighbor_alignment"]["enabled"] is False
+    assert inputs_lock["model"]["prediction_reference"] == "none"
     assert inputs_lock["split_counts"] == metrics["split_counts"]
     assert inputs_lock["training"]["minimum_learning_rate_factor"] == 0.03
     assert inputs_lock["training"]["gradient_clip_norm"] == 1.0
@@ -293,6 +296,7 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert run["training"]["neighbor_dropout_seed"] == 6
     assert run["model"]["neighbor_gating"] == "none"
     assert run["model"]["neighbor_alignment_kernel_size"] == 1
+    assert run["model"]["prediction_reference"] == "none"
     assert run["checkpoint"]["revalidation_matches"] is True
 
 
@@ -354,6 +358,32 @@ def test_pipeline_persists_depthwise_neighbor_alignment_contract(tmp_path: Path)
     assert inputs_lock["model"]["neighbor_alignment"] == expected_contract
     assert run["model"]["neighbor_alignment_kernel_size"] == 3
     assert run["model"]["neighbor_alignment"] == expected_contract
+
+
+def test_pipeline_persists_masked_aligned_neighbor_mean_reference(tmp_path: Path) -> None:
+    config, interim, processed = _build_neighbor_training_fixture(tmp_path)
+    configured = yaml.safe_load(config.read_text(encoding="utf-8"))
+    configured["model"]["neighbor_gating"] = "target_coordinate_masked_softmax"
+    configured["model"]["neighbor_alignment_kernel_size"] = 3
+    configured["model"]["prediction_reference"] = "masked_aligned_neighbor_mean"
+    configured["training"]["total_steps"] = 1
+    config.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "prediction-reference-run"
+
+    metrics = train_neighbor_inpainter_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+    )
+
+    checkpoint = load_neighbor_inpainter_checkpoint(output / "artifacts/best.pt")
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert checkpoint.model.prediction_reference == "masked_aligned_neighbor_mean"
+    assert inputs_lock["model"]["prediction_reference"] == "masked_aligned_neighbor_mean"
+    assert run["model"]["prediction_reference"] == "masked_aligned_neighbor_mean"
+    assert metrics["prediction_reference"] == "masked_aligned_neighbor_mean"
 
 
 def test_pipeline_never_materializes_test_or_excluded_amplitude_values(tmp_path: Path) -> None:
@@ -520,6 +550,7 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
     assert settings.training_audit_count == 114492
     assert settings.neighbor_gating == "none"
     assert settings.neighbor_alignment_kernel_size == 1
+    assert settings.prediction_reference == "none"
     assert settings.minimum_learning_rate == 1.5e-5
     assert settings.ffid_range is None
     assert settings.required_eligible_ffid_count == 4780
@@ -538,6 +569,7 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
         ("sampling", "duplicate_physical_coordinate_policy", "keep_last", "duplicate"),
         ("model", "stem_kernel_size", 14, "stem_kernel_size.*odd"),
         ("model", "neighbor_gating", "sigmoid", "neighbor_gating"),
+        ("model", "prediction_reference", "mean", "prediction_reference"),
         (
             "model",
             "neighbor_alignment_kernel_size",

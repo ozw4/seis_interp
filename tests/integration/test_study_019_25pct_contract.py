@@ -67,6 +67,19 @@ def test_stage01_changes_only_the_training_horizon_from_the_base_candidate() -> 
     assert settings.training_audit_count == 287933
 
 
+def test_stage02_adds_only_the_masked_aligned_neighbor_reference() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage02_residual_neighbor_reference.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.prediction_reference == "masked_aligned_neighbor_mean"
+    assert settings.total_steps == 2500
+    assert settings.hidden_width == 384
+    assert settings.neighbor_gating == "target_coordinate_masked_softmax"
+    assert settings.neighbor_alignment_kernel_size == 31
+
+
 def test_study_019_inputs_lock_split_and_canonical_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]

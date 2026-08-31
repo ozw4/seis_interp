@@ -1,0 +1,4 @@
+extends: stage01_study018_formal_2500_steps.yaml
+
+model:
+  prediction_reference: masked_aligned_neighbor_mean

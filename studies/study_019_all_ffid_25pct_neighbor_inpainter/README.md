@@ -35,10 +35,11 @@ not materialized. Raw predictions are compared with oracle per-trace unit-RMS
 validation targets.
 
 Stage 01 changes only the split relative to the accepted Study 018 architecture
-and evaluates it after 2,500 updates. Subsequent stages will isolate the most
-promising data-density, neighborhood, alignment, capacity, objective, and
-training-budget changes. A final candidate must be frozen before a fresh
-full-scope acceptance run.
+and evaluates it after 2,500 updates. Stage 02 keeps that condition fixed and
+tests an explicit aligned-neighbor reference with a zero-initialized CNN
+residual. Subsequent stages will isolate the most promising neighborhood,
+alignment, capacity, objective, and training-budget changes. A final candidate
+must be frozen before a fresh full-scope acceptance run.
 
 ## Acceptance criteria
 

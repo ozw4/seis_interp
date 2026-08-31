@@ -25,3 +25,17 @@ condition for 2,500 updates, changing only the split and success threshold.
 
 **Reason:** A direct density-controlled baseline is necessary before attributing
 later gains to neighborhood, model, objective, or budget changes.
+
+## 2026-08-31 — Test a train-neighbor reference before a new model family
+
+**Status:** active
+
+**Decision:** Stage 02 adds the availability-masked, coordinate-gated, aligned
+neighbor mean directly to a zero-initialized CNN residual. All split, aperture,
+capacity, loss, sampler, and budget values remain fixed from Stage 01.
+
+**Reason:** At 25% density the K274 validation neighborhood retains a mean of
+only about 55 train traces. Supplying their coherent component as an explicit
+reference tests whether the existing CNN is spending its limited budget
+reconstructing a baseline waveform from zero. The mode is optional so legacy
+models and checkpoints retain their exact behavior.
