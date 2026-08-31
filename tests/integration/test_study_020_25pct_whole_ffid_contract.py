@@ -221,6 +221,22 @@ def test_stage10_changes_only_the_receiver_y_receptive_field_from_stage09() -> N
     assert settings.spatial_y_dilations == (1, 2, 4, 8, 4, 2, 1)
 
 
+def test_stage11_preserves_each_ordered_source_gather_from_stage09() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage11_joint_shot_gather_ordered_raw_k8.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 32
+    assert settings.source_gather_count == 8
+    assert settings.source_feature_mode == "ordered_raw"
+    assert settings.batch_size == 1
+    assert settings.validation_batch_size == 4
+    assert settings.total_steps == 2500
+    assert settings.temporal_dilations == (1, 2, 4, 8, 4, 2, 1)
+    assert settings.spatial_y_dilations == (1, 1, 1, 1, 1, 1, 1)
+
+
 def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]

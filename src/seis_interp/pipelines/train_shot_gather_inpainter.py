@@ -22,8 +22,11 @@ from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
 from seis_interp.models.shot_gather_inpainter import (
+    MOMENTS_SOURCE_FEATURE_MODE,
+    ORDERED_RAW_SOURCE_FEATURE_MODE,
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
+    SOURCE_FEATURE_MODES,
     ShotGatherInpainter,
 )
 from seis_interp.pipelines.train_neighbor_inpainter import (
@@ -88,7 +91,6 @@ from seis_interp.training.amplitude_scaling import (
     PER_TRACE_RMS_SCALING,
 )
 from seis_interp.training.shot_gather_inpainter_checkpoints import (
-    INPUT_FEATURE_SCHEMA_VERSION,
     load_shot_gather_inpainter_checkpoint,
 )
 from seis_interp.training.shot_gather_inpainter_trainer import (
@@ -124,6 +126,7 @@ class _TrainingSettings:
     temporal_dilations: tuple[int, ...]
     spatial_y_dilations: tuple[int, ...]
     distance_epsilon: float
+    source_feature_mode: str
     source_gather_count: int
     learning_rate: float
     weight_decay: float
@@ -660,6 +663,12 @@ def train_shot_gather_inpainter_run(
         stem_kernel_size=settings.stem_kernel_size,
         residual_kernel_size=settings.residual_kernel_size,
         distance_epsilon=settings.distance_epsilon,
+        source_feature_mode=settings.source_feature_mode,
+        source_gather_count=(
+            settings.source_gather_count
+            if settings.source_feature_mode == ORDERED_RAW_SOURCE_FEATURE_MODE
+            else None
+        ),
     )
     generator = torch.Generator(device=device).manual_seed(
         settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
@@ -743,7 +752,11 @@ def train_shot_gather_inpainter_run(
         selected_metric=result.best_validation_global_snr_db,
         recomputed_metric=best_validation.raw_global_snr_db,
     )
-    model_contract = _model_contract(checkpoint.model, settings=settings)
+    model_contract = _model_contract(
+        checkpoint.model,
+        settings=settings,
+        input_feature_schema_version=checkpoint.input_feature_schema_version,
+    )
     receiver_grid_contract = {
         "shape": [RECEIVER_X_COUNT, RECEIVER_Y_COUNT],
         "relative_receiver_x_m": [float(value) for value in receiver_x_offsets],
@@ -771,6 +784,8 @@ def train_shot_gather_inpainter_run(
         "revalidation_matches": checkpoint_revalidation_matches,
         "input_feature_schema_version": checkpoint.input_feature_schema_version,
         "input_feature_names": list(checkpoint.input_feature_names),
+        "source_feature_mode": checkpoint.source_feature_mode,
+        "source_gather_count": checkpoint.source_gather_count,
     }
     metrics = _metrics_payload(
         result,
@@ -937,6 +952,12 @@ def _validated_settings(
     model_config = config.get("model")
     if not isinstance(model_config, Mapping):
         raise ConfigurationError("model must be a mapping")
+    source_feature_mode = model_config.get(
+        "source_feature_mode",
+        MOMENTS_SOURCE_FEATURE_MODE,
+    )
+    if source_feature_mode not in SOURCE_FEATURE_MODES:
+        raise ConfigurationError(f"model.source_feature_mode must be one of {SOURCE_FEATURE_MODES}")
     raw_spatial_y_dilations = model_config.get("spatial_y_dilations")
     spatial_y_dilations = (
         (1,) * len(temporal_dilations)
@@ -973,6 +994,7 @@ def _validated_settings(
             get_required_config_value(config, "model.distance_epsilon"),
             "model.distance_epsilon",
         ),
+        source_feature_mode=str(source_feature_mode),
         source_gather_count=source_gather_count,
         learning_rate=learning_rate,
         weight_decay=_nonnegative_float(
@@ -1254,6 +1276,7 @@ def _model_contract(
     model: ShotGatherInpainter,
     *,
     settings: _TrainingSettings,
+    input_feature_schema_version: int,
 ) -> dict[str, object]:
     input_feature_names = tuple(model.input_feature_names)
     if len(input_feature_names) != model.input_channels:
@@ -1262,8 +1285,9 @@ def _model_contract(
         "name": MODEL_NAME,
         "hidden_width": model.width,
         "input_channels": model.input_channels,
-        "input_feature_schema_version": INPUT_FEATURE_SCHEMA_VERSION,
+        "input_feature_schema_version": input_feature_schema_version,
         "input_feature_names": list(input_feature_names),
+        "source_feature_mode": model.source_feature_mode,
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "temporal_dilations": list(model.temporal_dilations),
         "spatial_y_dilations": list(model.spatial_y_dilations),
