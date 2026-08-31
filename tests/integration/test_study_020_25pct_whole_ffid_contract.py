@@ -346,6 +346,21 @@ def test_stage18_removes_only_joint_shot_gather_neighbor_dropout() -> None:
     assert settings.total_steps == 2500
 
 
+def test_stage19_extends_promoted_width128_to_five_train_sweeps() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage19_joint_shot_gather_width128_five_sweeps.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 128
+    assert settings.source_gather_count == 8
+    assert settings.receiver_position_conditioning == "none"
+    assert settings.total_steps == 6000
+    assert settings.total_steps >= 5 * 1195
+    assert settings.evaluation_interval_steps == 3000
+    assert settings.batch_size == 1
+
+
 def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]
