@@ -7,6 +7,9 @@ import yaml
 
 from seis_interp.configuration import REPOSITORY_ROOT, ConfigurationError, load_resolved_config
 from seis_interp.pipelines.train_neighbor_inpainter import _validated_settings
+from seis_interp.pipelines.train_shot_gather_inpainter import (
+    _validated_settings as _validated_shot_gather_settings,
+)
 
 STUDY_DIRECTORY = (
     REPOSITORY_ROOT / "studies" / "study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter"
@@ -160,6 +163,46 @@ def test_stage08_changes_only_the_stage03_bracketing_representation() -> None:
     assert settings.source_x_line_radius == 1
     assert settings.source_y_half_shot_radius == 8
     assert settings.validation_batch_size == 512
+
+
+def test_stage09_is_an_explicit_memory_bounded_joint_shot_gather_condition() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage09_joint_shot_gather_k8.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert config["model"] == {
+        "name": "shot_gather_inpainter",
+        "hidden_width": 32,
+        "target_coordinates": ["source_x_m", "source_y_m"],
+        "target_coordinate_scaling": "train_minmax",
+        "stem_kernel_size": 7,
+        "residual_kernel_size": 3,
+        "temporal_dilations": [1, 2, 4, 8, 4, 2, 1],
+        "distance_epsilon": 1.0e-6,
+        "neighborhood": {
+            "type": "nearest_train_source_gathers",
+            "distance": "euclidean_source_xy_m",
+            "source_gather_count": 8,
+        },
+    }
+    assert settings.hidden_width == 32
+    assert settings.source_gather_count == 8
+    assert settings.batch_size == 1
+    assert settings.validation_batch_size == 4
+    assert settings.total_steps == 2500
+    assert settings.target_sampling == "epoch_without_replacement"
+    assert settings.required_eligible_ffid_count == 4780
+    assert dict(settings.required_ffid_split_counts) == {
+        "train": 1195,
+        "validation": 896,
+        "test": 2689,
+    }
+    assert dict(settings.required_effective_split_counts) == {
+        "train": 578685,
+        "validation": 437087,
+        "test": 1287693,
+    }
 
 
 def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:

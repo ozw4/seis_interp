@@ -17,11 +17,24 @@ DEFAULT_STEM_KERNEL_SIZE = 7
 DEFAULT_RESIDUAL_KERNEL_SIZE = 3
 DEFAULT_TEMPORAL_DILATIONS = (1, 2, 4, 8, 4, 2, 1)
 DEFAULT_DISTANCE_EPSILON = 1.0e-6
+SHOT_GATHER_INPUT_FEATURE_NAMES: tuple[str, ...] = (
+    "inverse_distance_reference",
+    "weighted_absolute_deviation",
+    "source_direction_x_waveform_moment",
+    "source_direction_y_waveform_moment",
+    "availability_fraction",
+    "weighted_source_direction_x",
+    "weighted_source_direction_y",
+    "target_coordinate_x",
+    "target_coordinate_y",
+    "receiver_coordinate_x",
+    "receiver_coordinate_y",
+)
+"""Ordered channels presented to :attr:`ShotGatherInpainter.stem`."""
 
 _GROUP_COUNT = 8
 _SOURCE_COORDINATE_COUNT = 2
 _TARGET_COORDINATE_COUNT = 2
-_RESIDUAL_INPUT_CHANNELS = 7
 
 
 def inverse_distance_reference(
@@ -116,9 +129,10 @@ class ShotGatherInpainter(nn.Module):
     """Predict a complete ``8 x 68`` target shot gather from neighboring gathers.
 
     The input source count ``K`` is dynamic. Neighbor gathers are first reduced
-    receiver-by-receiver to an inverse-distance reference and disagreement
-    features. A compact residual network then alternates temporal and receiver
-    spatial filtering with weights shared over the full receiver grid.
+    receiver-by-receiver to an inverse-distance reference, disagreement, and
+    signed source-direction waveform moments. Deterministic receiver coordinates
+    expose far-offset nonstationarity. A compact residual network then alternates
+    temporal and receiver spatial filtering with weights shared over the grid.
     """
 
     def __init__(
@@ -142,7 +156,8 @@ class ShotGatherInpainter(nn.Module):
             distance_epsilon,
             "distance_epsilon",
         )
-        self.input_channels = _RESIDUAL_INPUT_CHANNELS
+        self.input_feature_names: tuple[str, ...] = SHOT_GATHER_INPUT_FEATURE_NAMES
+        self.input_channels = len(self.input_feature_names)
 
         self.stem = nn.Conv3d(
             self.input_channels,
@@ -191,9 +206,11 @@ class ShotGatherInpainter(nn.Module):
             distance_epsilon=self.distance_epsilon,
         )
         reference = torch.sum(neighbors * weights[..., None], dim=1)
-        disagreement = torch.sum(
-            torch.abs(neighbors - reference[:, None]) * weights[..., None],
-            dim=1,
+        weighted_centered_neighbors = (neighbors - reference[:, None]) * weights[..., None]
+        disagreement = torch.sum(torch.abs(weighted_centered_neighbors), dim=1)
+        directional_waveform_moments = _directional_waveform_moments(
+            weighted_centered_neighbors,
+            directions,
         )
 
         availability_fraction = availability.to(dtype=neighbors.dtype).mean(dim=1)
@@ -204,13 +221,27 @@ class ShotGatherInpainter(nn.Module):
             RECEIVER_X_COUNT,
             RECEIVER_Y_COUNT,
         )
+        receiver_coordinates = _normalized_receiver_coordinates(
+            dtype=neighbors.dtype,
+            device=neighbors.device,
+        )[None].expand(batch_size, -1, -1, -1)
         static_features = torch.cat(
-            (availability_fraction[:, None], weighted_direction, target_grid),
+            (
+                availability_fraction[:, None],
+                weighted_direction,
+                target_grid,
+                receiver_coordinates,
+            ),
             dim=1,
         )
         static_time_features = static_features[..., None].expand(-1, -1, -1, -1, time_count)
         features = torch.cat(
-            (reference[:, None], disagreement[:, None], static_time_features),
+            (
+                reference[:, None],
+                disagreement[:, None],
+                directional_waveform_moments,
+                static_time_features,
+            ),
             dim=1,
         )
 
@@ -342,6 +373,46 @@ def _inverse_distance_weights(
         dtype=source_deltas.dtype
     )
     return weights, directions
+
+
+def _directional_waveform_moments(
+    weighted_centered_neighbors: torch.Tensor,
+    source_directions: torch.Tensor,
+) -> torch.Tensor:
+    """Project centered neighbor waveforms onto both signed source axes."""
+    return torch.einsum(
+        "bkxyt,bkc->bcxyt",
+        weighted_centered_neighbors,
+        source_directions,
+    )
+
+
+def _normalized_receiver_coordinates(
+    *,
+    dtype: torch.dtype,
+    device: torch.device,
+) -> torch.Tensor:
+    """Return deterministic receiver-axis coordinates with shape ``[2, 8, 68]``."""
+    receiver_x = torch.linspace(
+        -1.0,
+        1.0,
+        RECEIVER_X_COUNT,
+        dtype=dtype,
+        device=device,
+    )
+    receiver_y = torch.linspace(
+        -1.0,
+        1.0,
+        RECEIVER_Y_COUNT,
+        dtype=dtype,
+        device=device,
+    )
+    return torch.stack(
+        (
+            receiver_x[:, None].expand(-1, RECEIVER_Y_COUNT),
+            receiver_y[None, :].expand(RECEIVER_X_COUNT, -1),
+        )
+    )
 
 
 def _require_tensor(value: object, name: str) -> torch.Tensor:

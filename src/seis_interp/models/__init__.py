@@ -9,6 +9,7 @@ from seis_interp.models.shared_offset_attention_inpainter import (
     SharedOffsetAttentionInpainter,
 )
 from seis_interp.models.shot_gather_inpainter import (
+    SHOT_GATHER_INPUT_FEATURE_NAMES,
     FactorizedGatherResidualBlock,
     ShotGatherInpainter,
     inverse_distance_reference,
@@ -19,6 +20,7 @@ __all__ = [
     "TEMPORAL_DILATIONS",
     "FactorizedGatherResidualBlock",
     "NeighborTraceInpainter",
+    "SHOT_GATHER_INPUT_FEATURE_NAMES",
     "SharedOffsetAttentionInpainter",
     "ShotGatherInpainter",
     "SineLayer",
