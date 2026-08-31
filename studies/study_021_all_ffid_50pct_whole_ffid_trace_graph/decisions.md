@@ -54,3 +54,39 @@ comes from the easier split rather than the model, and give the matched
 comparison every promotion decision requires. The promotion gate (+0.20 dB at
 2,500 updates) and the evidence-based budget-extension rule follow studies
 018-020.
+
+## Keep the mask-only trace-lattice objective after loss isolation
+
+Stages 04-06 isolated each requested composite-loss term against the
+mask-only Stage 03 baseline at 2,500 updates. Spectrum (-0.09 dB), slope
+(-0.02 dB), and amplitude (-0.25 dB) all failed the +0.20 dB promotion gate.
+The primary metric is itself an L2 quantity and every model in this regime is
+capacity-limited (train audit equals validation), so auxiliary shape losses
+cannot move it. The terms remain implemented and configurable for later
+budgets.
+
+## Reject the bipartite mode and per-frame attention at this budget
+
+The source-receiver bipartite mode (8.181 dB) lost 0.55 dB against matched
+trace-lattice message passing, and per-frame (8.026 dB) and per-frame-shifted
+(7.752 dB) attention lost up to 0.98 dB: attention weights that vary per
+latent frame add degrees of freedom the 2,500-update budget cannot calibrate.
+The pooled trace-lattice formulation remains the promoted graph.
+
+## Promote width, depth, and batch; adopt activation checkpointing
+
+Width 128 (+0.27 dB), twelve rounds (+0.31 dB), their combination
+(+0.55 dB, additive), and batch 4 (+1.04 dB) all passed the gate, revealing a
+data-scaling law: about +1.0 dB per doubling of gathers seen early, decaying
+to +0.4 dB (Stage 13 budget curve 9.145 / 9.982 / 10.506 / 10.691 dB at
+2.5k/5k/7.5k/10k). Scaling past batch 2 exceeded the 93 GB GPU, so the model
+gained optional activation checkpointing; unit tests pin its outputs and
+gradients to the uncheckpointed path.
+
+## Record the same-offset correlation probe as a design constraint
+
+Deterministic probes showed the inverse-distance same-relative-cell reference
+reaches 7.089 dB at K=8 while aligning neighbors at the same physical receiver
+collapses to -0.996 dB. Cross-shot edges must therefore connect equal
+relative-receiver cells, which the trace-lattice source-axis attention already
+does. Effective same-line shot spacing is 80 m (staggered 40 m grid).

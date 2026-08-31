@@ -106,8 +106,21 @@ python -m seis_interp.cli train trace-graph \
 
 ## Current result
 
-The study is running; staged results are recorded under
-`runs/study_021_all_ffid_50pct_whole_ffid_trace_graph/` and summarized in the
-study report when stages complete.
+The strict 20 dB threshold has not been reached. The deterministic
+inverse-distance reference floor is 7.089 dB. The best completed result is
+Stage 18 (`trace_lattice`, width 128, 12 rounds, batch 4) at
+`10.321847...` dB after 2,500 updates; the long-budget Stage 19 run
+(10,000 updates, same architecture) is in progress. Controls calibrate the
+split: the accepted study 018 per-trace architecture reaches 11.318 dB and the
+joint shot-gather CNN 7.768 dB at the same 2,500-update budget. The required
+composite-loss terms, the bipartite graph mode, per-frame attention, K=16
+apertures, and full time resolution were each isolated and none improved the
+mask-only trace-lattice baseline; width, depth, and batch scaling were
+promoted. Budget scaling follows a decaying data-scaling curve
+(+1.0 dB then +0.4 dB per doubling of gathers seen), which does not
+extrapolate to 20 dB by budget alone. Every completed run passed FFID
+isolation, amplitude access, collision, and exact checkpoint-revalidation
+audits. The full investigation is documented in
+[`reports/all_ffid_50pct_whole_ffid_trace_graph_20db_investigation.md`](../../reports/all_ffid_50pct_whole_ffid_trace_graph_20db_investigation.md).
 
 Historical rationale is recorded in [decisions.md](decisions.md).
