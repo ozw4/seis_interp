@@ -1,0 +1,4 @@
+extends: stage09_joint_shot_gather_k8.yaml
+
+model:
+  hidden_width: 128
