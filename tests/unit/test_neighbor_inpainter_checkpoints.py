@@ -7,6 +7,9 @@ import pytest
 import torch
 
 from seis_interp.models import NeighborTraceInpainter, SharedOffsetAttentionInpainter
+from seis_interp.models.neighbor_trace_inpainter import (
+    SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
+)
 from seis_interp.training.neighbor_inpainter_checkpoints import (
     load_neighbor_inpainter_checkpoint,
     save_neighbor_inpainter_checkpoint,
@@ -106,6 +109,47 @@ def test_bracketing_reference_checkpoint_round_trip_uses_last_channel(
     loaded = load_neighbor_inpainter_checkpoint(checkpoint_path)
 
     assert loaded.model.prediction_reference == ("same_line_exact_receiver_linear_bracketing")
+    assert loaded.model.local_neighbor_count == 2
+    torch.testing.assert_close(
+        loaded.model(neighbors, availability, coordinates),
+        expected,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+
+def test_bracketing_channels_checkpoint_round_trip_uses_weighted_last_two_channels(
+    tmp_path: Path,
+) -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=4,
+        width=8,
+        temporal_dilations=(1,),
+        prediction_reference=(SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE),
+    )
+    neighbors = torch.randn(2, 4, 9)
+    availability = torch.tensor(((1.0, 1.0, 0.25, 0.75), (1.0, 0.0, 1.0, 0.0)))
+    coordinates = torch.randn(2, 3)
+    expected = model(neighbors, availability, coordinates)
+    checkpoint_path = tmp_path / "bracketing-channels.pt"
+
+    save_neighbor_inpainter_checkpoint(
+        checkpoint_path,
+        model,
+        best_step=10,
+        best_validation_global_snr_db=5.5,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    loaded = load_neighbor_inpainter_checkpoint(checkpoint_path)
+
+    assert payload["model_config"]["prediction_reference"] == (
+        SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE
+    )
+    assert loaded.model.prediction_reference == (
+        SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE
+    )
+    assert loaded.model.neighbor_count == 4
+    assert loaded.model.reference_neighbor_count == 2
     assert loaded.model.local_neighbor_count == 2
     torch.testing.assert_close(
         loaded.model(neighbors, availability, coordinates),

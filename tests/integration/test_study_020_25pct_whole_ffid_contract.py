@@ -17,7 +17,7 @@ def test_study_020_locks_the_25pct_whole_ffid_split_contract() -> None:
     config = load_resolved_config(STUDY_DIRECTORY / "config.yaml")
     settings = _validated_settings(config, device_override="cpu")
 
-    assert config["study"]["status"] == "completed"
+    assert config["study"]["status"] == "running"
     assert config["sampling"] == {
         "random_ffid_holdout_fraction": 0.75,
         "validation_fraction_of_holdout": 0.25,
@@ -116,6 +116,50 @@ def test_stage05_combines_only_the_promoted_stage03_and_stage04_changes() -> Non
     assert settings.relative_receiver_y_radius == 5
     assert settings.validation_batch_size == 512
     assert settings.prediction_reference == ("same_line_exact_receiver_linear_bracketing")
+
+
+def test_stage06_changes_only_target_sampling_from_stage03() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage06_epoch_sampling_k1374.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.total_steps == 2500
+    assert settings.batch_size == 96
+    assert settings.target_sampling == "epoch_without_replacement"
+    assert settings.source_x_line_radius == 1
+    assert settings.source_y_half_shot_radius == 8
+    assert settings.validation_batch_size == 512
+
+
+def test_stage07_extends_stage06_to_one_complete_train_sweep() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage07_full_train_sweep_k1374.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.total_steps == 6030
+    assert settings.batch_size == 96
+    assert settings.total_steps * settings.batch_size >= 578685
+    assert settings.target_sampling == "epoch_without_replacement"
+    assert settings.evaluation_interval_steps == 3015
+    assert settings.source_x_line_radius == 1
+    assert settings.source_y_half_shot_radius == 8
+
+
+def test_stage08_changes_only_the_stage03_bracketing_representation() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage08_crossline_k1374_bracketing_channels.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.total_steps == 2500
+    assert settings.batch_size == 96
+    assert settings.target_sampling == "with_replacement"
+    assert settings.prediction_reference == ("same_line_exact_receiver_linear_bracketing_channels")
+    assert settings.source_x_line_radius == 1
+    assert settings.source_y_half_shot_radius == 8
+    assert settings.validation_batch_size == 512
 
 
 def test_study_020_inputs_lock_whole_ffid_and_trace_counts() -> None:

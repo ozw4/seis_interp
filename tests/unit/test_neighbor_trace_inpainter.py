@@ -13,6 +13,7 @@ from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
     DEFAULT_PREDICTION_REFERENCE,
     MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+    SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
     SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
     _availability_masked_softmax_gates,
 )
@@ -38,6 +39,40 @@ def test_same_line_bracketing_reference_uses_raw_last_channel_at_initialization(
     assert model.local_neighbor_count == 2
     assert torch.count_nonzero(model.head[-1].weight) == 0
     assert torch.count_nonzero(model.head[-1].bias) == 0
+
+
+def test_same_line_bracketing_channels_use_weighted_raw_endpoints_at_initialization() -> None:
+    model = NeighborTraceInpainter(
+        neighbor_count=4,
+        width=8,
+        temporal_dilations=(1,),
+        neighbor_gating="target_coordinate_masked_softmax",
+        neighbor_alignment_kernel_size=3,
+        prediction_reference=(SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE),
+    )
+    neighbors = torch.randn(3, 4, 13)
+    availability = torch.tensor(
+        ((1.0, 1.0, 0.25, 0.75), (1.0, 0.0, 1.0, 0.0), (0.0, 1.0, 0.0, 0.0))
+    )
+    coordinates = torch.randn(3, 3)
+    expected = (neighbors[:, -2:] * availability[:, -2:, None]).sum(dim=1)
+
+    output = model(neighbors, availability, coordinates)
+
+    torch.testing.assert_close(output, expected, rtol=0.0, atol=0.0)
+    assert model.reference_neighbor_count == 2
+    assert model.local_neighbor_count == 2
+    assert model.input_channels == 12
+    assert torch.count_nonzero(model.head[-1].weight) == 0
+    assert torch.count_nonzero(model.head[-1].bias) == 0
+
+
+def test_same_line_bracketing_channels_require_a_local_neighbor() -> None:
+    with pytest.raises(ValueError, match="at least one local neighbor"):
+        NeighborTraceInpainter(
+            neighbor_count=2,
+            prediction_reference=(SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE),
+        )
 
 
 def test_successful_architecture_contract_and_parameter_count() -> None:

@@ -103,7 +103,7 @@ after seeing the combined metric.
 
 ## 2026-08-31 — Stop budget-only escalation after Stage 05
 
-**Status:** active
+**Status:** superseded by the continuation decision below
 
 **Decision:** Complete the study without a 10,000- or 50,000-step extension.
 Retain Stage 03 K1374 as the best validated candidate at
@@ -116,3 +116,22 @@ empirical path. Stage 03 was 12.623374194531802 dB below the promotion gate.
 Stage 05 did not provide positive interaction: 8.595997409114656 dB was
 0.123955956880849 dB below Stage 03. More budget or the previously observed
 small width gain has no evidence-backed route across the remaining gap.
+
+## 2026-08-31 — Reopen the study until the strict threshold is measured
+
+**Status:** active
+
+**Decision:** Keep the exact 1,195 / 896 / 2,689 whole-FFID split and the raw
+`oracle_per_trace_unit_rms_global_snr_db > 25` rule unchanged. Treat Stages
+01--05 as immutable failed evidence and continue with mechanisms specific to a
+wholly missing shot. First isolate without-replacement target coverage at the
+same update count, then cover at least one complete train sweep. In parallel,
+diagnose train-only f-k/POCS and a model that shares receiver coherence across
+an entire 8 x 68 trace shot gather. Do not warm-start from Study 017--019,
+because those checkpoints consumed amplitudes from FFIDs held out here.
+
+**Reason:** The user explicitly requires an observed value above 25 dB, not an
+evidence-based early stop. The original stop remains a valid conclusion about
+budget-only scaling, but it cannot close the new objective. Reopening preserves
+the split and evaluation estimand while moving to architectures that match the
+whole-shot missingness pattern.

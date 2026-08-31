@@ -2,7 +2,7 @@
 
 ## Status
 
-`completed` — the 25 dB threshold was not reached
+`running` — continuation experiments are active until the strict 25 dB threshold is reached
 
 ## Research question
 
@@ -77,6 +77,15 @@ The matching Study 018 architecture gained 3.656672439472694 dB between its
 least 21.343327560527307 dB to leave an evidence-backed path to 25 dB. Stage 03
 was 12.623374194531802 dB below that promotion gate, so no budget-only 10,000-
 or 50,000-step extension was run.
+
+The study was reopened after the user explicitly required experiments to
+continue until the same strict threshold is actually exceeded. Stages 01--05
+remain immutable evidence; their former budget stop is not treated as success.
+The continuation first isolates complete target coverage with
+`epoch_without_replacement`, then tests a full train sweep, uncollapsed
+lower/upper shot brackets, joint shot-gather reconstruction, and train-only
+frequency/low-rank diagnostics. Every continuation stage retains the exact
+whole-FFID split and the existing primary metric.
 
 ## Acceptance criteria
 

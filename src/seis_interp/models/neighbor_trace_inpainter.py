@@ -24,6 +24,9 @@ TARGET_COORDINATE_MASKED_SOFTMAX_GATING = "target_coordinate_masked_softmax"
 DEFAULT_PREDICTION_REFERENCE = "none"
 MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE = "masked_aligned_neighbor_mean"
 SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE = "same_line_exact_receiver_linear_bracketing"
+SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE = (
+    "same_line_exact_receiver_linear_bracketing_channels"
+)
 
 _COORDINATE_CONDITIONING_MODES = frozenset((DEFAULT_COORDINATE_CONDITIONING, "film"))
 _NEIGHBOR_GATING_MODES = frozenset(
@@ -34,6 +37,7 @@ _PREDICTION_REFERENCE_MODES = frozenset(
         DEFAULT_PREDICTION_REFERENCE,
         MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
         SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
+        SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
     )
 )
 
@@ -314,9 +318,11 @@ class NeighborTraceInpainter(nn.Module):
             "neighbor_alignment_kernel_size",
         )
         self.prediction_reference = _validated_prediction_reference(prediction_reference)
-        self.local_neighbor_count = self.neighbor_count - int(
-            self.prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE
-        )
+        self.reference_neighbor_count = {
+            SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE: 1,
+            SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE: 2,
+        }.get(self.prediction_reference, 0)
+        self.local_neighbor_count = self.neighbor_count - self.reference_neighbor_count
         if self.local_neighbor_count < 1:
             raise ValueError(
                 "same-line bracketing reference requires at least one local neighbor channel"
@@ -391,6 +397,7 @@ class NeighborTraceInpainter(nn.Module):
         if self.prediction_reference in {
             MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
             SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
+            SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
         }:
             # The reference supplies the initial waveform. The CNN starts as an
             # exact zero correction without consuming additional randomness.
@@ -458,6 +465,11 @@ class NeighborTraceInpainter(nn.Module):
         if self.prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE:
             reference_available = (availability[:, -1] > 0.0).to(dtype=neighbors.dtype)
             raw_bracketing_reference = neighbors[:, -1] * reference_available[:, None]
+        elif (
+            self.prediction_reference
+            == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE
+        ):
+            raw_bracketing_reference = (neighbors[:, -2:] * availability[:, -2:, None]).sum(dim=1)
 
         gated_neighbors = neighbors
         aligned_availability: torch.Tensor | None = None

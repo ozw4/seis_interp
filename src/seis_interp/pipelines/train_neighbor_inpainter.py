@@ -37,6 +37,7 @@ from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_NEIGHBOR_GATING,
     DEFAULT_PREDICTION_REFERENCE,
     MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
+    SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
     SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
     TARGET_COORDINATE_MASKED_SOFTMAX_GATING,
     NeighborTraceInpainter,
@@ -129,6 +130,12 @@ CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE = 1.0e-8
 CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE = 1.0e-8
 WITH_REPLACEMENT_TARGET_SAMPLING = "with_replacement"
 EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING = "epoch_without_replacement"
+_SOURCE_BRACKETING_REFERENCE_MODES = frozenset(
+    (
+        SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
+        SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
+    )
+)
 NEIGHBOR_DROPOUT_SEED_OFFSET = 1
 TRAINING_AUDIT_SEED_OFFSET = 2
 EPOCH_TARGET_SAMPLING_SEED_OFFSET = 3
@@ -234,6 +241,7 @@ class _NeighborTensorSource:
         exclude_target_ffid_neighbors: bool = False,
         ffids_by_position: np.ndarray | None = None,
         source_bracketing: SameLineReceiverBracketingLookup | None = None,
+        source_bracketing_reference: str = (SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE),
     ) -> None:
         self.lookup = lookup
         self.train_positions = np.asarray(train_positions, dtype=np.int64)
@@ -244,6 +252,14 @@ class _NeighborTensorSource:
             np.asarray(ffids_by_position, dtype=np.int64) if ffids_by_position is not None else None
         )
         self.source_bracketing = source_bracketing
+        self.source_bracketing_reference = source_bracketing_reference
+        if (
+            self.source_bracketing is not None
+            and self.source_bracketing_reference not in _SOURCE_BRACKETING_REFERENCE_MODES
+        ):
+            raise ValueError(
+                "source_bracketing_reference must select a supported source bracketing mode"
+            )
         if self.exclude_target_ffid_neighbors and (
             self.ffids_by_position is None or self.ffids_by_position.shape != (lookup.row_count,)
         ):
@@ -311,19 +327,36 @@ class _NeighborTensorSource:
                 dtype=self.train_amplitudes.dtype,
                 device=self.device,
             )
-            reference = (self.train_amplitudes[bracket_indices] * bracket_weights[..., None]).sum(
-                dim=1
-            )
-            reference_available = torch.as_tensor(
-                np.any(bracket_available, axis=1),
-                dtype=torch.bool,
-                device=self.device,
-            )
-            neighbors = torch.cat((neighbors, reference[:, None, :]), dim=1)
-            availability_tensor = torch.cat(
-                (availability_tensor, reference_available[:, None]),
-                dim=1,
-            )
+            if (
+                self.source_bracketing_reference
+                == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE
+            ):
+                bracket_available_tensor = torch.as_tensor(
+                    bracket_available,
+                    dtype=torch.bool,
+                    device=self.device,
+                )
+                bracket_traces = self.train_amplitudes[bracket_indices]
+                bracket_traces = bracket_traces * bracket_available_tensor[..., None]
+                neighbors = torch.cat((neighbors, bracket_traces), dim=1)
+                availability_tensor = torch.cat(
+                    (availability_tensor, bracket_weights),
+                    dim=1,
+                )
+            else:
+                reference = (
+                    self.train_amplitudes[bracket_indices] * bracket_weights[..., None]
+                ).sum(dim=1)
+                reference_available = torch.as_tensor(
+                    np.any(bracket_available, axis=1),
+                    dtype=torch.bool,
+                    device=self.device,
+                )
+                neighbors = torch.cat((neighbors, reference[:, None, :]), dim=1)
+                availability_tensor = torch.cat(
+                    (availability_tensor, reference_available[:, None]),
+                    dim=1,
+                )
         coordinates = torch.as_tensor(
             self.lookup.target_coordinates(positions),
             dtype=torch.float32,
@@ -629,7 +662,7 @@ def train_neighbor_inpainter_run(
     }
     source_bracketing: SameLineReceiverBracketingLookup | None = None
     source_bracketing_contract: dict[str, object] | None = None
-    if settings.prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE:
+    if settings.prediction_reference in _SOURCE_BRACKETING_REFERENCE_MODES:
         source_bracketing = SameLineReceiverBracketingLookup(
             selected_table,
             available,
@@ -639,6 +672,7 @@ def train_neighbor_inpainter_run(
             source_bracketing,
             train_positions=train_positions,
             validation_positions=validation_positions,
+            prediction_reference=settings.prediction_reference,
         )
     overlap_mask, overlap_train_positions = _train_validation_coordinate_overlap(
         selected_table,
@@ -683,6 +717,7 @@ def train_neighbor_inpainter_run(
         exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
         ffids_by_position=selected_ffids,
         source_bracketing=source_bracketing,
+        source_bracketing_reference=settings.prediction_reference,
     )
     target_sampling_seed = _target_sampling_seed(settings)
     target_sampling_generator = (
@@ -982,7 +1017,7 @@ def _validated_settings(
                 f"model.neighborhood.type={MULTILINE_GEOMETRY!r}"
             )
         if (
-            prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE
+            prediction_reference in _SOURCE_BRACKETING_REFERENCE_MODES
             and coarse_shift_samples_per_relative_receiver_y_index > 0
         ):
             raise ConfigurationError(
@@ -1332,6 +1367,7 @@ def _validated_prediction_reference(
         DEFAULT_PREDICTION_REFERENCE,
         MASKED_ALIGNED_NEIGHBOR_MEAN_REFERENCE,
         SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
+        SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
     }
     if not isinstance(value, str) or value not in supported:
         raise ConfigurationError(
@@ -1390,11 +1426,12 @@ def _build_inpainter_model(
     geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
 ) -> NeighborTraceInpainter | SharedOffsetAttentionInpainter:
     if settings.model_name == MODEL_NAME:
-        uses_source_bracketing = (
-            settings.prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE
-        )
+        reference_neighbor_count = {
+            SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE: 1,
+            SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE: 2,
+        }.get(settings.prediction_reference, 0)
         return NeighborTraceInpainter(
-            neighbor_count=geometry.neighbor_count + int(uses_source_bracketing),
+            neighbor_count=geometry.neighbor_count + reference_neighbor_count,
             width=settings.hidden_width,
             target_coordinate_count=len(settings.target_coordinates),
             stem_kernel_size=settings.stem_kernel_size,
@@ -1797,10 +1834,27 @@ def _source_bracketing_contract(
     *,
     train_positions: np.ndarray,
     validation_positions: np.ndarray,
+    prediction_reference: str,
 ) -> dict[str, object]:
+    if prediction_reference not in _SOURCE_BRACKETING_REFERENCE_MODES:
+        raise ValueError("prediction_reference must select a source bracketing mode")
+    reference_contract: dict[str, object]
+    if prediction_reference == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE:
+        reference_contract = {"reference_channel": "last"}
+    else:
+        reference_contract = {
+            "reference_channels": "last_two",
+            "reference_channel_order": [
+                "strict_lower_source_y",
+                "strict_upper_source_y",
+            ],
+            "reference_trace_values": "raw_train_amplitudes",
+            "availability_values": "linear_interpolation_weights",
+            "prediction_reference_combination": "weighted_sum",
+        }
     return {
         "enabled": True,
-        "type": SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
+        "type": prediction_reference,
         "key": [
             "source_x_m",
             "relative_receiver_x_m",
@@ -1811,7 +1865,7 @@ def _source_bracketing_contract(
         "one_sided_rule": "nearest",
         "source_split": TRAIN_SPLIT,
         "target_ffid_policy": "exclude_exact_ffid",
-        "reference_channel": "last",
+        **reference_contract,
         "neighbor_dropout_applied": False,
         TRAIN_SPLIT: lookup.audit(train_positions),
         VALIDATION_SPLIT: lookup.audit(validation_positions),
@@ -1900,6 +1954,28 @@ def _model_contract(
                     "reference_neighbor_count": 1,
                     "reference_channel_index": model.neighbor_count - 1,
                     "reference_source": "raw_last_neighbor_channel",
+                    "residual_decoder_initialization": "zero_final_projection",
+                }
+            )
+        elif (
+            settings.prediction_reference
+            == SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE
+        ):
+            contract.update(
+                {
+                    "local_neighbor_count": geometry.neighbor_count,
+                    "reference_neighbor_count": 2,
+                    "reference_channel_indices": [
+                        model.neighbor_count - 2,
+                        model.neighbor_count - 1,
+                    ],
+                    "reference_channel_order": [
+                        "strict_lower_source_y",
+                        "strict_upper_source_y",
+                    ],
+                    "reference_source": "raw_last_two_neighbor_channels",
+                    "reference_weight_source": "last_two_availability_channels",
+                    "reference_combination": "weighted_sum",
                     "residual_decoder_initialization": "zero_final_projection",
                 }
             )

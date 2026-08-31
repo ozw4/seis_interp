@@ -4,6 +4,9 @@ import numpy as np
 import pandas as pd
 import torch
 
+from seis_interp.models.neighbor_trace_inpainter import (
+    SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
+)
 from seis_interp.pipelines.train_neighbor_inpainter import _NeighborTensorSource
 from seis_interp.processing.source_bracketing import SameLineReceiverBracketingLookup
 
@@ -133,3 +136,58 @@ def test_tensor_source_appends_reference_after_neighbor_dropout() -> None:
     assert availability.shape == (1, 3)
     assert availability[0, -1]
     torch.testing.assert_close(neighbors[0, -1], torch.tensor((20.0,)))
+
+
+def test_tensor_source_appends_weighted_lower_upper_channels_after_neighbor_dropout() -> None:
+    table = _trace_table()
+    train_available = np.array((True, True, False, True, False, False))
+    ffids = np.array((10, 11, 12, 13, 14, 15), dtype=np.int64)
+    bracketing = SameLineReceiverBracketingLookup(
+        table,
+        train_available,
+        ffids_by_position=ffids,
+    )
+
+    class _Geometry:
+        row_count = 6
+
+        @staticmethod
+        def neighbor_positions(positions: np.ndarray) -> np.ndarray:
+            return np.tile(np.array((0, 3), dtype=np.int64), (len(positions), 1))
+
+        @staticmethod
+        def target_coordinates(positions: np.ndarray) -> np.ndarray:
+            return np.zeros((len(positions), 3), dtype=np.float32)
+
+    source = _NeighborTensorSource(
+        _Geometry(),  # type: ignore[arg-type]
+        train_positions=np.array((0, 1, 3), dtype=np.int64),
+        train_amplitudes=torch.tensor(((0.0,), (10.0,), (30.0,))),
+        device=torch.device("cpu"),
+        source_bracketing=bracketing,
+        source_bracketing_reference=(SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE),
+    )
+
+    neighbors, availability, _ = source.gather(
+        np.array((0, 2, 3, 4), dtype=np.int64),
+        generator=torch.Generator().manual_seed(7),
+        neighbor_dropout=0.9,
+    )
+
+    assert neighbors.shape == (4, 4, 1)
+    assert availability.shape == (4, 4)
+    torch.testing.assert_close(
+        neighbors[:, -2:, 0],
+        torch.tensor(((0.0, 10.0), (10.0, 30.0), (10.0, 0.0), (0.0, 0.0))),
+    )
+    torch.testing.assert_close(
+        availability[:, -2:],
+        torch.tensor(((0.0, 1.0), (0.5, 0.5), (1.0, 0.0), (0.0, 0.0))),
+    )
+
+    no_dropout_neighbors, no_dropout_availability, _ = source.gather(
+        np.array((0, 2, 3, 4), dtype=np.int64),
+        neighbor_dropout=0.0,
+    )
+    torch.testing.assert_close(neighbors[:, -2:], no_dropout_neighbors[:, -2:])
+    torch.testing.assert_close(availability[:, -2:], no_dropout_availability[:, -2:])
