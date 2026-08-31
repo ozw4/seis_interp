@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from seis_interp.models import NeighborTraceInpainter
+from seis_interp.models import NeighborTraceInpainter, SharedOffsetAttentionInpainter
 from seis_interp.training.neighbor_inpainter_checkpoints import (
     load_neighbor_inpainter_checkpoint,
     save_neighbor_inpainter_checkpoint,
@@ -78,6 +78,100 @@ def test_neighbor_inpainter_checkpoint_round_trip_preserves_model_and_metadata(
     assert loaded.best_step == 2300
     assert loaded.best_validation_global_snr_db == pytest.approx(16.182)
     torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
+
+
+def test_shared_offset_attention_checkpoint_round_trip_preserves_exact_offsets(
+    tmp_path: Path,
+) -> None:
+    torch.manual_seed(17)
+    offsets = ((0, 0, 0, -1), (0, 0, 0, 1), (1, 0, 0, 0))
+    model = SharedOffsetAttentionInpainter(
+        offsets,
+        width=8,
+        neighbor_feature_width=4,
+        attention_width=6,
+        target_coordinate_count=4,
+        stem_kernel_size=5,
+        residual_kernel_size=3,
+        temporal_dilations=(1, 2),
+        coarse_shift_samples_per_relative_receiver_y_index=3,
+        attention_geometry_prior_scale=0.75,
+    )
+    neighbors = torch.randn(2, 3, 9)
+    availability = torch.tensor([[True, False, True], [True, True, False]])
+    coordinates = torch.randn(2, 4)
+    expected = model(neighbors, availability, coordinates).detach()
+    checkpoint_path = tmp_path / "shared" / "best.pt"
+
+    save_neighbor_inpainter_checkpoint(
+        checkpoint_path,
+        model,
+        best_step=100,
+        best_validation_global_snr_db=25.5,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    loaded = load_neighbor_inpainter_checkpoint(checkpoint_path)
+
+    assert payload["model_type"] == "shared_offset_attention_inpainter"
+    assert payload["model_config"] == {
+        "neighbor_offsets": [list(offset) for offset in offsets],
+        "width": 8,
+        "neighbor_feature_width": 4,
+        "attention_width": 6,
+        "target_coordinate_count": 4,
+        "stem_kernel_size": 5,
+        "residual_kernel_size": 3,
+        "temporal_dilations": [1, 2],
+        "coarse_shift_samples_per_relative_receiver_y_index": 3,
+        "attention_geometry_prior_scale": 0.75,
+    }
+    torch.testing.assert_close(
+        payload["model_state_dict"]["neighbor_offsets"],
+        torch.tensor(offsets),
+    )
+    assert isinstance(loaded.model, SharedOffsetAttentionInpainter)
+    assert tuple(tuple(row) for row in loaded.model.neighbor_offsets.tolist()) == offsets
+    assert loaded.model.coarse_shift_samples_per_relative_receiver_y_index == 3
+    assert loaded.model.attention_geometry_prior_scale == pytest.approx(0.75)
+    assert loaded.best_step == 100
+    assert loaded.best_validation_global_snr_db == pytest.approx(25.5)
+    torch.testing.assert_close(loaded.model(neighbors, availability, coordinates), expected)
+
+
+@pytest.mark.parametrize(
+    "buffer_name",
+    [
+        "neighbor_offsets",
+        "normalized_neighbor_offsets",
+        "attention_geometry_prior",
+        "coarse_sample_shifts",
+    ],
+)
+def test_shared_checkpoint_rejects_derived_buffers_inconsistent_with_config(
+    tmp_path: Path,
+    buffer_name: str,
+) -> None:
+    model = SharedOffsetAttentionInpainter(
+        ((0, 0, 0, -1), (0, 0, 0, 1)),
+        width=8,
+        neighbor_feature_width=4,
+        attention_width=4,
+        temporal_dilations=(1,),
+    )
+    checkpoint_path = tmp_path / f"corrupt-{buffer_name}.pt"
+    save_neighbor_inpainter_checkpoint(
+        checkpoint_path,
+        model,
+        best_step=1,
+        best_validation_global_snr_db=1.0,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    payload["model_state_dict"][buffer_name] = payload["model_state_dict"][buffer_name].clone()
+    payload["model_state_dict"][buffer_name].view(-1)[0] += 1
+    torch.save(payload, checkpoint_path)
+
+    with pytest.raises(ValueError, match=f"derived buffer {buffer_name!r}"):
+        load_neighbor_inpainter_checkpoint(checkpoint_path)
 
 
 def test_neighbor_inpainter_checkpoint_loads_study017_legacy_model_config(

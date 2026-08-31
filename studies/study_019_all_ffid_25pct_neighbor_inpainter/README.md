@@ -37,9 +37,11 @@ validation targets.
 Stage 01 changes only the split relative to the accepted Study 018 architecture
 and evaluates it after 2,500 updates. Stage 02 keeps that condition fixed and
 tests an explicit aligned-neighbor reference with a zero-initialized CNN
-residual. Subsequent stages will isolate the most promising neighborhood,
-alignment, capacity, objective, and training-budget changes. A final candidate
-must be frozen before a fresh full-scope acceptance run.
+residual. Stage 03 tests offset-aware shared temporal encoding and time-dependent
+masked attention at the same K274 aperture. Stage 04 changes only the accepted
+CNN's same-line aperture from K274 to K734. Later stages will promote only
+measured gains and isolate alignment, capacity, objective, and training budget.
+A final candidate must be frozen before a fresh full-scope acceptance run.
 
 ## Acceptance criteria
 
@@ -54,8 +56,15 @@ must be frozen before a fresh full-scope acceptance run.
 
 ## Current result
 
-No 25% training run has been accepted yet. Immutable staged runs will be stored
-under `runs/study_019_all_ffid_25pct_neighbor_inpainter/` and summarized in
+No 25% training run has been accepted yet. Stage 01 reached
+`14.222844294958843 dB` after 2,500 updates. This is 2.580838795167327 dB below
+the same architecture and budget at 50% density. Stage 02's explicit neighbor
+reference reached `14.22890961173312 dB`, only 0.006065316774276797 dB above
+Stage 01, and was not promoted. Both runs passed the complete leakage and scope
+audit and reproduced their saved checkpoint metric.
+
+Immutable staged runs are stored under
+`runs/study_019_all_ffid_25pct_neighbor_inpainter/` and will be summarized in
 `reports/all_ffid_25pct_25db_investigation.md`.
 
 Historical rationale is recorded in [decisions.md](decisions.md).

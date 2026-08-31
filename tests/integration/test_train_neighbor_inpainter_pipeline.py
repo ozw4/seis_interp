@@ -14,6 +14,7 @@ import yaml
 from seis_interp.configuration import REPOSITORY_ROOT, ConfigurationError, load_resolved_config
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.trace_store import write_interim_trace_dataset
+from seis_interp.models import SharedOffsetAttentionInpainter
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.train_neighbor_inpainter import (
     _passes_success_threshold,
@@ -300,6 +301,74 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
     assert run["checkpoint"]["revalidation_matches"] is True
 
 
+def test_pipeline_trains_shared_offset_attention_with_exact_geometry_offsets(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_neighbor_training_fixture(tmp_path)
+    configured = yaml.safe_load(config.read_text(encoding="utf-8"))
+    configured["model"].update(
+        {
+            "name": "shared_offset_attention_inpainter",
+            "hidden_width": 8,
+            "neighbor_feature_width": 4,
+            "attention_width": 4,
+            "target_coordinates": [
+                "source_x_m",
+                "source_y_m",
+                "relative_receiver_x_m",
+                "relative_receiver_y_m",
+            ],
+            "coordinate_conditioning": "film",
+            "neighbor_gating": "offset_target_time_masked_softmax",
+            "neighbor_alignment_kernel_size": 1,
+            "prediction_reference": "distance_prior_shifted_neighbor_mean",
+            "coarse_shift_samples_per_relative_receiver_y_index": 2,
+            "attention_geometry_prior_scale": 0.5,
+            "stem_kernel_size": 5,
+            "residual_kernel_size": 3,
+            "temporal_dilations": [1],
+            "neighborhood": {
+                "type": "multiline_staggered_source",
+                "relative_receiver_x_radius": 1,
+                "source_x_line_radius": 0,
+                "source_y_half_shot_radius": 2,
+                "relative_receiver_y_radius": 1,
+                "relative_receiver_spacing_m": 40.0,
+                "source_x_line_spacing_m": 160.0,
+                "source_y_half_shot_spacing_m": 40.0,
+            },
+        }
+    )
+    configured["training"]["total_steps"] = 1
+    config.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "shared-offset-attention-run"
+
+    metrics = train_neighbor_inpainter_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+    )
+
+    checkpoint = load_neighbor_inpainter_checkpoint(output / "artifacts" / "best.pt")
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    assert isinstance(checkpoint.model, SharedOffsetAttentionInpainter)
+    assert checkpoint.model.neighbor_count == 26
+    checkpoint_offsets = checkpoint.model.neighbor_offsets.tolist()
+    assert checkpoint_offsets == inputs_lock["neighborhood"]["offset_order"]
+    assert checkpoint_offsets == inputs_lock["model"]["offset_order"]
+    assert inputs_lock["model"]["name"] == "shared_offset_attention_inpainter"
+    assert inputs_lock["model"]["offset_order_source"] == "pipeline_geometry_exact"
+    assert inputs_lock["model"]["attention"]["complexity"] == "O(B*K*T)"
+    assert inputs_lock["model"]["coarse_alignment"] == {
+        "type": "zero_padded_integer_shift",
+        "samples_per_relative_receiver_y_index": 2,
+        "source_sample_index": "output_sample_index_minus_shift",
+        "circular_wrap": False,
+    }
+    assert metrics["prediction_reference"] == "distance_prior_shifted_neighbor_mean"
+
+
 def test_pipeline_persists_target_coordinate_neighbor_gating(tmp_path: Path) -> None:
     config, interim, processed = _build_neighbor_training_fixture(tmp_path)
     configured = yaml.safe_load(config.read_text(encoding="utf-8"))
@@ -542,6 +611,7 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
 
     settings = _validated_settings(config, device_override=None)
 
+    assert settings.model_name == "neighbor_trace_inpainter"
     assert settings.hidden_width == 128
     assert settings.total_steps == 2500
     assert settings.batch_size == 96
@@ -561,6 +631,83 @@ def test_study_017_config_resolves_the_implemented_contract() -> None:
         "test": 346885,
     }
     assert settings.required_fully_excluded_ffids == (1746,)
+
+
+def test_shared_offset_attention_config_resolves_model_specific_settings() -> None:
+    config = load_resolved_config(
+        REPOSITORY_ROOT / "studies/study_019_all_ffid_25pct_neighbor_inpainter/config.yaml"
+    )
+    config["model"]["name"] = "shared_offset_attention_inpainter"
+    config["model"]["neighbor_gating"] = "offset_target_time_masked_softmax"
+    config["model"].update(
+        {
+            "neighbor_feature_width": 8,
+            "attention_width": 16,
+            "coarse_shift_samples_per_relative_receiver_y_index": 3,
+            "attention_geometry_prior_scale": 1.0,
+            "neighbor_alignment_kernel_size": 1,
+            "prediction_reference": "distance_prior_shifted_neighbor_mean",
+        }
+    )
+
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.model_name == "shared_offset_attention_inpainter"
+    assert settings.neighbor_feature_width == 8
+    assert settings.attention_width == 16
+    assert settings.coarse_shift_samples_per_relative_receiver_y_index == 3
+    assert settings.attention_geometry_prior_scale == 1.0
+    assert settings.prediction_reference == "distance_prior_shifted_neighbor_mean"
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("neighbor_feature_width", 0, "neighbor_feature_width"),
+        ("attention_width", True, "attention_width"),
+        (
+            "coarse_shift_samples_per_relative_receiver_y_index",
+            -1,
+            "coarse_shift_samples",
+        ),
+        ("attention_geometry_prior_scale", -0.1, "attention_geometry_prior_scale"),
+        ("prediction_reference", "none", "prediction_reference"),
+    ],
+)
+def test_shared_offset_attention_config_rejects_invalid_model_fields(
+    key: str,
+    value: object,
+    message: str,
+) -> None:
+    config = load_resolved_config(
+        REPOSITORY_ROOT / "studies/study_019_all_ffid_25pct_neighbor_inpainter/config.yaml"
+    )
+    config["model"]["name"] = "shared_offset_attention_inpainter"
+    config["model"]["neighbor_gating"] = "offset_target_time_masked_softmax"
+    config["model"][key] = value
+
+    with pytest.raises(ConfigurationError, match=message):
+        _validated_settings(config, device_override="cpu")
+
+
+def test_legacy_neighbor_model_rejects_offset_time_attention_gating() -> None:
+    config = load_resolved_config(
+        REPOSITORY_ROOT / "studies/study_019_all_ffid_25pct_neighbor_inpainter/config.yaml"
+    )
+    config["model"]["neighbor_gating"] = "offset_target_time_masked_softmax"
+
+    with pytest.raises(ConfigurationError, match="requires model.name"):
+        _validated_settings(config, device_override="cpu")
+
+
+def test_legacy_neighbor_model_rejects_shared_attention_only_fields() -> None:
+    config = load_resolved_config(
+        REPOSITORY_ROOT / "studies/study_019_all_ffid_25pct_neighbor_inpainter/config.yaml"
+    )
+    config["model"]["attention_width"] = 16
+
+    with pytest.raises(ConfigurationError, match="shared offset attention fields require"):
+        _validated_settings(config, device_override="cpu")
 
 
 @pytest.mark.parametrize(

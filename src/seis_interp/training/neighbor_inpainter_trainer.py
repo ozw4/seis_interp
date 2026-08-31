@@ -12,9 +12,9 @@ from typing import Protocol
 
 import torch
 
-from seis_interp.models.neighbor_trace_inpainter import NeighborTraceInpainter
 from seis_interp.training.amplitude_scaling import ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
 from seis_interp.training.neighbor_inpainter_checkpoints import (
+    NeighborInpainterModel,
     save_neighbor_inpainter_checkpoint,
 )
 
@@ -52,7 +52,7 @@ class NeighborInpainterBatchProvider(Protocol):
 class NeighborInpainterValidationEvaluator(Protocol):
     """Return raw global validation S/N for the supplied model."""
 
-    def __call__(self, model: NeighborTraceInpainter) -> float: ...
+    def __call__(self, model: NeighborInpainterModel) -> float: ...
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ class NeighborInpainterTrainingResult:
 
 
 def train_neighbor_trace_inpainter(
-    model: NeighborTraceInpainter,
+    model: NeighborInpainterModel,
     batch_provider: NeighborInpainterBatchProvider,
     validation_evaluator: NeighborInpainterValidationEvaluator,
     *,
@@ -201,8 +201,9 @@ def train_neighbor_trace_inpainter(
                     best_step=best_step,
                     best_validation_global_snr_db=best_validation_global_snr_db,
                 )
+            progress_name = getattr(model, "model_name", "neighbor_trace_inpainter")
             report(
-                f"neighbor_trace_inpainter {step}/{steps}: "
+                f"{progress_name} {step}/{steps}: "
                 f"loss={history_row['loss']:.8g} mse={history_row['mse']:.8g} "
                 f"derivative_mse={history_row['derivative_mse']:.8g} "
                 f"learning_rate={learning_rate_at_step:.8g} "
@@ -224,7 +225,7 @@ def train_neighbor_trace_inpainter(
 def _validated_batch(
     batch: object,
     *,
-    model: NeighborTraceInpainter,
+    model: NeighborInpainterModel,
     batch_size: int,
 ) -> NeighborInpainterBatch:
     if not isinstance(batch, tuple) or len(batch) != 4:

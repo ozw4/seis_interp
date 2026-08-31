@@ -37,6 +37,19 @@ from seis_interp.models.neighbor_trace_inpainter import (
     TARGET_COORDINATE_MASKED_SOFTMAX_GATING,
     NeighborTraceInpainter,
 )
+from seis_interp.models.shared_offset_attention_inpainter import (
+    DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
+    DEFAULT_ATTENTION_WIDTH,
+    DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
+    DEFAULT_NEIGHBOR_FEATURE_WIDTH,
+    DISTANCE_PRIOR_SHIFTED_NEIGHBOR_REFERENCE,
+    OFFSET_ORDER_AXES,
+    OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING,
+    SharedOffsetAttentionInpainter,
+)
+from seis_interp.models.shared_offset_attention_inpainter import (
+    MODEL_NAME as SHARED_OFFSET_ATTENTION_MODEL_NAME,
+)
 from seis_interp.pipelines.train_siren import (
     CHECKPOINT_RELATIVE_PATH,
     PROCESSED_INPUT_FILE_NAMES,
@@ -80,6 +93,7 @@ from seis_interp.training.amplitude_scaling import (
     per_trace_rms_scaled_amplitudes,
 )
 from seis_interp.training.neighbor_inpainter_checkpoints import (
+    NeighborInpainterModel,
     load_neighbor_inpainter_checkpoint,
 )
 from seis_interp.training.neighbor_inpainter_trainer import (
@@ -146,7 +160,12 @@ _AVAILABILITY_CHUNK_SIZE = 65536
 @dataclass(frozen=True)
 class _TrainingSettings:
     random_seed: int
+    model_name: str
     hidden_width: int
+    neighbor_feature_width: int
+    attention_width: int
+    coarse_shift_samples_per_relative_receiver_y_index: int
+    attention_geometry_prior_scale: float
     target_coordinates: tuple[str, ...]
     stem_kernel_size: int
     residual_kernel_size: int
@@ -364,11 +383,11 @@ class _RawGlobalSnrEvaluator:
         if self.clean_mask.shape != (len(self.target_positions),):
             raise ValueError("clean validation mask must match target positions")
 
-    def __call__(self, model: NeighborTraceInpainter) -> float:
+    def __call__(self, model: NeighborInpainterModel) -> float:
         return self.evaluate(model).raw_global_snr_db
 
     @torch.inference_mode()
-    def evaluate(self, model: NeighborTraceInpainter) -> _EvaluationResult:
+    def evaluate(self, model: NeighborInpainterModel) -> _EvaluationResult:
         model.eval()
         signal_energy = 0.0
         error_energy = 0.0
@@ -592,18 +611,7 @@ def train_neighbor_inpainter_run(
         batch_size=settings.validation_batch_size,
         use_bfloat16=settings.mixed_precision == MIXED_PRECISION,
     )
-    model = NeighborTraceInpainter(
-        neighbor_count=geometry.neighbor_count,
-        width=settings.hidden_width,
-        target_coordinate_count=len(settings.target_coordinates),
-        stem_kernel_size=settings.stem_kernel_size,
-        residual_kernel_size=settings.residual_kernel_size,
-        temporal_dilations=settings.temporal_dilations,
-        coordinate_conditioning=settings.coordinate_conditioning,
-        neighbor_gating=settings.neighbor_gating,
-        neighbor_alignment_kernel_size=settings.neighbor_alignment_kernel_size,
-        prediction_reference=settings.prediction_reference,
-    )
+    model = _build_inpainter_model(settings, geometry)
     generator = torch.Generator(device=device).manual_seed(
         settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
     )
@@ -695,23 +703,11 @@ def train_neighbor_inpainter_run(
         recomputed_metric=best_validation.raw_global_snr_db,
     )
     training_contract = _training_contract(settings, result, batch_provider)
-    model_contract = {
-        "name": MODEL_NAME,
-        "hidden_width": settings.hidden_width,
-        "neighbor_count": geometry.neighbor_count,
-        "input_channels": checkpoint.model.input_channels,
-        "parameter_count": sum(parameter.numel() for parameter in checkpoint.model.parameters()),
-        "temporal_dilations": list(checkpoint.model.temporal_dilations),
-        "stem_kernel_size": checkpoint.model.stem.kernel_size[0],
-        "residual_kernel_size": checkpoint.model.blocks[0].kernel_size,
-        "target_coordinates": list(settings.target_coordinates),
-        "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
-        "coordinate_conditioning": checkpoint.model.coordinate_conditioning,
-        "neighbor_gating": checkpoint.model.neighbor_gating,
-        "neighbor_alignment_kernel_size": checkpoint.model.neighbor_alignment_kernel_size,
-        "neighbor_alignment": _neighbor_alignment_contract(checkpoint.model),
-        "prediction_reference": checkpoint.model.prediction_reference,
-    }
+    model_contract = _model_contract(
+        checkpoint.model,
+        settings=settings,
+        geometry=geometry,
+    )
     checkpoint_contract = {
         "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
         "selection_metric": PRIMARY_METRIC,
@@ -802,7 +798,7 @@ def _validated_settings(
     *,
     device_override: str | None,
 ) -> _TrainingSettings:
-    _require_exact(config, "model.name", MODEL_NAME)
+    model_name = _validated_model_name(config)
     _require_exact(config, "model.target_coordinate_scaling", TARGET_COORDINATE_SCALING)
     (
         neighbor_geometry,
@@ -835,10 +831,49 @@ def _validated_settings(
     coordinate_conditioning = _validated_coordinate_conditioning(config)
     neighbor_gating = _validated_neighbor_gating(config)
     neighbor_alignment_kernel_size = _validated_neighbor_alignment_kernel_size(config)
-    prediction_reference = _validated_prediction_reference(config)
+    prediction_reference = _validated_prediction_reference(config, model_name=model_name)
     hidden_width = _positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
+    (
+        neighbor_feature_width,
+        attention_width,
+        coarse_shift_samples_per_relative_receiver_y_index,
+        attention_geometry_prior_scale,
+    ) = _validated_shared_offset_attention_settings(config, model_name=model_name)
+    if model_name == SHARED_OFFSET_ATTENTION_MODEL_NAME:
+        if neighbor_geometry != MULTILINE_GEOMETRY:
+            raise ConfigurationError(
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r} requires "
+                f"model.neighborhood.type={MULTILINE_GEOMETRY!r}"
+            )
+        if tuple(expected_target_coordinates) != tuple(MULTILINE_TARGET_COORDINATE_ORDER):
+            raise ConfigurationError(
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r} requires four-axis "
+                "multiline target coordinates"
+            )
+        if coordinate_conditioning != "film":
+            raise ConfigurationError(
+                f"model.coordinate_conditioning must be 'film' for "
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}"
+            )
+        if neighbor_gating != OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING:
+            raise ConfigurationError(
+                f"model.neighbor_gating must be "
+                f"{OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING!r} for "
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}"
+            )
+        if neighbor_alignment_kernel_size != DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE:
+            raise ConfigurationError(
+                "model.neighbor_alignment_kernel_size must be 1 for "
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}; coarse alignment "
+                "is controlled by model.coarse_shift_samples_per_relative_receiver_y_index"
+            )
+    elif neighbor_gating == OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING:
+        raise ConfigurationError(
+            f"model.neighbor_gating={OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING!r} requires "
+            f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}"
+        )
     _require_exact(
         config,
         "sampling.duplicate_physical_coordinate_policy",
@@ -897,7 +932,14 @@ def _validated_settings(
         raise ConfigurationError("training.device must be a non-empty string")
     return _TrainingSettings(
         random_seed=random_seed,
+        model_name=model_name,
         hidden_width=hidden_width,
+        neighbor_feature_width=neighbor_feature_width,
+        attention_width=attention_width,
+        coarse_shift_samples_per_relative_receiver_y_index=(
+            coarse_shift_samples_per_relative_receiver_y_index
+        ),
+        attention_geometry_prior_scale=attention_geometry_prior_scale,
         target_coordinates=target_coordinates,
         stem_kernel_size=stem_kernel_size,
         residual_kernel_size=residual_kernel_size,
@@ -1020,6 +1062,67 @@ def _validated_positive_integer_list(value: object, name: str) -> tuple[int, ...
     return tuple(_positive_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
 
 
+def _validated_model_name(config: Mapping[str, object]) -> str:
+    value = get_required_config_value(config, "model.name")
+    supported = {MODEL_NAME, SHARED_OFFSET_ATTENTION_MODEL_NAME}
+    if not isinstance(value, str) or value not in supported:
+        raise ConfigurationError(f"model.name must be one of {sorted(supported)}, got {value!r}")
+    return value
+
+
+def _validated_shared_offset_attention_settings(
+    config: Mapping[str, object],
+    *,
+    model_name: str,
+) -> tuple[int, int, int, float]:
+    model = config.get("model")
+    if not isinstance(model, Mapping):
+        raise ConfigurationError("model configuration must be a mapping")
+    if model_name != SHARED_OFFSET_ATTENTION_MODEL_NAME:
+        shared_only_fields = {
+            "neighbor_feature_width",
+            "attention_width",
+            "coarse_shift_samples_per_relative_receiver_y_index",
+            "attention_geometry_prior_scale",
+        }
+        unexpected = sorted(shared_only_fields.intersection(model))
+        if unexpected:
+            raise ConfigurationError(
+                f"shared offset attention fields require "
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}: {unexpected}"
+            )
+        return (
+            DEFAULT_NEIGHBOR_FEATURE_WIDTH,
+            DEFAULT_ATTENTION_WIDTH,
+            DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
+            DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
+        )
+    return (
+        _positive_integer(
+            model.get("neighbor_feature_width", DEFAULT_NEIGHBOR_FEATURE_WIDTH),
+            "model.neighbor_feature_width",
+        ),
+        _positive_integer(
+            model.get("attention_width", DEFAULT_ATTENTION_WIDTH),
+            "model.attention_width",
+        ),
+        _nonnegative_integer(
+            model.get(
+                "coarse_shift_samples_per_relative_receiver_y_index",
+                DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX,
+            ),
+            "model.coarse_shift_samples_per_relative_receiver_y_index",
+        ),
+        _nonnegative_float(
+            model.get(
+                "attention_geometry_prior_scale",
+                DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
+            ),
+            "model.attention_geometry_prior_scale",
+        ),
+    )
+
+
 def _validated_coordinate_conditioning(config: Mapping[str, object]) -> str:
     model = config.get("model")
     if not isinstance(model, Mapping):
@@ -1038,7 +1141,11 @@ def _validated_neighbor_gating(config: Mapping[str, object]) -> str:
     if not isinstance(model, Mapping):
         raise ConfigurationError("model configuration must be a mapping")
     value = model.get("neighbor_gating", DEFAULT_NEIGHBOR_GATING)
-    supported = {DEFAULT_NEIGHBOR_GATING, TARGET_COORDINATE_MASKED_SOFTMAX_GATING}
+    supported = {
+        DEFAULT_NEIGHBOR_GATING,
+        TARGET_COORDINATE_MASKED_SOFTMAX_GATING,
+        OFFSET_TARGET_TIME_MASKED_SOFTMAX_GATING,
+    }
     if not isinstance(value, str) or value not in supported:
         raise ConfigurationError(
             f"model.neighbor_gating must be one of {sorted(supported)}, got {value!r}"
@@ -1059,10 +1166,26 @@ def _validated_neighbor_alignment_kernel_size(config: Mapping[str, object]) -> i
     )
 
 
-def _validated_prediction_reference(config: Mapping[str, object]) -> str:
+def _validated_prediction_reference(
+    config: Mapping[str, object],
+    *,
+    model_name: str,
+) -> str:
     model = config.get("model")
     if not isinstance(model, Mapping):
         raise ConfigurationError("model configuration must be a mapping")
+    if model_name == SHARED_OFFSET_ATTENTION_MODEL_NAME:
+        value = model.get(
+            "prediction_reference",
+            DISTANCE_PRIOR_SHIFTED_NEIGHBOR_REFERENCE,
+        )
+        if value != DISTANCE_PRIOR_SHIFTED_NEIGHBOR_REFERENCE:
+            raise ConfigurationError(
+                f"model.prediction_reference must be "
+                f"{DISTANCE_PRIOR_SHIFTED_NEIGHBOR_REFERENCE!r} for "
+                f"model.name={SHARED_OFFSET_ATTENTION_MODEL_NAME!r}"
+            )
+        return DISTANCE_PRIOR_SHIFTED_NEIGHBOR_REFERENCE
     value = model.get("prediction_reference", DEFAULT_PREDICTION_REFERENCE)
     supported = {
         DEFAULT_PREDICTION_REFERENCE,
@@ -1117,6 +1240,44 @@ def _build_neighbor_geometry(
         source_x_line_radius=settings.source_x_line_radius,
         source_y_half_shot_radius=settings.source_y_half_shot_radius,
         relative_receiver_y_radius=settings.relative_receiver_y_radius,
+    )
+
+
+def _build_inpainter_model(
+    settings: _TrainingSettings,
+    geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
+) -> NeighborTraceInpainter | SharedOffsetAttentionInpainter:
+    if settings.model_name == MODEL_NAME:
+        return NeighborTraceInpainter(
+            neighbor_count=geometry.neighbor_count,
+            width=settings.hidden_width,
+            target_coordinate_count=len(settings.target_coordinates),
+            stem_kernel_size=settings.stem_kernel_size,
+            residual_kernel_size=settings.residual_kernel_size,
+            temporal_dilations=settings.temporal_dilations,
+            coordinate_conditioning=settings.coordinate_conditioning,
+            neighbor_gating=settings.neighbor_gating,
+            neighbor_alignment_kernel_size=settings.neighbor_alignment_kernel_size,
+            prediction_reference=settings.prediction_reference,
+        )
+    if settings.model_name != SHARED_OFFSET_ATTENTION_MODEL_NAME:
+        raise AssertionError(f"unsupported validated model: {settings.model_name}")
+    offsets = geometry.offsets
+    if any(len(offset) != len(OFFSET_ORDER_AXES) for offset in offsets):
+        raise AssertionError("shared offset attention requires four-axis multiline offsets")
+    return SharedOffsetAttentionInpainter(
+        neighbor_offsets=offsets,
+        width=settings.hidden_width,
+        neighbor_feature_width=settings.neighbor_feature_width,
+        attention_width=settings.attention_width,
+        target_coordinate_count=len(settings.target_coordinates),
+        stem_kernel_size=settings.stem_kernel_size,
+        residual_kernel_size=settings.residual_kernel_size,
+        temporal_dilations=settings.temporal_dilations,
+        coarse_shift_samples_per_relative_receiver_y_index=(
+            settings.coarse_shift_samples_per_relative_receiver_y_index
+        ),
+        attention_geometry_prior_scale=settings.attention_geometry_prior_scale,
     )
 
 
@@ -1452,6 +1613,73 @@ def _training_contract(
         "unique_training_targets_seen": provider.unique_target_count,
         "training_audit_count": settings.training_audit_count,
         "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+    }
+
+
+def _model_contract(
+    model: NeighborTraceInpainter | SharedOffsetAttentionInpainter,
+    *,
+    settings: _TrainingSettings,
+    geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
+) -> dict[str, object]:
+    common = {
+        "name": settings.model_name,
+        "hidden_width": settings.hidden_width,
+        "neighbor_count": geometry.neighbor_count,
+        "input_channels": model.input_channels,
+        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+        "temporal_dilations": list(model.temporal_dilations),
+        "stem_kernel_size": model.stem.kernel_size[0],
+        "residual_kernel_size": model.blocks[0].kernel_size,
+        "target_coordinates": list(settings.target_coordinates),
+        "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
+        "coordinate_conditioning": model.coordinate_conditioning,
+        "neighbor_gating": model.neighbor_gating,
+        "prediction_reference": model.prediction_reference,
+    }
+    if isinstance(model, NeighborTraceInpainter):
+        return {
+            **common,
+            "neighbor_alignment_kernel_size": model.neighbor_alignment_kernel_size,
+            "neighbor_alignment": _neighbor_alignment_contract(model),
+        }
+    if not isinstance(model, SharedOffsetAttentionInpainter):
+        raise TypeError(f"unsupported neighbor inpainter model: {type(model).__name__}")
+    exact_offsets = tuple(
+        tuple(int(component) for component in offset)
+        for offset in model.neighbor_offsets.detach().cpu().tolist()
+    )
+    if exact_offsets != geometry.offsets:
+        raise RuntimeError("checkpoint model offsets do not match pipeline geometry order")
+    return {
+        **common,
+        "neighbor_feature_width": model.neighbor_feature_width,
+        "attention_width": model.attention_width,
+        "offset_order": [list(offset) for offset in exact_offsets],
+        "offset_order_axes": list(OFFSET_ORDER_AXES),
+        "offset_order_source": "pipeline_geometry_exact",
+        "coarse_alignment": {
+            "type": "zero_padded_integer_shift",
+            "samples_per_relative_receiver_y_index": (
+                model.coarse_shift_samples_per_relative_receiver_y_index
+            ),
+            "source_sample_index": "output_sample_index_minus_shift",
+            "circular_wrap": False,
+        },
+        "attention": {
+            "type": "offset_target_time_content_masked_softmax",
+            "complexity": "O(B*K*T)",
+            "geometry_prior": "-(drx^2+16*dsx^2+dsy^2+dry^2)",
+            "geometry_prior_scale": model.attention_geometry_prior_scale,
+            "unavailable_weight": 0.0,
+            "all_unavailable_weights": "finite_zero",
+        },
+        "shared_neighbor_encoder": {
+            "shared_across_offsets": True,
+            "feature_width": model.neighbor_feature_width,
+            "offset_conditioning": "film",
+        },
+        "residual_decoder_initialization": "zero_final_projection",
     }
 
 

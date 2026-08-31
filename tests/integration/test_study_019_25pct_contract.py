@@ -80,6 +80,42 @@ def test_stage02_adds_only_the_masked_aligned_neighbor_reference() -> None:
     assert settings.neighbor_alignment_kernel_size == 31
 
 
+def test_stage03_uses_k274_shared_offset_attention() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage03_shared_offset_attention.yaml"
+    )
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.model_name == "shared_offset_attention_inpainter"
+    assert settings.neighbor_feature_width == 8
+    assert settings.attention_width == 16
+    assert settings.neighbor_gating == "offset_target_time_masked_softmax"
+    assert settings.neighbor_alignment_kernel_size == 1
+    assert settings.prediction_reference == "distance_prior_shifted_neighbor_mean"
+    assert settings.coarse_shift_samples_per_relative_receiver_y_index == 3
+    assert settings.attention_geometry_prior_scale == 0.1
+    assert settings.relative_receiver_x_radius == 2
+    assert settings.source_x_line_radius == 0
+    assert settings.source_y_half_shot_radius == 4
+    assert settings.relative_receiver_y_radius == 5
+    assert settings.total_steps == 2500
+
+
+def test_stage04_changes_only_the_aperture_and_diagnostic_audit_schedule() -> None:
+    config = load_resolved_config(STUDY_DIRECTORY / "variants" / "stage04_same_line_k734.yaml")
+    settings = _validated_settings(config, device_override="cpu")
+
+    assert settings.model_name == "neighbor_trace_inpainter"
+    assert settings.hidden_width == 384
+    assert settings.relative_receiver_x_radius == 3
+    assert settings.source_x_line_radius == 0
+    assert settings.source_y_half_shot_radius == 6
+    assert settings.relative_receiver_y_radius == 7
+    assert settings.neighbor_alignment_kernel_size == 31
+    assert settings.evaluation_interval_steps == 2500
+    assert settings.training_audit_count == 10000
+
+
 def test_study_019_inputs_lock_split_and_canonical_counts() -> None:
     inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text(encoding="utf-8"))
     (dataset,) = inputs["datasets"]

@@ -28,7 +28,7 @@ later gains to neighborhood, model, objective, or budget changes.
 
 ## 2026-08-31 — Test a train-neighbor reference before a new model family
 
-**Status:** active
+**Status:** rejected
 
 **Decision:** Stage 02 adds the availability-masked, coordinate-gated, aligned
 neighbor mean directly to a zero-initialized CNN residual. All split, aperture,
@@ -39,3 +39,26 @@ only about 55 train traces. Supplying their coherent component as an explicit
 reference tests whether the existing CNN is spending its limited budget
 reconstructing a baseline waveform from zero. The mode is optional so legacy
 models and checkpoints retain their exact behavior.
+
+**Result:** Stage 02 reached `14.22890961173312 dB`, only
+`+0.006065316774276797 dB` above Stage 01 at the same 2,500-update budget. This
+is not a material gain, so the condition is not promoted to longer training.
+
+## 2026-08-31 — Isolate geometry-aware fusion from aperture density
+
+**Status:** active
+
+**Decision:** After the residual-reference control, Stage 03 keeps K274 and
+replaces the offset-specific input stem with a shared temporal encoder,
+zero-padded receiver-y coarse shifts, and offset/target/time/content-conditioned
+masked attention. Stage 04 separately keeps the accepted temporal CNN and grows
+only the same-source-line aperture from K274 to K734.
+
+**Reason:** The K274 validation neighborhood falls from about 110 available
+train traces at 50% density to about 55 at 25%. Shared offset attention tests
+whether explicit geometry and time-dependent fusion improve use of those traces;
+K734 independently raises mean availability to about 133. Keeping the two
+changes separate identifies representation versus neighbor-density effects.
+The Stage 03 distance-prior scale is 0.1: at scale 1.0 the sparse K274 mask
+would leave an effective attention support of only about 2.5 neighbors and
+nearly eliminate gradients to distant offsets before learning.

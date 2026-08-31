@@ -5,11 +5,15 @@ from seis_interp.models.neighbor_trace_inpainter import (
     NeighborTraceInpainter,
     TemporalResidualBlock,
 )
+from seis_interp.models.shared_offset_attention_inpainter import (
+    SharedOffsetAttentionInpainter,
+)
 from seis_interp.models.siren import SineLayer, Siren
 
 __all__ = [
     "TEMPORAL_DILATIONS",
     "NeighborTraceInpainter",
+    "SharedOffsetAttentionInpainter",
     "SineLayer",
     "Siren",
     "TemporalResidualBlock",
