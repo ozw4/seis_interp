@@ -17,6 +17,7 @@ DEFAULT_STEM_KERNEL_SIZE = 7
 DEFAULT_RESIDUAL_KERNEL_SIZE = 3
 DEFAULT_TEMPORAL_DILATIONS = (1, 2, 4, 8, 4, 2, 1)
 DEFAULT_DISTANCE_EPSILON = 1.0e-6
+DEFAULT_DISTANCE_POWER = 1.0
 MOMENTS_SOURCE_FEATURE_MODE = "moments"
 ORDERED_RAW_SOURCE_FEATURE_MODE = "ordered_raw"
 SOURCE_FEATURE_MODES = (
@@ -69,6 +70,7 @@ def inverse_distance_reference(
     source_deltas: torch.Tensor,
     *,
     distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
+    distance_power: float = DEFAULT_DISTANCE_POWER,
 ) -> torch.Tensor:
     """Return a receiver-wise inverse-distance blend with shape ``[B, 8, 68, T]``.
 
@@ -78,10 +80,12 @@ def inverse_distance_reference(
     """
     _validated_reference_inputs(neighbors, availability, source_deltas)
     epsilon = _positive_finite_float(distance_epsilon, "distance_epsilon")
+    power = _positive_finite_float(distance_power, "distance_power")
     weights, _directions = _inverse_distance_weights(
         availability,
         source_deltas,
         distance_epsilon=epsilon,
+        distance_power=power,
     )
     return torch.sum(neighbors * weights[..., None], dim=1)
 
@@ -220,6 +224,7 @@ class ShotGatherInpainter(nn.Module):
         stem_kernel_size: int = DEFAULT_STEM_KERNEL_SIZE,
         residual_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
+        distance_power: float = DEFAULT_DISTANCE_POWER,
         source_feature_mode: str = MOMENTS_SOURCE_FEATURE_MODE,
         source_gather_count: int | None = None,
         receiver_position_conditioning: str = NO_RECEIVER_POSITION_CONDITIONING,
@@ -240,6 +245,7 @@ class ShotGatherInpainter(nn.Module):
             distance_epsilon,
             "distance_epsilon",
         )
+        self.distance_power = _positive_finite_float(distance_power, "distance_power")
         self.source_feature_mode = _validated_source_feature_mode(source_feature_mode)
         self.source_gather_count = _validated_source_gather_count(
             source_gather_count,
@@ -315,6 +321,7 @@ class ShotGatherInpainter(nn.Module):
             availability,
             source_deltas,
             distance_epsilon=self.distance_epsilon,
+            distance_power=self.distance_power,
         )
         reference = torch.sum(neighbors * weights[..., None], dim=1)
         if self.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
@@ -478,6 +485,7 @@ def _inverse_distance_weights(
     source_deltas: torch.Tensor,
     *,
     distance_epsilon: float,
+    distance_power: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     calculation_dtype = (
         torch.float32
@@ -491,7 +499,7 @@ def _inverse_distance_weights(
         raise ValueError("every available source gather must have a non-zero source delta")
 
     safe_distance = distance.clamp_min(distance_epsilon)
-    log_inverse_distance = -torch.log(safe_distance)
+    log_inverse_distance = -distance_power * torch.log(safe_distance)
     expanded_log_weights = log_inverse_distance[:, :, None, None].expand_as(availability)
     minimum = torch.finfo(calculation_dtype).min
     masked_log_weights = expanded_log_weights.masked_fill(~availability, minimum)

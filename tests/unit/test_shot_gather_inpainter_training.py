@@ -37,6 +37,7 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
         stem_kernel_size=5,
         residual_kernel_size=3,
         distance_epsilon=2.0e-5,
+        distance_power=2.0,
     )
     with torch.no_grad():
         model.head[-1].bias.fill_(0.25)
@@ -66,6 +67,7 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
     assert loaded.model.temporal_dilations == (1, 2)
     assert loaded.model.spatial_y_dilations == (1, 3)
     assert loaded.model.distance_epsilon == 2.0e-5
+    assert loaded.model.distance_power == 2.0
     for expected, actual in zip(
         model.state_dict().values(),
         loaded.model.state_dict().values(),
@@ -173,6 +175,7 @@ def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
     del payload["model_config"]["source_feature_mode"]
     del payload["model_config"]["source_gather_count"]
     del payload["model_config"]["receiver_position_conditioning"]
+    del payload["model_config"]["distance_power"]
     del payload["input_feature_schema"]["source_feature_mode"]
     del payload["input_feature_schema"]["source_gather_count"]
     torch.save(payload, path)
@@ -183,6 +186,7 @@ def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
     assert loaded.source_gather_count is None
     assert loaded.input_feature_schema_version == 1
     assert loaded.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
+    assert loaded.model.distance_power == 1.0
     assert loaded.model.state_dict().keys() == model.state_dict().keys()
     for name, expected in model.state_dict().items():
         torch.testing.assert_close(

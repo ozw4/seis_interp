@@ -70,6 +70,23 @@ def test_inverse_distance_reference_is_receiver_wise_and_masks_missing_sources()
     torch.testing.assert_close(reference[0, 0, 1], torch.zeros(3))
 
 
+def test_inverse_distance_reference_supports_squared_distance_weights() -> None:
+    neighbors = torch.empty(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 1)
+    neighbors[:, 0].fill_(2.0)
+    neighbors[:, 1].fill_(6.0)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    source_deltas = torch.tensor([[[1.0, 0.0], [3.0, 0.0]]])
+
+    reference = inverse_distance_reference(
+        neighbors,
+        availability,
+        source_deltas,
+        distance_power=2.0,
+    )
+
+    torch.testing.assert_close(reference, torch.full_like(reference, 2.4))
+
+
 def test_inverse_distance_reference_is_finite_for_low_precision_close_sources() -> None:
     neighbors = torch.tensor([1.0, 3.0], dtype=torch.float16).view(1, 2, 1, 1, 1)
     neighbors = neighbors.expand(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 1)

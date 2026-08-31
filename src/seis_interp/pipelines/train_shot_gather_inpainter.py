@@ -22,6 +22,7 @@ from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
 from seis_interp.models.shot_gather_inpainter import (
+    DEFAULT_DISTANCE_POWER,
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
@@ -128,6 +129,7 @@ class _TrainingSettings:
     temporal_dilations: tuple[int, ...]
     spatial_y_dilations: tuple[int, ...]
     distance_epsilon: float
+    distance_power: float
     source_feature_mode: str
     receiver_position_conditioning: str
     source_gather_count: int
@@ -666,6 +668,7 @@ def train_shot_gather_inpainter_run(
         stem_kernel_size=settings.stem_kernel_size,
         residual_kernel_size=settings.residual_kernel_size,
         distance_epsilon=settings.distance_epsilon,
+        distance_power=settings.distance_power,
         source_feature_mode=settings.source_feature_mode,
         source_gather_count=(
             settings.source_gather_count
@@ -1008,6 +1011,10 @@ def _validated_settings(
             get_required_config_value(config, "model.distance_epsilon"),
             "model.distance_epsilon",
         ),
+        distance_power=_positive_float(
+            model_config.get("distance_power", DEFAULT_DISTANCE_POWER),
+            "model.distance_power",
+        ),
         source_feature_mode=str(source_feature_mode),
         receiver_position_conditioning=str(receiver_position_conditioning),
         source_gather_count=source_gather_count,
@@ -1310,6 +1317,7 @@ def _model_contract(
         "stem_kernel_size": model.stem_kernel_size,
         "residual_kernel_size": model.residual_kernel_size,
         "distance_epsilon": model.distance_epsilon,
+        "distance_power": model.distance_power,
         "target_coordinates": list(TARGET_COORDINATES),
         "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
         "receiver_grid_shape": [RECEIVER_X_COUNT, RECEIVER_Y_COUNT],

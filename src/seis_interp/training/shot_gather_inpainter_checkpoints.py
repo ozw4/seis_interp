@@ -11,6 +11,7 @@ from pathlib import Path
 import torch
 
 from seis_interp.models.shot_gather_inpainter import (
+    DEFAULT_DISTANCE_POWER,
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
@@ -76,6 +77,7 @@ def save_shot_gather_inpainter_checkpoint(
                 "stem_kernel_size": model.stem_kernel_size,
                 "residual_kernel_size": model.residual_kernel_size,
                 "distance_epsilon": model.distance_epsilon,
+                "distance_power": model.distance_power,
                 "source_feature_mode": model.source_feature_mode,
                 "source_gather_count": model.source_gather_count,
                 "receiver_position_conditioning": model.receiver_position_conditioning,
@@ -129,6 +131,7 @@ def load_shot_gather_inpainter_checkpoint(
             stem_kernel_size=model_config["stem_kernel_size"],
             residual_kernel_size=model_config["residual_kernel_size"],
             distance_epsilon=model_config["distance_epsilon"],
+            distance_power=model_config.get("distance_power", DEFAULT_DISTANCE_POWER),
             source_feature_mode=model_config.get(
                 "source_feature_mode",
                 MOMENTS_SOURCE_FEATURE_MODE,

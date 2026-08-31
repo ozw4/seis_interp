@@ -306,6 +306,20 @@ def test_stage15_changes_only_joint_shot_gather_source_count_from_stage09() -> N
     assert settings.spatial_y_dilations == (1, 1, 1, 1, 1, 1, 1)
 
 
+def test_stage16_changes_only_joint_shot_gather_distance_power_from_stage09() -> None:
+    config = load_resolved_config(
+        STUDY_DIRECTORY / "variants" / "stage16_joint_shot_gather_distance_power2.yaml"
+    )
+    settings = _validated_shot_gather_settings(config, device_override="cpu")
+
+    assert settings.hidden_width == 32
+    assert settings.source_gather_count == 8
+    assert settings.distance_power == 2.0
+    assert settings.derivative_weight == 0.1
+    assert settings.neighbor_dropout == 0.05
+    assert settings.total_steps == 2500
+
+
 def test_stage17_matches_training_loss_to_the_primary_metric() -> None:
     config = load_resolved_config(
         STUDY_DIRECTORY / "variants" / "stage17_joint_shot_gather_primary_mse.yaml"
