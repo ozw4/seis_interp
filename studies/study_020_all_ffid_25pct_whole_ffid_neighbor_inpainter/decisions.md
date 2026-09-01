@@ -87,7 +87,7 @@ non-train sources, zero target-FFID sources, and zero same-source-y sources.
 
 ## 2026-08-31 — Combine coverage and source reference only after independent promotion
 
-**Status:** active
+**Status:** superseded for post-Stage-05 work by the continuation decision below
 
 **Decision:** Run a 2,500-step Stage 05 with K1374 plus the exact-receiver
 bracketing reference only if K1374 and K274-plus-reference each improve the
@@ -166,10 +166,11 @@ regularization one mechanism at a time.
 
 **Reason:** Whole-FFID withholding removes a complete shot rather than isolated
 traces, so receiver coherence is potentially useful. The path also provides a
-formal home for train-only source-lattice diagnostics. Stages 09--17 all passed
-the same split, amplitude-access, collision, target-mask, and checkpoint checks.
-The strongest short joint-shot result so far is 7.028111512586028 dB, below the
-trace-model best.
+formal home for train-only source-lattice diagnostics. All completed formal runs
+in Stages 09--14 and 16--17 passed the same split, amplitude-access, collision,
+target-mask, and checkpoint checks. Stage 15 had no formal run. The strongest
+short joint-shot result so far is 7.028111512586028 dB, below the trace-model
+best.
 
 ## 2026-08-31 — Promote capacity and squared-distance weighting only
 
@@ -188,3 +189,22 @@ at 6.443429389385823 dB. In contrast, K16/K32 geometry diagnostics degraded the
 reference, and the rejected mechanisms changed Stage 09 or Stage 12 by at most
 0.036650567075181 dB. Combination and budget runs preserve the original split
 and acceptance rule.
+
+## 2026-09-01 — Promote the observed joint-shot interactions
+
+**Status:** active
+
+**Decision:** Record neighbor-dropout removal as rejected. Promote the
+time-varying, zero-initialized source-attention ablation as Stage 21. Because
+Stage 19 exceeds Stage 12 by more than 0.20 dB, combine its 6,000-step budget
+with the already promoted squared-distance reference as Stage 22. Stage 21
+changes source weighting only; Stage 22 changes budget only relative to Stage
+20. Keep the split, raw metric, checkpoint selection, and scope rules fixed.
+
+**Reason:** Stage 18 measured 6.782754397212449 dB, only
++0.000066288613979 dB above Stage 09. Stage 20 measured
+7.284502495688106 dB, +0.273948937646145 dB over Stage 12. Stage 19 measured
+7.409153447682268 dB after 6,000 steps, +0.398599889640307 dB over Stage 12;
+its second half still added 0.264818095201537 dB. This supplies the predeclared
+promotion evidence for Stage 22 while Stage 21 addresses the independently
+diagnosed time-, receiver-, and source-dependent weighting error.

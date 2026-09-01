@@ -48,16 +48,17 @@ is not dropped out, and excludes the target FFID and same source-y. Later stages
 change one mechanism at a time. If both complete K1374 coverage and the
 bracketing reference improve Stage 01 by at least 0.20 dB, Stage 05 combines
 only those two promoted changes. A longer run is promoted only when its matched
-diagnostic shows a material gain and the measured curve leaves an
-evidence-backed path to 25 dB.
+diagnostic shows a material gain. Budget-only 10,000- or 50,000-step extensions
+also require the measured curve to leave an evidence-backed path to 25 dB;
+short sweep-coverage diagnostics remain isolated continuation experiments.
 
 ## Results
 
 All completed full-scope runs passed their FFID isolation, amplitude access,
 collision, target-FFID masking, and checkpoint-revalidation checks. Stages
-01--05 established complete trace-neighbor coverage; the continuation then
-isolated sampling, budget, representation, joint-shot capacity, and geometry
-conditioning:
+01--05 isolated the effect of source support, and Stage 03 established complete
+trace-neighbor coverage. The continuation then isolated sampling, budget,
+representation, joint-shot capacity, and geometry conditioning:
 
 | Stage | Isolated condition | Validation S/N |
 |---:|---|---:|
@@ -85,12 +86,21 @@ worse than Stage 03.
 | 14 | Stage 12 + receiver-cell learned FiLM | 7.028111512586028 dB |
 | 16 | Stage 09 + inverse-distance power 2 | 6.998159535214238 dB |
 | 17 | Stage 09 + pure MSE objective | 6.779432582049562 dB |
+| 18 | Stage 09 without neighbor dropout | 6.782754397212449 dB |
+| 19 | Stage 12 + 6,000 updates / five TRAIN sweeps | 7.409153447682268 dB |
+| 20 | Stage 12 + inverse-distance power 2 | 7.284502495688106 dB |
 
 Stage 07 improved Stage 03 by 0.379849035751157 dB. Its second half improved
 only 0.128858813549325 dB over step 3,015, and the current best remains
 15.900197598253339 dB below the strict threshold. Stage 15 K16 was rejected
 before a formal run because full-validation geometry diagnostics showed K16
 and K32 references below K8; immutable stage numbering is retained.
+
+Removing joint-shot neighbor dropout changed Stage 09 by only
+0.000066288613979 dB. Width 128 plus squared-distance weighting improved
+Stage 12 by 0.273948937646145 dB, while extending width 128 to 6,000 updates
+improved it by 0.398599889640307 dB. Both formal runs retained full scope and
+checkpoint agreement, but neither exceeded the trace-model best.
 
 The matching Study 018 architecture gained 3.656672439472694 dB between its
 2,500- and 50,000-step results. A 2,500-step candidate therefore needed at

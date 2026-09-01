@@ -5,18 +5,19 @@
 - 対象: SEG C3 Narrow-Azimuth、全amplitude-eligible FFID
 - train条件: FFIDを丸ごと1,195 / 4,780個選択（正確に25%）
 - 正式成功条件: `oracle_per_trace_unit_rms_global_snr_db > 25.0`
-- 最良結果: **`8.719953365995504 dB`**（Stage 03、K1374、2,500 step）
-- 閾値までの不足: **`16.280046634004496 dB`**
+- 最良結果: **`9.099802401746661 dB`**（Stage 07、K1374、6,030 step）
+- 閾値までの不足: **`15.900197598253339 dB`**
 - 判定: **未達**（`metric_success=false`、`scope_success=true`、`success=false`）
 
 旧Study 019の「各FFID内のtraceを25%」という解釈を修正し、FFID集合の25%を丸ごと
-trainへ割り当てる実装、processed data、Study 020、5本のimmutable runを新規作成した。
-近傍被覆、crossline、source-y範囲、shot-bracketing reference、両者の組合せを順に
-切り分けた。crossline K1374はK274から`+4.288703991241179 dB`改善したが、25 dBへの
-実測ベースの長期budget昇格基準を大幅に下回ったため、追加budgetは実行しなかった。
+trainへ割り当てる実装、processed data、Study 020、immutable runを新規作成した。
+近傍被覆、crossline、source-y範囲、shot-bracketing referenceを切り分けた後、sampler、
+学習量、whole-shotモデル、source表現、受容野、容量、receiver条件付け、距離重み、lossを
+単独要因として継続評価した。Stage 07はStage 03から`+0.379849035751157 dB`改善したが、
+25 dBには誤差energyをさらに約38.9分の1へ減らす必要がある。
 
 最良runは
-[`20260831T050923Z_31f81ca_stage03_crossline_k1374_2500_steps`](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T050923Z_31f81ca_stage03_crossline_k1374_2500_steps/)
+[`20260831T072719Z_7343bb0_stage07_full_train_sweep_k1374_6030_steps`](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T072719Z_7343bb0_stage07_full_train_sweep_k1374_6030_steps/)
 である。
 
 ## 条件変更
@@ -83,6 +84,16 @@ overlapはいずれも0である。processed contractは
   zero初期化する。
 - split、neighbor、bracketing、checkpoint round-trip、設定契約をunit/integration testsで
   固定した。
+- target samplingへ`epoch_without_replacement`を追加し、sampler RNGをneighbor dropout
+  RNGから分離した。Stage 07では6,030 update × batch 96で全TRAIN traceを少なくとも一巡した。
+- lower/upper bracketを平均せず別channelで保持する表現を追加し、旧referenceと独立比較した。
+- 8 x 68 receiver grid全体を1 targetとして学習する`shot-gather-inpainter` CLI、trainer、
+  checkpoint、formal pipelineを追加した。最近傍TRAIN source gatherだけを入力とし、欠損cellを
+  maskし、step 0をcheckpoint候補に含め、全validation再計算でbest checkpointを検証する。
+- joint-shot入力にsource方向waveform momentとreceiver座標を追加し、ordered raw K8、
+  receiver-y dilation、全時間受容野、width 128、receiver-cell learned FiLMを切替可能にした。
+- inverse-distance referenceの距離指数をcheckpoint互換の設定にし、`1/d`と`1/d²`を同じK8で
+  比較した。旧checkpointは指数1、receiver conditioningなし、moment schemaとして読める。
 
 ## 評価契約
 
@@ -101,9 +112,10 @@ success
 
 ## 段階実験の設計
 
-すべてfresh initialization、2,500 update、同じseedと評価domainを使う。Stage 01から03は
-有限apertureの被覆だけを段階的に変える。Stage 04はStage 01のK274へ戻し、source方向に
-整合したprediction referenceだけを追加する。
+すべてfresh initialization、同じseedと評価domainを使う。原則2,500 updateとし、budgetを
+単独要因にするStage 07/19だけを延長する。Stage 01から03は有限apertureの被覆だけを段階的に
+変える。Stage 04はStage 01のK274へ戻し、source方向に整合したprediction referenceだけを
+追加する。
 
 | Stage | 単独で変える条件 | local K | validation zero-neighbor |
 |---:|---|---:|---:|
@@ -148,20 +160,107 @@ Stage 04はbracketing単体に近いstep 1の5.481098917181287 dBから、2,500 
 Stage 03比では0.123955956880849 dB悪化した。完全被覆contextと固定bracketing referenceの
 単純な組合せに正の相乗効果はなかった。
 
-## Budget昇格を停止した根拠
+## 継続実験の設計と結果
+
+Stage 06以降もsplit、primary metric、success ruleを変更していない。Stage 06--08は最良の
+K1374 trace model周辺、Stage 09以降はwhole-shot欠損に合わせたjoint 8 x 68 receiver-grid
+model周辺を単独要因で比較した。全完了runで`scope_success=true`、checkpoint全validation
+再計算一致、`success=false`だった。
+
+| Stage | 単独条件 | Parameters / steps | Validation S/N | 対応baseline差 |
+|---:|---|---:|---:|---:|
+| [06](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T070900Z_7343bb0_stage06_epoch_sampling_k1374_2500_steps/metrics.json) | Stage 03 + epoch sampler | 21,921,721 / 2,500 | 8.715600689719826 dB | Stage 03比 -0.004352676275678 dB |
+| [07](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T072719Z_7343bb0_stage07_full_train_sweep_k1374_6030_steps/metrics.json) | Stage 06 + TRAIN一巡 | 21,921,721 / 6,030 | **9.099802401746661 dB** | Stage 03比 +0.379849035751157 dB |
+| [08](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T070900Z_7343bb0_stage08_crossline_k1374_bracketing_channels_2500_steps/metrics.json) | lower/upper bracket別channel | 21,944,833 / 2,500 | 8.47432990435385 dB | Stage 03比 -0.245623461641654 dB |
+| [09](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T073639Z_b43afe9_stage09_joint_shot_gather_k8_2500_steps/metrics.json) | joint shot K8 control | 29,409 / 2,500 | 6.78268810859847 dB | control |
+| [10](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T074426Z_ba9c33f_stage10_joint_shot_gather_receiver_y_dilation_2500_steps/metrics.json) | receiver-y dilation | 29,409 / 2,500 | 6.775663646870017 dB | Stage 09比 -0.007024461728453 dB |
+| [11](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T075054Z_1ba324b_stage11_joint_shot_gather_ordered_raw_k8_2500_steps/metrics.json) | ordered raw K8 | 37,025 / 2,500 | 6.799961202685375 dB | Stage 09比 +0.017273094086905 dB |
+| [12](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T075600Z_3b7b84d_stage12_joint_shot_gather_width128_2500_steps/metrics.json) | width 32→128 | 387,969 / 2,500 | 7.010553558041961 dB | Stage 09比 +0.227865449443491 dB |
+| [13](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T075623Z_d05e89a_stage13_joint_shot_gather_full_temporal_field_2500_steps/metrics.json) | temporal RF 51→767 | 52,321 / 2,500 | 6.8193386756736505 dB | Stage 09比 +0.036650567075181 dB |
+| [14](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T080638Z_b6b516e_stage14_joint_shot_gather_width128_receiver_film_2500_steps/metrics.json) | Stage 12 + cell FiLM | 1,362,817 / 2,500 | 7.028111512586028 dB | Stage 12比 +0.017557954544067 dB |
+| [16](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T081158Z_79904e3_stage16_joint_shot_gather_distance_power2_2500_steps/metrics.json) | distance power 1→2 | 29,409 / 2,500 | 6.998159535214238 dB | Stage 09比 +0.215471426615768 dB |
+| [17](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260831T080638Z_a9476bb_stage17_joint_shot_gather_primary_mse_2500_steps/metrics.json) | derivative weight 0.1→0 | 29,409 / 2,500 | 6.779432582049562 dB | Stage 09比 -0.003255526548908 dB |
+| [18](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T011553Z_a9476bb_stage18_joint_shot_gather_no_neighbor_dropout_2500_steps/metrics.json) | neighbor dropout 0.05→0 | 29,409 / 2,500 | 6.782754397212449 dB | Stage 09比 +0.000066288613979 dB |
+| [19](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T005815Z_ddb31dc_stage19_joint_shot_gather_width128_five_sweeps_6000_steps/metrics.json) | Stage 12 + TRAIN五巡 | 387,969 / 6,000 | 7.409153447682268 dB | Stage 12比 +0.398599889640307 dB |
+| [20](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T005815Z_9eae71a_stage20_joint_shot_gather_width128_distance_power2_2500_steps/metrics.json) | Stage 12 + distance power 2 | 387,969 / 2,500 | 7.284502495688106 dB | Stage 12比 +0.273948937646145 dB |
+
+Stage 07はstep 3,015で8.970943588197336 dB、step 6,030で9.099802401746661 dBだった。
+後半3,015 stepの利得は0.128858813549325 dBまで縮小した。training auditは
+11.977152864669891 dBで、validationとの差も残る。単純なsampler変更だけのStage 06は
+Stage 03と同等であり、利得は全TRAIN targetを実際に一巡したbudgetから得た。
+
+joint-shot controlのstep 0 TRAIN-only IDWは6.226259158568509 dB、学習後は
+6.78268810859847 dBだった。幅128と距離二乗だけがmatched control比`+0.20 dB`を超えた。
+receiver-y範囲、source保持、全時間RF、receiver-cell FiLM、純MSEはいずれも単独の主要因では
+なく、dropout除去も+0.000066288613979 dBだった。Stage 20では幅128と距離二乗の組合せが
+各単独条件を上回り、Stage 12比+0.273948937646145 dBの正の相互作用を確認した。Stage 19は
+3,000 stepの7.144335352480731 dBから6,000 stepの7.409153447682268 dBへさらに
++0.264818095201537 dB改善したため、距離二乗との同budget組合せをStage 22へ昇格する。
+Stage 15 K16はformal実行前に、後述の全validation geometry診断でK8より悪いと確認して
+棄却したため欠番を維持した。
+
+## Train-only・上限診断
+
+正式runを増やす前に、予測器の構築にvalidation振幅を使わないgeometry/reference診断と、
+到達可能性を判定するtarget-derived oracle診断を分けて実施した。
+
+| TRAIN-only reference（全validation） | S/N |
+|---|---:|
+| same-line linear | 5.479 dB |
+| 2D Delaunay linear | 5.496 dB |
+| K8 inverse-distance power 1 | 6.226259158568509 dB |
+| K8 inverse-distance power 2 | **6.443429389385823 dB** |
+| K16 best | 6.4116 dB |
+| K32 best | 6.3439 dB |
+
+source gridは160 m間隔の50 line、line内は原則80 m、隣接lineはsource-yが40 m staggerする。
+K8でvalidation全receiver cellが少なくとも1 TRAIN sourceに被覆され、97.8%はsource-y両側、
+93.3%はsource-x両側を持つ。したがってK16/K32追加は被覆不足の解消ではなく遠い波形の混入に
+なり、Stage 15を棄却した。
+
+| K8 power-2の時間帯 | S/N | signal比 | error比 |
+|---|---:|---:|---:|
+| 0--1 s | 10.12 dB | 47.87% | 20.53% |
+| 1--2 s | 5.97 dB | 44.42% | 49.51% |
+| 2--3 s | 0.65 dB | 5.64% | 21.42% |
+| 3--4 s | 0.31 dB | 1.41% | 5.78% |
+| 4--5 s | 0.26 dB | 0.67% | 2.76% |
+
+2--5 sはsignalの7.72%に対してerrorの29.96%を占めた。relative receiver-yのfar / middle /
+near帯はそれぞれ5.17 / 6.11 / 8.38 dBで、far側23 cellがerrorの40.09%を占めた。
+receiver位置への非定常性は明確だが、Stage 10/14から単純な空間RFや固定cell FiLMだけでは
+解消しない。
+
+同一絶対receiverへ揃えたraw IDWは代表50,000 traceで約-3.2 dB、exact-CMP K4 IDWは
+-1.69 dB、source-time / 4D POCSは約4.7--5.0 dB、MSSA low-rank投影もbaselineを悪化させた。
+FFT/STFT phase interpolation、global delay、train-only KRR/PCA coefficient regressionも
+5--7 dB台で棄却した。target-oracle shift+gainをK8へ与えても改善は約0.38 dB、best shiftは
+median/p90が0 sample、p95が1 sampleで、単一static shiftが主要因ではなかった。
+
+target-derived local linear spanはK64 / K128 / K256で約14.18 / 18.09 / 23.11 dB、利用可能な
+384--512近傍まで増やしたsample ceilingは約23.36 dBだった。これは非線形whole-shotモデルの
+数学的上限ではないが、target自身で係数を最適化する有利な診断でも25 dB未満である。
+現在bestのerror MSE 0.12303247477047023を25 dB相当0.00316227766未満へ下げるには、
+error energyをさらに約38.9分の1へ減らす必要がある。
+
+## 初回budget停止と限定的な再開
 
 同系統のStudy 018では、同じformal architectureが2,500 stepの
 16.80368309012617 dBから50,000 stepの20.460355529598864 dBへ改善し、実測利得は
 3.656672439472694 dBだった。この利得をそのまま加えて25 dBへ届くための2,500-step
 昇格基準は`21.343327560527307 dB`である。
 
-最良Stage 03はこの基準を12.623374194531802 dB下回った。別条件のStudy 019で観測した
-width 384→512の利得も2,500 stepで0.215653618119529 dBに留まる。したがってcapacityまたは
-budgetだけを増やして残り16.28 dBを埋める根拠がなく、10,000 / 50,000-step runを停止した。
+当時の最良Stage 03はこの基準を12.623374194531802 dB下回った。別条件のStudy 019で観測した
+width 384→512の利得も2,500 stepで0.215653618119529 dBに留まったため、trace modelを
+10,000 / 50,000 stepへ機械的に伸ばす判断は停止した。その後、samplerと実際のTRAIN一巡を
+切り分けるためStage 07だけを6,030 stepへ延長し、Stage 03比+0.379849035751157 dBを確認した。
+しかし後半半周の利得は+0.128858813549325 dBに縮小し、最良でも昇格基準を
+12.243525158780646 dB下回った。そこで長期化を一般化せず、matched control比+0.20 dBを
+超えたjoint-shot幅128だけをStage 19で五巡相当まで確認する限定的な再開とした。
 
 ## Formal scope・漏洩監査
 
-5 runすべてで次を確認した。
+完了した全formal runで次を確認した。
 
 - FFID数train/validation/test=`1,195 / 896 / 2,689`、overlap 0、各FFIDの最大split数1
 - effective trace数=`578,685 / 437,087 / 1,287,693`
@@ -172,25 +271,28 @@ budgetだけを増やして残り16.28 dBを埋める根拠がなく、10,000 / 
 - 保存checkpointのraw metricと全validation再計算値が完全一致
 - Stage 04/05のbracketing sourceは全件train。未解決、target-FFID、same-source-y、
   non-train参照がすべて0
+- Stage 09以降は1 FFIDを8 x 68 receiver-cellのwhole shotとして構成し、入力近傍source、
+  normalization、training targetはいずれもtrain splitだけから構築
+- joint-shot runもstep 0をcheckpoint候補に含め、保存checkpointを全validationで再評価
 
 各runで`scope_success=true`だった。主指標は25 dB未満のため
 `metric_success=false`、総合`success=false`である。
 
-## 最良Stage 03の監査
+## 最良Stage 07の監査
 
 | 項目 | 結果 |
 |---|---|
-| Git commit | `31f81ca16995f506d5c2443d236e8d6652f4333c` |
+| Git commit | `7343bb0031a7713c55a19a691f47ef1d8b57e0ad` |
 | model | crossline K1374、width 384、21,921,721 parameters |
-| best step | 2,500 |
-| primary metric | `8.719953365995504 dB` |
-| training audit | `10.3349836646672 dB`、10,000 traces、seed 44 |
+| best step | 6,030 |
+| primary metric | `9.099802401746661 dB` |
+| training audit | `11.977152864669891 dB`、10,000 traces、seed 44 |
 | checkpoint revalidation | 保存値 = 再計算値、`revalidation_matches=true` |
 | clean validation traces | 437,087 |
-| validation signal / error energy | 273,179,375.0032627 / 36,681,963.17026253 |
+| validation signal / error energy | 273,179,375.0032627 / 33,609,934.56250033 |
 | validation neighbor | mean 259.4438864574、min 9、zero 0 |
-| runtime | 1,089秒（18分9秒） |
-| peak CUDA allocated / reserved | 15,800,184,832 / 22,779,265,024 bytes |
+| runtime | 1,652秒（27分32秒） |
+| peak CUDA allocated / reserved | 15,804,441,088 / 22,779,265,024 bytes |
 | metric / scope / overall | `false` / `true` / `false` |
 
 ## Reproducibility
@@ -205,11 +307,11 @@ python -m seis_interp.cli data prepare-baseline \
   --json
 ```
 
-最良Stage 03の実行:
+最良Stage 07の実行:
 
 ```bash
 python -m seis_interp.cli train neighbor-inpainter \
-  --config studies/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/variants/stage03_crossline_k1374.yaml \
+  --config studies/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/variants/stage07_full_train_sweep_k1374.yaml \
   --interim data/interim/c3_na/all_ffids \
   --processed data/processed/c3_na/all_ffids_whole_ffid_25pct_train_amplitude_qc \
   --output runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/<run-id> \
@@ -221,11 +323,11 @@ python -m seis_interp.cli train neighbor-inpainter \
 
 | Artifact | SHA-256 |
 |---|---|
-| Stage 03 `metrics.json` | `98cf65c425352cf59b577af776361b0a240d89a3696154ee396155c8eb1cd5aa` |
-| Stage 03 `artifacts/best.pt` | `b0e0b018c948ac32417d89e5e09ad37f5877a46da4da79e23df1eff13607fd94` |
-| Stage 03 `config.resolved.yaml` | `f037f699b5dafc0b153be0a5a6df8ab451a1dbae14860e72c7ee577bc66e05c3` |
-| Stage 03 `inputs.lock.json` | `98f2bc2811a232bea0fd6c0437b2c348618373d885dfbb60a7932a6e28e6a2dc` |
-| Stage 03 `run.json` | `53b69d3524ebf8eb7b29b4df3271afa44ea85cdcb7807ad4725f69f3b4d79fb7` |
+| Stage 07 `metrics.json` | `f372a2ec0a5fd035d4048c603f30300de228322820164faa120d82a696ef1e1d` |
+| Stage 07 `artifacts/best.pt` | `fca67ba0f7ba1c4284ccd3e11723be491a57cc5e1760e683fce59ddd415224b2` |
+| Stage 07 `config.resolved.yaml` | `f4b8a73d1ca0f5f7d76b9002dd24508a26d847b6d0de7a58eb7e1d4e82186903` |
+| Stage 07 `inputs.lock.json` | `97021eb8bffc1a3b3db77922ed82a71265406832a478a2e0d5ae94695d1c159e` |
+| Stage 07 `run.json` | `00923e2a63851106f8dcc92d38913c45c8323887922fb7b7f174d9cdf69d2ca7` |
 | processed `preparation.json` | `2ca69ca22af9149ac8183dbd67937a32d8ce769d3b84c316b83ab5b62cf588cf` |
 | processed `normalization.json` | `540e1c8f79e2b14f61cfa287e91bf648fbbc9831fc25dda138be40610d7c26b1` |
 | processed `trace_split.parquet` | `7987c94f9b716b9f6f6ca507a13e28166af8f779664b6ffc516f5d54438e3312` |
@@ -239,16 +341,30 @@ Stage別`metrics.json`のSHA-256:
 | 03 | `98cf65c425352cf59b577af776361b0a240d89a3696154ee396155c8eb1cd5aa` |
 | 04 | `1c0d323adcb178a1d7c9daf270bb3daf5f035811cf6ca7f166ec8cd75e8c5691` |
 | 05 | `5409b9a174dbad929b89a5e82f5446fa1503899834a209e41df3e38f5678fb5c` |
+| 06 | `99f64973fe366f466ce5cb05540366f250018618a9c6424eb95e5bff1b275367` |
+| 07 | `f372a2ec0a5fd035d4048c603f30300de228322820164faa120d82a696ef1e1d` |
+| 08 | `4a01cc65c1dad893b669554e8e3b3cebac73328bff5feff8812f5db52eeb7092` |
+| 09 | `b0d2fa7849a2e83b4718ceaa99d9e205968a23965645092066cad106e84342e8` |
+| 10 | `a079897b499540b067e70604cf19c3a50a0cbddb12cafa280c045d8fea5d561f` |
+| 11 | `f87740d243735116052e782d9d16b47a0055c28b17801e5301f23ed5eeee3fbb` |
+| 12 | `497e08b49f80f19863e90c50c497eb01ca457b4df8fd8b5de86fb44027e6ea96` |
+| 13 | `0fd5fb8ff7543dabc1c3a7efefcc959485892e1b671e14426ec0299390ca76e6` |
+| 14 | `3725546d9379f79968a3e3091413f7334a5d2be711e47a4d81ab9bd9b868ee41` |
+| 16 | `9c4ee98950c7a9ab484bdd31b3fe310811d2dcb93eb07818a46e2a136abd3a4a` |
+| 17 | `026aec7200c622491d25b9bde6a3f389d5eddb3160ae422dcd7b83df75fcccef` |
+| 18 | `f846561c3eef2a0710fd561578324bd3fcb1878775e9bf2db671ec2649e6bece` |
+| 19 | `3d23ddadd0255756149d9894beea9b5b88782ed221f644063266d98a24d347c6` |
+| 20 | `f8b2b37cc2b0af3e3e0715232cbf7de9e0e57562f6379fbce1426208ed7022c9` |
 
 ## Repository quality gates
 
-2026-08-31に最終状態で次を実行し、すべて合格した。
+2026-09-01に最終コード状態で次を実行し、すべて合格した。
 
 | Command | Result |
 |---|---|
 | `ruff check .` | `All checks passed!` |
-| `ruff format --check .` | `204 files already formatted` |
-| `pytest` | `1178 passed in 42.55s` |
+| `ruff format --check .` | `222 files already formatted` |
+| `pytest` | `1298 passed in 46.58s` |
 | `python -m seis_interp.cli doctor` | exit 0。Python 3.10.12、PyTorch 2.5.0a0、CUDA有効、H100 NVL 2台、data root readable |
 
 ## 制約
@@ -265,7 +381,7 @@ Stage別`metrics.json`のSHA-256:
 ## 最終判断
 
 **THRESHOLD NOT REACHED** — 全scope / leakage / checkpoint監査を通過した最良runは
-`oracle_per_trace_unit_rms_global_snr_db = 8.719953365995504 dB`であり、厳密な
-`> 25.0 dB`条件を満たさなかった。crosslineを含む完全被覆は大きく改善したが、固定
-bracketing referenceとの組合せに相乗効果はなく、実測tailに基づく長期budget昇格基準にも
-大きく届かなかった。
+`oracle_per_trace_unit_rms_global_snr_db = 9.099802401746661 dB`であり、厳密な
+`> 25.0 dB`条件を満たさなかった。crosslineを含む完全被覆とTRAIN一巡は改善したが、固定
+bracketing、whole-shot化、受容野、容量、receiver条件付け、距離重み、lossの単独切り分けで
+残り15.900197598253339 dBを説明できず、target-derived local span診断も25 dB未満だった。
