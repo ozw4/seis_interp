@@ -8,6 +8,9 @@ import torch
 
 from seis_interp.cli import build_parser
 from seis_interp.models.shot_gather_inpainter import (
+    DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES,
+    DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    INVERSE_DISTANCE_SOURCE_WEIGHTING,
     LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
@@ -59,6 +62,14 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
     assert loaded.input_feature_names == model.input_feature_names
     assert loaded.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
     assert loaded.source_gather_count is None
+    assert loaded.source_weighting == INVERSE_DISTANCE_SOURCE_WEIGHTING
+    assert loaded.source_weighting_schema_version == 1
+    assert loaded.source_weighting_input_feature_names == ()
+    assert payload["source_weighting_schema"] == {
+        "version": 1,
+        "mode": INVERSE_DISTANCE_SOURCE_WEIGHTING,
+        "input_feature_names": [],
+    }
     assert loaded.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
     assert payload["model_config"]["receiver_position_conditioning"] == (
         NO_RECEIVER_POSITION_CONDITIONING
@@ -74,6 +85,51 @@ def test_checkpoint_round_trip_preserves_constructor_and_selection(tmp_path: Pat
         strict=True,
     ):
         torch.testing.assert_close(actual, expected)
+
+
+def test_dynamic_attention_checkpoint_round_trip_preserves_schema_and_parameters(
+    tmp_path: Path,
+) -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    )
+    with torch.no_grad():
+        final_projection = model.dynamic_source_attention.temporal[-1]
+        final_projection.weight[0, 2, 0, 0, 0] = 0.25
+    path = tmp_path / "dynamic-attention.pt"
+
+    save_shot_gather_inpainter_checkpoint(
+        path,
+        model,
+        best_step=11,
+        best_validation_global_snr_db=6.5,
+    )
+    payload = torch.load(path, weights_only=True)
+    assert payload["model_config"]["source_weighting"] == DYNAMIC_ATTENTION_SOURCE_WEIGHTING
+    assert payload["model_config"]["dynamic_attention_width"] == 8
+    assert payload["model_config"]["dynamic_attention_kernel_size"] == 5
+    assert payload["source_weighting_schema"] == {
+        "version": 1,
+        "mode": DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+        "input_feature_names": list(DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES),
+    }
+
+    loaded = load_shot_gather_inpainter_checkpoint(path)
+
+    assert loaded.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING
+    assert loaded.source_weighting_schema_version == 1
+    assert loaded.source_weighting_input_feature_names == DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES
+    assert loaded.model.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING
+    assert loaded.best_step == 11
+    for name, expected in model.state_dict().items():
+        torch.testing.assert_close(
+            loaded.model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
 
 
 def test_ordered_raw_checkpoint_round_trip_preserves_mode_count_and_schema(
@@ -176,8 +232,12 @@ def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
     del payload["model_config"]["source_gather_count"]
     del payload["model_config"]["receiver_position_conditioning"]
     del payload["model_config"]["distance_power"]
+    del payload["model_config"]["source_weighting"]
+    del payload["model_config"]["dynamic_attention_width"]
+    del payload["model_config"]["dynamic_attention_kernel_size"]
     del payload["input_feature_schema"]["source_feature_mode"]
     del payload["input_feature_schema"]["source_gather_count"]
+    del payload["source_weighting_schema"]
     torch.save(payload, path)
 
     loaded = load_shot_gather_inpainter_checkpoint(path)
@@ -187,6 +247,8 @@ def test_checkpoint_without_source_feature_fields_loads_as_legacy_moments(
     assert loaded.input_feature_schema_version == 1
     assert loaded.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
     assert loaded.model.distance_power == 1.0
+    assert loaded.source_weighting == INVERSE_DISTANCE_SOURCE_WEIGHTING
+    assert loaded.source_weighting_input_feature_names == ()
     assert loaded.model.state_dict().keys() == model.state_dict().keys()
     for name, expected in model.state_dict().items():
         torch.testing.assert_close(
@@ -269,6 +331,40 @@ def test_ordered_raw_checkpoint_rejects_changed_feature_schema(
     )
     payload = torch.load(path, weights_only=True)
     payload["input_feature_schema"][field] = replacement
+    torch.save(payload, path)
+
+    with pytest.raises(ValueError, match=match):
+        load_shot_gather_inpainter_checkpoint(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "match"),
+    [
+        ("version", 2, "schema version must be 1"),
+        ("mode", INVERSE_DISTANCE_SOURCE_WEIGHTING, "mode does not match"),
+        ("input_feature_names", ["changed"], "feature names"),
+    ],
+)
+def test_dynamic_attention_checkpoint_rejects_changed_weighting_schema(
+    tmp_path: Path,
+    field: str,
+    replacement: object,
+    match: str,
+) -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    )
+    path = tmp_path / "dynamic-attention.pt"
+    save_shot_gather_inpainter_checkpoint(
+        path,
+        model,
+        best_step=0,
+        best_validation_global_snr_db=3.5,
+    )
+    payload = torch.load(path, weights_only=True)
+    payload["source_weighting_schema"][field] = replacement
     torch.save(payload, path)
 
     with pytest.raises(ValueError, match=match):

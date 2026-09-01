@@ -210,6 +210,9 @@ def test_cli_runs_leakage_safe_whole_shot_pipeline(
     assert inputs_lock["model"]["input_feature_schema_version"] == 1
     assert inputs_lock["model"]["input_feature_names"]
     assert inputs_lock["model"]["source_feature_mode"] == "moments"
+    assert inputs_lock["model"]["source_weighting"] == "inverse_distance"
+    assert inputs_lock["model"]["source_weighting_schema_version"] == 1
+    assert inputs_lock["model"]["source_weighting_input_feature_names"] == []
     assert inputs_lock["model"]["receiver_position_conditioning"] == "none"
     assert inputs_lock["training"]["target_sampling_rng_independent_of_neighbor_dropout"]
     assert (
@@ -226,6 +229,15 @@ def test_cli_runs_leakage_safe_whole_shot_pipeline(
     )
     assert list(checkpoint.input_feature_names) == inputs_lock["model"]["input_feature_names"]
     assert checkpoint.source_feature_mode == inputs_lock["model"]["source_feature_mode"]
+    assert checkpoint.source_weighting == inputs_lock["model"]["source_weighting"]
+    assert (
+        checkpoint.source_weighting_schema_version
+        == (inputs_lock["model"]["source_weighting_schema_version"])
+    )
+    assert (
+        list(checkpoint.source_weighting_input_feature_names)
+        == (inputs_lock["model"]["source_weighting_input_feature_names"])
+    )
     assert (
         checkpoint.receiver_position_conditioning
         == (inputs_lock["model"]["receiver_position_conditioning"])
@@ -233,4 +245,59 @@ def test_cli_runs_leakage_safe_whole_shot_pipeline(
     assert (
         checkpoint.best_validation_global_snr_db
         == metrics["oracle_per_trace_unit_rms_global_snr_db"]
+    )
+
+
+def test_cli_records_dynamic_source_weighting_schema(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config, interim, processed = _build_shot_gather_fixture(tmp_path)
+    configured = yaml.safe_load(config.read_text(encoding="utf-8"))
+    configured["model"]["source_weighting"] = "dynamic_attention"
+    config.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "dynamic-run"
+
+    exit_code = main(
+        [
+            "train",
+            "shot-gather-inpainter",
+            "--config",
+            str(config),
+            "--interim",
+            str(interim),
+            "--processed",
+            str(processed),
+            "--output",
+            str(output),
+            "--device",
+            "cpu",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    capsys.readouterr()
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    model_contract = inputs_lock["model"]
+    assert model_contract["source_weighting"] == "dynamic_attention"
+    assert model_contract["source_weighting_schema_version"] == 1
+    assert model_contract["source_weighting_input_feature_names"] == [
+        "masked_neighbor_waveform",
+        "normalized_source_direction_x",
+        "normalized_source_direction_y",
+        "normalized_source_distance",
+        "target_coordinate_x",
+        "target_coordinate_y",
+        "receiver_coordinate_x",
+        "receiver_coordinate_y",
+    ]
+    assert model_contract["prediction_reference"] == (
+        "receiver_time_dynamic_attention_over_inverse_distance_logits"
+    )
+    checkpoint = load_shot_gather_inpainter_checkpoint(output / "artifacts/best.pt")
+    assert checkpoint.source_weighting == "dynamic_attention"
+    assert (
+        list(checkpoint.source_weighting_input_feature_names)
+        == (model_contract["source_weighting_input_feature_names"])
     )

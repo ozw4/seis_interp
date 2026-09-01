@@ -23,6 +23,7 @@ from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
 from seis_interp.models.shot_gather_inpainter import (
     DEFAULT_DISTANCE_POWER,
+    INVERSE_DISTANCE_SOURCE_WEIGHTING,
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
@@ -30,6 +31,7 @@ from seis_interp.models.shot_gather_inpainter import (
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
     SOURCE_FEATURE_MODES,
+    SOURCE_WEIGHTING_MODES,
     ShotGatherInpainter,
 )
 from seis_interp.pipelines.train_neighbor_inpainter import (
@@ -94,6 +96,7 @@ from seis_interp.training.amplitude_scaling import (
     PER_TRACE_RMS_SCALING,
 )
 from seis_interp.training.shot_gather_inpainter_checkpoints import (
+    SOURCE_WEIGHTING_SCHEMA_VERSION,
     load_shot_gather_inpainter_checkpoint,
 )
 from seis_interp.training.shot_gather_inpainter_trainer import (
@@ -130,6 +133,7 @@ class _TrainingSettings:
     spatial_y_dilations: tuple[int, ...]
     distance_epsilon: float
     distance_power: float
+    source_weighting: str
     source_feature_mode: str
     receiver_position_conditioning: str
     source_gather_count: int
@@ -669,6 +673,7 @@ def train_shot_gather_inpainter_run(
         residual_kernel_size=settings.residual_kernel_size,
         distance_epsilon=settings.distance_epsilon,
         distance_power=settings.distance_power,
+        source_weighting=settings.source_weighting,
         source_feature_mode=settings.source_feature_mode,
         source_gather_count=(
             settings.source_gather_count
@@ -793,6 +798,11 @@ def train_shot_gather_inpainter_run(
         "input_feature_names": list(checkpoint.input_feature_names),
         "source_feature_mode": checkpoint.source_feature_mode,
         "source_gather_count": checkpoint.source_gather_count,
+        "source_weighting": checkpoint.source_weighting,
+        "source_weighting_schema_version": checkpoint.source_weighting_schema_version,
+        "source_weighting_input_feature_names": list(
+            checkpoint.source_weighting_input_feature_names
+        ),
         "receiver_position_conditioning": checkpoint.receiver_position_conditioning,
     }
     metrics = _metrics_payload(
@@ -966,6 +976,12 @@ def _validated_settings(
     )
     if source_feature_mode not in SOURCE_FEATURE_MODES:
         raise ConfigurationError(f"model.source_feature_mode must be one of {SOURCE_FEATURE_MODES}")
+    source_weighting = model_config.get(
+        "source_weighting",
+        INVERSE_DISTANCE_SOURCE_WEIGHTING,
+    )
+    if source_weighting not in SOURCE_WEIGHTING_MODES:
+        raise ConfigurationError(f"model.source_weighting must be one of {SOURCE_WEIGHTING_MODES}")
     receiver_position_conditioning = model_config.get(
         "receiver_position_conditioning",
         NO_RECEIVER_POSITION_CONDITIONING,
@@ -1015,6 +1031,7 @@ def _validated_settings(
             model_config.get("distance_power", DEFAULT_DISTANCE_POWER),
             "model.distance_power",
         ),
+        source_weighting=str(source_weighting),
         source_feature_mode=str(source_feature_mode),
         receiver_position_conditioning=str(receiver_position_conditioning),
         source_gather_count=source_gather_count,
@@ -1310,6 +1327,9 @@ def _model_contract(
         "input_feature_schema_version": input_feature_schema_version,
         "input_feature_names": list(input_feature_names),
         "source_feature_mode": model.source_feature_mode,
+        "source_weighting": model.source_weighting,
+        "source_weighting_schema_version": SOURCE_WEIGHTING_SCHEMA_VERSION,
+        "source_weighting_input_feature_names": list(model.source_weighting_input_feature_names),
         "receiver_position_conditioning": model.receiver_position_conditioning,
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "temporal_dilations": list(model.temporal_dilations),
@@ -1318,11 +1338,17 @@ def _model_contract(
         "residual_kernel_size": model.residual_kernel_size,
         "distance_epsilon": model.distance_epsilon,
         "distance_power": model.distance_power,
+        "dynamic_attention_width": model.dynamic_attention_width,
+        "dynamic_attention_kernel_size": model.dynamic_attention_kernel_size,
         "target_coordinates": list(TARGET_COORDINATES),
         "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
         "receiver_grid_shape": [RECEIVER_X_COUNT, RECEIVER_Y_COUNT],
         "source_gather_count": settings.source_gather_count,
-        "prediction_reference": "receiver_wise_inverse_source_distance",
+        "prediction_reference": (
+            "receiver_time_dynamic_attention_over_inverse_distance_logits"
+            if model.source_weighting != INVERSE_DISTANCE_SOURCE_WEIGHTING
+            else "receiver_wise_inverse_source_distance"
+        ),
         "residual_decoder_initialization": "zero_final_projection",
     }
 
