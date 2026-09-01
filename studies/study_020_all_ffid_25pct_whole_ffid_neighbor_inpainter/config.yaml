@@ -1,5 +1,5 @@
 study:
-  status: running
+  status: blocked
 
 project:
   random_seed: 42

@@ -13,7 +13,8 @@
 trainへ割り当てる実装、processed data、Study 020、immutable runを新規作成した。
 近傍被覆、crossline、source-y範囲、shot-bracketing referenceを切り分けた後、sampler、
 学習量、whole-shotモデル、source表現、受容野、容量、receiver条件付け、距離重み、lossを
-単独要因として継続評価した。Stage 07はStage 03から`+0.379849035751157 dB`改善したが、
+単独要因として継続評価し、dynamic source重みと昇格要因の組合せまで確認した。Stage 07は
+Stage 03から`+0.379849035751157 dB`改善したが、
 25 dBには誤差energyをさらに約38.9分の1へ減らす必要がある。
 
 最良runは
@@ -94,6 +95,9 @@ overlapはいずれも0である。processed contractは
   receiver-y dilation、全時間受容野、width 128、receiver-cell learned FiLMを切替可能にした。
 - inverse-distance referenceの距離指数をcheckpoint互換の設定にし、`1/d`と`1/d²`を同じK8で
   比較した。旧checkpointは指数1、receiver conditioningなし、moment schemaとして読める。
+- K8各sourceのIDW logitをreceiver・timeごとに補正する337-parameter dynamic attentionを
+  追加した。最終projectionをzero初期化し、既定`inverse_distance`のstate、乱数、出力と
+  旧checkpointをbit-exactに維持した。専用入力schemaとmodeをcheckpoint / input lockへ保存する。
 
 ## 評価契約
 
@@ -113,7 +117,7 @@ success
 ## 段階実験の設計
 
 すべてfresh initialization、同じseedと評価domainを使う。原則2,500 updateとし、budgetを
-単独要因にするStage 07/19だけを延長する。Stage 01から03は有限apertureの被覆だけを段階的に
+単独要因にするStage 07/19/22だけを延長する。Stage 01から03は有限apertureの被覆だけを段階的に
 変える。Stage 04はStage 01のK274へ戻し、source方向に整合したprediction referenceだけを
 追加する。
 
@@ -183,6 +187,8 @@ model周辺を単独要因で比較した。全完了runで`scope_success=true`�
 | [18](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T011553Z_a9476bb_stage18_joint_shot_gather_no_neighbor_dropout_2500_steps/metrics.json) | neighbor dropout 0.05→0 | 29,409 / 2,500 | 6.782754397212449 dB | Stage 09比 +0.000066288613979 dB |
 | [19](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T005815Z_ddb31dc_stage19_joint_shot_gather_width128_five_sweeps_6000_steps/metrics.json) | Stage 12 + TRAIN五巡 | 387,969 / 6,000 | 7.409153447682268 dB | Stage 12比 +0.398599889640307 dB |
 | [20](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T005815Z_9eae71a_stage20_joint_shot_gather_width128_distance_power2_2500_steps/metrics.json) | Stage 12 + distance power 2 | 387,969 / 2,500 | 7.284502495688106 dB | Stage 12比 +0.273948937646145 dB |
+| [21](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T013424Z_7a5cd93_stage21_joint_shot_gather_dynamic_attention_2500_steps/metrics.json) | dynamic source attention | 29,746 / 2,500 | 7.02265866708403 dB | Stage 09比 +0.239970558485560 dB |
+| [22](../runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/20260901T013424Z_7a5cd93_stage22_joint_shot_gather_width128_distance_power2_five_sweeps_6000_steps/metrics.json) | Stage 20 + TRAIN五巡 | 387,969 / 6,000 | 7.7007124673434095 dB | Stage 20比 +0.416209971655303 dB |
 
 Stage 07はstep 3,015で8.970943588197336 dB、step 6,030で9.099802401746661 dBだった。
 後半3,015 stepの利得は0.128858813549325 dBまで縮小した。training auditは
@@ -190,7 +196,8 @@ Stage 07はstep 3,015で8.970943588197336 dB、step 6,030で9.099802401746661 dB
 Stage 03と同等であり、利得は全TRAIN targetを実際に一巡したbudgetから得た。
 
 joint-shot controlのstep 0 TRAIN-only IDWは6.226259158568509 dB、学習後は
-6.78268810859847 dBだった。幅128と距離二乗だけがmatched control比`+0.20 dB`を超えた。
+6.78268810859847 dBだった。Stage 09--20では幅128と距離二乗だけがmatched control比
+`+0.20 dB`を超えた。
 receiver-y範囲、source保持、全時間RF、receiver-cell FiLM、純MSEはいずれも単独の主要因では
 なく、dropout除去も+0.000066288613979 dBだった。Stage 20では幅128と距離二乗の組合せが
 各単独条件を上回り、Stage 12比+0.273948937646145 dBの正の相互作用を確認した。Stage 19は
@@ -198,6 +205,16 @@ receiver-y範囲、source保持、全時間RF、receiver-cell FiLM、純MSEは�
 +0.264818095201537 dB改善したため、距離二乗との同budget組合せをStage 22へ昇格する。
 Stage 15 K16はformal実行前に、後述の全validation geometry診断でK8より悪いと確認して
 棄却したため欠番を維持した。
+
+Stage 21のdynamic attentionも単独昇格基準を超えたが、Stage 20へその利得を全加算する
+楽観予測は7.524473054173666 dBで、現在bestを1.575329347572995 dB下回る。観測済みの
+width×distance interactionを加えても逆転しないため、attentionをさらに組み合わせる
+Stage 23は実行しない。
+
+Stage 22はstep 3,000の7.410126838362306 dBからstep 6,000の
+7.7007124673434095 dBへ+0.290585628981104 dB改善し、Stage 20比では
++0.416209971655303 dBだった。joint-shot系列の最良だがStage 07を1.399089934403252 dB
+下回り、25 dBとの差は17.299287532656592 dB残った。
 
 ## Train-only・上限診断
 
@@ -256,7 +273,21 @@ width 384→512の利得も2,500 stepで0.215653618119529 dBに留まったた�
 切り分けるためStage 07だけを6,030 stepへ延長し、Stage 03比+0.379849035751157 dBを確認した。
 しかし後半半周の利得は+0.128858813549325 dBに縮小し、最良でも昇格基準を
 12.243525158780646 dB下回った。そこで長期化を一般化せず、matched control比+0.20 dBを
-超えたjoint-shot幅128だけをStage 19で五巡相当まで確認する限定的な再開とした。
+超えたjoint-shot幅128だけをStage 19で五巡相当まで確認する限定的な再開とした。さらに
+幅128、距離二乗、五巡budgetをStage 22で組み合わせ、その最大実測値を確定した。
+
+## 最終昇格・停止監査
+
+追加runは、有限metric、全scope check、checkpoint再計算一致に加え、matched baseline比
+`+0.20 dB`を最低条件とした。Stage 21はこの条件を満たしたが、Stage 20へ全利得を足す
+楽観予測でも7.524473054173666 dBで現在bestを越えないため、組合せを停止した。
+
+Stage 22はStage 20比+0.416209971655303 dB、後半+0.290585628981104 dBだったが、長期昇格
+基準21.343327560527307 dBを13.642615093183897 dB下回った。同系統Study 018で得た最大の
+2,500→50,000-step利得3.656672439472694 dBをそのまま加える楽観値も
+11.357384906816104 dBに留まる。target自身で係数を最適化する384--512近傍linear-span診断
+さえ約23.36 dBで、25 dB許容誤差energyの約1.459倍を残す。したがってsplit、raw metric、
+dataを維持したまま昇格できる追加stageはない。
 
 ## Formal scope・漏洩監査
 
@@ -355,6 +386,8 @@ Stage別`metrics.json`のSHA-256:
 | 18 | `f846561c3eef2a0710fd561578324bd3fcb1878775e9bf2db671ec2649e6bece` |
 | 19 | `3d23ddadd0255756149d9894beea9b5b88782ed221f644063266d98a24d347c6` |
 | 20 | `f8b2b37cc2b0af3e3e0715232cbf7de9e0e57562f6379fbce1426208ed7022c9` |
+| 21 | `7c8f90e908dd00f91fcc996d74acc10c37735d686e5f25d5608f4081647394dd` |
+| 22 | `598f4ac7c52cfe5bdcb290b1b44c4cb235c3304902cf07a46c20d0578d0b3bed` |
 
 ## Repository quality gates
 
@@ -364,7 +397,7 @@ Stage別`metrics.json`のSHA-256:
 |---|---|
 | `ruff check .` | `All checks passed!` |
 | `ruff format --check .` | `222 files already formatted` |
-| `pytest` | `1298 passed in 46.58s` |
+| `pytest` | `1313 passed in 51.78s` |
 | `python -m seis_interp.cli doctor` | exit 0。Python 3.10.12、PyTorch 2.5.0a0、CUDA有効、H100 NVL 2台、data root readable |
 
 ## 制約
@@ -383,5 +416,7 @@ Stage別`metrics.json`のSHA-256:
 **THRESHOLD NOT REACHED** — 全scope / leakage / checkpoint監査を通過した最良runは
 `oracle_per_trace_unit_rms_global_snr_db = 9.099802401746661 dB`であり、厳密な
 `> 25.0 dB`条件を満たさなかった。crosslineを含む完全被覆とTRAIN一巡は改善したが、固定
-bracketing、whole-shot化、受容野、容量、receiver条件付け、距離重み、lossの単独切り分けで
-残り15.900197598253339 dBを説明できず、target-derived local span診断も25 dB未満だった。
+bracketing、whole-shot化、受容野、容量、receiver条件付け、距離重み、dynamic attention、
+loss、五巡budgetを含む21本のformal runでも残り15.900197598253339 dBを説明できなかった。
+長期昇格gateとtarget-derived local span診断も25 dB未満であり、同一scopeの追加実験は
+empirically blockedと判断した。

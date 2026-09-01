@@ -2,7 +2,8 @@
 
 ## Status
 
-`running` — continuation experiments are active until the strict 25 dB threshold is reached
+`blocked` — the strict 25 dB threshold was not reached and no unchanged-scope
+candidate passes the evidence-backed promotion rule
 
 ## Research question
 
@@ -89,6 +90,8 @@ worse than Stage 03.
 | 18 | Stage 09 without neighbor dropout | 6.782754397212449 dB |
 | 19 | Stage 12 + 6,000 updates / five TRAIN sweeps | 7.409153447682268 dB |
 | 20 | Stage 12 + inverse-distance power 2 | 7.284502495688106 dB |
+| 21 | Stage 09 + receiver/time dynamic source attention | 7.02265866708403 dB |
+| 22 | Stage 20 + 6,000 updates / five TRAIN sweeps | 7.7007124673434095 dB |
 
 Stage 07 improved Stage 03 by 0.379849035751157 dB. Its second half improved
 only 0.128858813549325 dB over step 3,015, and the current best remains
@@ -101,6 +104,17 @@ Removing joint-shot neighbor dropout changed Stage 09 by only
 Stage 12 by 0.273948937646145 dB, while extending width 128 to 6,000 updates
 improved it by 0.398599889640307 dB. Both formal runs retained full scope and
 checkpoint agreement, but neither exceeded the trace-model best.
+
+Dynamic source attention improved Stage 09 by 0.239970558485560 dB and also
+passed full scope and checkpoint revalidation. Adding that full isolated gain
+to Stage 20 predicts only 7.524473054173666 dB, still below Stage 07, so an
+attention combination is not promoted.
+
+Stage 22 improved Stage 20 by 0.416209971655303 dB and its second half added
+0.290585628981104 dB. It is the strongest joint-shot result but remains
+1.399089934403252 dB below Stage 07 and 13.642615093183897 dB below the
+21.343327560527307 dB long-run promotion gate. No Stage 23 or 50,000-step
+extension is promoted under the unchanged split, raw metric, and data.
 
 The matching Study 018 architecture gained 3.656672439472694 dB between its
 2,500- and 50,000-step results. A 2,500-step candidate therefore needed at

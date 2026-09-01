@@ -119,7 +119,7 @@ small width gain has no evidence-backed route across the remaining gap.
 
 ## 2026-08-31 — Reopen the study until the strict threshold is measured
 
-**Status:** active
+**Status:** superseded by the final stopping decision below
 
 **Decision:** Keep the exact 1,195 / 896 / 2,689 whole-FFID split and the raw
 `oracle_per_trace_unit_rms_global_snr_db > 25` rule unchanged. Treat Stages
@@ -208,3 +208,24 @@ changes source weighting only; Stage 22 changes budget only relative to Stage
 its second half still added 0.264818095201537 dB. This supplies the predeclared
 promotion evidence for Stage 22 while Stage 21 addresses the independently
 diagnosed time-, receiver-, and source-dependent weighting error.
+
+## 2026-09-01 — Stop unchanged-scope escalation after Stage 22
+
+**Status:** active
+
+**Decision:** Record Stage 21 dynamic attention as an isolated improvement but
+do not combine it, because its additive forecast cannot exceed Stage 07. Record
+Stage 22 as the final promoted whole-shot combination. Do not run Stage 23,
+50,000 steps, or another small ablation without changing the research scope.
+Mark the study blocked rather than successful. Preserve all completed runs and
+the strict `>25 dB` result as immutable evidence.
+
+**Reason:** Stage 21 measured 7.02265866708403 dB, +0.239970558485560 dB over
+Stage 09. Adding that full gain to Stage 20 forecasts 7.524473054173666 dB,
+still 1.575329347572995 dB below Stage 07. Stage 22 measured
+7.7007124673434095 dB at step 6,000, +0.416209971655303 dB over Stage 20 and
++0.290585628981104 dB after step 3,000. Despite those real gains, it remains
+13.642615093183897 dB below the 21.343327560527307 dB long-run gate. The
+target-optimized 384--512-neighbor linear-span diagnostic is approximately
+23.36 dB, also below the formal threshold. No tested or promoted information
+path supports the remaining 15.900197598253339 dB under the unchanged contract.

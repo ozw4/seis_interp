@@ -20,7 +20,7 @@ def test_study_020_locks_the_25pct_whole_ffid_split_contract() -> None:
     config = load_resolved_config(STUDY_DIRECTORY / "config.yaml")
     settings = _validated_settings(config, device_override="cpu")
 
-    assert config["study"]["status"] == "running"
+    assert config["study"]["status"] == "blocked"
     assert config["sampling"] == {
         "random_ffid_holdout_fraction": 0.75,
         "validation_fraction_of_holdout": 0.25,
