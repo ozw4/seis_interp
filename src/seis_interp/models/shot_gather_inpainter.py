@@ -18,6 +18,14 @@ DEFAULT_RESIDUAL_KERNEL_SIZE = 3
 DEFAULT_TEMPORAL_DILATIONS = (1, 2, 4, 8, 4, 2, 1)
 DEFAULT_DISTANCE_EPSILON = 1.0e-6
 DEFAULT_DISTANCE_POWER = 1.0
+DEFAULT_DYNAMIC_ATTENTION_WIDTH = 8
+DEFAULT_DYNAMIC_ATTENTION_KERNEL_SIZE = 5
+INVERSE_DISTANCE_SOURCE_WEIGHTING = "inverse_distance"
+DYNAMIC_ATTENTION_SOURCE_WEIGHTING = "dynamic_attention"
+SOURCE_WEIGHTING_MODES = (
+    INVERSE_DISTANCE_SOURCE_WEIGHTING,
+    DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+)
 MOMENTS_SOURCE_FEATURE_MODE = "moments"
 ORDERED_RAW_SOURCE_FEATURE_MODE = "ordered_raw"
 SOURCE_FEATURE_MODES = (
@@ -29,6 +37,16 @@ LEARNED_FILM_RECEIVER_POSITION_CONDITIONING = "learned_film"
 RECEIVER_POSITION_CONDITIONING_MODES = (
     NO_RECEIVER_POSITION_CONDITIONING,
     LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
+)
+DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES: tuple[str, ...] = (
+    "masked_neighbor_waveform",
+    "normalized_source_direction_x",
+    "normalized_source_direction_y",
+    "normalized_source_distance",
+    "target_coordinate_x",
+    "target_coordinate_y",
+    "receiver_coordinate_x",
+    "receiver_coordinate_y",
 )
 SHOT_GATHER_INPUT_FEATURE_NAMES: tuple[str, ...] = (
     "inverse_distance_reference",
@@ -205,14 +223,183 @@ class ReceiverPositionFiLM(nn.Module):
         return normalized * (1.0 + self.scale) + self.shift
 
 
+class DynamicSourceAttention(nn.Module):
+    """Predict shared per-source, receiver, and time corrections to IDW logits."""
+
+    def __init__(
+        self,
+        *,
+        width: int = DEFAULT_DYNAMIC_ATTENTION_WIDTH,
+        temporal_kernel_size: int = DEFAULT_DYNAMIC_ATTENTION_KERNEL_SIZE,
+    ) -> None:
+        super().__init__()
+        self.width = _positive_integer(width, "width")
+        self.temporal_kernel_size = _odd_positive_integer(
+            temporal_kernel_size,
+            "temporal_kernel_size",
+        )
+        self.input_feature_names = DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES
+        self.input_channels = len(self.input_feature_names)
+        self.temporal = nn.Sequential(
+            nn.Conv3d(
+                self.input_channels,
+                self.width,
+                kernel_size=(1, 1, self.temporal_kernel_size),
+                padding=(0, 0, self.temporal_kernel_size // 2),
+            ),
+            nn.SiLU(),
+            nn.Conv3d(self.width, 1, kernel_size=1),
+        )
+        final_projection = self.temporal[-1]
+        if not isinstance(final_projection, nn.Conv3d):
+            raise AssertionError("dynamic source attention must end with Conv3d")
+        nn.init.zeros_(final_projection.weight)
+        nn.init.zeros_(final_projection.bias)
+
+    def forward(
+        self,
+        neighbors: torch.Tensor,
+        availability: torch.Tensor,
+        source_deltas: torch.Tensor,
+        source_directions: torch.Tensor,
+        target_coordinates: torch.Tensor,
+        *,
+        distance_epsilon: float,
+    ) -> torch.Tensor:
+        """Return logit corrections with shape ``[B, K, 8, 68, T]``."""
+        epsilon = _positive_finite_float(distance_epsilon, "distance_epsilon")
+        batch_size, source_count, time_count = _validated_inputs(
+            neighbors,
+            availability,
+            source_deltas,
+            target_coordinates,
+        )
+        source_directions = _require_floating_tensor(
+            source_directions,
+            "source_directions",
+        )
+        if source_directions.shape != (batch_size, source_count, _SOURCE_COORDINATE_COUNT):
+            raise ValueError(
+                "source_directions must have shape "
+                f"({batch_size}, {source_count}, {_SOURCE_COORDINATE_COUNT}), "
+                f"got {tuple(source_directions.shape)}"
+            )
+        if source_directions.dtype != neighbors.dtype:
+            raise TypeError(
+                "source_directions must share the neighbors dtype, "
+                f"got {source_directions.dtype} and {neighbors.dtype}"
+            )
+        if source_directions.device != neighbors.device:
+            raise ValueError("neighbors and source_directions must share a device")
+        if not bool(torch.isfinite(source_directions).all().item()):
+            raise ValueError("source_directions must contain only finite values")
+        first_projection = self.temporal[0]
+        if not isinstance(first_projection, nn.Conv3d):
+            raise AssertionError("dynamic source attention must start with Conv3d")
+        if neighbors.dtype != first_projection.weight.dtype:
+            raise TypeError(
+                "neighbors dtype must match dynamic attention parameters, "
+                f"got {neighbors.dtype} and {first_projection.weight.dtype}"
+            )
+        if neighbors.device != first_projection.weight.device:
+            raise ValueError("neighbors and dynamic attention parameters must share a device")
+
+        receiver_x = RECEIVER_X_COUNT
+        receiver_y = RECEIVER_Y_COUNT
+        availability_time = availability.to(dtype=neighbors.dtype)[..., None].expand(
+            -1,
+            -1,
+            -1,
+            -1,
+            time_count,
+        )
+        masked_waveform = neighbors * availability_time
+        direction_features = source_directions[:, :, :, None, None, None].expand(
+            -1,
+            -1,
+            -1,
+            receiver_x,
+            receiver_y,
+            time_count,
+        )
+        normalized_distance = _normalized_source_distances(
+            source_deltas,
+            distance_epsilon=epsilon,
+        )[:, :, None, None, None, None].expand(
+            -1,
+            -1,
+            -1,
+            receiver_x,
+            receiver_y,
+            time_count,
+        )
+        target_features = target_coordinates[:, None, :, None, None, None].expand(
+            -1,
+            source_count,
+            -1,
+            receiver_x,
+            receiver_y,
+            time_count,
+        )
+        receiver_features = _normalized_receiver_coordinates(
+            dtype=neighbors.dtype,
+            device=neighbors.device,
+        )[None, None, ..., None].expand(
+            batch_size,
+            source_count,
+            -1,
+            -1,
+            -1,
+            time_count,
+        )
+        features = torch.cat(
+            (
+                masked_waveform[:, :, None],
+                direction_features,
+                normalized_distance,
+                target_features,
+                receiver_features,
+            ),
+            dim=2,
+        )
+        expected_shape = (
+            batch_size,
+            source_count,
+            self.input_channels,
+            receiver_x,
+            receiver_y,
+            time_count,
+        )
+        if features.shape != expected_shape:
+            raise AssertionError("dynamic attention features changed their declared schema")
+        corrections = self.temporal(
+            features.reshape(
+                batch_size * source_count,
+                self.input_channels,
+                receiver_x,
+                receiver_y,
+                time_count,
+            )
+        )
+        return corrections.reshape(
+            batch_size,
+            source_count,
+            receiver_x,
+            receiver_y,
+            time_count,
+        )
+
+
 class ShotGatherInpainter(nn.Module):
     """Predict a complete ``8 x 68`` target shot gather from neighboring gathers.
 
     ``moments`` mode retains the original dynamic-source feature reduction.
     ``ordered_raw`` mode instead preserves every source waveform and requires a
-    fixed source count. Deterministic receiver coordinates expose far-offset
-    nonstationarity. A compact residual network then alternates temporal and
-    receiver spatial filtering with weights shared over the grid.
+    fixed source count. ``dynamic_attention`` source weighting learns a
+    zero-initialized correction to receiver- and time-specific inverse-distance
+    logits. Deterministic receiver coordinates expose far-offset nonstationarity.
+    A compact residual network then alternates temporal and receiver spatial
+    filtering with weights shared over the grid.
     """
 
     def __init__(
@@ -225,6 +412,9 @@ class ShotGatherInpainter(nn.Module):
         residual_kernel_size: int = DEFAULT_RESIDUAL_KERNEL_SIZE,
         distance_epsilon: float = DEFAULT_DISTANCE_EPSILON,
         distance_power: float = DEFAULT_DISTANCE_POWER,
+        source_weighting: str = INVERSE_DISTANCE_SOURCE_WEIGHTING,
+        dynamic_attention_width: int = DEFAULT_DYNAMIC_ATTENTION_WIDTH,
+        dynamic_attention_kernel_size: int = DEFAULT_DYNAMIC_ATTENTION_KERNEL_SIZE,
         source_feature_mode: str = MOMENTS_SOURCE_FEATURE_MODE,
         source_gather_count: int | None = None,
         receiver_position_conditioning: str = NO_RECEIVER_POSITION_CONDITIONING,
@@ -246,6 +436,20 @@ class ShotGatherInpainter(nn.Module):
             "distance_epsilon",
         )
         self.distance_power = _positive_finite_float(distance_power, "distance_power")
+        self.source_weighting = _validated_source_weighting(source_weighting)
+        self.dynamic_attention_width = _positive_integer(
+            dynamic_attention_width,
+            "dynamic_attention_width",
+        )
+        self.dynamic_attention_kernel_size = _odd_positive_integer(
+            dynamic_attention_kernel_size,
+            "dynamic_attention_kernel_size",
+        )
+        self.source_weighting_input_feature_names = (
+            DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES
+            if self.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING
+            else ()
+        )
         self.source_feature_mode = _validated_source_feature_mode(source_feature_mode)
         self.source_gather_count = _validated_source_gather_count(
             source_gather_count,
@@ -294,6 +498,11 @@ class ShotGatherInpainter(nn.Module):
             raise AssertionError("shot-gather inpainter head must end with Conv3d")
         nn.init.zeros_(final_projection.weight)
         nn.init.zeros_(final_projection.bias)
+        if self.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING:
+            self.dynamic_source_attention = DynamicSourceAttention(
+                width=self.dynamic_attention_width,
+                temporal_kernel_size=self.dynamic_attention_kernel_size,
+            )
 
     def forward(
         self,
@@ -323,8 +532,38 @@ class ShotGatherInpainter(nn.Module):
             distance_epsilon=self.distance_epsilon,
             distance_power=self.distance_power,
         )
-        reference = torch.sum(neighbors * weights[..., None], dim=1)
-        if self.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
+        if self.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING:
+            logit_corrections = self.dynamic_source_attention(
+                neighbors,
+                availability,
+                source_deltas,
+                directions,
+                target_coordinates,
+                distance_epsilon=self.distance_epsilon,
+            )
+            weights, _directions = _inverse_distance_weights(
+                availability,
+                source_deltas,
+                distance_epsilon=self.distance_epsilon,
+                distance_power=self.distance_power,
+                logit_corrections=logit_corrections,
+            )
+            reference = torch.sum(neighbors * weights, dim=1)
+        else:
+            reference = torch.sum(neighbors * weights[..., None], dim=1)
+        if (
+            self.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
+            and self.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING
+        ):
+            features = _dynamic_weighted_moment_features(
+                neighbors,
+                availability,
+                weights,
+                directions,
+                target_coordinates,
+                reference=reference,
+            )
+        elif self.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE:
             weighted_centered_neighbors = (neighbors - reference[:, None]) * weights[..., None]
             disagreement = torch.sum(torch.abs(weighted_centered_neighbors), dim=1)
             directional_waveform_moments = _directional_waveform_moments(
@@ -486,6 +725,7 @@ def _inverse_distance_weights(
     *,
     distance_epsilon: float,
     distance_power: float,
+    logit_corrections: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     calculation_dtype = (
         torch.float32
@@ -500,13 +740,39 @@ def _inverse_distance_weights(
 
     safe_distance = distance.clamp_min(distance_epsilon)
     log_inverse_distance = -distance_power * torch.log(safe_distance)
-    expanded_log_weights = log_inverse_distance[:, :, None, None].expand_as(availability)
+    if logit_corrections is None:
+        expanded_availability = availability
+        expanded_log_weights = log_inverse_distance[:, :, None, None].expand_as(availability)
+    else:
+        logit_corrections = _require_floating_tensor(
+            logit_corrections,
+            "logit_corrections",
+        )
+        expected_correction_prefix = (*availability.shape,)
+        if (
+            logit_corrections.ndim != 5
+            or logit_corrections.shape[:4] != expected_correction_prefix
+            or logit_corrections.shape[4] == 0
+        ):
+            raise ValueError(
+                "logit_corrections must have shape "
+                f"({', '.join(str(value) for value in availability.shape)}, time), "
+                f"got {tuple(logit_corrections.shape)}"
+            )
+        if logit_corrections.device != source_deltas.device:
+            raise ValueError("source_deltas and logit_corrections must share a device")
+        if not bool(torch.isfinite(logit_corrections).all().item()):
+            raise ValueError("logit_corrections must contain only finite values")
+        expanded_availability = availability[..., None].expand_as(logit_corrections)
+        expanded_log_weights = log_inverse_distance[:, :, None, None, None].expand_as(
+            logit_corrections
+        ) + logit_corrections.to(dtype=calculation_dtype)
     minimum = torch.finfo(calculation_dtype).min
-    masked_log_weights = expanded_log_weights.masked_fill(~availability, minimum)
-    receiver_has_source = availability.any(dim=1, keepdim=True)
+    masked_log_weights = expanded_log_weights.masked_fill(~expanded_availability, minimum)
+    receiver_has_source = expanded_availability.any(dim=1, keepdim=True)
     maximum = masked_log_weights.max(dim=1, keepdim=True).values
     safe_maximum = torch.where(receiver_has_source, maximum, torch.zeros_like(maximum))
-    unnormalized = torch.exp(masked_log_weights - safe_maximum) * availability.to(
+    unnormalized = torch.exp(masked_log_weights - safe_maximum) * expanded_availability.to(
         dtype=calculation_dtype
     )
     denominator = unnormalized.sum(dim=1, keepdim=True)
@@ -537,6 +803,72 @@ def _directional_waveform_moments(
         weighted_centered_neighbors,
         source_directions,
     )
+
+
+def _dynamic_weighted_moment_features(
+    neighbors: torch.Tensor,
+    availability: torch.Tensor,
+    weights: torch.Tensor,
+    source_directions: torch.Tensor,
+    target_coordinates: torch.Tensor,
+    *,
+    reference: torch.Tensor,
+) -> torch.Tensor:
+    """Build the original moment schema from receiver- and time-varying weights."""
+    batch_size, _source_count, _receiver_x, _receiver_y, time_count = neighbors.shape
+    weighted_centered_neighbors = (neighbors - reference[:, None]) * weights
+    disagreement = torch.sum(torch.abs(weighted_centered_neighbors), dim=1)
+    directional_waveform_moments = _directional_waveform_moments(
+        weighted_centered_neighbors,
+        source_directions,
+    )
+    availability_fraction = availability.to(dtype=neighbors.dtype).mean(dim=1)
+    availability_time = availability_fraction[:, None, ..., None].expand(
+        -1,
+        -1,
+        -1,
+        -1,
+        time_count,
+    )
+    weighted_direction = torch.einsum("bkxyt,bkc->bcxyt", weights, source_directions)
+    target_grid = target_coordinates[:, :, None, None].expand(
+        -1,
+        -1,
+        RECEIVER_X_COUNT,
+        RECEIVER_Y_COUNT,
+    )
+    receiver_coordinates = _normalized_receiver_coordinates(
+        dtype=neighbors.dtype,
+        device=neighbors.device,
+    )[None].expand(batch_size, -1, -1, -1)
+    coordinate_time = torch.cat((target_grid, receiver_coordinates), dim=1)[..., None].expand(
+        -1,
+        -1,
+        -1,
+        -1,
+        time_count,
+    )
+    features = torch.cat(
+        (
+            reference[:, None],
+            disagreement[:, None],
+            directional_waveform_moments,
+            availability_time,
+            weighted_direction,
+            coordinate_time,
+        ),
+        dim=1,
+    )
+    expected_shape = (
+        batch_size,
+        len(SHOT_GATHER_INPUT_FEATURE_NAMES),
+        RECEIVER_X_COUNT,
+        RECEIVER_Y_COUNT,
+        time_count,
+    )
+    if features.shape != expected_shape:
+        raise AssertionError("dynamic moment features changed the declared stem schema")
+    return features
 
 
 def _ordered_raw_features(
@@ -705,6 +1037,12 @@ def _validated_width(value: object) -> int:
     if width % _GROUP_COUNT != 0:
         raise ValueError(f"width must be divisible by {_GROUP_COUNT}, got {width}")
     return width
+
+
+def _validated_source_weighting(value: object) -> str:
+    if not isinstance(value, str) or value not in SOURCE_WEIGHTING_MODES:
+        raise ValueError(f"source_weighting must be one of {SOURCE_WEIGHTING_MODES}, got {value!r}")
+    return value
 
 
 def _validated_source_feature_mode(value: object) -> str:

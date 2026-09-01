@@ -5,6 +5,9 @@ import torch
 from torch import nn
 
 from seis_interp.models.shot_gather_inpainter import (
+    DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES,
+    DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    INVERSE_DISTANCE_SOURCE_WEIGHTING,
     LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
@@ -12,6 +15,7 @@ from seis_interp.models.shot_gather_inpainter import (
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
     SHOT_GATHER_INPUT_FEATURE_NAMES,
+    DynamicSourceAttention,
     FactorizedGatherResidualBlock,
     ReceiverPositionFiLM,
     ShotGatherInpainter,
@@ -163,6 +167,210 @@ def test_default_moments_mode_matches_explicit_mode_and_state_exactly() -> None:
             rtol=0.0,
             atol=0.0,
         )
+
+
+def test_default_source_weighting_matches_explicit_inverse_distance_exactly() -> None:
+    torch.manual_seed(42)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(42)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_weighting=INVERSE_DISTANCE_SOURCE_WEIGHTING,
+    )
+
+    assert default_model.source_weighting == INVERSE_DISTANCE_SOURCE_WEIGHTING
+    assert default_model.source_weighting_input_feature_names == ()
+    assert not hasattr(default_model, "dynamic_source_attention")
+    assert default_model.state_dict().keys() == explicit_model.state_dict().keys()
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_dynamic_attention_zero_init_preserves_idw_and_shared_model_state() -> None:
+    torch.manual_seed(44)
+    inverse_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(44)
+    dynamic_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    )
+    neighbors, availability, source_deltas, target_coordinates = _inputs(
+        batch_size=1,
+        source_count=3,
+        time_count=5,
+    )
+    availability[:, 1, 2:4, 7:11] = False
+    availability[:, :, 0, 0] = False
+    expected = inverse_distance_reference(neighbors, availability, source_deltas)
+
+    output = dynamic_model(neighbors, availability, source_deltas, target_coordinates)
+
+    assert dynamic_model.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING
+    assert dynamic_model.source_weighting_input_feature_names == (
+        DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES
+    )
+    assert isinstance(dynamic_model.dynamic_source_attention, DynamicSourceAttention)
+    final_projection = dynamic_model.dynamic_source_attention.temporal[-1]
+    assert isinstance(final_projection, nn.Conv3d)
+    assert torch.count_nonzero(final_projection.weight) == 0
+    assert torch.count_nonzero(final_projection.bias) == 0
+    torch.testing.assert_close(output, expected, rtol=0.0, atol=0.0)
+    inverse_state = inverse_model.state_dict()
+    dynamic_state = dynamic_model.state_dict()
+    for name, value in inverse_state.items():
+        torch.testing.assert_close(dynamic_state[name], value, rtol=0.0, atol=0.0)
+    dynamic_parameter_count = sum(parameter.numel() for parameter in dynamic_model.parameters())
+    inverse_parameter_count = sum(parameter.numel() for parameter in inverse_model.parameters())
+    assert 0 < dynamic_parameter_count - inverse_parameter_count < 1000
+
+
+def test_dynamic_attention_feature_order_and_formulas_are_explicit() -> None:
+    attention = DynamicSourceAttention(width=3, temporal_kernel_size=3).double()
+    neighbors = torch.tensor(
+        [[2.0, 4.0], [10.0, 14.0]],
+        dtype=torch.float64,
+    ).view(1, 2, 1, 1, 2)
+    neighbors = neighbors.expand(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2).clone()
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    availability[:, 1, 0, 0] = False
+    source_deltas = torch.tensor([[[3.0, 4.0], [-6.0, 8.0]]], dtype=torch.float64)
+    source_directions = torch.tensor(
+        [[[0.6, 0.8], [-0.6, 0.8]]],
+        dtype=torch.float64,
+    )
+    target_coordinates = torch.tensor([[0.25, 0.75]], dtype=torch.float64)
+    captured: list[torch.Tensor] = []
+
+    def capture_input(_module: nn.Module, inputs: tuple[torch.Tensor]) -> None:
+        captured.append(inputs[0].detach().clone())
+
+    handle = attention.temporal[0].register_forward_pre_hook(capture_input)
+    try:
+        corrections = attention(
+            neighbors,
+            availability,
+            source_deltas,
+            source_directions,
+            target_coordinates,
+            distance_epsilon=1.0e-6,
+        )
+    finally:
+        handle.remove()
+
+    expected_names = (
+        "masked_neighbor_waveform",
+        "normalized_source_direction_x",
+        "normalized_source_direction_y",
+        "normalized_source_distance",
+        "target_coordinate_x",
+        "target_coordinate_y",
+        "receiver_coordinate_x",
+        "receiver_coordinate_y",
+    )
+    assert expected_names == DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES
+    assert attention.input_feature_names == expected_names
+    assert attention.input_channels == 8
+    assert corrections.shape == (1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2)
+    torch.testing.assert_close(corrections, torch.zeros_like(corrections), rtol=0.0, atol=0.0)
+    assert len(captured) == 1
+    features = captured[0].reshape(
+        1,
+        2,
+        8,
+        RECEIVER_X_COUNT,
+        RECEIVER_Y_COUNT,
+        2,
+    )
+    channel = {name: index for index, name in enumerate(expected_names)}
+    torch.testing.assert_close(
+        features[:, 0, channel["masked_neighbor_waveform"]],
+        neighbors[:, 0],
+    )
+    torch.testing.assert_close(
+        features[:, 1, channel["masked_neighbor_waveform"], 0, 0],
+        torch.zeros(1, 2, dtype=torch.float64),
+    )
+    for source_index, values in enumerate(((0.6, 0.8, 0.5), (-0.6, 0.8, 1.0))):
+        for name, value in zip(
+            (
+                "normalized_source_direction_x",
+                "normalized_source_direction_y",
+                "normalized_source_distance",
+            ),
+            values,
+            strict=True,
+        ):
+            torch.testing.assert_close(
+                features[:, source_index, channel[name]],
+                torch.full_like(features[:, source_index, channel[name]], value),
+            )
+    for name, value in (("target_coordinate_x", 0.25), ("target_coordinate_y", 0.75)):
+        torch.testing.assert_close(
+            features[:, :, channel[name]],
+            torch.full_like(features[:, :, channel[name]], value),
+        )
+
+
+def test_dynamic_attention_changes_available_source_weights_per_time_and_masks_missing() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    ).double()
+    first_projection = model.dynamic_source_attention.temporal[0]
+    final_projection = model.dynamic_source_attention.temporal[-1]
+    assert isinstance(first_projection, nn.Conv3d)
+    assert isinstance(final_projection, nn.Conv3d)
+    with torch.no_grad():
+        first_projection.weight.zero_()
+        first_projection.bias.zero_()
+        first_projection.weight[0, 0, 0, 0, 2] = 1.0
+        final_projection.weight.zero_()
+        final_projection.bias.zero_()
+        final_projection.weight[0, 0, 0, 0, 0] = 1.0
+    neighbors = torch.empty(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3, dtype=torch.float64)
+    neighbors[:, 0].fill_(2.0)
+    neighbors[:, 1].fill_(6.0)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    availability[:, 1, 0, 0] = False
+    availability[:, :, 0, 1] = False
+    source_deltas = torch.tensor([[[1.0, 0.0], [-1.0, 0.0]]], dtype=torch.float64)
+    target_coordinates = torch.zeros(1, 2, dtype=torch.float64)
+
+    output = model(neighbors, availability, source_deltas, target_coordinates)
+
+    assert torch.all(output[:, 1:, 1:] > 4.0)
+    torch.testing.assert_close(output[0, 0, 0], torch.full((3,), 2.0, dtype=torch.float64))
+    torch.testing.assert_close(output[0, 0, 1], torch.zeros(3, dtype=torch.float64))
+
+
+def test_zero_initialized_dynamic_attention_receives_reference_gradient() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    ).double()
+    neighbors, availability, source_deltas, target_coordinates = _inputs(
+        batch_size=1,
+        source_count=2,
+        time_count=5,
+        dtype=torch.float64,
+    )
+
+    model(neighbors, availability, source_deltas, target_coordinates).square().mean().backward()
+
+    final_projection = model.dynamic_source_attention.temporal[-1]
+    assert isinstance(final_projection, nn.Conv3d)
+    assert final_projection.weight.grad is not None
+    assert torch.isfinite(final_projection.weight.grad).all()
+    assert torch.count_nonzero(final_projection.weight.grad) > 0
 
 
 def test_default_receiver_conditioning_matches_explicit_none_state_exactly() -> None:
@@ -538,6 +746,16 @@ def test_model_rejects_invalid_source_feature_configuration(
             temporal_dilations=(1,),
             source_feature_mode=source_feature_mode,
             source_gather_count=source_gather_count,
+        )
+
+
+@pytest.mark.parametrize("value", ["unknown", "", None, True])
+def test_model_rejects_invalid_source_weighting(value: object) -> None:
+    with pytest.raises(ValueError, match="source_weighting must be one of"):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1,),
+            source_weighting=value,
         )
 
 

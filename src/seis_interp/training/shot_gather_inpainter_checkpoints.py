@@ -12,6 +12,9 @@ import torch
 
 from seis_interp.models.shot_gather_inpainter import (
     DEFAULT_DISTANCE_POWER,
+    DEFAULT_DYNAMIC_ATTENTION_KERNEL_SIZE,
+    DEFAULT_DYNAMIC_ATTENTION_WIDTH,
+    INVERSE_DISTANCE_SOURCE_WEIGHTING,
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
@@ -25,6 +28,7 @@ from seis_interp.training.amplitude_scaling import (
 MODEL_TYPE = "shot_gather_inpainter"
 MOMENTS_INPUT_FEATURE_SCHEMA_VERSION = 1
 ORDERED_RAW_INPUT_FEATURE_SCHEMA_VERSION = 2
+SOURCE_WEIGHTING_SCHEMA_VERSION = 1
 # Backward-compatible alias for the original/default moments feature schema.
 INPUT_FEATURE_SCHEMA_VERSION = 1
 
@@ -40,6 +44,9 @@ class LoadedShotGatherInpainterCheckpoint:
     input_feature_names: tuple[str, ...]
     source_feature_mode: str
     source_gather_count: int | None
+    source_weighting: str
+    source_weighting_schema_version: int
+    source_weighting_input_feature_names: tuple[str, ...]
     receiver_position_conditioning: str
     best_step: int
     best_validation_global_snr_db: float
@@ -78,6 +85,9 @@ def save_shot_gather_inpainter_checkpoint(
                 "residual_kernel_size": model.residual_kernel_size,
                 "distance_epsilon": model.distance_epsilon,
                 "distance_power": model.distance_power,
+                "source_weighting": model.source_weighting,
+                "dynamic_attention_width": model.dynamic_attention_width,
+                "dynamic_attention_kernel_size": model.dynamic_attention_kernel_size,
                 "source_feature_mode": model.source_feature_mode,
                 "source_gather_count": model.source_gather_count,
                 "receiver_position_conditioning": model.receiver_position_conditioning,
@@ -90,6 +100,11 @@ def save_shot_gather_inpainter_checkpoint(
                 "source_feature_mode": model.source_feature_mode,
                 "source_gather_count": model.source_gather_count,
                 "names": list(input_feature_names),
+            },
+            "source_weighting_schema": {
+                "version": SOURCE_WEIGHTING_SCHEMA_VERSION,
+                "mode": model.source_weighting,
+                "input_feature_names": list(model.source_weighting_input_feature_names),
             },
             "training": {
                 "best_step": step,
@@ -132,6 +147,18 @@ def load_shot_gather_inpainter_checkpoint(
             residual_kernel_size=model_config["residual_kernel_size"],
             distance_epsilon=model_config["distance_epsilon"],
             distance_power=model_config.get("distance_power", DEFAULT_DISTANCE_POWER),
+            source_weighting=model_config.get(
+                "source_weighting",
+                INVERSE_DISTANCE_SOURCE_WEIGHTING,
+            ),
+            dynamic_attention_width=model_config.get(
+                "dynamic_attention_width",
+                DEFAULT_DYNAMIC_ATTENTION_WIDTH,
+            ),
+            dynamic_attention_kernel_size=model_config.get(
+                "dynamic_attention_kernel_size",
+                DEFAULT_DYNAMIC_ATTENTION_KERNEL_SIZE,
+            ),
             source_feature_mode=model_config.get(
                 "source_feature_mode",
                 MOMENTS_SOURCE_FEATURE_MODE,
@@ -190,6 +217,38 @@ def load_shot_gather_inpainter_checkpoint(
             "checkpoint input feature names do not match the current model feature order"
         )
 
+    source_weighting_schema = payload.get("source_weighting_schema")
+    if source_weighting_schema is None:
+        if model.source_weighting != INVERSE_DISTANCE_SOURCE_WEIGHTING:
+            raise ValueError("dynamic source weighting checkpoint must contain its schema")
+        stored_source_weighting_names: tuple[str, ...] = ()
+    else:
+        if not isinstance(source_weighting_schema, dict):
+            raise ValueError("checkpoint source_weighting_schema must be a mapping")
+        weighting_schema_version = source_weighting_schema.get("version")
+        if (
+            isinstance(weighting_schema_version, bool)
+            or not isinstance(weighting_schema_version, Integral)
+            or int(weighting_schema_version) != SOURCE_WEIGHTING_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                "checkpoint source weighting schema version must be "
+                f"{SOURCE_WEIGHTING_SCHEMA_VERSION}"
+            )
+        if source_weighting_schema.get("mode") != model.source_weighting:
+            raise ValueError(
+                "checkpoint source weighting schema mode does not match model configuration"
+            )
+        stored_source_weighting_names = _validated_optional_feature_names(
+            source_weighting_schema.get("input_feature_names"),
+            "checkpoint source_weighting_schema.input_feature_names",
+        )
+    expected_source_weighting_names = tuple(model.source_weighting_input_feature_names)
+    if stored_source_weighting_names != expected_source_weighting_names:
+        raise ValueError(
+            "checkpoint source weighting feature names do not match the current model order"
+        )
+
     training = payload.get("training")
     if not isinstance(training, dict):
         raise ValueError("checkpoint training metadata must be a mapping")
@@ -209,6 +268,9 @@ def load_shot_gather_inpainter_checkpoint(
         input_feature_names=stored_input_feature_names,
         source_feature_mode=model.source_feature_mode,
         source_gather_count=model.source_gather_count,
+        source_weighting=model.source_weighting,
+        source_weighting_schema_version=SOURCE_WEIGHTING_SCHEMA_VERSION,
+        source_weighting_input_feature_names=stored_source_weighting_names,
         receiver_position_conditioning=model.receiver_position_conditioning,
         best_step=best_step,
         best_validation_global_snr_db=best_validation,
@@ -254,6 +316,14 @@ def _validated_feature_names(value: object, name: str) -> tuple[str, ...]:
     if len(set(names)) != len(names):
         raise ValueError(f"{name} must contain unique feature names")
     return names
+
+
+def _validated_optional_feature_names(value: object, name: str) -> tuple[str, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError(f"{name} must be a sequence of feature names")
+    if len(value) == 0:
+        return ()
+    return _validated_feature_names(value, name)
 
 
 def _finite_float(value: object, name: str) -> float:
