@@ -97,3 +97,13 @@ Stage 20 fed the first-pass prediction back as the target-node waveform and
 reran the shared rounds (8.777 dB, +0.04 dB against Stage 03), below the
 +0.20 dB gate. Iterating the same weights does not add usable capacity here;
 the data-scaling axis (batch and steps) remains the productive direction.
+
+## Accept the scaled trace graph as study best; threshold remains unmet
+
+Stage 19 (width 128, twelve rounds, batch 4, 10,000 updates, activation
+checkpointing) reached 12.239264085153996 dB with checkpoint revalidation and
+the full formal scope audit passing, exceeding the strongest control
+(per-trace K1374 at 11.318 dB) by 0.92 dB. Its budget curve
+(10.700 / 11.684 / 12.068 / 12.239 dB at 2.5k/5k/7.5k/10k) still decays, so
+budget alone leaves no evidence-backed path to the strict 20 dB requirement;
+the study stays open with the continuation plan recorded in the report.
