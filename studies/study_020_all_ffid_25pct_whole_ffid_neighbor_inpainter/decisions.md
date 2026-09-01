@@ -135,3 +135,56 @@ evidence-based early stop. The original stop remains a valid conclusion about
 budget-only scaling, but it cannot close the new objective. Reopening preserves
 the split and evaluation estimand while moving to architectures that match the
 whole-shot missingness pattern.
+
+## 2026-08-31 — Promote one complete trace-model train sweep
+
+**Status:** active
+
+**Decision:** Change Stage 03 target sampling to epoch-without-replacement at
+matched budget in Stage 06, then train Stage 07 for 6,030 updates so its
+`96 trace/update` batches cover at least all 578,685 TRAIN traces once. Keep
+K1374, width, split, target-FFID masking, loss, and metric unchanged.
+
+**Reason:** Stage 06 measured 8.715600689719826 dB and showed that sampler order
+alone did not explain Stage 03. Stage 07 improved from 8.970943588197336 dB at
+step 3,015 to 9.099802401746661 dB at step 6,030. This is the new formal best,
+but the second half added only 0.128858813549325 dB and still leaves
+15.900197598253339 dB to the strict threshold.
+
+## 2026-08-31 — Isolate a leakage-safe joint shot-gather path
+
+**Status:** active
+
+**Decision:** Add a thin formal pipeline that predicts each complete 8 x 68
+target shot gather from the nearest TRAIN source gathers. Load only TRAIN and
+validation amplitudes, exclude the target FFID, mask missing receiver cells,
+zero-initialize an inverse-distance residual decoder, save the input feature
+schema in the checkpoint, and revalidate the selected checkpoint on all 437,087
+validation traces. Isolate receiver-y dilation, ordered source waveforms,
+capacity, temporal field, receiver-cell FiLM, distance power, and objective
+regularization one mechanism at a time.
+
+**Reason:** Whole-FFID withholding removes a complete shot rather than isolated
+traces, so receiver coherence is potentially useful. The path also provides a
+formal home for train-only source-lattice diagnostics. Stages 09--17 all passed
+the same split, amplitude-access, collision, target-mask, and checkpoint checks.
+The strongest short joint-shot result so far is 7.028111512586028 dB, below the
+trace-model best.
+
+## 2026-08-31 — Promote capacity and squared-distance weighting only
+
+**Status:** active
+
+**Decision:** Promote Stage 12 width 128 and Stage 16 inverse-distance power 2
+because each improves the matched Stage 09 condition by at least 0.20 dB. Test
+their combination at 2,500 updates, and extend width 128 to five TRAIN sweeps.
+Do not promote K16/K32, receiver-y dilation, full temporal field, ordered-raw
+features, pure MSE, or receiver-cell FiLM as independent winners.
+
+**Reason:** Width 128 measured 7.010553558041961 dB, `+0.227865449443491 dB`
+over Stage 09. Squared-distance weighting measured 6.998159535214238 dB,
+`+0.215471426615768 dB`; its zero-step reference was independently reproduced
+at 6.443429389385823 dB. In contrast, K16/K32 geometry diagnostics degraded the
+reference, and the rejected mechanisms changed Stage 09 or Stage 12 by at most
+0.036650567075181 dB. Combination and budget runs preserve the original split
+and acceptance rule.
