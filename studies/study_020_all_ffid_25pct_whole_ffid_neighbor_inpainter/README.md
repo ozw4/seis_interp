@@ -53,24 +53,44 @@ evidence-backed path to 25 dB.
 
 ## Results
 
-All five full-scope runs passed their FFID isolation, amplitude access,
-collision, target-FFID masking, and checkpoint-revalidation checks. The best
-result was Stage 03, which removed every zero-neighbor validation row with
-crossline K1374:
+All completed full-scope runs passed their FFID isolation, amplitude access,
+collision, target-FFID masking, and checkpoint-revalidation checks. Stages
+01--05 established complete trace-neighbor coverage; the continuation then
+isolated sampling, budget, representation, joint-shot capacity, and geometry
+conditioning:
 
 | Stage | Isolated condition | Validation S/N |
 |---:|---|---:|
 | 01 | K274 matched baseline | 4.431249374754326 dB |
 | 02 | K714 crossline support | 7.783543855019937 dB |
-| 03 | K1374 complete validation coverage | **8.719953365995504 dB** |
+| 03 | K1374 complete validation coverage | 8.719953365995504 dB |
 | 04 | K274 plus shot-bracketing residual | 8.51333997509688 dB |
 | 05 | K1374 plus shot-bracketing residual | 8.595997409114656 dB |
 
 Stage 02 improved Stage 01 by 3.352294480265612 dB, and Stage 03 added
 0.936409510975567 dB. The bracketing reference improved matched K274 by
 4.082090600342554 dB, but combining it with K1374 was 0.123955956880849 dB
-worse than Stage 03. The best result remained 16.280046634004496 dB below the
-strict threshold.
+worse than Stage 03.
+
+| Stage | Isolated continuation condition | Validation S/N |
+|---:|---|---:|
+| 06 | Stage 03 + epoch-without-replacement sampling | 8.715600689719826 dB |
+| 07 | Stage 06 + 6,030 updates | **9.099802401746661 dB** |
+| 08 | Uncollapsed lower/upper bracket channels | 8.47432990435385 dB |
+| 09 | K8 joint 8 x 68 shot gather | 6.78268810859847 dB |
+| 10 | Stage 09 + receiver-y dilation | 6.775663646870017 dB |
+| 11 | Stage 09 + ordered raw source channels | 6.799961202685375 dB |
+| 12 | Stage 09 + width 128 | 7.010553558041961 dB |
+| 13 | Stage 09 + full 767-sample temporal field | 6.8193386756736505 dB |
+| 14 | Stage 12 + receiver-cell learned FiLM | 7.028111512586028 dB |
+| 16 | Stage 09 + inverse-distance power 2 | 6.998159535214238 dB |
+| 17 | Stage 09 + pure MSE objective | 6.779432582049562 dB |
+
+Stage 07 improved Stage 03 by 0.379849035751157 dB. Its second half improved
+only 0.128858813549325 dB over step 3,015, and the current best remains
+15.900197598253339 dB below the strict threshold. Stage 15 K16 was rejected
+before a formal run because full-validation geometry diagnostics showed K16
+and K32 references below K8; immutable stage numbering is retained.
 
 The matching Study 018 architecture gained 3.656672439472694 dB between its
 2,500- and 50,000-step results. A 2,500-step candidate therefore needed at
@@ -113,11 +133,11 @@ python -m seis_interp.cli data prepare-baseline \
   --json
 ```
 
-Reproduce the best Stage 03 condition:
+Reproduce the current best Stage 07 condition:
 
 ```bash
 python -m seis_interp.cli train neighbor-inpainter \
-  --config studies/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/variants/stage03_crossline_k1374.yaml \
+  --config studies/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/variants/stage07_full_train_sweep_k1374.yaml \
   --interim data/interim/c3_na/all_ffids \
   --processed data/processed/c3_na/all_ffids_whole_ffid_25pct_train_amplitude_qc \
   --output runs/study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/<run-id> \
