@@ -442,7 +442,8 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
 
 
 def _train_siren(args: argparse.Namespace) -> int:
-    from seis_interp.pipelines.train_siren import CHECKPOINT_RELATIVE_PATH, train_siren_run
+    from seis_interp.pipelines.train_siren import train_siren_run
+    from seis_interp.run_records import CHECKPOINT_RELATIVE_PATH
 
     progress_reporter = _print_progress_to_stderr if args.json else None
     try:
@@ -506,10 +507,8 @@ def _train_siren(args: argparse.Namespace) -> int:
 
 
 def _train_neighbor_inpainter(args: argparse.Namespace) -> int:
-    from seis_interp.pipelines.train_neighbor_inpainter import (
-        CHECKPOINT_RELATIVE_PATH,
-        train_neighbor_inpainter_run,
-    )
+    from seis_interp.pipelines.train_neighbor_inpainter import train_neighbor_inpainter_run
+    from seis_interp.run_records import CHECKPOINT_RELATIVE_PATH
 
     progress_reporter = _print_progress_to_stderr if args.json else None
     try:
@@ -546,9 +545,9 @@ def _train_neighbor_inpainter(args: argparse.Namespace) -> int:
 
 def _train_shot_gather_inpainter(args: argparse.Namespace) -> int:
     from seis_interp.pipelines.train_shot_gather_inpainter import (
-        CHECKPOINT_RELATIVE_PATH,
         train_shot_gather_inpainter_run,
     )
+    from seis_interp.run_records import CHECKPOINT_RELATIVE_PATH
 
     progress_reporter = _print_progress_to_stderr if args.json else None
     try:
@@ -584,10 +583,8 @@ def _train_shot_gather_inpainter(args: argparse.Namespace) -> int:
 
 
 def _train_trace_graph(args: argparse.Namespace) -> int:
-    from seis_interp.pipelines.train_trace_graph import (
-        CHECKPOINT_RELATIVE_PATH,
-        train_trace_graph_run,
-    )
+    from seis_interp.pipelines.train_trace_graph import train_trace_graph_run
+    from seis_interp.run_records import CHECKPOINT_RELATIVE_PATH
 
     progress_reporter = _print_progress_to_stderr if args.json else None
     try:

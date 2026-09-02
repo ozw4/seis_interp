@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from seis_interp import run_records
 from seis_interp.configuration import (
     ConfigurationError,
     get_required_config_value,
@@ -57,7 +58,6 @@ from seis_interp.pipelines.train_neighbor_inpainter import (
     _positive_integer,
     _probability,
     _require_exact,
-    _runtime_resource_metadata,
     _seed_global_model_initialization,
     _selected_trace_table,
     _selection_contract,
@@ -70,19 +70,13 @@ from seis_interp.pipelines.train_neighbor_inpainter import (
     _validated_target_coordinate_names,
 )
 from seis_interp.pipelines.train_siren import (
-    CHECKPOINT_RELATIVE_PATH,
     PROCESSED_INPUT_FILE_NAMES,
     RANDOM_COMPLETE_TRACES_BATCH_MODE,
-    _check_new_output_directory,
     _configured_trace_amplitude_filter,
-    _file_hashes,
-    _git_commit,
     _load_processed_dataset,
     _split_counts,
-    _utc_timestamp,
     _validate_preparation_data,
     _validated_preparation_contract,
-    _write_run_outputs,
 )
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
@@ -518,9 +512,9 @@ def train_shot_gather_inpainter_run(
 ) -> dict[str, object]:
     """Train one whole-shot inpainter and write an immutable reproducible run."""
     output_directory = Path(output_dir)
-    _check_new_output_directory(output_directory)
-    started_at_utc = _utc_timestamp()
-    git_commit = _git_commit()
+    run_records.check_new_output_directory(output_directory)
+    started_at_utc = run_records.utc_timestamp()
+    git_commit = run_records.current_git_commit()
     config = load_resolved_config(Path(config_path))
     settings = _validated_settings(config, device_override=device_override)
     resolved_config = deepcopy(config)
@@ -552,8 +546,8 @@ def train_shot_gather_inpainter_run(
         memory_map_amplitudes=True,
         amplitude_validation_rows=amplitude_rows_to_read,
     )
-    interim_files = _file_hashes(interim_directory, INTERIM_FILE_NAMES)
-    processed_files = _file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
+    interim_files = run_records.file_hashes(interim_directory, INTERIM_FILE_NAMES)
+    processed_files = run_records.file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
     split_counts = _split_counts(split_table)
     _validate_preparation_data(preparation, dataset.metadata, split_counts, interim_files)
     trace_amplitude_filter = _configured_trace_amplitude_filter(resolved_config)
@@ -691,7 +685,7 @@ def train_shot_gather_inpainter_run(
         validation_evaluator,
         device=device,
         generator=generator,
-        checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+        checkpoint_path=output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
         total_steps=settings.total_steps,
         batch_size=settings.batch_size,
         neighbor_dropout=settings.neighbor_dropout,
@@ -705,7 +699,7 @@ def train_shot_gather_inpainter_run(
         reporter=progress_reporter,
     )
     checkpoint = load_shot_gather_inpainter_checkpoint(
-        output_directory / CHECKPOINT_RELATIVE_PATH,
+        output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
         device=device,
     )
     if (
@@ -786,7 +780,7 @@ def train_shot_gather_inpainter_run(
         "neighbor_dropout_scope": "whole_source_gather",
     }
     checkpoint_contract = {
-        "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
+        "path": run_records.CHECKPOINT_RELATIVE_PATH.as_posix(),
         "selection_metric": PRIMARY_METRIC,
         "best_step": result.best_step,
         "stored_validation_global_snr_db": result.best_validation_global_snr_db,
@@ -851,7 +845,7 @@ def train_shot_gather_inpainter_run(
     run_metadata = {
         "git_commit": git_commit,
         "started_at_utc": started_at_utc,
-        "finished_at_utc": _utc_timestamp(),
+        "finished_at_utc": run_records.utc_timestamp(),
         "status": "success",
         "device": str(device),
         "python_version": platform.python_version(),
@@ -871,9 +865,9 @@ def train_shot_gather_inpainter_run(
         "training": training_contract,
         "formal_success_scope": scope_audit,
         "checkpoint": checkpoint_contract,
-        "environment": _runtime_resource_metadata(device),
+        "environment": run_records.runtime_resource_metadata(device),
     }
-    _write_run_outputs(
+    run_records.write_run_outputs(
         output_directory,
         resolved_config,
         inputs_lock,

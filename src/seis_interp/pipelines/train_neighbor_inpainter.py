@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import platform
-import resource
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
@@ -15,6 +14,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from seis_interp import run_records
 from seis_interp.configuration import (
     ConfigurationError,
     get_required_config_value,
@@ -58,20 +58,14 @@ from seis_interp.models.shared_offset_attention_inpainter import (
     MODEL_NAME as SHARED_OFFSET_ATTENTION_MODEL_NAME,
 )
 from seis_interp.pipelines.train_siren import (
-    CHECKPOINT_RELATIVE_PATH,
     PROCESSED_INPUT_FILE_NAMES,
     RANDOM_COMPLETE_TRACES_BATCH_MODE,
-    _check_new_output_directory,
     _configured_trace_amplitude_filter,
-    _file_hashes,
-    _git_commit,
     _load_processed_dataset,
     _split_counts,
-    _utc_timestamp,
     _validate_preparation_data,
     _validate_split_table,
     _validated_preparation_contract,
-    _write_run_outputs,
 )
 from seis_interp.processing.multiline_neighbor_geometry import (
     SOURCE_X_LINE_SPACING_M,
@@ -541,9 +535,9 @@ def train_neighbor_inpainter_run(
 ) -> dict[str, object]:
     """Train one neighbor inpainter and write immutable, reproducible run artifacts."""
     output_directory = Path(output_dir)
-    _check_new_output_directory(output_directory)
-    started_at_utc = _utc_timestamp()
-    git_commit = _git_commit()
+    run_records.check_new_output_directory(output_directory)
+    started_at_utc = run_records.utc_timestamp()
+    git_commit = run_records.current_git_commit()
     config = load_resolved_config(Path(config_path))
     settings = _validated_settings(config, device_override=device_override)
     resolved_config = deepcopy(config)
@@ -579,8 +573,8 @@ def train_neighbor_inpainter_run(
         memory_map_amplitudes=True,
         amplitude_validation_rows=amplitude_rows_to_read,
     )
-    interim_files = _file_hashes(interim_directory, INTERIM_FILE_NAMES)
-    processed_files = _file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
+    interim_files = run_records.file_hashes(interim_directory, INTERIM_FILE_NAMES)
+    processed_files = run_records.file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
     split_counts = _split_counts(split_table)
     _validate_preparation_data(preparation, dataset.metadata, split_counts, interim_files)
     trace_amplitude_filter = _configured_trace_amplitude_filter(resolved_config)
@@ -748,7 +742,7 @@ def train_neighbor_inpainter_run(
         validation_evaluator,
         device=device,
         generator=generator,
-        checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+        checkpoint_path=output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
         total_steps=settings.total_steps,
         batch_size=settings.batch_size,
         neighbor_dropout=settings.neighbor_dropout,
@@ -761,7 +755,7 @@ def train_neighbor_inpainter_run(
         reporter=progress_reporter,
     )
     checkpoint = load_neighbor_inpainter_checkpoint(
-        output_directory / CHECKPOINT_RELATIVE_PATH,
+        output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
         device=device,
     )
     if (
@@ -838,7 +832,7 @@ def train_neighbor_inpainter_run(
         geometry=geometry,
     )
     checkpoint_contract = {
-        "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
+        "path": run_records.CHECKPOINT_RELATIVE_PATH.as_posix(),
         "selection_metric": PRIMARY_METRIC,
         "best_step": result.best_step,
         "stored_validation_global_snr_db": result.best_validation_global_snr_db,
@@ -892,7 +886,7 @@ def train_neighbor_inpainter_run(
     run_metadata = {
         "git_commit": git_commit,
         "started_at_utc": started_at_utc,
-        "finished_at_utc": _utc_timestamp(),
+        "finished_at_utc": run_records.utc_timestamp(),
         "status": "success",
         "device": str(device),
         "python_version": platform.python_version(),
@@ -911,12 +905,12 @@ def train_neighbor_inpainter_run(
         "training": training_contract,
         "formal_success_scope": scope_audit,
         "checkpoint": checkpoint_contract,
-        "environment": _runtime_resource_metadata(device),
+        "environment": run_records.runtime_resource_metadata(device),
     }
     if source_bracketing_contract is not None:
         inputs_lock["source_bracketing"] = source_bracketing_contract
         run_metadata["source_bracketing"] = source_bracketing_contract
-    _write_run_outputs(
+    run_records.write_run_outputs(
         output_directory,
         resolved_config,
         inputs_lock,
@@ -2319,22 +2313,6 @@ def _metrics_payload(
     if source_bracketing_contract is not None:
         metrics["source_bracketing"] = dict(source_bracketing_contract)
     return metrics
-
-
-def _runtime_resource_metadata(device: torch.device) -> dict[str, object]:
-    result: dict[str, object] = {
-        "process_max_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-        "cudnn_benchmark": device.type == "cuda" and torch.backends.cudnn.benchmark,
-        "cudnn_deterministic": device.type == "cuda" and torch.backends.cudnn.deterministic,
-    }
-    if device.type == "cuda":
-        result.update(
-            {
-                "cuda_max_memory_allocated_bytes": torch.cuda.max_memory_allocated(device),
-                "cuda_max_memory_reserved_bytes": torch.cuda.max_memory_reserved(device),
-            }
-        )
-    return result
 
 
 def _seed_global_model_initialization(seed: int, *, device: torch.device) -> None:
