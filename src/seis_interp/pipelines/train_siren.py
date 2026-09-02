@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import json
-import math
 import platform
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from numbers import Integral, Real
+from numbers import Integral
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 
-from seis_interp import run_records
+from seis_interp import config_values, run_records
 from seis_interp.configuration import (
     ConfigurationError,
     get_required_config_value,
@@ -480,17 +479,17 @@ def _train_random_complete_traces(
     training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
     validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
     training_rows = np.concatenate(tuple(training_rows_by_ffid.values()))
-    traces_per_update = _validated_positive_config_integer(
+    traces_per_update = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.traces_per_update"),
         "training.traces_per_update",
     )
-    steps_per_epoch = _validated_positive_config_integer(
+    steps_per_epoch = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.steps_per_epoch"),
         "training.steps_per_epoch",
     )
     max_epochs = get_required_config_value(config, "training.max_epochs")
     learning_rate = get_required_config_value(config, "training.learning_rate")
-    validation_batch_size = _validated_positive_config_integer(
+    validation_batch_size = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.validation_batch_size"),
         "training.validation_batch_size",
     )
@@ -598,7 +597,7 @@ def _train_full_ffid_epoch(
 
     training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
     validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
-    validation_batch_size = _validated_positive_config_integer(
+    validation_batch_size = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.validation_batch_size"),
         "training.validation_batch_size",
     )
@@ -757,14 +756,14 @@ def _random_complete_trace_training_contract(
         contract.update(
             {
                 "learning_rate_schedule": learning_rate_schedule.name,
-                "initial_learning_rate": _validated_positive_config_float(
+                "initial_learning_rate": config_values.validated_positive_config_float(
                     initial_learning_rate,
                     "training.learning_rate",
                 ),
                 "minimum_learning_rate": learning_rate_schedule.minimum_learning_rate,
                 "learning_rate_schedule_step_unit": "optimizer_update",
                 "learning_rate_schedule_total_updates": (
-                    _validated_positive_config_integer(
+                    config_values.validated_positive_config_integer(
                         max_epochs,
                         "training.max_epochs",
                     )
@@ -859,34 +858,6 @@ def _integer_distribution(values: np.ndarray) -> dict[str, int | float]:
         "median": float(np.median(values)),
         "max": int(np.max(values)),
     }
-
-
-def _validated_positive_config_integer(value: object, dotted_path: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
-        raise ConfigurationError(f"{dotted_path} must be a positive integer, got {value!r}")
-    return int(value)
-
-
-def _validated_positive_config_float(value: object, dotted_path: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ConfigurationError(f"{dotted_path} must be a positive finite number, got {value!r}")
-    converted = float(value)
-    if not math.isfinite(converted) or converted <= 0.0:
-        raise ConfigurationError(f"{dotted_path} must be a positive finite number, got {value!r}")
-    return converted
-
-
-def _validated_nonnegative_config_float(value: object, dotted_path: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ConfigurationError(
-            f"{dotted_path} must be a non-negative finite number, got {value!r}"
-        )
-    converted = float(value)
-    if not math.isfinite(converted) or converted < 0.0:
-        raise ConfigurationError(
-            f"{dotted_path} must be a non-negative finite number, got {value!r}"
-        )
-    return converted
 
 
 def _encode_streaming_infinite_snr(metrics: dict[str, object]) -> dict[str, object]:
@@ -988,11 +959,11 @@ def _training_learning_rate_schedule(
             "training.minimum_learning_rate is required when "
             "training.learning_rate_schedule='cosine'"
         )
-    initial_learning_rate = _validated_positive_config_float(
+    initial_learning_rate = config_values.validated_positive_config_float(
         get_required_config_value(config, "training.learning_rate"),
         "training.learning_rate",
     )
-    minimum_learning_rate = _validated_positive_config_float(
+    minimum_learning_rate = config_values.validated_positive_config_float(
         training["minimum_learning_rate"],
         "training.minimum_learning_rate",
     )
@@ -1084,11 +1055,11 @@ def _training_correlation_loss(
             )
         return _CorrelationLossSettings()
 
-    weight = _validated_nonnegative_config_float(
+    weight = config_values.validated_nonnegative_config_float(
         training["correlation_weight"],
         "training.correlation_weight",
     )
-    eps = _validated_positive_config_float(
+    eps = config_values.validated_positive_config_float(
         training.get("correlation_eps", DEFAULT_TRACE_CORRELATION_EPS),
         "training.correlation_eps",
     )

@@ -7,14 +7,14 @@ import platform
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from numbers import Integral, Real
+from numbers import Real
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 
-from seis_interp import run_records
+from seis_interp import config_values, run_records
 from seis_interp.configuration import (
     ConfigurationError,
     get_required_config_value,
@@ -926,7 +926,11 @@ def _validated_settings(
     device_override: str | None,
 ) -> _TrainingSettings:
     model_name = _validated_model_name(config)
-    _require_exact(config, "model.target_coordinate_scaling", TARGET_COORDINATE_SCALING)
+    config_values.require_exact(
+        config,
+        "model.target_coordinate_scaling",
+        TARGET_COORDINATE_SCALING,
+    )
     (
         neighbor_geometry,
         relative_receiver_x_radius,
@@ -935,7 +939,7 @@ def _validated_settings(
         relative_receiver_y_radius,
         expected_target_coordinates,
     ) = _validated_neighborhood(get_required_config_value(config, "model.neighborhood"))
-    target_coordinates = _validated_target_coordinate_names(
+    target_coordinates = config_values.validated_target_coordinate_names(
         get_required_config_value(config, "model.target_coordinates")
     )
     if target_coordinates != expected_target_coordinates:
@@ -943,15 +947,15 @@ def _validated_settings(
             "model.target_coordinates must match model.neighborhood geometry: "
             f"{list(expected_target_coordinates)!r}"
         )
-    stem_kernel_size = _odd_positive_integer(
+    stem_kernel_size = config_values.odd_positive_integer(
         get_required_config_value(config, "model.stem_kernel_size"),
         "model.stem_kernel_size",
     )
-    residual_kernel_size = _odd_positive_integer(
+    residual_kernel_size = config_values.odd_positive_integer(
         get_required_config_value(config, "model.residual_kernel_size"),
         "model.residual_kernel_size",
     )
-    temporal_dilations = _validated_positive_integer_list(
+    temporal_dilations = config_values.validated_positive_integer_list(
         get_required_config_value(config, "model.temporal_dilations"),
         "model.temporal_dilations",
     )
@@ -959,7 +963,7 @@ def _validated_settings(
     neighbor_gating = _validated_neighbor_gating(config)
     neighbor_alignment_kernel_size = _validated_neighbor_alignment_kernel_size(config)
     prediction_reference = _validated_prediction_reference(config, model_name=model_name)
-    hidden_width = _positive_integer(
+    hidden_width = config_values.positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
     (
@@ -1018,28 +1022,28 @@ def _validated_settings(
                 "same-line exact-receiver bracketing cannot be combined with legacy "
                 "coarse alignment"
             )
-    _require_exact(
+    config_values.require_exact(
         config,
         "sampling.duplicate_physical_coordinate_policy",
         DUPLICATE_PHYSICAL_COORDINATE_POLICY,
     )
-    _require_exact(config, "training.amplitude_scaling", PER_TRACE_RMS_SCALING)
-    _require_exact(config, "training.loss", LOSS_NAME)
-    _require_exact(config, "training.optimizer", OPTIMIZER_NAME)
-    _require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
-    _require_exact(config, "training.mixed_precision", MIXED_PRECISION)
-    _require_exact(config, "evaluation.primary_metric", PRIMARY_METRIC)
-    _require_exact(config, "evaluation.comparison", SUCCESS_COMPARISON)
-    success_threshold_db = _finite_float(
+    config_values.require_exact(config, "training.amplitude_scaling", PER_TRACE_RMS_SCALING)
+    config_values.require_exact(config, "training.loss", LOSS_NAME)
+    config_values.require_exact(config, "training.optimizer", OPTIMIZER_NAME)
+    config_values.require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
+    config_values.require_exact(config, "training.mixed_precision", MIXED_PRECISION)
+    config_values.require_exact(config, "evaluation.primary_metric", PRIMARY_METRIC)
+    config_values.require_exact(config, "evaluation.comparison", SUCCESS_COMPARISON)
+    success_threshold_db = config_values.finite_float(
         get_required_config_value(config, "evaluation.success_threshold_db"),
         "evaluation.success_threshold_db",
     )
-    required_effective_split_counts = _validated_effective_split_counts(
+    required_effective_split_counts = config_values.validated_effective_split_counts(
         get_required_config_value(config, "evaluation.required_effective_split_counts")
     )
     evaluation = config.get("evaluation")
     required_ffid_split_counts = (
-        _validated_ffid_split_counts(evaluation["required_ffid_split_counts"])
+        config_values.validated_ffid_split_counts(evaluation["required_ffid_split_counts"])
         if isinstance(evaluation, Mapping) and "required_ffid_split_counts" in evaluation
         else None
     )
@@ -1056,22 +1060,22 @@ def _validated_settings(
         raise ConfigurationError(
             "sampling.split_scope='whole_ffid' requires evaluation.required_ffid_split_counts"
         )
-    required_fully_excluded_ffids = _validated_sorted_ffids(
+    required_fully_excluded_ffids = config_values.validated_sorted_ffids(
         get_required_config_value(config, "evaluation.required_fully_excluded_ffids"),
         "evaluation.required_fully_excluded_ffids",
     )
-    required_eligible_ffid_count = _positive_integer(
+    required_eligible_ffid_count = config_values.positive_integer(
         get_required_config_value(config, "evaluation.required_eligible_ffid_count"),
         "evaluation.required_eligible_ffid_count",
     )
-    required_sample_count = _positive_integer(
+    required_sample_count = config_values.positive_integer(
         get_required_config_value(config, "evaluation.required_sample_count"),
         "evaluation.required_sample_count",
     )
-    learning_rate = _positive_float(
+    learning_rate = config_values.positive_float(
         get_required_config_value(config, "training.learning_rate"), "training.learning_rate"
     )
-    minimum_learning_rate = _positive_float(
+    minimum_learning_rate = config_values.positive_float(
         get_required_config_value(config, "training.minimum_learning_rate"),
         "training.minimum_learning_rate",
     )
@@ -1081,13 +1085,13 @@ def _validated_settings(
             "training.minimum_learning_rate must equal "
             f"training.learning_rate * {MINIMUM_LEARNING_RATE_FACTOR:g}"
         )
-    gradient_clip_norm = _positive_float(
+    gradient_clip_norm = config_values.positive_float(
         get_required_config_value(config, "training.gradient_clip_norm"),
         "training.gradient_clip_norm",
     )
     if gradient_clip_norm != MAX_GRADIENT_NORM:
         raise ConfigurationError(f"training.gradient_clip_norm must be {MAX_GRADIENT_NORM:g}")
-    random_seed = _nonnegative_integer(
+    random_seed = config_values.nonnegative_integer(
         get_required_config_value(config, "project.random_seed"), "project.random_seed"
     )
     raw_device = device_override or get_required_config_value(config, "training.device")
@@ -1117,43 +1121,43 @@ def _validated_settings(
         source_y_half_shot_radius=source_y_half_shot_radius,
         relative_receiver_y_radius=relative_receiver_y_radius,
         learning_rate=learning_rate,
-        weight_decay=_nonnegative_float(
+        weight_decay=config_values.nonnegative_float(
             get_required_config_value(config, "training.weight_decay"),
             "training.weight_decay",
         ),
         minimum_learning_rate=minimum_learning_rate,
-        total_steps=_positive_integer(
+        total_steps=config_values.positive_integer(
             get_required_config_value(config, "training.total_steps"),
             "training.total_steps",
         ),
-        batch_size=_positive_integer(
+        batch_size=config_values.positive_integer(
             get_required_config_value(config, "training.batch_size"), "training.batch_size"
         ),
         target_sampling=_validated_target_sampling(config),
         exclude_target_ffid_neighbors=exclude_target_ffid_neighbors,
-        neighbor_dropout=_probability(
+        neighbor_dropout=config_values.probability(
             get_required_config_value(config, "training.neighbor_dropout"),
             "training.neighbor_dropout",
         ),
-        derivative_weight=_nonnegative_float(
+        derivative_weight=config_values.nonnegative_float(
             get_required_config_value(config, "training.derivative_weight"),
             "training.derivative_weight",
         ),
-        evaluation_interval_steps=_positive_integer(
+        evaluation_interval_steps=config_values.positive_integer(
             get_required_config_value(config, "training.evaluation_interval_steps"),
             "training.evaluation_interval_steps",
         ),
-        validation_batch_size=_positive_integer(
+        validation_batch_size=config_values.positive_integer(
             get_required_config_value(config, "training.validation_batch_size"),
             "training.validation_batch_size",
         ),
-        training_audit_count=_positive_integer(
+        training_audit_count=config_values.positive_integer(
             get_required_config_value(config, "training.training_audit_count"),
             "training.training_audit_count",
         ),
         mixed_precision=MIXED_PRECISION,
         device=raw_device,
-        ffid_range=_optional_ffid_range(config),
+        ffid_range=config_values.optional_ffid_range(config),
         success_threshold_db=success_threshold_db,
         duplicate_physical_coordinate_policy=DUPLICATE_PHYSICAL_COORDINATE_POLICY,
         required_eligible_ffid_count=required_eligible_ffid_count,
@@ -1197,7 +1201,7 @@ def _validated_neighborhood(
         if isinstance(actual, bool) or not isinstance(actual, Real) or float(actual) != expected:
             raise ConfigurationError(f"model.neighborhood.{name} must be {expected:g}")
     radii = tuple(
-        _nonnegative_integer(neighborhood[name], f"model.neighborhood.{name}")
+        config_values.nonnegative_integer(neighborhood[name], f"model.neighborhood.{name}")
         for name in (
             "relative_receiver_x_radius",
             "source_x_line_radius",
@@ -1208,23 +1212,6 @@ def _validated_neighborhood(
     if not any(radii):
         raise ConfigurationError("model.neighborhood must include at least one non-zero radius")
     return (MULTILINE_GEOMETRY, *radii, tuple(MULTILINE_TARGET_COORDINATE_ORDER))
-
-
-def _validated_target_coordinate_names(value: object) -> tuple[str, ...]:
-    if not isinstance(value, list) or not value:
-        raise ConfigurationError("model.target_coordinates must be a non-empty list")
-    if any(not isinstance(name, str) or not name for name in value):
-        raise ConfigurationError("model.target_coordinates must contain non-empty strings")
-    converted = tuple(value)
-    if len(set(converted)) != len(converted):
-        raise ConfigurationError("model.target_coordinates must not contain duplicates")
-    return converted
-
-
-def _validated_positive_integer_list(value: object, name: str) -> tuple[int, ...]:
-    if not isinstance(value, list) or not value:
-        raise ConfigurationError(f"{name} must be a non-empty list")
-    return tuple(_positive_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
 
 
 def _validated_model_name(config: Mapping[str, object]) -> str:
@@ -1258,7 +1245,7 @@ def _validated_shared_offset_attention_settings(
         return (
             DEFAULT_NEIGHBOR_FEATURE_WIDTH,
             DEFAULT_ATTENTION_WIDTH,
-            _nonnegative_integer(
+            config_values.nonnegative_integer(
                 model.get(
                     "coarse_shift_samples_per_relative_receiver_y_index",
                     DEFAULT_LEGACY_COARSE_SHIFT,
@@ -1268,22 +1255,22 @@ def _validated_shared_offset_attention_settings(
             DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
         )
     return (
-        _positive_integer(
+        config_values.positive_integer(
             model.get("neighbor_feature_width", DEFAULT_NEIGHBOR_FEATURE_WIDTH),
             "model.neighbor_feature_width",
         ),
-        _positive_integer(
+        config_values.positive_integer(
             model.get("attention_width", DEFAULT_ATTENTION_WIDTH),
             "model.attention_width",
         ),
-        _nonnegative_integer(
+        config_values.nonnegative_integer(
             model.get(
                 "coarse_shift_samples_per_relative_receiver_y_index",
                 DEFAULT_SHARED_COARSE_SHIFT,
             ),
             "model.coarse_shift_samples_per_relative_receiver_y_index",
         ),
-        _nonnegative_float(
+        config_values.nonnegative_float(
             model.get(
                 "attention_geometry_prior_scale",
                 DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
@@ -1327,7 +1314,7 @@ def _validated_neighbor_alignment_kernel_size(config: Mapping[str, object]) -> i
     model = config.get("model")
     if not isinstance(model, Mapping):
         raise ConfigurationError("model configuration must be a mapping")
-    return _odd_positive_integer(
+    return config_values.odd_positive_integer(
         model.get(
             "neighbor_alignment_kernel_size",
             DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
@@ -1384,13 +1371,6 @@ def _validated_target_sampling(config: Mapping[str, object]) -> str:
             f"training.target_sampling must be one of {sorted(supported)}, got {value!r}"
         )
     return value
-
-
-def _odd_positive_integer(value: object, name: str) -> int:
-    converted = _positive_integer(value, name)
-    if converted % 2 == 0:
-        raise ConfigurationError(f"{name} must be odd")
-    return converted
 
 
 def _build_neighbor_geometry(
@@ -2333,107 +2313,3 @@ def _snr_db(signal_energy: float, error_energy: float) -> float:
 
 def _passes_success_threshold(metric_db: float, threshold_db: float) -> bool:
     return bool(metric_db > threshold_db)
-
-
-def _require_exact(config: Mapping[str, object], dotted_path: str, expected: object) -> None:
-    actual = get_required_config_value(config, dotted_path)
-    if actual != expected:
-        raise ConfigurationError(f"{dotted_path} must be {expected!r}, got {actual!r}")
-
-
-def _optional_ffid_range(config: Mapping[str, object]) -> tuple[int, int] | None:
-    training = config.get("training")
-    if not isinstance(training, Mapping) or "ffid_range" not in training:
-        return None
-    value = training["ffid_range"]
-    if (
-        not isinstance(value, list)
-        or len(value) != 2
-        or any(isinstance(item, bool) or not isinstance(item, Integral) for item in value)
-        or int(value[0]) < 0
-        or int(value[0]) > int(value[1])
-    ):
-        raise ConfigurationError("training.ffid_range must be [minimum, maximum] integers")
-    return int(value[0]), int(value[1])
-
-
-def _validated_effective_split_counts(value: object) -> dict[str, int]:
-    if not isinstance(value, Mapping) or set(value) != set(_EFFECTIVE_SPLITS):
-        raise ConfigurationError(
-            "evaluation.required_effective_split_counts must contain exactly "
-            f"{list(_EFFECTIVE_SPLITS)}"
-        )
-    return {
-        split: _positive_integer(
-            value[split],
-            f"evaluation.required_effective_split_counts.{split}",
-        )
-        for split in _EFFECTIVE_SPLITS
-    }
-
-
-def _validated_ffid_split_counts(value: object) -> dict[str, int]:
-    if not isinstance(value, Mapping) or set(value) != set(_EFFECTIVE_SPLITS):
-        raise ConfigurationError(
-            f"evaluation.required_ffid_split_counts must contain exactly {list(_EFFECTIVE_SPLITS)}"
-        )
-    return {
-        split: _positive_integer(
-            value[split],
-            f"evaluation.required_ffid_split_counts.{split}",
-        )
-        for split in _EFFECTIVE_SPLITS
-    }
-
-
-def _validated_sorted_ffids(value: object, name: str) -> tuple[int, ...]:
-    if not isinstance(value, list) or any(
-        isinstance(ffid, bool) or not isinstance(ffid, Integral) or int(ffid) < 0 for ffid in value
-    ):
-        raise ConfigurationError(f"{name} must be a sorted unique list of non-negative integers")
-    converted = [int(ffid) for ffid in value]
-    if converted != sorted(set(converted)):
-        raise ConfigurationError(f"{name} must be a sorted unique list of non-negative integers")
-    return tuple(converted)
-
-
-def _positive_integer(value: object, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
-        raise ConfigurationError(f"{name} must be a positive integer")
-    return int(value)
-
-
-def _nonnegative_integer(value: object, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) < 0:
-        raise ConfigurationError(f"{name} must be a non-negative integer")
-    return int(value)
-
-
-def _finite_float(value: object, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ConfigurationError(f"{name} must be a finite number")
-    converted = float(value)
-    if not math.isfinite(converted):
-        raise ConfigurationError(f"{name} must be a finite number")
-    return converted
-
-
-def _positive_float(value: object, name: str) -> float:
-    converted = _finite_float(value, name)
-    if converted <= 0.0:
-        raise ConfigurationError(f"{name} must be positive")
-    return converted
-
-
-def _nonnegative_float(value: object, name: str) -> float:
-    converted = _finite_float(value, name)
-    if converted < 0.0:
-        raise ConfigurationError(f"{name} must be non-negative")
-    return converted
-
-
-def _probability(value: object, name: str) -> float:
-    converted = _finite_float(value, name)
-    if converted < 0.0 or converted >= 1.0:
-        raise ConfigurationError(f"{name} must be in [0, 1)")
-    return converted

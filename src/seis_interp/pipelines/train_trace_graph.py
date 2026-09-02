@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from seis_interp import run_records
+from seis_interp import config_values, run_records
 from seis_interp.configuration import (
     ConfigurationError,
     get_required_config_value,
@@ -44,26 +44,13 @@ from seis_interp.pipelines.train_neighbor_inpainter import (
     TRAINING_AUDIT_SEED_OFFSET,
     WITH_REPLACEMENT_TARGET_SAMPLING,
     _canonicalize_eligible_physical_coordinates,
-    _finite_float,
     _formal_scope_audit,
     _joined_trace_table,
     _load_unit_rms_rows,
-    _nonnegative_float,
-    _nonnegative_integer,
-    _optional_ffid_range,
-    _positive_float,
-    _positive_integer,
-    _probability,
-    _require_exact,
     _seed_global_model_initialization,
     _selected_trace_table,
     _selection_contract,
     _validate_selected_split_coverage,
-    _validated_effective_split_counts,
-    _validated_ffid_split_counts,
-    _validated_positive_integer_list,
-    _validated_sorted_ffids,
-    _validated_target_coordinate_names,
 )
 from seis_interp.pipelines.train_shot_gather_inpainter import (
     CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
@@ -76,7 +63,6 @@ from seis_interp.pipelines.train_shot_gather_inpainter import (
     _build_gather_tensors,
     _completed_scope_audit,
     _metrics_payload,
-    _odd_positive_integer,
     _RandomTrainGatherProvider,
     _RawGlobalSnrEvaluator,
     _receiver_grid,
@@ -533,9 +519,13 @@ def _validated_settings(
     *,
     device_override: str | None,
 ) -> _TrainingSettings:
-    _require_exact(config, "model.name", MODEL_NAME)
-    _require_exact(config, "model.target_coordinate_scaling", TARGET_COORDINATE_SCALING)
-    target_coordinates = _validated_target_coordinate_names(
+    config_values.require_exact(config, "model.name", MODEL_NAME)
+    config_values.require_exact(
+        config,
+        "model.target_coordinate_scaling",
+        TARGET_COORDINATE_SCALING,
+    )
+    target_coordinates = config_values.validated_target_coordinate_names(
         get_required_config_value(config, "model.target_coordinates")
     )
     if target_coordinates != TARGET_COORDINATES:
@@ -547,7 +537,7 @@ def _validated_settings(
         raise ConfigurationError(f"model.neighborhood.type must be {NEIGHBORHOOD_TYPE!r}")
     if neighborhood.get("distance") != SOURCE_DISTANCE:
         raise ConfigurationError(f"model.neighborhood.distance must be {SOURCE_DISTANCE!r}")
-    source_gather_count = _positive_integer(
+    source_gather_count = config_values.positive_integer(
         neighborhood.get("source_gather_count"),
         "model.neighborhood.source_gather_count",
     )
@@ -568,34 +558,34 @@ def _validated_settings(
     use_gradient_checkpointing = model_section.get("use_gradient_checkpointing", False)
     if not isinstance(use_gradient_checkpointing, bool):
         raise ConfigurationError("model.use_gradient_checkpointing must be a boolean")
-    refinement_passes = _positive_integer(
+    refinement_passes = config_values.positive_integer(
         model_section.get("refinement_passes", 1),
         "model.refinement_passes",
     )
-    _require_exact(config, "sampling.split_scope", "whole_ffid")
-    _require_exact(
+    config_values.require_exact(config, "sampling.split_scope", "whole_ffid")
+    config_values.require_exact(
         config,
         "sampling.duplicate_physical_coordinate_policy",
         DUPLICATE_PHYSICAL_COORDINATE_POLICY,
     )
-    _require_exact(config, "training.amplitude_scaling", PER_TRACE_RMS_SCALING)
-    _require_exact(config, "training.loss", LOSS_NAME)
-    _require_exact(config, "training.optimizer", OPTIMIZER_NAME)
-    _require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
-    _require_exact(config, "training.mixed_precision", MIXED_PRECISION)
-    _require_exact(config, "evaluation.primary_metric", PRIMARY_METRIC)
-    _require_exact(config, "evaluation.comparison", SUCCESS_COMPARISON)
+    config_values.require_exact(config, "training.amplitude_scaling", PER_TRACE_RMS_SCALING)
+    config_values.require_exact(config, "training.loss", LOSS_NAME)
+    config_values.require_exact(config, "training.optimizer", OPTIMIZER_NAME)
+    config_values.require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
+    config_values.require_exact(config, "training.mixed_precision", MIXED_PRECISION)
+    config_values.require_exact(config, "evaluation.primary_metric", PRIMARY_METRIC)
+    config_values.require_exact(config, "evaluation.comparison", SUCCESS_COMPARISON)
     exclude_target_ffid_neighbors = get_required_config_value(
         config,
         "training.exclude_target_ffid_neighbors",
     )
     if exclude_target_ffid_neighbors is not True:
         raise ConfigurationError("training.exclude_target_ffid_neighbors must be true")
-    learning_rate = _positive_float(
+    learning_rate = config_values.positive_float(
         get_required_config_value(config, "training.learning_rate"),
         "training.learning_rate",
     )
-    minimum_learning_rate = _positive_float(
+    minimum_learning_rate = config_values.positive_float(
         get_required_config_value(config, "training.minimum_learning_rate"),
         "training.minimum_learning_rate",
     )
@@ -608,7 +598,7 @@ def _validated_settings(
         raise ConfigurationError(
             "training.minimum_learning_rate must equal training.learning_rate * 0.03"
         )
-    gradient_clip_norm = _positive_float(
+    gradient_clip_norm = config_values.positive_float(
         get_required_config_value(config, "training.gradient_clip_norm"),
         "training.gradient_clip_norm",
     )
@@ -626,16 +616,16 @@ def _validated_settings(
     raw_device = device_override or get_required_config_value(config, "training.device")
     if not isinstance(raw_device, str) or not raw_device:
         raise ConfigurationError("training.device must be a non-empty string")
-    temporal_dilations = _validated_positive_integer_list(
+    temporal_dilations = config_values.validated_positive_integer_list(
         get_required_config_value(config, "model.temporal_dilations"),
         "model.temporal_dilations",
     )
     return _TrainingSettings(
-        random_seed=_nonnegative_integer(
+        random_seed=config_values.nonnegative_integer(
             get_required_config_value(config, "project.random_seed"),
             "project.random_seed",
         ),
-        hidden_width=_positive_integer(
+        hidden_width=config_values.positive_integer(
             get_required_config_value(config, "model.hidden_width"),
             "model.hidden_width",
         ),
@@ -643,103 +633,103 @@ def _validated_settings(
         attention_time_resolution=str(attention_time_resolution),
         use_gradient_checkpointing=use_gradient_checkpointing,
         refinement_passes=refinement_passes,
-        message_passing_rounds=_positive_integer(
+        message_passing_rounds=config_values.positive_integer(
             get_required_config_value(config, "model.message_passing_rounds"),
             "model.message_passing_rounds",
         ),
-        time_downsample_factor=_positive_integer(
+        time_downsample_factor=config_values.positive_integer(
             get_required_config_value(config, "model.time_downsample_factor"),
             "model.time_downsample_factor",
         ),
-        stem_kernel_size=_odd_positive_integer(
+        stem_kernel_size=config_values.odd_positive_integer(
             get_required_config_value(config, "model.stem_kernel_size"),
             "model.stem_kernel_size",
         ),
-        temporal_kernel_size=_odd_positive_integer(
+        temporal_kernel_size=config_values.odd_positive_integer(
             get_required_config_value(config, "model.temporal_kernel_size"),
             "model.temporal_kernel_size",
         ),
         temporal_dilations=temporal_dilations,
-        spatial_kernel_size=_odd_positive_integer(
+        spatial_kernel_size=config_values.odd_positive_integer(
             get_required_config_value(config, "model.spatial_kernel_size"),
             "model.spatial_kernel_size",
         ),
-        attention_width=_positive_integer(
+        attention_width=config_values.positive_integer(
             get_required_config_value(config, "model.attention_width"),
             "model.attention_width",
         ),
-        distance_epsilon=_positive_float(
+        distance_epsilon=config_values.positive_float(
             get_required_config_value(config, "model.distance_epsilon"),
             "model.distance_epsilon",
         ),
         source_gather_count=source_gather_count,
         learning_rate=learning_rate,
-        weight_decay=_nonnegative_float(
+        weight_decay=config_values.nonnegative_float(
             get_required_config_value(config, "training.weight_decay"),
             "training.weight_decay",
         ),
         minimum_learning_rate=minimum_learning_rate,
-        total_steps=_positive_integer(
+        total_steps=config_values.positive_integer(
             get_required_config_value(config, "training.total_steps"),
             "training.total_steps",
         ),
-        batch_size=_positive_integer(
+        batch_size=config_values.positive_integer(
             get_required_config_value(config, "training.batch_size"),
             "training.batch_size",
         ),
         target_sampling=str(target_sampling),
         exclude_target_ffid_neighbors=True,
-        neighbor_dropout=_probability(
+        neighbor_dropout=config_values.probability(
             get_required_config_value(config, "training.neighbor_dropout"),
             "training.neighbor_dropout",
         ),
-        spectrum_weight=_nonnegative_float(
+        spectrum_weight=config_values.nonnegative_float(
             get_required_config_value(config, "training.spectrum_weight"),
             "training.spectrum_weight",
         ),
-        slope_weight=_nonnegative_float(
+        slope_weight=config_values.nonnegative_float(
             get_required_config_value(config, "training.slope_weight"),
             "training.slope_weight",
         ),
-        amplitude_weight=_nonnegative_float(
+        amplitude_weight=config_values.nonnegative_float(
             get_required_config_value(config, "training.amplitude_weight"),
             "training.amplitude_weight",
         ),
-        evaluation_interval_steps=_positive_integer(
+        evaluation_interval_steps=config_values.positive_integer(
             get_required_config_value(config, "training.evaluation_interval_steps"),
             "training.evaluation_interval_steps",
         ),
-        validation_batch_size=_positive_integer(
+        validation_batch_size=config_values.positive_integer(
             get_required_config_value(config, "training.validation_batch_size"),
             "training.validation_batch_size",
         ),
-        training_audit_count=_positive_integer(
+        training_audit_count=config_values.positive_integer(
             get_required_config_value(config, "training.training_audit_count"),
             "training.training_audit_count",
         ),
         mixed_precision=MIXED_PRECISION,
         device=raw_device,
-        ffid_range=_optional_ffid_range(config),
-        success_threshold_db=_finite_float(
+        ffid_range=config_values.optional_ffid_range(config),
+        success_threshold_db=config_values.finite_float(
             get_required_config_value(config, "evaluation.success_threshold_db"),
             "evaluation.success_threshold_db",
         ),
         duplicate_physical_coordinate_policy=DUPLICATE_PHYSICAL_COORDINATE_POLICY,
-        required_eligible_ffid_count=_positive_integer(
+        required_eligible_ffid_count=config_values.positive_integer(
             get_required_config_value(config, "evaluation.required_eligible_ffid_count"),
             "evaluation.required_eligible_ffid_count",
         ),
-        required_sample_count=_positive_integer(
+        required_sample_count=config_values.positive_integer(
             get_required_config_value(config, "evaluation.required_sample_count"),
             "evaluation.required_sample_count",
         ),
-        required_effective_split_counts=_validated_effective_split_counts(
+        required_effective_split_counts=config_values.validated_effective_split_counts(
             get_required_config_value(config, "evaluation.required_effective_split_counts")
         ),
-        required_ffid_split_counts=_validated_ffid_split_counts(
+        required_ffid_split_counts=config_values.validated_ffid_split_counts(
             get_required_config_value(config, "evaluation.required_ffid_split_counts")
         ),
-        required_fully_excluded_ffids=_validated_sorted_ffids(
+        required_fully_excluded_ffids=config_values.validated_sorted_ffids(
             get_required_config_value(config, "evaluation.required_fully_excluded_ffids"),
             "evaluation.required_fully_excluded_ffids",
         ),
