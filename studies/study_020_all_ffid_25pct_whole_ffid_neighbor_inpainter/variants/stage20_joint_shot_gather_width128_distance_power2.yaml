@@ -1,0 +1,4 @@
+extends: stage12_joint_shot_gather_width128.yaml
+
+model:
+  distance_power: 2.0

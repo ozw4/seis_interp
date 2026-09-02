@@ -1,0 +1,9 @@
+extends: stage01_study018_formal_2500_steps.yaml
+
+model:
+  coarse_shift_samples_per_relative_receiver_y_index: 3
+
+training:
+  total_steps: 2500
+  evaluation_interval_steps: 2500
+  training_audit_count: 10000

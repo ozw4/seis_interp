@@ -1,0 +1,4 @@
+extends: stage03_crossline_k1374.yaml
+
+training:
+  target_sampling: epoch_without_replacement

@@ -1,0 +1,5 @@
+extends: stage03_gnn_trace_lattice_mask_only.yaml
+
+model:
+  refinement_passes: 2
+  use_gradient_checkpointing: true

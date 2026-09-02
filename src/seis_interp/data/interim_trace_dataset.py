@@ -41,8 +41,16 @@ def load_interim_trace_dataset(
     directory: Path,
     *,
     memory_map_amplitudes: bool = False,
+    amplitude_validation_rows: np.ndarray | None = None,
 ) -> InterimTraceDataset:
-    """Load an interim trace dataset and validate its on-disk contract."""
+    """Load an interim trace dataset and validate its on-disk contract.
+
+    ``amplitude_validation_rows`` limits value-level finiteness checks to the
+    listed on-disk array rows. Shape, dtype, table identity, time values, and
+    metadata are still validated globally. This lets leakage-sensitive
+    pipelines avoid reading held-out target amplitudes while retaining the
+    normal full-dataset validation when the argument is omitted.
+    """
     dataset_dir = Path(directory)
     paths = {file_name: dataset_dir / file_name for file_name in OUTPUT_FILE_NAMES}
     missing = [file_name for file_name, path in paths.items() if not path.is_file()]
@@ -63,7 +71,12 @@ def load_interim_trace_dataset(
     validated_array_rows(trace_table, require_contiguous=True)
     validate_trace_identity(trace_table)
     _validate_numeric_table_values(trace_table)
-    _validate_arrays(trace_table, amplitudes, time_s)
+    _validate_arrays(
+        trace_table,
+        amplitudes,
+        time_s,
+        amplitude_validation_rows=amplitude_validation_rows,
+    )
     _validate_metadata(metadata, trace_table, amplitudes, time_s)
 
     return InterimTraceDataset(
@@ -97,6 +110,8 @@ def _validate_arrays(
     trace_table: pd.DataFrame,
     amplitudes: np.ndarray,
     time_s: np.ndarray,
+    *,
+    amplitude_validation_rows: np.ndarray | None = None,
 ) -> None:
     if amplitudes.ndim != 2:
         raise ValueError(
@@ -118,12 +133,33 @@ def _validate_arrays(
             f"{AMPLITUDES_FILE_NAME} has {amplitudes.shape[1]} samples but "
             f"{TIME_FILE_NAME} has {len(time_s)} values"
         )
-    for start in range(0, amplitudes.shape[0], _AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE):
-        stop = min(start + _AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE, amplitudes.shape[0])
-        if not np.all(np.isfinite(amplitudes[start:stop])):
+    rows = _validated_amplitude_validation_rows(
+        amplitude_validation_rows,
+        trace_count=amplitudes.shape[0],
+    )
+    for start in range(0, len(rows), _AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE):
+        chunk_rows = rows[start : start + _AMPLITUDE_VALIDATION_ROW_CHUNK_SIZE]
+        if not np.all(np.isfinite(amplitudes[chunk_rows])):
             raise ValueError(f"{AMPLITUDES_FILE_NAME} contains non-finite values")
     if not np.all(np.isfinite(time_s)):
         raise ValueError(f"{TIME_FILE_NAME} contains non-finite values")
+
+
+def _validated_amplitude_validation_rows(
+    values: np.ndarray | None,
+    *,
+    trace_count: int,
+) -> np.ndarray:
+    if values is None:
+        return np.arange(trace_count, dtype=np.int64)
+    rows = np.asarray(values)
+    if rows.ndim != 1 or rows.dtype.kind not in "iu" or rows.dtype.kind == "b":
+        raise ValueError("amplitude_validation_rows must be a one-dimensional integer array")
+    if np.any(rows < 0) or np.any(rows >= trace_count):
+        raise ValueError(f"amplitude_validation_rows must be within [0, {trace_count})")
+    if len(np.unique(rows)) != len(rows):
+        raise ValueError("amplitude_validation_rows must not contain duplicates")
+    return rows.astype(np.int64, copy=False)
 
 
 def _validate_metadata(

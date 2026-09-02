@@ -1,0 +1,5 @@
+extends: stage06_epoch_sampling_k1374.yaml
+
+training:
+  total_steps: 6030
+  evaluation_interval_steps: 3015

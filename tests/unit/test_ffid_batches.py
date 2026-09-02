@@ -13,6 +13,7 @@ from seis_interp.processing.trace_splits import EXCLUDED_SPLIT
 from seis_interp.training.ffid_batches import (
     FullFfidBatch,
     FullFfidBatchSampler,
+    RandomCompleteTraceBatchSampler,
     array_rows_by_ffid_for_split,
     build_global_rms_trace_points,
     build_per_trace_rms_trace_points,
@@ -499,9 +500,86 @@ def test_point_builder_rejects_duplicate_out_of_range_and_non_finite_selected_ro
         build_global_rms_trace_points(time, spatial, amplitudes, np.asarray([3]), amplitude_rms=1.0)
 
 
+def test_complete_trace_point_builder_follows_spatial_feature_width() -> None:
+    time, spatial, amplitudes = _point_arrays()
+
+    coordinates, targets = build_global_rms_trace_points(
+        time,
+        spatial[:, :4],
+        amplitudes,
+        np.asarray([1, 3]),
+        amplitude_rms=1.0,
+    )
+
+    assert coordinates.shape == (2 * len(time), 5)
+    assert targets.shape == (2 * len(time),)
+
+
 def test_batch_record_is_frozen() -> None:
     batch = next(_sampler(seed=1).iter_epoch())
 
     with pytest.raises(FrozenInstanceError):
         batch.ffid = 99  # type: ignore[misc]
     assert isinstance(batch, FullFfidBatch)
+
+
+@pytest.mark.parametrize("amplitude_scaling", ["train_global_rms", "per_trace_rms"])
+def test_random_complete_trace_sampler_is_seeded_distinct_and_on_demand(
+    amplitude_scaling: str,
+) -> None:
+    time, spatial, amplitudes = _point_arrays(trace_count=12)
+    original = amplitudes.copy()
+    training_rows = np.asarray([1, 3, 5, 7, 9, 11], dtype=np.int64)
+    samplers = [
+        RandomCompleteTraceBatchSampler(
+            time,
+            spatial,
+            amplitudes,
+            training_rows,
+            amplitude_rms=2.0,
+            random_seed=17,
+            amplitude_scaling=amplitude_scaling,
+        )
+        for _ in range(2)
+    ]
+
+    first_batches = [sampler.sample(4) for sampler in samplers]
+
+    np.testing.assert_array_equal(first_batches[0][0], first_batches[1][0])
+    np.testing.assert_array_equal(first_batches[0][1], first_batches[1][1])
+    coordinates, targets = first_batches[0]
+    coordinate_traces = coordinates.reshape(4, len(time), -1)
+    sampled_spatial = coordinate_traces[:, 0, 1:]
+    sampled_rows = [
+        int(np.flatnonzero(np.all(spatial == values, axis=1))[0]) for values in sampled_spatial
+    ]
+    assert len(set(sampled_rows)) == 4
+    assert set(sampled_rows) <= set(training_rows)
+    target_traces = targets.reshape(4, len(time)).astype(np.float64)
+    if amplitude_scaling == "train_global_rms":
+        np.testing.assert_allclose(target_traces, amplitudes[sampled_rows] / 2.0)
+    else:
+        np.testing.assert_allclose(
+            np.sqrt(np.mean(np.square(target_traces), axis=1)),
+            np.ones(4),
+        )
+    np.testing.assert_array_equal(amplitudes, original)
+    assert samplers[0].training_trace_count == len(training_rows)
+    assert samplers[0].amplitude_scaling == amplitude_scaling
+
+
+def test_random_complete_trace_sampler_rejects_oversized_or_invalid_batches() -> None:
+    time, spatial, amplitudes = _point_arrays()
+    sampler = RandomCompleteTraceBatchSampler(
+        time,
+        spatial,
+        amplitudes,
+        np.asarray([0, 2], dtype=np.int64),
+        amplitude_rms=1.0,
+        random_seed=4,
+    )
+
+    with pytest.raises(ValueError, match="must not exceed"):
+        sampler.sample(3)
+    with pytest.raises(ValueError, match="positive integer"):
+        sampler.sample(0)

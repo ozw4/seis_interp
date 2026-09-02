@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 
 from seis_interp.models.siren import Siren
@@ -29,3 +30,13 @@ def test_prediction_preserves_eval_mode_and_accepts_large_batch() -> None:
 
     assert predict_points(model, coordinates, batch_size=20, device="cpu").shape == (3,)
     assert not model.training
+
+
+def test_prediction_uses_the_models_configured_input_width() -> None:
+    model = Siren(input_features=5, hidden_width=8, hidden_layers=1)
+    coordinates = np.arange(35, dtype=np.float64).reshape(7, 5) / 20.0
+
+    assert predict_points(model, coordinates, batch_size=3, device="cpu").shape == (7,)
+
+    with pytest.raises(ValueError, match="model expects 5 input features"):
+        predict_points(model, np.zeros((2, 6)), batch_size=3, device="cpu")

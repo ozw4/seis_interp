@@ -27,6 +27,104 @@ reusing it:
 Changing one of those values requires preparing a different processed dataset. Model and training
 values can be changed without rebuilding the split or normalization.
 
+## Training-time coordinate features
+
+`model.coordinate_features` controls the model inputs derived at training time and does not require
+rebuilding the prepared dataset:
+
+- Omitting the key, or setting `cmp_offset_azimuth`, preserves the existing six inputs
+  `[normalized_time, normalized_cmp_x, normalized_cmp_y, normalized_offset,
+  azimuth_sin, azimuth_cos]` and requires `model.input_features: 6`.
+- Setting `cmp_cartesian_half_offset` uses five inputs
+  `[normalized_time, normalized_cmp_x, normalized_cmp_y, normalized_half_offset_x,
+  normalized_half_offset_y]` and requires `model.input_features: 5`.
+- Setting `cmp_cartesian_half_offset_radius` appends the legacy normalized offset to those
+  Cartesian features, producing six inputs `[normalized_time, normalized_cmp_x,
+  normalized_cmp_y, normalized_half_offset_x, normalized_half_offset_y, normalized_offset]`,
+  and requires `model.input_features: 6`.
+
+The Cartesian components are calculated from the stored physical headers as
+`half_offset = 0.5 * (source - receiver)`. Time and CMP continue to use the min/max fitted from
+prepared training traces. Both half-offset axes are divided by the same symmetric scale,
+`0.5 * prepared_training_max_offset_m`; they are not fitted independently per axis. This keeps
+offset magnitude and azimuth geometry coupled while avoiding held-out fitting.
+The radius mode preserves that same shared Cartesian scale and normalizes its final `offset_m`
+feature with the prepared training offset min/max exactly as `cmp_offset_azimuth` does.
+
+For example:
+
+```yaml
+model:
+  coordinate_features: cmp_cartesian_half_offset
+  input_features: 5
+```
+
+To retain the scalar offset radius as well:
+
+```yaml
+model:
+  coordinate_features: cmp_cartesian_half_offset_radius
+  input_features: 6
+```
+
+Cartesian-mode runs lock the feature order and physical normalization bounds under
+`model_coordinates` in `inputs.lock.json`, `run.json`, and the checkpoint, including the explicit
+shared `half_offset_scale_m`. All three training batch modes use the selected representation for
+training and validation.
+
+### Optional post-normalization time scale
+
+`model.time_coordinate_scale` optionally multiplies only the already min/max-normalized time
+coordinate. For example, the following maps the usual normalized time range `[-1, 1]` to
+`[-4, 4]` while leaving every spatial feature and the fitted physical normalization bounds
+unchanged:
+
+```yaml
+model:
+  time_coordinate_scale: 4.0
+```
+
+The value must be positive, finite, and remain a nonzero finite value in the model's `float32`
+input dtype. Omitting it preserves the prior coordinate values and generated artifacts exactly.
+Explicit `1.0` has the same coordinates and adds no transform provenance, while its presence is
+retained in `config.resolved.yaml` as an explicitly configured value. A non-default value is
+recorded as `model_coordinates.time_coordinate_scale` in `inputs.lock.json`, `run.json`, and the
+checkpoint; checkpoint loading exposes the same value so inference can reproduce the training
+transform. The scale is applied to training and validation coordinates in all three batch modes.
+It is a model-input transform, so changing it does not require rebuilding the prepared split or
+fitted normalization.
+
+### Optional layer-wise frequency schedule
+
+`model.layer_omega_schedule: exponential` assigns a geometric progression of activation
+frequencies to the sine layers, beginning at `model.omega_0` and ending at
+`model.hidden_omega`. The schedule requires at least two sine layers. For example, four layers
+with endpoints 5 and 50 use frequencies `[5, 10.772..., 23.208..., 50]`:
+
+```yaml
+model:
+  hidden_layers: 4
+  omega_0: 5.0
+  hidden_omega: 50.0
+  layer_omega_schedule: exponential
+```
+
+The generated checkpoint retains the schedule name, while `inputs.lock.json` and `run.json`
+also retain the resolved per-layer frequencies. Omitting the key preserves the established
+first-layer `omega_0` plus fixed `hidden_omega` behavior and does not add schedule provenance.
+
+### Optional dense sine-layer connections
+
+`model.skip_connections: dense` makes each sine layer after the first consume the concatenated
+activations of every preceding sine layer. The final linear layer likewise consumes all sine-layer
+activations. This can be combined with the layer-wise frequency schedule, but its parameter and
+activation costs grow quadratically with `model.hidden_layers`.
+
+The active architecture is stored in the checkpoint. `inputs.lock.json` and `run.json` additionally
+record each sine layer's input width, the final linear input width, and the model parameter count.
+Omitting the key preserves the established sequential SIREN and does not add dense-architecture
+provenance.
+
 ## Trace-amplitude eligibility
 
 Amplitude eligibility is determined from raw interim traces before split assignment and before
@@ -59,6 +157,51 @@ not promote this condition as a physical-amplitude interpolation result without 
 model fitted only from training data. Generated metrics, run metadata, and the checkpoint label
 this metric domain as `oracle_per_trace_unit_rms`.
 
+## Batch modes and staged FFID scope
+
+`training.batch_mode` supports three diagnostic paths:
+
+- `random_points` samples independent trace/time points and selects checkpoints by median
+  validation trace S/N. It retains the original materialized validation path.
+- `full_ffid_epoch` uses one complete training FFID per update and selects checkpoints by streamed
+  global validation S/N.
+- `random_complete_traces` samples `training.traces_per_update` distinct rows uniformly from the
+  selected training-trace pool, includes all 625 time samples from each row, and runs
+  `training.steps_per_epoch` updates per epoch. Targets are scaled only after their rows are
+  selected, and checkpoints and early stopping use only streamed global validation S/N.
+
+For the two streamed modes, optional inclusive `training.ffid_range: [min, max]` applies the same
+FFID selection to train, validation, and test groups without rewriting the prepared artifacts.
+Coordinate bounds and the prepared training-global amplitude RMS remain those of the original
+survey-wide preparation. The configured and effective FFID ranges and effective FFID count are
+locked in the generated run records.
+
+`random_complete_traces` can additionally set `training.evaluate_training_snr: true` to stream
+global S/N over the selected training traces after every epoch. This is an optimization diagnostic
+and does not affect checkpoint selection. Leave it false for survey-wide runs when the extra full
+training pass is too expensive.
+
+## Optional cosine learning-rate schedule
+
+`random_complete_traces` can optionally decay Adam's learning rate with a cosine schedule:
+
+```yaml
+training:
+  learning_rate: 1.0e-4
+  learning_rate_schedule: cosine
+  minimum_learning_rate: 1.0e-6
+```
+
+The schedule advances after every optimizer update. Its fixed horizon is the configured
+`max_epochs * steps_per_epoch`, even when early stopping ends the run before that horizon. The
+minimum must be positive, finite, and strictly less than `training.learning_rate`. These schedule
+keys are rejected by the other batch modes.
+
+Scheduled runs add the current end-of-epoch `learning_rate` to each history row and lock the
+initial and minimum rates, optimizer-update step unit, and full configured update horizon in
+`metrics.json`, `run.json`, and `inputs.lock.json`. Omitting both schedule keys preserves the
+fixed-learning-rate behavior and does not add schedule or history fields to existing artifacts.
+
 ## Training loss
 
 When `training.correlation_weight` is positive, the scratch condition uses the configured `l2`
@@ -86,9 +229,10 @@ Correlation is a training-only auxiliary term. Validation and early stopping are
 continue to use streamed global S/N; with `per_trace_rms`, that remains the oracle per-trace
 unit-RMS validation domain described above.
 
-With `batch_mode: random_points`, set `correlation_weight: 0`; independently sampled points do not
-retain the complete per-trace time axis needed by the trace-correlation term. That condition trains
-with the configured pointwise loss alone.
+With `batch_mode: random_points` or `batch_mode: random_complete_traces`, set
+`correlation_weight: 0`. The reusable `train siren` path currently enables the auxiliary
+correlation objective only for `full_ffid_epoch`; the other modes train with the configured
+pointwise loss alone.
 
 ## Run
 
@@ -109,9 +253,9 @@ From the repository root:
 python scripts/run_study_all_ffid_temp.py
 ```
 
-Both `random_points` and `full_ffid_epoch` print an immediately flushed start and end line for each
-epoch. The `random_points` end line includes the epoch mean training loss and both validation S/N
-metrics. For example, a `per_trace_rms` run prints:
+All three batch modes print an immediately flushed start and end line for each epoch. The
+`random_points` end line includes the epoch mean training loss and both validation S/N metrics.
+For example, a `per_trace_rms` run prints:
 
 ```text
 random_points 1/10 start: steps_per_epoch=500 batch_size=3000000 amplitude_scaling=per_trace_rms validation_metric_domain=oracle_per_trace_unit_rms

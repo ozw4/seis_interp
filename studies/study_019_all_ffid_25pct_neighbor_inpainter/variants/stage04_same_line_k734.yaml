@@ -1,0 +1,16 @@
+extends: stage01_study018_formal_2500_steps.yaml
+
+model:
+  neighborhood:
+    type: multiline_staggered_source
+    relative_receiver_x_radius: 3
+    source_x_line_radius: 0
+    source_y_half_shot_radius: 6
+    relative_receiver_y_radius: 7
+    relative_receiver_spacing_m: 40.0
+    source_x_line_spacing_m: 160.0
+    source_y_half_shot_spacing_m: 40.0
+
+training:
+  evaluation_interval_steps: 2500
+  training_audit_count: 10000

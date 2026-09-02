@@ -26,12 +26,15 @@ from seis_interp.configuration import (
 )
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import canonical_source_files
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.evaluation.streaming_snr import evaluate_model_global_snr_by_ffid
-from seis_interp.models.siren import Siren
+from seis_interp.models.siren import (
+    DENSE_SKIP_CONNECTIONS,
+    EXPONENTIAL_LAYER_OMEGA_SCHEDULE,
+    Siren,
+)
 from seis_interp.pipelines.prepare_baseline import (
     NORMALIZATION_FILE_NAME,
     PREPARATION_FILE_NAME,
@@ -40,8 +43,6 @@ from seis_interp.pipelines.prepare_baseline import (
 from seis_interp.processing.normalization import (
     NormalizationParameters,
     normalize_amplitudes,
-    normalize_spatial_coordinates,
-    normalize_time,
     read_normalization_parameters,
 )
 from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
@@ -52,12 +53,28 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
+from seis_interp.processing.training_coordinates import (
+    CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+    DEFAULT_COORDINATE_FEATURES,
+    ModelCoordinateParameters,
+    coordinate_order_for_features,
+    model_coordinate_parameters,
+    normalize_training_spatial_coordinates,
+    normalize_training_time_coordinate,
+    validated_coordinate_features,
+    validated_time_coordinate_scale,
+)
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
     TRAIN_GLOBAL_RMS_SCALING,
+    TRAIN_GLOBAL_RMS_VALIDATION_DOMAIN,
     per_trace_rms_scaled_rows,
     validated_amplitude_scaling,
+)
+from seis_interp.training.complete_trace_trainer import (
+    COSINE_LEARNING_RATE_SCHEDULE,
+    train_siren_by_random_complete_traces,
 )
 from seis_interp.training.correlation_loss import (
     DEFAULT_TRACE_CORRELATION_EPS,
@@ -65,6 +82,7 @@ from seis_interp.training.correlation_loss import (
 )
 from seis_interp.training.ffid_batches import (
     FullFfidBatchSampler,
+    RandomCompleteTraceBatchSampler,
     array_rows_by_ffid_for_split,
     validate_all_ffids_have_split_rows,
 )
@@ -84,6 +102,10 @@ PROCESSED_INPUT_FILE_NAMES = (
 )
 RANDOM_POINTS_BATCH_MODE = "random_points"
 FULL_FFID_EPOCH_BATCH_MODE = "full_ffid_epoch"
+RANDOM_COMPLETE_TRACES_BATCH_MODE = "random_complete_traces"
+_STREAMING_GLOBAL_BATCH_MODES = frozenset(
+    (FULL_FFID_EPOCH_BATCH_MODE, RANDOM_COMPLETE_TRACES_BATCH_MODE)
+)
 ProgressReporter = Callable[[str], None]
 
 
@@ -97,6 +119,18 @@ class _CorrelationLossSettings:
     @property
     def enabled(self) -> bool:
         return self.weight > 0.0
+
+
+@dataclass(frozen=True)
+class _LearningRateScheduleSettings:
+    """Validated optional per-update learning-rate schedule settings."""
+
+    name: str | None = None
+    minimum_learning_rate: float | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.name is not None
 
 
 def train_siren_run(
@@ -114,9 +148,20 @@ def train_siren_run(
     started_at_utc = _utc_timestamp()
     git_commit = _git_commit()
     config = load_resolved_config(Path(config_path))
+    coordinate_features = _model_coordinate_features(config)
+    coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
+    time_coordinate_scale = _model_time_coordinate_scale(config)
+    _model_layer_omega_schedule(config)
+    _model_skip_connections(config)
     batch_mode = _training_batch_mode(config)
+    learning_rate_schedule = _training_learning_rate_schedule(
+        config,
+        batch_mode=batch_mode,
+    )
     amplitude_scaling = _training_amplitude_scaling(config)
     correlation_loss = _training_correlation_loss(config, batch_mode=batch_mode)
+    ffid_range = _training_ffid_range(config, batch_mode=batch_mode)
+    evaluate_training_snr = _training_evaluate_training_snr(config, batch_mode=batch_mode)
     trace_amplitude_filter = _configured_trace_amplitude_filter(config)
     device = device_override or get_required_config_value(config, "training.device")
     resolved_config = deepcopy(config)
@@ -129,7 +174,7 @@ def train_siren_run(
     processed_directory = Path(processed_dir)
     dataset = load_interim_trace_dataset(
         interim_directory,
-        memory_map_amplitudes=batch_mode == FULL_FFID_EPOCH_BATCH_MODE,
+        memory_map_amplitudes=batch_mode in _STREAMING_GLOBAL_BATCH_MODES,
     )
     split_table, normalization, preparation = _load_processed_dataset(processed_directory)
     interim_files = _file_hashes(interim_directory, INTERIM_FILE_NAMES)
@@ -155,20 +200,46 @@ def train_siren_run(
         batch_mode=batch_mode,
     )
 
-    normalized_time = normalize_time(dataset.time_s, normalization)
-    normalized_spatial = normalize_spatial_coordinates(dataset.trace_table, normalization)
+    coordinate_parameters = model_coordinate_parameters(
+        coordinate_features,
+        normalization,
+        time_coordinate_scale=time_coordinate_scale,
+    )
+    normalized_time = normalize_training_time_coordinate(
+        dataset.time_s,
+        normalization,
+        coordinate_parameters,
+    )
+    normalized_spatial = normalize_training_spatial_coordinates(
+        dataset.trace_table,
+        normalization,
+        coordinate_parameters,
+    )
     dataset_array_rows = validated_array_rows(dataset.trace_table, require_contiguous=True)
     spatial_by_array_row = np.empty_like(normalized_spatial)
     spatial_by_array_row[dataset_array_rows] = normalized_spatial
     random_seed = get_required_config_value(resolved_config, "project.random_seed")
-    if batch_mode == FULL_FFID_EPOCH_BATCH_MODE:
+    if batch_mode in _STREAMING_GLOBAL_BATCH_MODES:
         _seed_training(random_seed)
     else:
         # Preserve the established random-points path's observable RNG contract.
         torch.manual_seed(random_seed)
-    model = _build_model(resolved_config)
+    model = _build_model(
+        resolved_config,
+        expected_input_features=coordinate_input_features,
+    )
+    model_omega_schedule = _model_omega_schedule_contract(model)
+    model_skip_connections = _model_skip_connections_contract(model)
+    recorded_model_coordinates = (
+        coordinate_parameters
+        if (
+            coordinate_features != CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES
+            or time_coordinate_scale != 1.0
+        )
+        else None
+    )
     _validate_training_contract(resolved_config)
-    full_training_contract: dict[str, object] | None = None
+    streaming_training_contract: dict[str, object] | None = None
     if batch_mode == RANDOM_POINTS_BATCH_MODE:
         result = _train_random_points(
             model=model,
@@ -178,6 +249,7 @@ def train_siren_run(
             split_table=split_table,
             split_rows=split_rows,
             normalization=normalization,
+            model_coordinates=recorded_model_coordinates,
             amplitude_scaling=amplitude_scaling,
             config=resolved_config,
             random_seed=random_seed,
@@ -185,8 +257,8 @@ def train_siren_run(
             checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
             progress_reporter=progress_reporter,
         )
-    else:
-        result, full_training_contract = _train_full_ffid_epoch(
+    elif batch_mode == FULL_FFID_EPOCH_BATCH_MODE:
+        result, streaming_training_contract = _train_full_ffid_epoch(
             model=model,
             normalized_time=normalized_time,
             spatial_by_array_row=spatial_by_array_row,
@@ -194,10 +266,32 @@ def train_siren_run(
             trace_table=dataset.trace_table,
             split_table=split_table,
             normalization=normalization,
+            model_coordinates=recorded_model_coordinates,
             amplitude_scaling=amplitude_scaling,
             correlation_loss=correlation_loss,
             config=resolved_config,
             random_seed=random_seed,
+            ffid_range=ffid_range,
+            device=device,
+            checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+            progress_reporter=progress_reporter,
+        )
+    else:
+        result, streaming_training_contract = _train_random_complete_traces(
+            model=model,
+            normalized_time=normalized_time,
+            spatial_by_array_row=spatial_by_array_row,
+            amplitudes=dataset.amplitudes,
+            trace_table=dataset.trace_table,
+            split_table=split_table,
+            normalization=normalization,
+            model_coordinates=recorded_model_coordinates,
+            amplitude_scaling=amplitude_scaling,
+            config=resolved_config,
+            random_seed=random_seed,
+            ffid_range=ffid_range,
+            evaluate_training_snr=evaluate_training_snr,
+            learning_rate_schedule=learning_rate_schedule,
             device=device,
             checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
             progress_reporter=progress_reporter,
@@ -212,13 +306,35 @@ def train_siren_run(
         metrics["amplitude_scaling"] = amplitude_scaling
         metrics["validation_metric_domain"] = ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
         metrics["validation_scale_source"] = "validation_trace_target_rms"
-    if full_training_contract is not None:
-        metrics["batch_mode"] = FULL_FFID_EPOCH_BATCH_MODE
-        metrics["effective_steps_per_epoch"] = full_training_contract["effective_steps_per_epoch"]
+    if streaming_training_contract is not None:
+        metrics["batch_mode"] = batch_mode
+        metrics["effective_steps_per_epoch"] = streaming_training_contract[
+            "effective_steps_per_epoch"
+        ]
         for key in ("correlation_weight", "correlation_eps", "loss_semantics"):
-            if key in full_training_contract:
-                metrics[key] = full_training_contract[key]
-        metrics = _encode_full_ffid_infinite_snr(metrics)
+            if key in streaming_training_contract:
+                metrics[key] = streaming_training_contract[key]
+        for key in (
+            "training_ffid_count",
+            "selected_ffid_range",
+            "selected_ffid_count",
+            "configured_ffid_range",
+            "traces_per_update",
+            "points_per_update",
+            "evaluate_training_snr",
+            "training_metric_domain",
+            "learning_rate_schedule",
+            "initial_learning_rate",
+            "minimum_learning_rate",
+            "learning_rate_schedule_step_unit",
+            "learning_rate_schedule_total_updates",
+        ):
+            if key in streaming_training_contract:
+                metrics[key] = streaming_training_contract[key]
+        if evaluate_training_snr:
+            best_history = metrics["history"][result.best_epoch - 1]
+            metrics["training_global_snr_db_at_best_epoch"] = best_history["training_global_snr_db"]
+        metrics = _encode_streaming_infinite_snr(metrics)
     run_metadata = {
         "git_commit": git_commit,
         "started_at_utc": started_at_utc,
@@ -229,8 +345,8 @@ def train_siren_run(
         "torch_version": str(torch.__version__),
         "random_seed": random_seed,
     }
-    if full_training_contract is not None:
-        run_metadata.update(full_training_contract)
+    if streaming_training_contract is not None:
+        run_metadata.update(streaming_training_contract)
     elif amplitude_scaling == PER_TRACE_RMS_SCALING:
         run_metadata.update(
             {
@@ -240,6 +356,12 @@ def train_siren_run(
                 "validation_scale_source": "validation_trace_target_rms",
             }
         )
+    if recorded_model_coordinates is not None:
+        run_metadata["model_coordinates"] = recorded_model_coordinates.to_dict()
+    if model_omega_schedule is not None:
+        run_metadata["model_omega_schedule"] = model_omega_schedule
+    if model_skip_connections is not None:
+        run_metadata["model_skip_connections"] = model_skip_connections
     if isinstance(trace_quality, Mapping):
         run_metadata["trace_quality"] = dict(trace_quality)
     random_training_contract = (
@@ -252,9 +374,14 @@ def train_siren_run(
         processed_files=processed_files,
         preparation_contract=preparation_contract,
         source_files=(
-            canonical_source_files(dataset.metadata) if full_training_contract is not None else None
+            canonical_source_files(dataset.metadata)
+            if streaming_training_contract is not None
+            else None
         ),
-        training_contract=full_training_contract or random_training_contract,
+        training_contract=streaming_training_contract or random_training_contract,
+        model_coordinates=recorded_model_coordinates,
+        model_omega_schedule=model_omega_schedule,
+        model_skip_connections=model_skip_connections,
     )
     _write_run_outputs(
         output_directory,
@@ -275,6 +402,7 @@ def _train_random_points(
     split_table: pd.DataFrame,
     split_rows: np.ndarray,
     normalization: NormalizationParameters,
+    model_coordinates: ModelCoordinateParameters | None,
     amplitude_scaling: str,
     config: Mapping[str, object],
     random_seed: int,
@@ -326,8 +454,128 @@ def _train_random_points(
         validation_batch_size=get_required_config_value(config, "training.validation_batch_size"),
         validation_samples_per_trace=len(normalized_time),
         checkpoint_path=checkpoint_path,
+        model_coordinates=model_coordinates,
         amplitude_scaling=amplitude_scaling,
         reporter=progress_reporter,
+    )
+
+
+def _train_random_complete_traces(
+    *,
+    model: Siren,
+    normalized_time: np.ndarray,
+    spatial_by_array_row: np.ndarray,
+    amplitudes: np.ndarray,
+    trace_table: pd.DataFrame,
+    split_table: pd.DataFrame,
+    normalization: NormalizationParameters,
+    model_coordinates: ModelCoordinateParameters | None,
+    amplitude_scaling: str,
+    config: Mapping[str, object],
+    random_seed: int,
+    ffid_range: tuple[int, int] | None,
+    evaluate_training_snr: bool,
+    learning_rate_schedule: _LearningRateScheduleSettings,
+    device: object,
+    checkpoint_path: Path,
+    progress_reporter: ProgressReporter | None,
+) -> tuple[object, dict[str, object]]:
+    """Train from random complete traces with bounded-memory global evaluation."""
+    rows_by_split, selected_ffids = _survey_rows_by_split(
+        trace_table,
+        split_table,
+        ffid_range=ffid_range,
+    )
+    training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
+    validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
+    training_rows = np.concatenate(tuple(training_rows_by_ffid.values()))
+    traces_per_update = _validated_positive_config_integer(
+        get_required_config_value(config, "training.traces_per_update"),
+        "training.traces_per_update",
+    )
+    steps_per_epoch = _validated_positive_config_integer(
+        get_required_config_value(config, "training.steps_per_epoch"),
+        "training.steps_per_epoch",
+    )
+    max_epochs = get_required_config_value(config, "training.max_epochs")
+    learning_rate = get_required_config_value(config, "training.learning_rate")
+    validation_batch_size = _validated_positive_config_integer(
+        get_required_config_value(config, "training.validation_batch_size"),
+        "training.validation_batch_size",
+    )
+    sampler = RandomCompleteTraceBatchSampler(
+        normalized_time,
+        spatial_by_array_row,
+        amplitudes,
+        training_rows,
+        amplitude_rms=normalization.amplitude_rms,
+        random_seed=random_seed,
+        amplitude_scaling=amplitude_scaling,
+    )
+
+    def evaluate_groups(
+        current_model: torch.nn.Module,
+        rows_by_ffid: Mapping[int, np.ndarray],
+    ) -> float:
+        return evaluate_model_global_snr_by_ffid(
+            current_model,
+            normalized_time=normalized_time,
+            normalized_spatial_by_array_row=spatial_by_array_row,
+            amplitudes=amplitudes,
+            rows_by_ffid=rows_by_ffid,
+            amplitude_rms=normalization.amplitude_rms,
+            amplitude_scaling=amplitude_scaling,
+            prediction_batch_size=validation_batch_size,
+            device=device,
+        )
+
+    def evaluate_validation(current_model: torch.nn.Module) -> float:
+        return evaluate_groups(current_model, validation_rows_by_ffid)
+
+    training_evaluator: Callable[[torch.nn.Module], float] | None = None
+    if evaluate_training_snr:
+
+        def evaluate_training(current_model: torch.nn.Module) -> float:
+            return evaluate_groups(current_model, training_rows_by_ffid)
+
+        training_evaluator = evaluate_training
+
+    result = train_siren_by_random_complete_traces(
+        model,
+        sampler,
+        evaluate_validation,
+        normalization,
+        device=device,
+        loss=get_required_config_value(config, "training.loss"),
+        optimizer=get_required_config_value(config, "training.optimizer"),
+        learning_rate=learning_rate,
+        traces_per_update=traces_per_update,
+        steps_per_epoch=steps_per_epoch,
+        max_epochs=max_epochs,
+        early_stopping_patience=get_required_config_value(
+            config, "training.early_stopping_patience"
+        ),
+        validation_ffid_count=len(validation_rows_by_ffid),
+        checkpoint_path=checkpoint_path,
+        model_coordinates=model_coordinates,
+        amplitude_scaling=amplitude_scaling,
+        learning_rate_schedule=learning_rate_schedule.name,
+        minimum_learning_rate=learning_rate_schedule.minimum_learning_rate,
+        training_evaluator=training_evaluator,
+        reporter=progress_reporter,
+    )
+    return result, _random_complete_trace_training_contract(
+        rows_by_split,
+        selected_ffids=selected_ffids,
+        configured_ffid_range=ffid_range,
+        sample_count=len(normalized_time),
+        traces_per_update=traces_per_update,
+        steps_per_epoch=steps_per_epoch,
+        amplitude_scaling=amplitude_scaling,
+        evaluate_training_snr=evaluate_training_snr,
+        learning_rate_schedule=learning_rate_schedule,
+        initial_learning_rate=learning_rate,
+        max_epochs=max_epochs,
     )
 
 
@@ -340,29 +588,22 @@ def _train_full_ffid_epoch(
     trace_table: pd.DataFrame,
     split_table: pd.DataFrame,
     normalization: NormalizationParameters,
+    model_coordinates: ModelCoordinateParameters | None,
     amplitude_scaling: str,
     correlation_loss: _CorrelationLossSettings,
     config: Mapping[str, object],
     random_seed: int,
+    ffid_range: tuple[int, int] | None,
     device: object,
     checkpoint_path: Path,
     progress_reporter: ProgressReporter | None,
 ) -> tuple[object, dict[str, object]]:
     """Build bounded-memory FFID batches and run the survey-wide trainer."""
-    rows_by_split = {
-        split: array_rows_by_ffid_for_split(trace_table, split_table, split=split)
-        for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
-    }
-    eligible_rows = split_table.loc[
-        split_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT), "array_row"
-    ].to_numpy(dtype=np.int64)
-    for split, rows_by_ffid in rows_by_split.items():
-        validate_all_ffids_have_split_rows(
-            trace_table,
-            rows_by_ffid,
-            split=split,
-            eligible_array_rows=eligible_rows,
-        )
+    rows_by_split, selected_ffids = _survey_rows_by_split(
+        trace_table,
+        split_table,
+        ffid_range=ffid_range,
+    )
 
     training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
     validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
@@ -408,6 +649,7 @@ def _train_full_ffid_epoch(
         ),
         validation_ffid_count=len(validation_rows_by_ffid),
         checkpoint_path=checkpoint_path,
+        model_coordinates=model_coordinates,
         reporter=progress_reporter,
         amplitude_scaling=amplitude_scaling,
         correlation_weight=correlation_loss.weight,
@@ -419,6 +661,8 @@ def _train_full_ffid_epoch(
         sample_count=len(normalized_time),
         amplitude_scaling=amplitude_scaling,
         correlation_loss=correlation_loss,
+        selected_ffids=selected_ffids,
+        configured_ffid_range=ffid_range,
     )
 
 
@@ -429,6 +673,8 @@ def _full_training_contract(
     sample_count: int,
     amplitude_scaling: str,
     correlation_loss: _CorrelationLossSettings,
+    selected_ffids: tuple[int, ...],
+    configured_ffid_range: tuple[int, int] | None,
 ) -> dict[str, object]:
     training_trace_counts = np.asarray(
         [len(rows) for rows in training_rows_by_ffid.values()], dtype=np.int64
@@ -458,6 +704,151 @@ def _full_training_contract(
                 "loss_semantics": MSE_PLUS_TRACE_CORRELATION,
             }
         )
+    if configured_ffid_range is not None:
+        contract.update(
+            _ffid_selection_contract(
+                selected_ffids,
+                configured_ffid_range=configured_ffid_range,
+            )
+        )
+    return contract
+
+
+def _random_complete_trace_training_contract(
+    rows_by_split: Mapping[str, Mapping[int, np.ndarray]],
+    *,
+    selected_ffids: tuple[int, ...],
+    configured_ffid_range: tuple[int, int] | None,
+    sample_count: int,
+    traces_per_update: int,
+    steps_per_epoch: int,
+    amplitude_scaling: str,
+    evaluate_training_snr: bool,
+    learning_rate_schedule: _LearningRateScheduleSettings,
+    initial_learning_rate: object,
+    max_epochs: object,
+) -> dict[str, object]:
+    training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
+    validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
+    test_rows_by_ffid = rows_by_split[TEST_SPLIT]
+    contract: dict[str, object] = {
+        "batch_mode": RANDOM_COMPLETE_TRACES_BATCH_MODE,
+        "training_ffid_count": len(training_rows_by_ffid),
+        "validation_ffid_count": len(validation_rows_by_ffid),
+        "training_trace_count": sum(len(rows) for rows in training_rows_by_ffid.values()),
+        "validation_trace_count": sum(len(rows) for rows in validation_rows_by_ffid.values()),
+        "test_trace_count": sum(len(rows) for rows in test_rows_by_ffid.values()),
+        "effective_steps_per_epoch": steps_per_epoch,
+        "traces_per_update": traces_per_update,
+        "points_per_update": traces_per_update * sample_count,
+        "amplitude_scaling": amplitude_scaling,
+        "validation": "all_validation_traces_streamed",
+        "evaluate_training_snr": evaluate_training_snr,
+        **_ffid_selection_contract(
+            selected_ffids,
+            configured_ffid_range=configured_ffid_range,
+        ),
+    }
+    if amplitude_scaling == PER_TRACE_RMS_SCALING:
+        contract["validation"] = "all_validation_traces_streamed_per_trace_rms"
+        contract["validation_metric_domain"] = ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
+        contract["validation_scale_source"] = "validation_trace_target_rms"
+    if evaluate_training_snr:
+        contract["training_evaluation"] = "all_training_traces_streamed"
+        contract["training_metric_domain"] = (
+            ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
+            if amplitude_scaling == PER_TRACE_RMS_SCALING
+            else TRAIN_GLOBAL_RMS_VALIDATION_DOMAIN
+        )
+    if learning_rate_schedule.enabled:
+        assert learning_rate_schedule.name is not None
+        assert learning_rate_schedule.minimum_learning_rate is not None
+        contract.update(
+            {
+                "learning_rate_schedule": learning_rate_schedule.name,
+                "initial_learning_rate": _validated_positive_config_float(
+                    initial_learning_rate,
+                    "training.learning_rate",
+                ),
+                "minimum_learning_rate": learning_rate_schedule.minimum_learning_rate,
+                "learning_rate_schedule_step_unit": "optimizer_update",
+                "learning_rate_schedule_total_updates": (
+                    _validated_positive_config_integer(
+                        max_epochs,
+                        "training.max_epochs",
+                    )
+                    * steps_per_epoch
+                ),
+            }
+        )
+    return contract
+
+
+def _survey_rows_by_split(
+    trace_table: pd.DataFrame,
+    split_table: pd.DataFrame,
+    *,
+    ffid_range: tuple[int, int] | None,
+) -> tuple[dict[str, dict[int, np.ndarray]], tuple[int, ...]]:
+    rows_by_split = {
+        split: array_rows_by_ffid_for_split(trace_table, split_table, split=split)
+        for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
+    }
+    eligible_rows = split_table.loc[
+        split_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT), "array_row"
+    ].to_numpy(dtype=np.int64)
+    if ffid_range is not None:
+        array_rows = validated_array_rows(trace_table, require_contiguous=True)
+        ffid_by_array_row = np.empty(len(trace_table), dtype=np.int64)
+        ffid_by_array_row[array_rows] = trace_table["ffid"].to_numpy(dtype=np.int64)
+        minimum, maximum = ffid_range
+        eligible_ffids = ffid_by_array_row[eligible_rows]
+        eligible_rows = eligible_rows[(eligible_ffids >= minimum) & (eligible_ffids <= maximum)]
+    if eligible_rows.size == 0:
+        range_label = list(ffid_range) if ffid_range is not None else None
+        raise ConfigurationError(f"training.ffid_range selects no eligible FFIDs: {range_label!r}")
+
+    selected_ffids = tuple(
+        sorted(
+            {
+                int(ffid)
+                for split_groups in rows_by_split.values()
+                for ffid in split_groups
+                if ffid_range is None or ffid_range[0] <= ffid <= ffid_range[1]
+            }
+        )
+    )
+    selected_set = set(selected_ffids)
+    if not selected_ffids:
+        range_label = list(ffid_range) if ffid_range is not None else None
+        raise ConfigurationError(f"training.ffid_range selects no eligible FFIDs: {range_label!r}")
+    filtered_rows_by_split = {
+        split: {ffid: rows for ffid, rows in split_groups.items() if ffid in selected_set}
+        for split, split_groups in rows_by_split.items()
+    }
+    for split, split_groups in filtered_rows_by_split.items():
+        validate_all_ffids_have_split_rows(
+            trace_table,
+            split_groups,
+            split=split,
+            eligible_array_rows=eligible_rows,
+        )
+    return filtered_rows_by_split, selected_ffids
+
+
+def _ffid_selection_contract(
+    selected_ffids: tuple[int, ...],
+    *,
+    configured_ffid_range: tuple[int, int] | None,
+) -> dict[str, object]:
+    if not selected_ffids:
+        raise ValueError("selected_ffids must not be empty")
+    contract: dict[str, object] = {
+        "selected_ffid_range": [selected_ffids[0], selected_ffids[-1]],
+        "selected_ffid_count": len(selected_ffids),
+    }
+    if configured_ffid_range is not None:
+        contract["configured_ffid_range"] = list(configured_ffid_range)
     return contract
 
 
@@ -507,29 +898,32 @@ def _validated_nonnegative_config_float(value: object, dotted_path: str) -> floa
     return converted
 
 
-def _encode_full_ffid_infinite_snr(metrics: dict[str, object]) -> dict[str, object]:
-    """Represent a mathematically infinite full-mode S/N in strict JSON.
+def _encode_streaming_infinite_snr(metrics: dict[str, object]) -> dict[str, object]:
+    """Represent mathematically infinite streamed S/N values in strict JSON.
 
     The streaming metric deliberately returns positive infinity for a perfect
-    prediction. JSON has no infinity number, so the full-FFID run contract uses
+    prediction. JSON has no infinity number, so the streamed run contract uses
     the explicit string ``"inf"`` for that one mathematically valid outcome.
     Checkpoints retain the original floating-point infinity.
     """
     encoded = dict(metrics)
-    encoded["best_validation_global_snr_db"] = _encode_positive_infinity(
-        encoded["best_validation_global_snr_db"]
-    )
+    for key in (
+        "best_validation_global_snr_db",
+        "training_global_snr_db_at_best_epoch",
+    ):
+        if key in encoded:
+            encoded[key] = _encode_positive_infinity(encoded[key])
     history = encoded.get("history")
     if not isinstance(history, list):
-        raise RuntimeError("full_ffid_epoch metrics history must be a list")
+        raise RuntimeError("streaming global S/N metrics history must be a list")
     encoded_history: list[dict[str, object]] = []
     for raw_record in history:
         if not isinstance(raw_record, Mapping):
-            raise RuntimeError("full_ffid_epoch history entries must be objects")
+            raise RuntimeError("streaming global S/N history entries must be objects")
         record = dict(raw_record)
-        record["validation_global_snr_db"] = _encode_positive_infinity(
-            record["validation_global_snr_db"]
-        )
+        for key in ("validation_global_snr_db", "training_global_snr_db"):
+            if key in record:
+                record[key] = _encode_positive_infinity(record[key])
         encoded_history.append(record)
     encoded["history"] = encoded_history
     return encoded
@@ -555,11 +949,118 @@ def _training_batch_mode(config: Mapping[str, object]) -> str:
         if isinstance(training, Mapping)
         else RANDOM_POINTS_BATCH_MODE
     )
-    if value not in (RANDOM_POINTS_BATCH_MODE, FULL_FFID_EPOCH_BATCH_MODE):
+    if value not in (
+        RANDOM_POINTS_BATCH_MODE,
+        FULL_FFID_EPOCH_BATCH_MODE,
+        RANDOM_COMPLETE_TRACES_BATCH_MODE,
+    ):
+        supported_modes = [
+            RANDOM_POINTS_BATCH_MODE,
+            FULL_FFID_EPOCH_BATCH_MODE,
+            RANDOM_COMPLETE_TRACES_BATCH_MODE,
+        ]
         raise ConfigurationError(
-            f"training.batch_mode must be 'random_points' or 'full_ffid_epoch', got {value!r}"
+            f"training.batch_mode must be one of {supported_modes}, got {value!r}"
         )
     return str(value)
+
+
+def _training_learning_rate_schedule(
+    config: Mapping[str, object],
+    *,
+    batch_mode: str,
+) -> _LearningRateScheduleSettings:
+    training = config.get("training")
+    if not isinstance(training, Mapping):
+        raise ConfigurationError("training configuration must be a mapping")
+    has_schedule = "learning_rate_schedule" in training
+    has_minimum = "minimum_learning_rate" in training
+    if not has_schedule:
+        if has_minimum:
+            raise ConfigurationError(
+                "training.minimum_learning_rate requires training.learning_rate_schedule"
+            )
+        return _LearningRateScheduleSettings()
+
+    schedule = training["learning_rate_schedule"]
+    if schedule != COSINE_LEARNING_RATE_SCHEDULE:
+        raise ConfigurationError(
+            f"training.learning_rate_schedule must be 'cosine', got {schedule!r}"
+        )
+    if batch_mode != RANDOM_COMPLETE_TRACES_BATCH_MODE:
+        raise ConfigurationError(
+            "training.learning_rate_schedule is supported only by batch_mode "
+            "'random_complete_traces'"
+        )
+    if not has_minimum:
+        raise ConfigurationError(
+            "training.minimum_learning_rate is required when "
+            "training.learning_rate_schedule='cosine'"
+        )
+    initial_learning_rate = _validated_positive_config_float(
+        get_required_config_value(config, "training.learning_rate"),
+        "training.learning_rate",
+    )
+    minimum_learning_rate = _validated_positive_config_float(
+        training["minimum_learning_rate"],
+        "training.minimum_learning_rate",
+    )
+    if minimum_learning_rate >= initial_learning_rate:
+        raise ConfigurationError(
+            "training.minimum_learning_rate must be strictly less than training.learning_rate"
+        )
+    return _LearningRateScheduleSettings(
+        name=COSINE_LEARNING_RATE_SCHEDULE,
+        minimum_learning_rate=minimum_learning_rate,
+    )
+
+
+def _training_ffid_range(
+    config: Mapping[str, object],
+    *,
+    batch_mode: str,
+) -> tuple[int, int] | None:
+    training = config.get("training")
+    if not isinstance(training, Mapping) or "ffid_range" not in training:
+        return None
+    if batch_mode not in _STREAMING_GLOBAL_BATCH_MODES:
+        raise ConfigurationError(
+            "training.ffid_range requires batch_mode 'full_ffid_epoch' or 'random_complete_traces'"
+        )
+    value = training["ffid_range"]
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ConfigurationError(
+            f"training.ffid_range must be an inclusive [min, max] pair, got {value!r}"
+        )
+    if any(isinstance(item, bool) or not isinstance(item, Integral) for item in value):
+        raise ConfigurationError(
+            f"training.ffid_range must contain non-negative integers, got {value!r}"
+        )
+    minimum, maximum = (int(item) for item in value)
+    if minimum < 0 or maximum > np.iinfo(np.int64).max or minimum > maximum:
+        raise ConfigurationError(
+            f"training.ffid_range must be ordered non-negative int64 values, got {value!r}"
+        )
+    return minimum, maximum
+
+
+def _training_evaluate_training_snr(
+    config: Mapping[str, object],
+    *,
+    batch_mode: str,
+) -> bool:
+    training = config.get("training")
+    if not isinstance(training, Mapping):
+        return False
+    value = training.get("evaluate_training_snr", False)
+    if not isinstance(value, bool):
+        raise ConfigurationError(f"training.evaluate_training_snr must be a boolean, got {value!r}")
+    if value and batch_mode != RANDOM_COMPLETE_TRACES_BATCH_MODE:
+        raise ConfigurationError(
+            "training.evaluate_training_snr is supported only by batch_mode "
+            "'random_complete_traces'"
+        )
+    return value
 
 
 def _training_amplitude_scaling(config: Mapping[str, object]) -> str:
@@ -708,12 +1209,17 @@ def _validated_preparation_contract(
     trace_table: pd.DataFrame,
     trace_amplitude_filter: TraceAmplitudeFilterConfig | None,
     batch_mode: str,
+    allow_whole_ffid_split: bool = False,
 ) -> dict[str, object]:
+    configured_split_scope = _configured_split_scope(config)
+    holdout_config_path = (
+        "sampling.random_ffid_holdout_fraction"
+        if configured_split_scope == "whole_ffid"
+        else "sampling.random_trace_holdout_fraction"
+    )
     expected = {
         "random_seed": get_required_config_value(config, "project.random_seed"),
-        "holdout_fraction": get_required_config_value(
-            config, "sampling.random_trace_holdout_fraction"
-        ),
+        "holdout_fraction": get_required_config_value(config, holdout_config_path),
         "validation_fraction_of_holdout": get_required_config_value(
             config, "sampling.validation_fraction_of_holdout"
         ),
@@ -722,7 +1228,6 @@ def _validated_preparation_contract(
             "amplitude": get_required_config_value(config, "normalization.amplitude"),
         },
     }
-    configured_split_scope = _configured_split_scope(config)
     prepared_split_scope = preparation.get("split_scope", "global")
     if prepared_split_scope != configured_split_scope:
         raise ValueError(
@@ -731,10 +1236,27 @@ def _validated_preparation_contract(
     if batch_mode == FULL_FFID_EPOCH_BATCH_MODE:
         if prepared_split_scope != "per_ffid":
             raise ValueError(
-                "full_ffid_epoch requires preparation split_scope 'per_ffid', "
+                f"{batch_mode} requires preparation split_scope 'per_ffid', "
                 f"got {prepared_split_scope!r}"
             )
-        expected["split_scope"] = "per_ffid"
+        expected["split_scope"] = prepared_split_scope
+    elif batch_mode == RANDOM_COMPLETE_TRACES_BATCH_MODE:
+        supported_random_trace_scopes = {"per_ffid"}
+        if allow_whole_ffid_split:
+            supported_random_trace_scopes.add("whole_ffid")
+        if prepared_split_scope not in supported_random_trace_scopes:
+            raise ValueError(
+                f"{batch_mode} requires preparation split_scope in "
+                f"{sorted(supported_random_trace_scopes)}, "
+                f"got {prepared_split_scope!r}"
+            )
+        expected["split_scope"] = prepared_split_scope
+        if prepared_split_scope == "whole_ffid":
+            expected["ffid_split_counts"] = _validated_whole_ffid_split_counts(
+                preparation.get("ffid_split_counts"),
+                split_table,
+                trace_table,
+            )
     expected_trace_filter = (
         trace_amplitude_filter.to_dict() if trace_amplitude_filter is not None else None
     )
@@ -871,6 +1393,50 @@ def _validated_trace_quality_contract(
     return dict(value)
 
 
+def _validated_whole_ffid_split_counts(
+    value: object,
+    split_table: pd.DataFrame,
+    trace_table: pd.DataFrame,
+) -> dict[str, int]:
+    expected_splits = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
+    if not isinstance(value, Mapping) or set(value) != set(expected_splits):
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} ffid_split_counts must contain exactly "
+            f"{list(expected_splits)}"
+        )
+    invalid_values = [
+        split
+        for split in expected_splits
+        if isinstance(value[split], bool)
+        or not isinstance(value[split], int)
+        or int(value[split]) <= 0
+    ]
+    if invalid_values:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} ffid_split_counts must be positive integers: {invalid_values}"
+        )
+
+    joined = trace_table[["array_row", "ffid"]].merge(
+        split_table[["array_row", SPLIT_COLUMN]],
+        on="array_row",
+        how="inner",
+        validate="one_to_one",
+    )
+    eligible = joined.loc[joined[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)]
+    splits_per_ffid = eligible.groupby("ffid")[SPLIT_COLUMN].nunique()
+    if not splits_per_ffid.eq(1).all():
+        raise ValueError(f"{TRACE_SPLIT_FILE_NAME} does not contain disjoint whole-FFID splits")
+    expected = {
+        split: int(eligible.loc[eligible[SPLIT_COLUMN].eq(split), "ffid"].nunique())
+        for split in expected_splits
+    }
+    if dict(value) != expected:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} ffid_split_counts do not match {TRACE_SPLIT_FILE_NAME}"
+        )
+    return expected
+
+
 def _configured_split_scope(config: Mapping[str, object]) -> object:
     sampling = config.get("sampling")
     if not isinstance(sampling, Mapping):
@@ -890,14 +1456,106 @@ def _configured_trace_amplitude_filter(
     )
 
 
-def _build_model(config: Mapping[str, object]) -> Siren:
+def _model_coordinate_features(config: Mapping[str, object]) -> str:
+    model = config.get("model")
+    value = (
+        model.get("coordinate_features", DEFAULT_COORDINATE_FEATURES)
+        if isinstance(model, Mapping)
+        else DEFAULT_COORDINATE_FEATURES
+    )
+    try:
+        return validated_coordinate_features(value, name="model.coordinate_features")
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
+
+
+def _model_time_coordinate_scale(config: Mapping[str, object]) -> float:
+    model = config.get("model")
+    if not isinstance(model, Mapping) or "time_coordinate_scale" not in model:
+        return 1.0
+    try:
+        return validated_time_coordinate_scale(
+            model["time_coordinate_scale"],
+            name="model.time_coordinate_scale",
+        )
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
+
+
+def _model_layer_omega_schedule(config: Mapping[str, object]) -> str | None:
+    model = config.get("model")
+    if not isinstance(model, Mapping) or "layer_omega_schedule" not in model:
+        return None
+    value = model["layer_omega_schedule"]
+    if value is None:
+        return None
+    if value != EXPONENTIAL_LAYER_OMEGA_SCHEDULE:
+        raise ConfigurationError(
+            f"model.layer_omega_schedule must be 'exponential' or null, got {value!r}"
+        )
+    hidden_layers = get_required_config_value(config, "model.hidden_layers")
+    if (
+        isinstance(hidden_layers, bool)
+        or not isinstance(hidden_layers, Integral)
+        or int(hidden_layers) < 2
+    ):
+        raise ConfigurationError(
+            "model.layer_omega_schedule='exponential' requires "
+            f"model.hidden_layers >= 2, got {hidden_layers!r}"
+        )
+    return EXPONENTIAL_LAYER_OMEGA_SCHEDULE
+
+
+def _model_omega_schedule_contract(model: Siren) -> dict[str, object] | None:
+    if model.layer_omega_schedule is None:
+        return None
+    return {
+        "layer_omega_schedule": model.layer_omega_schedule,
+        "sine_layer_omegas": list(model.layer_omegas),
+    }
+
+
+def _model_skip_connections(config: Mapping[str, object]) -> str | None:
+    model = config.get("model")
+    if not isinstance(model, Mapping) or "skip_connections" not in model:
+        return None
+    value = model["skip_connections"]
+    if value is None:
+        return None
+    if value != DENSE_SKIP_CONNECTIONS:
+        raise ConfigurationError(f"model.skip_connections must be 'dense' or null, got {value!r}")
+    return DENSE_SKIP_CONNECTIONS
+
+
+def _model_skip_connections_contract(model: Siren) -> dict[str, object] | None:
+    if model.skip_connections is None:
+        return None
+    return {
+        "skip_connections": model.skip_connections,
+        "sine_layer_input_features": list(model.sine_layer_input_features),
+        "final_linear_input_features": model.final_input_features,
+        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+    }
+
+
+def _build_model(
+    config: Mapping[str, object],
+    *,
+    expected_input_features: int | None = None,
+) -> Siren:
     model_name = get_required_config_value(config, "model.name")
     if model_name != "siren":
         raise ConfigurationError(f"model.name must be 'siren', got {model_name!r}")
+    if expected_input_features is None:
+        expected_input_features = len(
+            coordinate_order_for_features(_model_coordinate_features(config))
+        )
     input_features = get_required_config_value(config, "model.input_features")
-    if input_features != len(MODEL_COORDINATE_ORDER):
+    if input_features != expected_input_features:
         raise ConfigurationError(
-            f"model.input_features must be {len(MODEL_COORDINATE_ORDER)}, got {input_features!r}"
+            f"model.input_features must be {expected_input_features} for "
+            f"model.coordinate_features={_model_coordinate_features(config)!r}, "
+            f"got {input_features!r}"
         )
     return Siren(
         input_features=input_features,
@@ -906,6 +1564,8 @@ def _build_model(config: Mapping[str, object]) -> Siren:
         output_features=1,
         omega_0=get_required_config_value(config, "model.omega_0"),
         hidden_omega=get_required_config_value(config, "model.hidden_omega"),
+        layer_omega_schedule=_model_layer_omega_schedule(config),
+        skip_connections=_model_skip_connections(config),
     )
 
 
@@ -922,6 +1582,9 @@ def _build_inputs_lock(
     preparation_contract: Mapping[str, object],
     source_files: tuple[dict[str, str], ...] | None = None,
     training_contract: Mapping[str, object] | None = None,
+    model_coordinates: ModelCoordinateParameters | None = None,
+    model_omega_schedule: Mapping[str, object] | None = None,
+    model_skip_connections: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     inputs_lock: dict[str, object] = {
         "interim_files": dict(interim_files),
@@ -932,6 +1595,12 @@ def _build_inputs_lock(
         inputs_lock["source_files"] = [dict(source) for source in source_files]
     if training_contract is not None:
         inputs_lock["training"] = dict(training_contract)
+    if model_coordinates is not None:
+        inputs_lock["model_coordinates"] = model_coordinates.to_dict()
+    if model_omega_schedule is not None:
+        inputs_lock["model_omega_schedule"] = dict(model_omega_schedule)
+    if model_skip_connections is not None:
+        inputs_lock["model_skip_connections"] = dict(model_skip_connections)
     return inputs_lock
 
 

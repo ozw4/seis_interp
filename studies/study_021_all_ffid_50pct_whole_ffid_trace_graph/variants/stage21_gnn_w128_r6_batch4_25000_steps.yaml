@@ -1,0 +1,10 @@
+extends: stage08_gnn_width128_rounds6.yaml
+
+model:
+  use_gradient_checkpointing: true
+
+training:
+  batch_size: 4
+  validation_batch_size: 2
+  total_steps: 25000
+  evaluation_interval_steps: 2500

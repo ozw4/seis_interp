@@ -1,0 +1,4 @@
+extends: stage03_crossline_k1374.yaml
+
+model:
+  prediction_reference: same_line_exact_receiver_linear_bracketing_channels

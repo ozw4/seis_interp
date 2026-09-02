@@ -140,6 +140,29 @@ def test_build_trace_points_uses_trace_major_time_minor_order_without_mutation()
         np.testing.assert_array_equal(actual, expected)
 
 
+def test_point_sampling_and_trace_expansion_follow_spatial_feature_width() -> None:
+    time, spatial, amplitudes = _arrays()
+    four_spatial_features = spatial[:, :4].copy()
+    sampler = RandomPointSampler(
+        time,
+        four_spatial_features,
+        amplitudes,
+        np.array([0, 2]),
+        random_seed=8,
+    )
+
+    sampled_coordinates, _ = sampler.sample(7)
+    trace_coordinates, _ = build_trace_points(
+        time,
+        four_spatial_features,
+        amplitudes,
+        np.array([2, 0]),
+    )
+
+    assert sampled_coordinates.shape == (7, 5)
+    assert trace_coordinates.shape == (8, 5)
+
+
 @pytest.mark.parametrize("batch_size", [0, -1, True])
 def test_rejects_invalid_batch_size(batch_size: int) -> None:
     time, spatial, amplitudes = _arrays()

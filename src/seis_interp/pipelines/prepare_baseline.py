@@ -30,6 +30,7 @@ from seis_interp.processing.trace_splits import (
     VALIDATION_SPLIT,
     assign_random_trace_splits,
     assign_random_trace_splits_by_ffid,
+    assign_random_whole_ffid_splits,
 )
 
 TRACE_SPLIT_FILE_NAME = "trace_split.parquet"
@@ -39,7 +40,8 @@ COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
 AMPLITUDE_NORMALIZATION_METHOD = "train_global_rms"
 GLOBAL_SPLIT_SCOPE = "global"
 PER_FFID_SPLIT_SCOPE = "per_ffid"
-SPLIT_SCOPES = frozenset((GLOBAL_SPLIT_SCOPE, PER_FFID_SPLIT_SCOPE))
+WHOLE_FFID_SPLIT_SCOPE = "whole_ffid"
+SPLIT_SCOPES = frozenset((GLOBAL_SPLIT_SCOPE, PER_FFID_SPLIT_SCOPE, WHOLE_FFID_SPLIT_SCOPE))
 
 OUTPUT_FILE_NAMES = (
     TRACE_SPLIT_FILE_NAME,
@@ -93,8 +95,15 @@ def prepare_baseline_dataset(
             validation_fraction_of_holdout=validation_fraction_of_holdout,
             random_seed=random_seed,
         )
-    else:
+    elif stored_split_scope == PER_FFID_SPLIT_SCOPE:
         eligible_split_table = assign_random_trace_splits_by_ffid(
+            eligible_trace_table,
+            holdout_fraction=holdout_fraction,
+            validation_fraction_of_holdout=validation_fraction_of_holdout,
+            random_seed=random_seed,
+        )
+    else:
+        eligible_split_table = assign_random_whole_ffid_splits(
             eligible_trace_table,
             holdout_fraction=holdout_fraction,
             validation_fraction_of_holdout=validation_fraction_of_holdout,
@@ -138,6 +147,15 @@ def prepare_baseline_dataset(
             "normalization": NORMALIZATION_FILE_NAME,
         },
     }
+    if stored_split_scope == WHOLE_FFID_SPLIT_SCOPE:
+        preparation["ffid_split_counts"] = {
+            split: int(
+                eligible_split_table.loc[
+                    eligible_split_table[SPLIT_COLUMN].eq(split), "ffid"
+                ].nunique()
+            )
+            for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
+        }
     if stored_trace_filter is not None:
         assert trace_filter_result is not None
         preparation["trace_amplitude_filter"] = stored_trace_filter.to_dict()

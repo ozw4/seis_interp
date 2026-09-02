@@ -1,0 +1,5 @@
+extends: stage12_joint_shot_gather_width128.yaml
+
+training:
+  total_steps: 6000
+  evaluation_interval_steps: 3000

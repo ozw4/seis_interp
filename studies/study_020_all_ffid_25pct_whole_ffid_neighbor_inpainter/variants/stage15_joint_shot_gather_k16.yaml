@@ -1,0 +1,5 @@
+extends: stage09_joint_shot_gather_k8.yaml
+
+model:
+  neighborhood:
+    source_gather_count: 16

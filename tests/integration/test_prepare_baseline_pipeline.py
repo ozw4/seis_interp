@@ -95,17 +95,20 @@ def _prepare(
     )
 
 
-def _write_multi_ffid_interim_dataset(tmp_path: Path) -> Path:
+def _write_multi_ffid_interim_dataset(tmp_path: Path, *, ffid_count: int = 2) -> Path:
     source_path = tmp_path / "multi-source.sgy"
     source_path.write_bytes(b"synthetic multi-FFID SEG-Y placeholder")
     interim_dir = tmp_path / "multi-ffid-interim"
     traces_per_ffid = 20
-    trace_count = 2 * traces_per_ffid
+    trace_count = ffid_count * traces_per_ffid
     trace_indices = np.arange(trace_count, dtype=np.int64)
     trace_table = pd.DataFrame(
         {
             "trace_index": trace_indices,
-            "ffid": np.repeat([100, 101], traces_per_ffid).astype(np.int64),
+            "ffid": np.repeat(
+                np.arange(100, 100 + ffid_count, dtype=np.int64),
+                traces_per_ffid,
+            ),
             "cmp_x_m": trace_indices.astype(np.float64),
             "cmp_y_m": trace_indices.astype(np.float64) * 2.0,
             "offset_m": trace_indices.astype(np.float64) + 100.0,
@@ -183,6 +186,31 @@ def test_per_ffid_scope_writes_each_split_for_every_ffid(tmp_path: Path) -> None
     assert summary["split_scope"] == "per_ffid"
     assert summary["ffid_count"] == 2
     assert summary["split_counts"] == {"train": 32, "validation": 2, "test": 6}
+
+
+def test_whole_ffid_scope_assigns_each_ffid_to_one_split(tmp_path: Path) -> None:
+    interim_dir = _write_multi_ffid_interim_dataset(tmp_path, ffid_count=20)
+    output_dir = tmp_path / "processed"
+
+    summary = _prepare(interim_dir, output_dir, split_scope="whole_ffid")
+
+    split_table = pd.read_parquet(output_dir / "trace_split.parquet")
+    trace_table = pd.read_parquet(interim_dir / "traces.parquet")
+    joined = trace_table[["array_row", "ffid"]].merge(
+        split_table,
+        on="array_row",
+        validate="one_to_one",
+    )
+    assert joined.groupby("ffid")["split"].nunique().eq(1).all()
+    assert joined.groupby("split")["ffid"].nunique().to_dict() == {
+        "test": 3,
+        "train": 16,
+        "validation": 1,
+    }
+    assert summary["split_scope"] == "whole_ffid"
+    assert summary["ffid_count"] == 20
+    assert summary["ffid_split_counts"] == {"train": 16, "validation": 1, "test": 3}
+    assert summary["split_counts"] == {"train": 320, "validation": 20, "test": 60}
 
 
 def test_amplitude_filter_excludes_invalid_traces_before_split_and_normalization(

@@ -1,0 +1,938 @@
+from __future__ import annotations
+
+import pytest
+import torch
+from torch import nn
+
+from seis_interp.models.shot_gather_inpainter import (
+    DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES,
+    DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    INVERSE_DISTANCE_SOURCE_WEIGHTING,
+    LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
+    MOMENTS_SOURCE_FEATURE_MODE,
+    NO_RECEIVER_POSITION_CONDITIONING,
+    ORDERED_RAW_SOURCE_FEATURE_MODE,
+    RECEIVER_X_COUNT,
+    RECEIVER_Y_COUNT,
+    SHOT_GATHER_INPUT_FEATURE_NAMES,
+    DynamicSourceAttention,
+    FactorizedGatherResidualBlock,
+    ReceiverPositionFiLM,
+    ShotGatherInpainter,
+    inverse_distance_reference,
+    ordered_raw_input_feature_names,
+)
+
+
+def _inputs(
+    *,
+    batch_size: int = 2,
+    source_count: int = 3,
+    time_count: int = 7,
+    dtype: torch.dtype = torch.float32,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    neighbors = torch.randn(
+        batch_size,
+        source_count,
+        RECEIVER_X_COUNT,
+        RECEIVER_Y_COUNT,
+        time_count,
+        dtype=dtype,
+    )
+    availability = torch.ones(
+        batch_size,
+        source_count,
+        RECEIVER_X_COUNT,
+        RECEIVER_Y_COUNT,
+        dtype=torch.bool,
+    )
+    source_deltas = (
+        torch.tensor(
+            [[float(index + 1), float(index % 2)] for index in range(source_count)],
+            dtype=dtype,
+        )
+        .expand(batch_size, -1, -1)
+        .clone()
+    )
+    target_coordinates = torch.randn(batch_size, 2, dtype=dtype)
+    return neighbors, availability, source_deltas, target_coordinates
+
+
+def test_inverse_distance_reference_is_receiver_wise_and_masks_missing_sources() -> None:
+    neighbors = torch.empty(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3)
+    neighbors[:, 0].fill_(2.0)
+    neighbors[:, 1].fill_(6.0)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    availability[:, 1, 0, 0] = False
+    availability[:, :, 0, 1] = False
+    source_deltas = torch.tensor([[[1.0, 0.0], [3.0, 0.0]]])
+
+    reference = inverse_distance_reference(neighbors, availability, source_deltas)
+
+    torch.testing.assert_close(reference[:, 1:, 1:], torch.full_like(reference[:, 1:, 1:], 3.0))
+    torch.testing.assert_close(reference[0, 0, 0], torch.full((3,), 2.0))
+    torch.testing.assert_close(reference[0, 0, 1], torch.zeros(3))
+
+
+def test_inverse_distance_reference_supports_squared_distance_weights() -> None:
+    neighbors = torch.empty(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 1)
+    neighbors[:, 0].fill_(2.0)
+    neighbors[:, 1].fill_(6.0)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    source_deltas = torch.tensor([[[1.0, 0.0], [3.0, 0.0]]])
+
+    reference = inverse_distance_reference(
+        neighbors,
+        availability,
+        source_deltas,
+        distance_power=2.0,
+    )
+
+    torch.testing.assert_close(reference, torch.full_like(reference, 2.4))
+
+
+def test_inverse_distance_reference_is_finite_for_low_precision_close_sources() -> None:
+    neighbors = torch.tensor([1.0, 3.0], dtype=torch.float16).view(1, 2, 1, 1, 1)
+    neighbors = neighbors.expand(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 1)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    source_deltas = torch.tensor([[[1.0e-5, 0.0], [2.0e-5, 0.0]]], dtype=torch.float16)
+
+    reference = inverse_distance_reference(neighbors, availability, source_deltas)
+
+    assert reference.dtype == torch.float16
+    assert torch.isfinite(reference).all()
+    torch.testing.assert_close(
+        reference.float(),
+        torch.full_like(reference.float(), 5.0 / 3.0),
+        rtol=2.0e-3,
+        atol=2.0e-3,
+    )
+
+
+def test_zero_initialized_model_returns_exact_inverse_distance_reference() -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    neighbors, availability, source_deltas, target_coordinates = _inputs()
+    availability[:, 1, 2:4, 7:11] = False
+    expected = inverse_distance_reference(neighbors, availability, source_deltas)
+
+    output = model(neighbors, availability, source_deltas, target_coordinates)
+
+    torch.testing.assert_close(output, expected, rtol=0.0, atol=0.0)
+    assert isinstance(model.head[-1], nn.Conv3d)
+    assert torch.count_nonzero(model.head[-1].weight) == 0
+    assert torch.count_nonzero(model.head[-1].bias) == 0
+    assert model.spatial_y_dilations == (1, 1)
+    assert all(block.spatial.dilation == (1, 1, 1) for block in model.blocks)
+    assert all(block.spatial.padding == (1, 1, 0) for block in model.blocks)
+
+
+def test_default_spatial_y_dilations_match_explicit_ones_exactly() -> None:
+    torch.manual_seed(37)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(37)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        spatial_y_dilations=(1, 1),
+    )
+
+    assert default_model.spatial_y_dilations == (1, 1)
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_default_moments_mode_matches_explicit_mode_and_state_exactly() -> None:
+    torch.manual_seed(41)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(41)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_feature_mode=MOMENTS_SOURCE_FEATURE_MODE,
+    )
+
+    assert default_model.source_feature_mode == MOMENTS_SOURCE_FEATURE_MODE
+    assert default_model.source_gather_count is None
+    assert default_model.input_feature_names == SHOT_GATHER_INPUT_FEATURE_NAMES
+    assert default_model.state_dict().keys() == explicit_model.state_dict().keys()
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_default_source_weighting_matches_explicit_inverse_distance_exactly() -> None:
+    torch.manual_seed(42)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(42)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_weighting=INVERSE_DISTANCE_SOURCE_WEIGHTING,
+    )
+
+    assert default_model.source_weighting == INVERSE_DISTANCE_SOURCE_WEIGHTING
+    assert default_model.source_weighting_input_feature_names == ()
+    assert not hasattr(default_model, "dynamic_source_attention")
+    assert default_model.state_dict().keys() == explicit_model.state_dict().keys()
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_dynamic_attention_zero_init_preserves_idw_and_shared_model_state() -> None:
+    torch.manual_seed(44)
+    inverse_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(44)
+    dynamic_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    )
+    neighbors, availability, source_deltas, target_coordinates = _inputs(
+        batch_size=1,
+        source_count=3,
+        time_count=5,
+    )
+    availability[:, 1, 2:4, 7:11] = False
+    availability[:, :, 0, 0] = False
+    expected = inverse_distance_reference(neighbors, availability, source_deltas)
+
+    output = dynamic_model(neighbors, availability, source_deltas, target_coordinates)
+
+    assert dynamic_model.source_weighting == DYNAMIC_ATTENTION_SOURCE_WEIGHTING
+    assert dynamic_model.source_weighting_input_feature_names == (
+        DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES
+    )
+    assert isinstance(dynamic_model.dynamic_source_attention, DynamicSourceAttention)
+    final_projection = dynamic_model.dynamic_source_attention.temporal[-1]
+    assert isinstance(final_projection, nn.Conv3d)
+    assert torch.count_nonzero(final_projection.weight) == 0
+    assert torch.count_nonzero(final_projection.bias) == 0
+    torch.testing.assert_close(output, expected, rtol=0.0, atol=0.0)
+    inverse_state = inverse_model.state_dict()
+    dynamic_state = dynamic_model.state_dict()
+    for name, value in inverse_state.items():
+        torch.testing.assert_close(dynamic_state[name], value, rtol=0.0, atol=0.0)
+    dynamic_parameter_count = sum(parameter.numel() for parameter in dynamic_model.parameters())
+    inverse_parameter_count = sum(parameter.numel() for parameter in inverse_model.parameters())
+    assert 0 < dynamic_parameter_count - inverse_parameter_count < 1000
+
+
+def test_dynamic_attention_feature_order_and_formulas_are_explicit() -> None:
+    attention = DynamicSourceAttention(width=3, temporal_kernel_size=3).double()
+    neighbors = torch.tensor(
+        [[2.0, 4.0], [10.0, 14.0]],
+        dtype=torch.float64,
+    ).view(1, 2, 1, 1, 2)
+    neighbors = neighbors.expand(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2).clone()
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    availability[:, 1, 0, 0] = False
+    source_deltas = torch.tensor([[[3.0, 4.0], [-6.0, 8.0]]], dtype=torch.float64)
+    source_directions = torch.tensor(
+        [[[0.6, 0.8], [-0.6, 0.8]]],
+        dtype=torch.float64,
+    )
+    target_coordinates = torch.tensor([[0.25, 0.75]], dtype=torch.float64)
+    captured: list[torch.Tensor] = []
+
+    def capture_input(_module: nn.Module, inputs: tuple[torch.Tensor]) -> None:
+        captured.append(inputs[0].detach().clone())
+
+    handle = attention.temporal[0].register_forward_pre_hook(capture_input)
+    try:
+        corrections = attention(
+            neighbors,
+            availability,
+            source_deltas,
+            source_directions,
+            target_coordinates,
+            distance_epsilon=1.0e-6,
+        )
+    finally:
+        handle.remove()
+
+    expected_names = (
+        "masked_neighbor_waveform",
+        "normalized_source_direction_x",
+        "normalized_source_direction_y",
+        "normalized_source_distance",
+        "target_coordinate_x",
+        "target_coordinate_y",
+        "receiver_coordinate_x",
+        "receiver_coordinate_y",
+    )
+    assert expected_names == DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES
+    assert attention.input_feature_names == expected_names
+    assert attention.input_channels == 8
+    assert corrections.shape == (1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2)
+    torch.testing.assert_close(corrections, torch.zeros_like(corrections), rtol=0.0, atol=0.0)
+    assert len(captured) == 1
+    features = captured[0].reshape(
+        1,
+        2,
+        8,
+        RECEIVER_X_COUNT,
+        RECEIVER_Y_COUNT,
+        2,
+    )
+    channel = {name: index for index, name in enumerate(expected_names)}
+    torch.testing.assert_close(
+        features[:, 0, channel["masked_neighbor_waveform"]],
+        neighbors[:, 0],
+    )
+    torch.testing.assert_close(
+        features[:, 1, channel["masked_neighbor_waveform"], 0, 0],
+        torch.zeros(1, 2, dtype=torch.float64),
+    )
+    for source_index, values in enumerate(((0.6, 0.8, 0.5), (-0.6, 0.8, 1.0))):
+        for name, value in zip(
+            (
+                "normalized_source_direction_x",
+                "normalized_source_direction_y",
+                "normalized_source_distance",
+            ),
+            values,
+            strict=True,
+        ):
+            torch.testing.assert_close(
+                features[:, source_index, channel[name]],
+                torch.full_like(features[:, source_index, channel[name]], value),
+            )
+    for name, value in (("target_coordinate_x", 0.25), ("target_coordinate_y", 0.75)):
+        torch.testing.assert_close(
+            features[:, :, channel[name]],
+            torch.full_like(features[:, :, channel[name]], value),
+        )
+
+
+def test_dynamic_attention_changes_available_source_weights_per_time_and_masks_missing() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    ).double()
+    first_projection = model.dynamic_source_attention.temporal[0]
+    final_projection = model.dynamic_source_attention.temporal[-1]
+    assert isinstance(first_projection, nn.Conv3d)
+    assert isinstance(final_projection, nn.Conv3d)
+    with torch.no_grad():
+        first_projection.weight.zero_()
+        first_projection.bias.zero_()
+        first_projection.weight[0, 0, 0, 0, 2] = 1.0
+        final_projection.weight.zero_()
+        final_projection.bias.zero_()
+        final_projection.weight[0, 0, 0, 0, 0] = 1.0
+    neighbors = torch.empty(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3, dtype=torch.float64)
+    neighbors[:, 0].fill_(2.0)
+    neighbors[:, 1].fill_(6.0)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    availability[:, 1, 0, 0] = False
+    availability[:, :, 0, 1] = False
+    source_deltas = torch.tensor([[[1.0, 0.0], [-1.0, 0.0]]], dtype=torch.float64)
+    target_coordinates = torch.zeros(1, 2, dtype=torch.float64)
+
+    output = model(neighbors, availability, source_deltas, target_coordinates)
+
+    assert torch.all(output[:, 1:, 1:] > 4.0)
+    torch.testing.assert_close(output[0, 0, 0], torch.full((3,), 2.0, dtype=torch.float64))
+    torch.testing.assert_close(output[0, 0, 1], torch.zeros(3, dtype=torch.float64))
+
+
+def test_zero_initialized_dynamic_attention_receives_reference_gradient() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_weighting=DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
+    ).double()
+    neighbors, availability, source_deltas, target_coordinates = _inputs(
+        batch_size=1,
+        source_count=2,
+        time_count=5,
+        dtype=torch.float64,
+    )
+
+    model(neighbors, availability, source_deltas, target_coordinates).square().mean().backward()
+
+    final_projection = model.dynamic_source_attention.temporal[-1]
+    assert isinstance(final_projection, nn.Conv3d)
+    assert final_projection.weight.grad is not None
+    assert torch.isfinite(final_projection.weight.grad).all()
+    assert torch.count_nonzero(final_projection.weight.grad) > 0
+
+
+def test_default_receiver_conditioning_matches_explicit_none_state_exactly() -> None:
+    torch.manual_seed(43)
+    default_model = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(43)
+    explicit_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        receiver_position_conditioning=NO_RECEIVER_POSITION_CONDITIONING,
+    )
+
+    assert default_model.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
+    assert all(
+        block.receiver_position_conditioning == NO_RECEIVER_POSITION_CONDITIONING
+        for block in default_model.blocks
+    )
+    assert all(not hasattr(block, "receiver_film") for block in default_model.blocks)
+    assert default_model.state_dict().keys() == explicit_model.state_dict().keys()
+    for name, expected in default_model.state_dict().items():
+        torch.testing.assert_close(
+            explicit_model.state_dict()[name],
+            expected,
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_receiver_position_film_is_zero_initialized_and_cell_specific() -> None:
+    film = ReceiverPositionFiLM(width=8).double()
+    normalized = torch.randn(2, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3, dtype=torch.float64)
+
+    initial = film(normalized)
+
+    torch.testing.assert_close(initial, normalized, rtol=0.0, atol=0.0)
+    assert film.scale.shape == (1, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 1)
+    assert film.shift.shape == film.scale.shape
+    assert torch.count_nonzero(film.scale) == 0
+    assert torch.count_nonzero(film.shift) == 0
+
+    with torch.no_grad():
+        film.scale[0, 2, 3, 4, 0] = 1.0
+        film.shift[0, 2, 3, 4, 0] = 0.5
+    conditioned = film(normalized)
+
+    expected = normalized.clone()
+    expected[:, 2, 3, 4] = 2.0 * normalized[:, 2, 3, 4] + 0.5
+    torch.testing.assert_close(conditioned, expected, rtol=0.0, atol=0.0)
+
+
+def test_learned_receiver_film_is_present_in_every_block_and_initially_exact() -> None:
+    torch.manual_seed(47)
+    unconditioned = ShotGatherInpainter(width=8, temporal_dilations=(1, 2))
+    torch.manual_seed(47)
+    conditioned = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1, 2),
+        receiver_position_conditioning=LEARNED_FILM_RECEIVER_POSITION_CONDITIONING,
+    )
+    features = torch.randn(2, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 5)
+
+    assert conditioned.receiver_position_conditioning == (
+        LEARNED_FILM_RECEIVER_POSITION_CONDITIONING
+    )
+    for index, (plain_block, film_block) in enumerate(
+        zip(unconditioned.blocks, conditioned.blocks, strict=True)
+    ):
+        assert film_block.receiver_position_conditioning == (
+            LEARNED_FILM_RECEIVER_POSITION_CONDITIONING
+        )
+        assert isinstance(film_block.receiver_film, ReceiverPositionFiLM)
+        assert torch.count_nonzero(film_block.receiver_film.scale) == 0
+        assert torch.count_nonzero(film_block.receiver_film.shift) == 0
+        assert f"blocks.{index}.receiver_film.scale" in conditioned.state_dict()
+        assert f"blocks.{index}.receiver_film.shift" in conditioned.state_dict()
+        torch.testing.assert_close(
+            film_block(features),
+            plain_block(features),
+            rtol=0.0,
+            atol=0.0,
+        )
+
+    plain_state = unconditioned.state_dict()
+    film_state = conditioned.state_dict()
+    for name, expected in plain_state.items():
+        torch.testing.assert_close(film_state[name], expected, rtol=0.0, atol=0.0)
+
+
+def test_ordered_raw_feature_contract_preserves_each_masked_source() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=2,
+    ).double()
+    neighbors = torch.tensor(
+        [[2.0, 4.0], [10.0, 14.0]],
+        dtype=torch.float64,
+    ).view(1, 2, 1, 1, 2)
+    neighbors = neighbors.expand(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2).clone()
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    availability[:, 1, 0, 0] = False
+    source_deltas = torch.tensor(
+        [[[3.0, 4.0], [-6.0, 8.0]]],
+        dtype=torch.float64,
+    )
+    target_coordinates = torch.tensor([[0.25, 0.75]], dtype=torch.float64)
+    captured_features: list[torch.Tensor] = []
+
+    def capture_stem_input(_module: nn.Module, inputs: tuple[torch.Tensor]) -> None:
+        captured_features.append(inputs[0].detach().clone())
+
+    handle = model.stem.register_forward_pre_hook(capture_stem_input)
+    try:
+        output = model(neighbors, availability, source_deltas, target_coordinates)
+    finally:
+        handle.remove()
+
+    expected_names = (
+        "inverse_distance_reference",
+        "source_000_masked_raw_waveform",
+        "source_000_availability",
+        "source_000_normalized_direction_x",
+        "source_000_normalized_direction_y",
+        "source_000_normalized_distance",
+        "source_001_masked_raw_waveform",
+        "source_001_availability",
+        "source_001_normalized_direction_x",
+        "source_001_normalized_direction_y",
+        "source_001_normalized_distance",
+        "target_coordinate_x",
+        "target_coordinate_y",
+        "receiver_coordinate_x",
+        "receiver_coordinate_y",
+    )
+    assert ordered_raw_input_feature_names(2) == expected_names
+    assert model.input_feature_names == expected_names
+    assert model.input_channels == model.stem.in_channels == 15
+    assert len(captured_features) == 1
+    features = captured_features[0]
+    assert features.shape == (1, 15, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2)
+    assert features.dtype == neighbors.dtype
+    assert features.device == neighbors.device
+    channel = {name: index for index, name in enumerate(expected_names)}
+
+    expected_reference = inverse_distance_reference(neighbors, availability, source_deltas)
+    torch.testing.assert_close(output, expected_reference, rtol=0.0, atol=0.0)
+    torch.testing.assert_close(
+        features[:, channel["inverse_distance_reference"]],
+        expected_reference,
+        rtol=0.0,
+        atol=0.0,
+    )
+    torch.testing.assert_close(
+        features[:, channel["source_000_masked_raw_waveform"]],
+        neighbors[:, 0],
+    )
+    torch.testing.assert_close(
+        features[:, channel["source_001_masked_raw_waveform"], 0, 0],
+        torch.zeros(1, 2, dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        features[:, channel["source_001_masked_raw_waveform"], 1:, 1:],
+        neighbors[:, 1, 1:, 1:],
+    )
+    for name, value in (
+        ("source_000_availability", 1.0),
+        ("source_000_normalized_direction_x", 0.6),
+        ("source_000_normalized_direction_y", 0.8),
+        ("source_000_normalized_distance", 0.5),
+        ("source_001_normalized_direction_x", -0.6),
+        ("source_001_normalized_direction_y", 0.8),
+        ("source_001_normalized_distance", 1.0),
+        ("target_coordinate_x", 0.25),
+        ("target_coordinate_y", 0.75),
+    ):
+        torch.testing.assert_close(
+            features[:, channel[name]],
+            torch.full_like(features[:, channel[name]], value),
+        )
+    assert torch.count_nonzero(features[:, channel["source_001_availability"]]) == (
+        RECEIVER_X_COUNT * RECEIVER_Y_COUNT * 2 - 2
+    )
+
+
+def test_ordered_raw_k8_width32_keeps_feature_and_parameter_count_compact() -> None:
+    model = ShotGatherInpainter(
+        width=32,
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=8,
+    )
+
+    assert model.input_channels == 1 + 5 * 8 + 4 == 45
+    assert model.stem.in_channels == 45
+    assert sum(parameter.numel() for parameter in model.parameters()) < 50_000
+
+
+def test_stem_feature_contract_includes_signed_moments_and_receiver_coordinates() -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,)).double()
+    neighbors = torch.tensor(
+        [[1.0, 3.0], [5.0, 7.0]],
+        dtype=torch.float64,
+    ).view(1, 2, 1, 1, 2)
+    neighbors = neighbors.expand(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    source_deltas = torch.tensor(
+        [[[-1.0, 0.0], [0.6, 0.8]]],
+        dtype=torch.float64,
+    )
+    target_coordinates = torch.tensor([[0.25, -0.5]], dtype=torch.float64)
+    captured_features: list[torch.Tensor] = []
+
+    def capture_stem_input(_module: nn.Module, inputs: tuple[torch.Tensor]) -> None:
+        captured_features.append(inputs[0].detach().clone())
+
+    handle = model.stem.register_forward_pre_hook(capture_stem_input)
+    try:
+        output = model(neighbors, availability, source_deltas, target_coordinates)
+    finally:
+        handle.remove()
+
+    expected_feature_names = (
+        "inverse_distance_reference",
+        "weighted_absolute_deviation",
+        "source_direction_x_waveform_moment",
+        "source_direction_y_waveform_moment",
+        "availability_fraction",
+        "weighted_source_direction_x",
+        "weighted_source_direction_y",
+        "target_coordinate_x",
+        "target_coordinate_y",
+        "receiver_coordinate_x",
+        "receiver_coordinate_y",
+    )
+    assert expected_feature_names == SHOT_GATHER_INPUT_FEATURE_NAMES
+    assert model.input_feature_names == expected_feature_names
+    assert model.input_channels == 11
+    assert model.stem.in_channels == 11
+    assert len(captured_features) == 1
+    features = captured_features[0]
+    assert features.shape == (1, 11, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 2)
+    assert features.dtype == neighbors.dtype
+    assert features.device == neighbors.device
+    channel = {name: index for index, name in enumerate(model.input_feature_names)}
+    reference = torch.tensor([3.0, 5.0], dtype=torch.float64)
+    torch.testing.assert_close(output, reference.view(1, 1, 1, 2).expand_as(output))
+    torch.testing.assert_close(
+        features[0, channel["inverse_distance_reference"]],
+        reference.view(1, 1, 2).expand(RECEIVER_X_COUNT, RECEIVER_Y_COUNT, -1),
+    )
+    for name, value in (
+        ("weighted_absolute_deviation", 2.0),
+        ("source_direction_x_waveform_moment", 1.6),
+        ("source_direction_y_waveform_moment", 0.8),
+        ("availability_fraction", 1.0),
+        ("weighted_source_direction_x", -0.2),
+        ("weighted_source_direction_y", 0.4),
+        ("target_coordinate_x", 0.25),
+        ("target_coordinate_y", -0.5),
+    ):
+        torch.testing.assert_close(
+            features[0, channel[name]],
+            torch.full_like(features[0, channel[name]], value),
+        )
+    expected_receiver_x = torch.linspace(
+        -1.0,
+        1.0,
+        RECEIVER_X_COUNT,
+        dtype=torch.float64,
+    )[:, None].expand(-1, RECEIVER_Y_COUNT)
+    expected_receiver_y = torch.linspace(
+        -1.0,
+        1.0,
+        RECEIVER_Y_COUNT,
+        dtype=torch.float64,
+    )[None, :].expand(RECEIVER_X_COUNT, -1)
+    torch.testing.assert_close(
+        features[0, channel["receiver_coordinate_x"], :, :, 0],
+        expected_receiver_x,
+    )
+    torch.testing.assert_close(
+        features[0, channel["receiver_coordinate_y"], :, :, 0],
+        expected_receiver_y,
+    )
+    torch.testing.assert_close(
+        features[0, channel["receiver_coordinate_x"], :, :, 1],
+        expected_receiver_x,
+    )
+    torch.testing.assert_close(
+        features[0, channel["receiver_coordinate_y"], :, :, 1],
+        expected_receiver_y,
+    )
+
+
+def test_custom_architecture_preserves_shape_and_factorized_block_contract() -> None:
+    model = ShotGatherInpainter(
+        width=16,
+        temporal_dilations=(1, 3, 2),
+        spatial_y_dilations=(1, 2, 4),
+        stem_kernel_size=5,
+        residual_kernel_size=3,
+    )
+    inputs = _inputs(batch_size=1, source_count=2, time_count=11)
+
+    output = model(*inputs)
+
+    assert output.shape == (1, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 11)
+    assert model.width == 16
+    assert model.input_channels == len(SHOT_GATHER_INPUT_FEATURE_NAMES) == 11
+    assert model.stem.in_channels == 11
+    assert model.temporal_dilations == (1, 3, 2)
+    assert model.spatial_y_dilations == (1, 2, 4)
+    assert model.stem.kernel_size == (1, 1, 5)
+    assert [block.temporal.dilation for block in model.blocks] == [
+        (1, 1, 1),
+        (1, 1, 3),
+        (1, 1, 2),
+    ]
+    assert all(block.temporal.groups == 16 for block in model.blocks)
+    assert all(block.spatial.kernel_size == (3, 3, 1) for block in model.blocks)
+    assert all(block.spatial.groups == 16 for block in model.blocks)
+    assert [block.spatial_y_dilation for block in model.blocks] == [1, 2, 4]
+    assert [block.spatial.dilation for block in model.blocks] == [
+        (1, 1, 1),
+        (1, 2, 1),
+        (1, 4, 1),
+    ]
+    assert [block.spatial.padding for block in model.blocks] == [
+        (1, 1, 0),
+        (1, 2, 0),
+        (1, 4, 0),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("spatial_y_dilations", "match"),
+    [
+        ((1,), "length must equal"),
+        ((1, 0), r"spatial_y_dilations\[1\].*positive integer"),
+        ("1,2", "must be an iterable"),
+    ],
+)
+def test_model_rejects_invalid_spatial_y_dilations(
+    spatial_y_dilations: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1, 2),
+            spatial_y_dilations=spatial_y_dilations,
+        )
+
+
+@pytest.mark.parametrize(
+    ("source_feature_mode", "source_gather_count", "match"),
+    [
+        ("unknown", None, "source_feature_mode must be one of"),
+        (ORDERED_RAW_SOURCE_FEATURE_MODE, None, "required for ordered_raw"),
+        (ORDERED_RAW_SOURCE_FEATURE_MODE, 0, "positive integer"),
+        (ORDERED_RAW_SOURCE_FEATURE_MODE, True, "positive integer"),
+        (MOMENTS_SOURCE_FEATURE_MODE, 2, "only valid for ordered_raw"),
+    ],
+)
+def test_model_rejects_invalid_source_feature_configuration(
+    source_feature_mode: str,
+    source_gather_count: object,
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1,),
+            source_feature_mode=source_feature_mode,
+            source_gather_count=source_gather_count,
+        )
+
+
+@pytest.mark.parametrize("value", ["unknown", "", None, True])
+def test_model_rejects_invalid_source_weighting(value: object) -> None:
+    with pytest.raises(ValueError, match="source_weighting must be one of"):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1,),
+            source_weighting=value,
+        )
+
+
+@pytest.mark.parametrize("value", ["unknown", "", None, True])
+def test_model_and_block_reject_invalid_receiver_position_conditioning(
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match="receiver_position_conditioning must be one of"):
+        ShotGatherInpainter(
+            width=8,
+            temporal_dilations=(1,),
+            receiver_position_conditioning=value,
+        )
+    with pytest.raises(ValueError, match="receiver_position_conditioning must be one of"):
+        FactorizedGatherResidualBlock(
+            width=8,
+            temporal_dilation=1,
+            receiver_position_conditioning=value,
+        )
+
+
+def test_receiver_position_film_validates_shape_dtype_and_device() -> None:
+    film = ReceiverPositionFiLM(width=8)
+
+    with pytest.raises(ValueError, match="normalized must have shape"):
+        film(torch.randn(1, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT - 1, 3))
+    with pytest.raises(TypeError, match="normalized dtype must match"):
+        film(
+            torch.randn(
+                1,
+                8,
+                RECEIVER_X_COUNT,
+                RECEIVER_Y_COUNT,
+                3,
+                dtype=torch.float64,
+            )
+        )
+    with pytest.raises(ValueError, match="parameters must share a device"):
+        ReceiverPositionFiLM(width=8).to("meta")(
+            torch.randn(1, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3)
+        )
+
+
+def test_ordered_raw_rejects_source_count_that_differs_from_constructor() -> None:
+    model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=3,
+    )
+    inputs = _inputs(source_count=2)
+
+    with pytest.raises(ValueError, match="source dimension must equal source_gather_count 3"):
+        model(*inputs)
+
+
+def test_ordered_raw_rejects_dtype_or_device_that_differs_from_model() -> None:
+    double_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=2,
+    ).double()
+    float_inputs = _inputs(batch_size=1, source_count=2)
+
+    with pytest.raises(TypeError, match="neighbors dtype must match the model dtype"):
+        double_model(*float_inputs)
+
+    meta_model = ShotGatherInpainter(
+        width=8,
+        temporal_dilations=(1,),
+        source_feature_mode=ORDERED_RAW_SOURCE_FEATURE_MODE,
+        source_gather_count=2,
+    ).to("meta")
+    with pytest.raises(ValueError, match="model parameters must share a device"):
+        meta_model(*float_inputs)
+
+
+def test_synthetic_forward_backward_reaches_reference_and_residual_parameters() -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,)).double()
+    neighbors, availability, source_deltas, target_coordinates = _inputs(
+        batch_size=1,
+        source_count=2,
+        time_count=5,
+        dtype=torch.float64,
+    )
+    neighbors.requires_grad_()
+
+    model(neighbors, availability, source_deltas, target_coordinates).square().mean().backward()
+
+    assert neighbors.grad is not None
+    assert torch.isfinite(neighbors.grad).all()
+    assert torch.count_nonzero(neighbors.grad) > 0
+    final_projection = model.head[-1]
+    assert final_projection.weight.grad is not None
+    assert final_projection.bias.grad is not None
+    assert torch.isfinite(final_projection.weight.grad).all()
+    assert torch.count_nonzero(final_projection.weight.grad) > 0
+
+
+def test_backward_is_finite_when_each_receiver_has_only_one_available_source() -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,)).double()
+    with torch.no_grad():
+        model.head[-1].weight.fill_(0.1)
+    neighbors, availability, source_deltas, target_coordinates = _inputs(
+        batch_size=1,
+        source_count=2,
+        time_count=5,
+        dtype=torch.float64,
+    )
+    availability[:, 1] = False
+    neighbors.requires_grad_()
+
+    model(neighbors, availability, source_deltas, target_coordinates).square().mean().backward()
+
+    assert neighbors.grad is not None
+    assert torch.isfinite(neighbors.grad).all()
+    assert model.stem.weight.grad is not None
+    assert torch.isfinite(model.stem.weight.grad).all()
+
+
+@pytest.mark.parametrize(
+    ("input_index", "replacement", "error", "match"),
+    [
+        (
+            0,
+            torch.randn(2, 3, 7, RECEIVER_Y_COUNT, 7),
+            ValueError,
+            "receiver dimensions",
+        ),
+        (
+            1,
+            torch.ones(2, 3, RECEIVER_X_COUNT, RECEIVER_Y_COUNT),
+            TypeError,
+            "torch.bool",
+        ),
+        (2, torch.randn(2, 3, 2, dtype=torch.float64), TypeError, "share the neighbors dtype"),
+        (3, torch.randn(2, 3), ValueError, "target_coordinates must have shape"),
+    ],
+)
+def test_model_rejects_invalid_shapes_and_dtypes(
+    input_index: int,
+    replacement: torch.Tensor,
+    error: type[Exception],
+    match: str,
+) -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+    inputs = list(_inputs())
+    inputs[input_index] = replacement
+
+    with pytest.raises(error, match=match):
+        model(*inputs)
+
+
+def test_model_rejects_mixed_devices_before_computation() -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+    neighbors, availability, source_deltas, _target_coordinates = _inputs()
+    target_coordinates = torch.empty(2, 2, device="meta")
+
+    with pytest.raises(ValueError, match="share a device"):
+        model(neighbors, availability, source_deltas, target_coordinates)
+
+
+def test_available_source_requires_nonzero_delta_but_missing_source_does_not() -> None:
+    neighbors, availability, source_deltas, _target_coordinates = _inputs(source_count=2)
+    source_deltas[:, 0] = 0.0
+
+    with pytest.raises(ValueError, match="non-zero source delta"):
+        inverse_distance_reference(neighbors, availability, source_deltas)
+
+    availability[:, 0] = False
+    reference = inverse_distance_reference(neighbors, availability, source_deltas)
+    torch.testing.assert_close(reference, neighbors[:, 1])
+
+
+def test_factorized_block_validates_receiver_shape() -> None:
+    block = FactorizedGatherResidualBlock(width=8, temporal_dilation=2)
+
+    with pytest.raises(ValueError, match="features must have shape"):
+        block(torch.randn(1, 8, RECEIVER_X_COUNT, RECEIVER_Y_COUNT - 1, 5))

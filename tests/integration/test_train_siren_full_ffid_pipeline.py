@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 from seis_interp.cli import main
+from seis_interp.configuration import ConfigurationError
 from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.train_siren import train_siren_run
@@ -29,6 +30,13 @@ def _build_full_ffid_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     trace_count = 30
     sample_count = 4
     array_indices = np.arange(trace_count)
+    cmp_x_m = array_indices.astype(np.float64)
+    cmp_y_m = array_indices.astype(np.float64) * 2.0
+    offset_m = 100.0 + array_indices.astype(np.float64)
+    azimuth_deg = array_indices.astype(np.float64) * 7.0
+    azimuth_rad = np.deg2rad(azimuth_deg)
+    half_offset_x_m = 0.5 * offset_m * np.sin(azimuth_rad)
+    half_offset_y_m = 0.5 * offset_m * np.cos(azimuth_rad)
     trace_table = pd.DataFrame(
         {
             "source_file": np.repeat([source_a.name, source_b.name], [20, 10]),
@@ -36,10 +44,14 @@ def _build_full_ffid_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                 [np.arange(20, dtype=np.int64), np.arange(10, dtype=np.int64)]
             ),
             "ffid": np.repeat([10, 20, 30], 10),
-            "cmp_x_m": array_indices.astype(np.float64),
-            "cmp_y_m": array_indices.astype(np.float64) * 2.0,
-            "offset_m": 100.0 + array_indices.astype(np.float64),
-            "azimuth_deg": array_indices.astype(np.float64) * 7.0,
+            "source_x_m": cmp_x_m + half_offset_x_m,
+            "source_y_m": cmp_y_m + half_offset_y_m,
+            "receiver_x_m": cmp_x_m - half_offset_x_m,
+            "receiver_y_m": cmp_y_m - half_offset_y_m,
+            "cmp_x_m": cmp_x_m,
+            "cmp_y_m": cmp_y_m,
+            "offset_m": offset_m,
+            "azimuth_deg": azimuth_deg,
             "sample_interval_s": np.full(trace_count, 0.008),
         }
     )
@@ -204,6 +216,436 @@ def test_full_ffid_pipeline_streams_training_and_writes_the_run_contract(
     run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
     assert run_metadata["batch_mode"] == "full_ffid_epoch"
     assert run_metadata["effective_steps_per_epoch"] == 3
+
+
+@pytest.mark.parametrize(
+    "batch_mode",
+    ["random_points", "full_ffid_epoch", "random_complete_traces"],
+)
+@pytest.mark.parametrize(
+    ("coordinate_features", "input_features", "includes_radius"),
+    [
+        ("cmp_cartesian_half_offset", 5, False),
+        ("cmp_cartesian_half_offset_radius", 6, True),
+    ],
+)
+def test_train_siren_batch_modes_support_cartesian_coordinates(
+    tmp_path: Path,
+    batch_mode: str,
+    coordinate_features: str,
+    input_features: int,
+    includes_radius: bool,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"].update(
+        {
+            "coordinate_features": coordinate_features,
+            "input_features": input_features,
+        }
+    )
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    if batch_mode == "random_points":
+        config_payload["training"].update({"batch_size": 8, "steps_per_epoch": 1})
+    elif batch_mode == "random_complete_traces":
+        config_payload["training"].update({"traces_per_update": 2, "steps_per_epoch": 1})
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "run"
+
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    normalization = read_normalization_parameters(processed / "normalization.json")
+    half_offset_scale_m = 0.5 * normalization.coordinate_max[3]
+    coordinate_order = [
+        "time_s",
+        "cmp_x_m",
+        "cmp_y_m",
+        "half_offset_x_m",
+        "half_offset_y_m",
+    ]
+    coordinate_scale_min = [
+        *normalization.coordinate_min[:3],
+        -half_offset_scale_m,
+        -half_offset_scale_m,
+    ]
+    coordinate_scale_max = [
+        *normalization.coordinate_max[:3],
+        half_offset_scale_m,
+        half_offset_scale_m,
+    ]
+    if includes_radius:
+        coordinate_order.append("offset_m")
+        coordinate_scale_min.append(normalization.coordinate_min[3])
+        coordinate_scale_max.append(normalization.coordinate_max[3])
+    expected_contract = {
+        "coordinate_features": coordinate_features,
+        "coordinate_order": coordinate_order,
+        "coordinate_scale_min": coordinate_scale_min,
+        "coordinate_scale_max": coordinate_scale_max,
+        "half_offset_scale_m": half_offset_scale_m,
+    }
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.model.input_features == input_features
+    assert checkpoint.model_coordinates is not None
+    assert checkpoint.model_coordinates.to_dict() == expected_contract
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert inputs_lock["model_coordinates"] == expected_contract
+    assert run_metadata["model_coordinates"] == expected_contract
+
+
+@pytest.mark.parametrize(
+    ("batch_mode", "sampler_name"),
+    [
+        ("random_points", "RandomPointSampler"),
+        ("full_ffid_epoch", "FullFfidBatchSampler"),
+        ("random_complete_traces", "RandomCompleteTraceBatchSampler"),
+    ],
+)
+def test_train_siren_batch_modes_apply_and_record_post_normalization_time_scale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    batch_mode: str,
+    sampler_name: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["time_coordinate_scale"] = 4.0
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    if batch_mode == "random_points":
+        config_payload["training"].update({"batch_size": 8, "steps_per_epoch": 1})
+    elif batch_mode == "random_complete_traces":
+        config_payload["training"].update({"traces_per_update": 2, "steps_per_epoch": 1})
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    import seis_interp.pipelines.train_siren as pipeline
+
+    received_time: dict[str, np.ndarray] = {}
+    actual_sampler = getattr(pipeline, sampler_name)
+
+    def recording_sampler(*args: Any, **kwargs: Any):
+        received_time["training"] = np.asarray(args[0]).copy()
+        return actual_sampler(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, sampler_name, recording_sampler)
+    if batch_mode == "random_points":
+        actual_validation_builder = pipeline.build_trace_points
+
+        def recording_validation_builder(*args: Any, **kwargs: Any):
+            received_time["validation"] = np.asarray(args[0]).copy()
+            return actual_validation_builder(*args, **kwargs)
+
+        monkeypatch.setattr(pipeline, "build_trace_points", recording_validation_builder)
+    else:
+        actual_evaluator = pipeline.evaluate_model_global_snr_by_ffid
+
+        def recording_evaluator(*args: Any, **kwargs: Any) -> float:
+            received_time["validation"] = np.asarray(kwargs["normalized_time"]).copy()
+            return actual_evaluator(*args, **kwargs)
+
+        monkeypatch.setattr(pipeline, "evaluate_model_global_snr_by_ffid", recording_evaluator)
+
+    output = tmp_path / "run"
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    np.testing.assert_allclose(received_time["training"], [-4.0, -4.0 / 3.0, 4.0 / 3.0, 4.0])
+    np.testing.assert_array_equal(received_time["validation"], received_time["training"])
+    normalization = read_normalization_parameters(processed / "normalization.json")
+    expected_contract = {
+        "coordinate_features": "cmp_offset_azimuth",
+        "coordinate_order": list(normalization.coordinate_order),
+        "coordinate_scale_min": list(normalization.coordinate_min),
+        "coordinate_scale_max": list(normalization.coordinate_max),
+        "half_offset_scale_m": None,
+        "time_coordinate_scale": 4.0,
+    }
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.time_coordinate_scale == 4.0
+    assert checkpoint.model_coordinates is not None
+    assert checkpoint.model_coordinates.to_dict() == expected_contract
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert inputs_lock["model_coordinates"] == expected_contract
+    assert run_metadata["model_coordinates"] == expected_contract
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert resolved["model"]["time_coordinate_scale"] == 4.0
+
+
+def test_explicit_unit_time_coordinate_scale_preserves_legacy_provenance(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["time_coordinate_scale"] = 1.0
+    config_payload["training"].update(
+        {
+            "batch_mode": "random_points",
+            "batch_size": 8,
+            "steps_per_epoch": 1,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    output = tmp_path / "run"
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert checkpoint.model_coordinates is None
+    assert checkpoint.time_coordinate_scale == 1.0
+    assert "model_coordinates" not in inputs_lock
+    assert "model_coordinates" not in run_metadata
+    assert resolved["model"]["time_coordinate_scale"] == 1.0
+
+
+@pytest.mark.parametrize(
+    "batch_mode",
+    ["random_points", "full_ffid_epoch", "random_complete_traces"],
+)
+def test_train_siren_batch_modes_record_exponential_layer_omega_schedule(
+    tmp_path: Path,
+    batch_mode: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"].update(
+        {
+            "hidden_layers": 4,
+            "omega_0": 5.0,
+            "hidden_omega": 50.0,
+            "layer_omega_schedule": "exponential",
+        }
+    )
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    if batch_mode == "random_points":
+        config_payload["training"].update({"batch_size": 8, "steps_per_epoch": 1})
+    elif batch_mode == "random_complete_traces":
+        config_payload["training"].update({"traces_per_update": 2, "steps_per_epoch": 1})
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    output = tmp_path / "run"
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    expected_omegas = [5.0 * 10.0 ** (index / 3.0) for index in range(4)]
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.model.layer_omega_schedule == "exponential"
+    assert checkpoint.model.layer_omegas == pytest.approx(expected_omegas)
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    for provenance in (
+        inputs_lock["model_omega_schedule"],
+        run_metadata["model_omega_schedule"],
+    ):
+        assert provenance["layer_omega_schedule"] == "exponential"
+        assert provenance["sine_layer_omegas"] == pytest.approx(expected_omegas)
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert resolved["model"]["layer_omega_schedule"] == "exponential"
+
+
+@pytest.mark.parametrize("schedule", ["linear", 1, True])
+def test_train_siren_rejects_unknown_layer_omega_schedule_before_data_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schedule: object,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["layer_omega_schedule"] = schedule
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(
+        "seis_interp.pipelines.train_siren.load_interim_trace_dataset",
+        lambda *_args, **_kwargs: pytest.fail("data loading must not start"),
+    )
+
+    with pytest.raises(ConfigurationError, match="model.layer_omega_schedule"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+def test_train_siren_rejects_exponential_schedule_with_one_sine_layer(
+    tmp_path: Path,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["layer_omega_schedule"] = "exponential"
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="requires model.hidden_layers >= 2"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+@pytest.mark.parametrize(
+    "batch_mode",
+    ["random_points", "full_ffid_epoch", "random_complete_traces"],
+)
+def test_train_siren_batch_modes_record_dense_skip_connections(
+    tmp_path: Path,
+    batch_mode: str,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"].update(
+        {
+            "hidden_layers": 3,
+            "omega_0": 5.0,
+            "hidden_omega": 50.0,
+            "layer_omega_schedule": "exponential",
+            "skip_connections": "dense",
+        }
+    )
+    config_payload["training"].update(
+        {
+            "batch_mode": batch_mode,
+            "max_epochs": 1,
+            "early_stopping_patience": 1,
+        }
+    )
+    if batch_mode == "random_points":
+        config_payload["training"].update({"batch_size": 8, "steps_per_epoch": 1})
+    elif batch_mode == "random_complete_traces":
+        config_payload["training"].update({"traces_per_update": 2, "steps_per_epoch": 1})
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    output = tmp_path / "run"
+    train_siren_run(
+        config_path=config,
+        interim_dir=interim,
+        processed_dir=processed,
+        output_dir=output,
+        progress_reporter=lambda _message: None,
+    )
+
+    checkpoint = load_siren_checkpoint(output / "artifacts" / "best.pt")
+    assert checkpoint.model.skip_connections == "dense"
+    assert checkpoint.model.sine_layer_input_features == (6, 8, 16)
+    assert checkpoint.model.final_input_features == 24
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    expected_provenance = {
+        "skip_connections": "dense",
+        "sine_layer_input_features": [6, 8, 16],
+        "final_linear_input_features": 24,
+        "parameter_count": 289,
+    }
+    assert inputs_lock["model_skip_connections"] == expected_provenance
+    assert run_metadata["model_skip_connections"] == expected_provenance
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
+    assert resolved["model"]["skip_connections"] == "dense"
+
+
+@pytest.mark.parametrize("skip_connections", ["residual", 1, True])
+def test_train_siren_rejects_unknown_skip_connections_before_data_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    skip_connections: object,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["skip_connections"] = skip_connections
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(
+        "seis_interp.pipelines.train_siren.load_interim_trace_dataset",
+        lambda *_args, **_kwargs: pytest.fail("data loading must not start"),
+    )
+
+    with pytest.raises(ConfigurationError, match="model.skip_connections"):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_scale",
+    [
+        0.0,
+        -1.0,
+        float("nan"),
+        float("inf"),
+        1.0e-50,
+        1.0e40,
+        10**400,
+        "4",
+        True,
+    ],
+)
+def test_train_siren_rejects_invalid_time_coordinate_scale(
+    tmp_path: Path,
+    invalid_scale: object,
+) -> None:
+    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_payload["model"]["time_coordinate_scale"] = invalid_scale
+    config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(
+        ConfigurationError,
+        match="model.time_coordinate_scale must be a positive finite number",
+    ):
+        train_siren_run(
+            config_path=config,
+            interim_dir=interim,
+            processed_dir=processed,
+            output_dir=tmp_path / "run",
+            progress_reporter=lambda _message: None,
+        )
 
 
 def test_full_ffid_pipeline_supports_per_trace_rms_as_a_training_target_scaling(

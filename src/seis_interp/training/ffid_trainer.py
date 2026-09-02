@@ -13,6 +13,7 @@ import torch
 
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import NormalizationParameters
+from seis_interp.processing.training_coordinates import ModelCoordinateParameters
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
@@ -68,6 +69,7 @@ def train_siren_by_ffid(
     early_stopping_patience: int,
     validation_ffid_count: int,
     checkpoint_path: Path,
+    model_coordinates: ModelCoordinateParameters | None = None,
     reporter: Reporter | None = None,
     amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
     correlation_weight: float = 0.0,
@@ -210,6 +212,7 @@ def train_siren_by_ffid(
                 checkpoint_path,
                 model,
                 normalization,
+                model_coordinates=model_coordinates,
                 amplitude_scaling=target_amplitude_scaling,
                 epoch=epoch,
                 global_step=global_steps,

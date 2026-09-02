@@ -7,7 +7,6 @@ from numbers import Integral
 import numpy as np
 import torch
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.training.model_inputs import to_model_coordinate_tensor
 
 
@@ -22,10 +21,11 @@ def predict_points(
     coordinate_array = np.asarray(coordinates)
     if coordinate_array.ndim != 2:
         raise ValueError(f"coordinates must be two-dimensional, got {coordinate_array.shape}")
-    if coordinate_array.shape[1] != len(MODEL_COORDINATE_ORDER):
+    model_input_features = getattr(model, "input_features", None)
+    if model_input_features is not None and coordinate_array.shape[1] != model_input_features:
         raise ValueError(
-            f"coordinates must have {len(MODEL_COORDINATE_ORDER)} features, "
-            f"got {coordinate_array.shape[1]}"
+            f"model expects {model_input_features} input features but coordinates have "
+            f"{coordinate_array.shape[1]}"
         )
     if coordinate_array.shape[0] == 0:
         raise ValueError("coordinates must not be empty")

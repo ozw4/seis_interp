@@ -1,0 +1,4 @@
+extends: stage01_study018_formal_k274_2500_steps.yaml
+
+model:
+  prediction_reference: same_line_exact_receiver_linear_bracketing

@@ -1,0 +1,8 @@
+extends: stage02_crossline_k714.yaml
+
+model:
+  neighborhood:
+    source_y_half_shot_radius: 8
+
+training:
+  validation_batch_size: 512

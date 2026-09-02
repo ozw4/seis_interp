@@ -1,4 +1,4 @@
-"""Build and iterate complete-trace batches grouped by FFID."""
+"""Build bounded-memory complete-trace batches for survey training."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_bool_dtype, is_integer_dtype
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
@@ -177,14 +176,15 @@ def _expand_trace_points(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Expand already selected traces into trace-major coordinate-target points."""
     time_count = len(time)
+    input_features = selected_spatial.shape[1] + 1
     coordinates = np.empty(
-        (len(selected_spatial) * time_count, len(MODEL_COORDINATE_ORDER)),
+        (len(selected_spatial) * time_count, input_features),
         dtype=np.float64,
     )
     coordinate_grid = coordinates.reshape(
         len(selected_spatial),
         time_count,
-        len(MODEL_COORDINATE_ORDER),
+        input_features,
     )
     coordinate_grid[:, :, 0] = time[np.newaxis, :]
     coordinate_grid[:, :, 1:] = selected_spatial[:, np.newaxis, :]
@@ -274,6 +274,86 @@ class FullFfidBatchSampler:
             targets=targets,
             trace_count=len(rows),
             point_count=len(targets),
+        )
+
+
+class RandomCompleteTraceBatchSampler:
+    """Uniformly sample distinct complete traces with on-demand target scaling."""
+
+    def __init__(
+        self,
+        normalized_time: np.ndarray,
+        normalized_spatial_by_array_row: np.ndarray,
+        amplitudes: np.ndarray,
+        training_array_rows: np.ndarray,
+        *,
+        amplitude_rms: float,
+        random_seed: int,
+        amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
+    ) -> None:
+        time, spatial, amplitude_array = _validated_point_sources(
+            normalized_time,
+            normalized_spatial_by_array_row,
+            amplitudes,
+        )
+        rows = _validated_selected_rows(
+            training_array_rows,
+            spatial.shape[0],
+            "training_array_rows",
+        ).copy()
+        rms = _positive_finite_float(amplitude_rms, "amplitude_rms")
+        scaling = validated_amplitude_scaling(amplitude_scaling)
+        seed = _validated_random_seed(random_seed)
+
+        rows.setflags(write=False)
+        self._time = time
+        self._spatial = spatial
+        self._amplitudes = amplitude_array
+        self._training_array_rows = rows
+        self._amplitude_rms = rms
+        self._amplitude_scaling = scaling
+        self._rng = np.random.default_rng(seed)
+
+    @property
+    def training_trace_count(self) -> int:
+        """Return the number of traces in the uniform sampling pool."""
+        return len(self._training_array_rows)
+
+    @property
+    def amplitude_scaling(self) -> str:
+        """Return the target scaling applied while materializing each batch."""
+        return self._amplitude_scaling
+
+    def sample(self, traces_per_update: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return every time sample from distinct uniformly selected traces."""
+        trace_count = _positive_integer(traces_per_update, "traces_per_update")
+        if trace_count > self.training_trace_count:
+            raise ValueError(
+                "traces_per_update must not exceed the number of available training traces "
+                f"({self.training_trace_count})"
+            )
+        rows = self._rng.choice(
+            self._training_array_rows,
+            size=trace_count,
+            replace=False,
+        )
+        if self._amplitude_scaling == TRAIN_GLOBAL_RMS_SCALING:
+            return build_global_rms_trace_points(
+                self._time,
+                self._spatial,
+                self._amplitudes,
+                rows,
+                amplitude_rms=self._amplitude_rms,
+            )
+        if self._amplitude_scaling == PER_TRACE_RMS_SCALING:
+            return build_per_trace_rms_trace_points(
+                self._time,
+                self._spatial,
+                self._amplitudes,
+                rows,
+            )
+        raise RuntimeError(  # pragma: no cover - constructor validation makes this unreachable.
+            f"unsupported amplitude scaling: {self._amplitude_scaling!r}"
         )
 
 
@@ -370,12 +450,8 @@ def _validated_point_sources(
         raise ValueError("normalized_time contains non-finite values")
     if spatial.ndim != 2:
         raise ValueError("normalized_spatial_by_array_row must be two-dimensional")
-    expected_features = len(MODEL_COORDINATE_ORDER) - 1
-    if spatial.shape[1] != expected_features:
-        raise ValueError(
-            f"normalized_spatial_by_array_row must have {expected_features} features, "
-            f"got {spatial.shape[1]}"
-        )
+    if spatial.shape[1] == 0:
+        raise ValueError("normalized_spatial_by_array_row must have at least one feature")
     if spatial.dtype != np.float64:
         raise ValueError(f"normalized_spatial_by_array_row must be float64, got {spatial.dtype}")
     if amplitude_array.ndim != 2:
@@ -434,3 +510,9 @@ def _positive_finite_float(value: float, name: str) -> float:
     if not math.isfinite(converted) or converted <= 0.0:
         raise ValueError(f"{name} must be a positive finite number")
     return converted
+
+
+def _positive_integer(value: int, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return int(value)

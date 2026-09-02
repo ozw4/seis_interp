@@ -8,7 +8,6 @@ from numbers import Integral, Real
 
 import numpy as np
 
-from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
 from seis_interp.training.amplitude_scaling import (
     TRAIN_GLOBAL_RMS_SCALING,
     validated_amplitude_scaling,
@@ -84,7 +83,7 @@ class RandomPointSampler:
         array_rows = self._rng.choice(self._training_array_rows, size=size, replace=True)
         time_indices = self._rng.integers(0, len(self._time), size=size)
 
-        coordinates = np.empty((size, len(MODEL_COORDINATE_ORDER)), dtype=np.float64)
+        coordinates = np.empty((size, self._spatial.shape[1] + 1), dtype=np.float64)
         coordinates[:, 0] = self._time[time_indices]
         coordinates[:, 1:] = self._spatial[array_rows]
         targets = self._amplitudes[array_rows, time_indices]
@@ -220,7 +219,7 @@ def build_trace_points(
     rows = _validated_array_rows(array_rows, spatial.shape[0], "array_rows")
     time_count = len(time)
 
-    coordinates = np.empty((len(rows) * time_count, len(MODEL_COORDINATE_ORDER)), dtype=np.float64)
+    coordinates = np.empty((len(rows) * time_count, spatial.shape[1] + 1), dtype=np.float64)
     coordinates[:, 0] = np.tile(time, len(rows))
     coordinates[:, 1:] = np.repeat(spatial[rows], time_count, axis=0)
     targets = amplitudes[rows].reshape(-1)
@@ -243,12 +242,8 @@ def _validated_point_arrays(
         raise ValueError(
             f"normalized_spatial_by_array_row must be two-dimensional, got {spatial.shape}"
         )
-    expected_features = len(MODEL_COORDINATE_ORDER) - 1
-    if spatial.shape[1] != expected_features:
-        raise ValueError(
-            "normalized_spatial_by_array_row must have "
-            f"{expected_features} features, got {spatial.shape[1]}"
-        )
+    if spatial.shape[1] == 0:
+        raise ValueError("normalized_spatial_by_array_row must have at least one feature")
     if amplitudes.ndim != 2:
         raise ValueError(f"normalized_amplitudes must be two-dimensional, got {amplitudes.shape}")
     if amplitudes.shape != (spatial.shape[0], len(time)):

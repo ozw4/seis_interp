@@ -1,0 +1,5 @@
+extends: stage09_joint_shot_gather_k8.yaml
+
+model:
+  residual_kernel_size: 5
+  temporal_dilations: [1, 2, 4, 8, 16, 32, 64, 32, 16, 8, 4, 2, 1]

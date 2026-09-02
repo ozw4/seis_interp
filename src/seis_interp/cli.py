@@ -341,21 +341,35 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             config,
             "project.random_seed",
         )
+        configured_split_scope = _config_value_or_optional_default(
+            None,
+            config,
+            "sampling.split_scope",
+            "global",
+        )
+        split_scope = args.split_scope or configured_split_scope
+        split_unit_changes = (split_scope == "whole_ffid") != (
+            configured_split_scope == "whole_ffid"
+        )
+        if split_unit_changes and args.holdout_fraction is None:
+            raise ConfigurationError(
+                "--holdout-fraction is required when --split-scope changes the configured "
+                "split unit"
+            )
+        holdout_config_path = (
+            "sampling.random_ffid_holdout_fraction"
+            if split_scope == "whole_ffid"
+            else "sampling.random_trace_holdout_fraction"
+        )
         holdout_fraction = _config_value_or_override(
             args.holdout_fraction,
             config,
-            "sampling.random_trace_holdout_fraction",
+            holdout_config_path,
         )
         validation_fraction = _config_value_or_override(
             args.validation_fraction_of_holdout,
             config,
             "sampling.validation_fraction_of_holdout",
-        )
-        split_scope = _config_value_or_optional_default(
-            args.split_scope,
-            config,
-            "sampling.split_scope",
-            "global",
         )
         coordinate_normalization = _required_supported_config_value(
             config,
@@ -464,7 +478,7 @@ def _train_siren(args: argparse.Namespace) -> int:
         if oracle_validation:
             print("Validation metric domain: oracle per-trace unit RMS")
         print(f"Best epoch: {summary['best_epoch']}")
-        if batch_mode == "full_ffid_epoch":
+        if batch_mode in ("full_ffid_epoch", "random_complete_traces"):
             label = (
                 "Best oracle-normalized validation global S/N"
                 if oracle_validation
@@ -487,6 +501,123 @@ def _train_siren(args: argparse.Namespace) -> int:
             print(f"{global_label}: {summary['best_validation_global_snr_db']} dB")
         print(f"Epochs completed: {summary['epochs_completed']}")
         print(f"Stopped early: {summary['stopped_early']}")
+        print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
+    return 0
+
+
+def _train_neighbor_inpainter(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.train_neighbor_inpainter import (
+        CHECKPOINT_RELATIVE_PATH,
+        train_neighbor_inpainter_run,
+    )
+
+    progress_reporter = _print_progress_to_stderr if args.json else None
+    try:
+        summary = train_neighbor_inpainter_run(
+            config_path=args.config,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            output_dir=args.output,
+            device_override=args.device,
+            progress_reporter=progress_reporter,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"train neighbor-inpainter failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"Output directory: {args.output}")
+        print("Amplitude scaling: per_trace_rms")
+        print("Validation metric domain: oracle per-trace unit RMS")
+        print(f"Best step: {summary['best_step']}")
+        print(
+            "Best oracle per-trace unit-RMS global S/N: "
+            f"{summary['oracle_per_trace_unit_rms_global_snr_db']} dB"
+        )
+        print(f"Success threshold: > {summary['success_threshold_db']} dB")
+        print(f"Metric success: {summary['metric_success']}")
+        print(f"Formal scope success: {summary['scope_success']}")
+        print(f"Success: {summary['success']}")
+        print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
+    return 0
+
+
+def _train_shot_gather_inpainter(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.train_shot_gather_inpainter import (
+        CHECKPOINT_RELATIVE_PATH,
+        train_shot_gather_inpainter_run,
+    )
+
+    progress_reporter = _print_progress_to_stderr if args.json else None
+    try:
+        summary = train_shot_gather_inpainter_run(
+            config_path=args.config,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            output_dir=args.output,
+            device_override=args.device,
+            progress_reporter=progress_reporter,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"train shot-gather-inpainter failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"Output directory: {args.output}")
+        print("Amplitude scaling: per_trace_rms")
+        print("Validation metric domain: oracle per-trace unit RMS")
+        print(f"Best step: {summary['best_step']}")
+        print(
+            "Best oracle per-trace unit-RMS global S/N: "
+            f"{summary['oracle_per_trace_unit_rms_global_snr_db']} dB"
+        )
+        print(f"Success threshold: > {summary['success_threshold_db']} dB")
+        print(f"Metric success: {summary['metric_success']}")
+        print(f"Formal scope success: {summary['scope_success']}")
+        print(f"Success: {summary['success']}")
+        print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
+    return 0
+
+
+def _train_trace_graph(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.train_trace_graph import (
+        CHECKPOINT_RELATIVE_PATH,
+        train_trace_graph_run,
+    )
+
+    progress_reporter = _print_progress_to_stderr if args.json else None
+    try:
+        summary = train_trace_graph_run(
+            config_path=args.config,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            output_dir=args.output,
+            device_override=args.device,
+            progress_reporter=progress_reporter,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"train trace-graph failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"Output directory: {args.output}")
+        print("Amplitude scaling: per_trace_rms")
+        print("Validation metric domain: oracle per-trace unit RMS")
+        print(f"Best step: {summary['best_step']}")
+        print(
+            "Best oracle per-trace unit-RMS global S/N: "
+            f"{summary['oracle_per_trace_unit_rms_global_snr_db']} dB"
+        )
+        print(f"Success threshold: > {summary['success_threshold_db']} dB")
+        print(f"Metric success: {summary['metric_success']}")
+        print(f"Formal scope success: {summary['scope_success']}")
+        print(f"Success: {summary['success']}")
         print(f"Checkpoint: {args.output / CHECKPOINT_RELATIVE_PATH}")
     return 0
 
@@ -688,7 +819,7 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     prepare_baseline.add_argument(
         "--holdout-fraction",
         type=float,
-        help="Override sampling.random_trace_holdout_fraction.",
+        help=("Override the configured trace or FFID holdout fraction, according to split scope."),
     )
     prepare_baseline.add_argument(
         "--validation-fraction-of-holdout",
@@ -702,7 +833,7 @@ def _add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     prepare_baseline.add_argument(
         "--split-scope",
-        choices=("global", "per_ffid"),
+        choices=("global", "per_ffid", "whole_ffid"),
         help="Override sampling.split_scope (default: global).",
     )
     prepare_baseline.add_argument(
@@ -725,6 +856,49 @@ def _add_train_commands(subparsers: argparse._SubParsersAction[argparse.Argument
     siren.add_argument("--device", help="Override training.device for this environment.")
     siren.add_argument("--json", action="store_true", help="Print metrics as JSON.")
     siren.set_defaults(handler=_train_siren)
+    neighbor = train_commands.add_parser(
+        "neighbor-inpainter",
+        help="Train the physical-neighbor temporal trace inpainter.",
+    )
+    neighbor.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
+    neighbor.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
+    neighbor.add_argument("--processed", type=Path, required=True, help="Prepared split dataset.")
+    neighbor.add_argument("--output", type=Path, required=True, help="Run output directory.")
+    neighbor.add_argument("--device", help="Override training.device for this environment.")
+    neighbor.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+    neighbor.set_defaults(handler=_train_neighbor_inpainter)
+    shot_gather = train_commands.add_parser(
+        "shot-gather-inpainter",
+        help="Train the joint whole-shot gather inpainter.",
+    )
+    shot_gather.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
+    shot_gather.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
+    shot_gather.add_argument(
+        "--processed",
+        type=Path,
+        required=True,
+        help="Prepared split dataset.",
+    )
+    shot_gather.add_argument("--output", type=Path, required=True, help="Run output directory.")
+    shot_gather.add_argument("--device", help="Override training.device for this environment.")
+    shot_gather.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+    shot_gather.set_defaults(handler=_train_shot_gather_inpainter)
+    trace_graph = train_commands.add_parser(
+        "trace-graph",
+        help="Train the trace-node graph gather interpolator.",
+    )
+    trace_graph.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
+    trace_graph.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
+    trace_graph.add_argument(
+        "--processed",
+        type=Path,
+        required=True,
+        help="Prepared split dataset.",
+    )
+    trace_graph.add_argument("--output", type=Path, required=True, help="Run output directory.")
+    trace_graph.add_argument("--device", help="Override training.device for this environment.")
+    trace_graph.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+    trace_graph.set_defaults(handler=_train_trace_graph)
 
 
 def build_parser() -> argparse.ArgumentParser:
