@@ -57,6 +57,7 @@ def test_write_run_outputs_writes_exactly_four_round_trippable_files(tmp_path: P
     config_text = (output_directory / run_records.CONFIG_FILE_NAME).read_text(encoding="utf-8")
     assert yaml.safe_load(config_text) == config
     assert list(yaml.safe_load(config_text)) == list(config)
+    assert config_text == yaml.safe_dump(dict(config), sort_keys=False)
     for file_name, payload in [
         (run_records.INPUTS_LOCK_FILE_NAME, inputs_lock),
         (run_records.METRICS_FILE_NAME, metrics),
@@ -69,14 +70,24 @@ def test_write_run_outputs_writes_exactly_four_round_trippable_files(tmp_path: P
         assert text == json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
 
 
-def test_write_run_outputs_rejects_non_finite_json_values(tmp_path: Path) -> None:
+@pytest.mark.parametrize("non_finite_argument", ["inputs_lock", "metrics", "run_metadata"])
+def test_write_run_outputs_rejects_non_finite_json_values(
+    tmp_path: Path, non_finite_argument: str
+) -> None:
+    payloads: dict[str, dict[str, object]] = {
+        "inputs_lock": {},
+        "metrics": {},
+        "run_metadata": {},
+    }
+    payloads[non_finite_argument] = {"value": math.nan}
+
     with pytest.raises(ValueError, match="Out of range float values"):
         run_records.write_run_outputs(
             tmp_path / "run",
             {},
-            {},
-            {"validation_snr_db": math.nan},
-            {},
+            payloads["inputs_lock"],
+            payloads["metrics"],
+            payloads["run_metadata"],
         )
 
 

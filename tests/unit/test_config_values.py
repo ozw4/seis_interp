@@ -167,12 +167,20 @@ def test_validated_ffid_split_counts_accepts_exact_keys() -> None:
     assert counts == {"train": 4, "validation": 1, "test": 1}
 
 
-def test_validated_ffid_split_counts_requires_exact_keys() -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"train": 4, "test": 1},
+        {"train": 4, "validation": 1, "test": 1, "excluded": 1},
+        "not a mapping",
+    ],
+)
+def test_validated_ffid_split_counts_requires_exact_keys(value: object) -> None:
     expected = re.escape(
         "evaluation.required_ffid_split_counts must contain exactly ['train', 'validation', 'test']"
     )
     with pytest.raises(ConfigurationError, match=expected):
-        config_values.validated_ffid_split_counts({"train": 4, "test": 1})
+        config_values.validated_ffid_split_counts(value)
 
 
 def test_validated_sorted_ffids_accepts_sorted_unique_list() -> None:
@@ -232,6 +240,13 @@ def test_validated_positive_config_integer_reports_rejected_value() -> None:
         config_values.validated_positive_config_integer(0, "training.epochs")
 
 
+@pytest.mark.parametrize("value", [True, False, -3, 1.5, "4"])
+def test_validated_positive_config_integer_rejects_bool_and_non_integral(value: object) -> None:
+    expected = re.escape(f"training.epochs must be a positive integer, got {value!r}")
+    with pytest.raises(ConfigurationError, match=expected):
+        config_values.validated_positive_config_integer(value, "training.epochs")
+
+
 def test_validated_positive_config_float_reports_rejected_value() -> None:
     assert config_values.validated_positive_config_float(0.1, "training.learning_rate") == 0.1
     expected = re.escape("training.learning_rate must be a positive finite number, got 0.0")
@@ -239,8 +254,24 @@ def test_validated_positive_config_float_reports_rejected_value() -> None:
         config_values.validated_positive_config_float(0.0, "training.learning_rate")
 
 
+@pytest.mark.parametrize("value", [True, False, math.nan, math.inf, -math.inf, "0.1", -1.0])
+def test_validated_positive_config_float_rejects_bool_and_non_finite(value: object) -> None:
+    expected = re.escape(f"training.learning_rate must be a positive finite number, got {value!r}")
+    with pytest.raises(ConfigurationError, match=expected):
+        config_values.validated_positive_config_float(value, "training.learning_rate")
+
+
 def test_validated_nonnegative_config_float_reports_rejected_value() -> None:
     assert config_values.validated_nonnegative_config_float(0.0, "training.weight_decay") == 0.0
     expected = re.escape("training.weight_decay must be a non-negative finite number, got -0.5")
     with pytest.raises(ConfigurationError, match=expected):
         config_values.validated_nonnegative_config_float(-0.5, "training.weight_decay")
+
+
+@pytest.mark.parametrize("value", [True, False, math.nan, math.inf, -math.inf, "0.0"])
+def test_validated_nonnegative_config_float_rejects_bool_and_non_finite(value: object) -> None:
+    expected = re.escape(
+        f"training.weight_decay must be a non-negative finite number, got {value!r}"
+    )
+    with pytest.raises(ConfigurationError, match=expected):
+        config_values.validated_nonnegative_config_float(value, "training.weight_decay")
