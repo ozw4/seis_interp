@@ -110,6 +110,7 @@ def build_formal_scope_audit(
 def complete_neighbor_formal_scope_audit(
     configured_scope_audit: Mapping[str, object],
     *,
+    validation_metric_domain: str,
     collision_audit: Mapping[str, object],
     geometry_contract: Mapping[str, object],
     availability_contract: Mapping[str, object],
@@ -139,7 +140,7 @@ def complete_neighbor_formal_scope_audit(
     checks.update(
         {
             "validation_metric_domain_matches": (
-                ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN == "oracle_per_trace_unit_rms"
+                validation_metric_domain == ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
             ),
             "checkpoint_raw_metric_reproduced": checkpoint_revalidation_matches,
             "selected_metric_matches_recomputed_raw_metric": math.isclose(
@@ -197,6 +198,7 @@ def complete_neighbor_formal_scope_audit(
 def complete_whole_shot_formal_scope_audit(
     configured_scope_audit: Mapping[str, object],
     *,
+    validation_metric_domain: str,
     availability_contract: Mapping[str, Mapping[str, object]],
     collision_audit: Mapping[str, int],
     amplitude_access: Mapping[str, object],
@@ -211,7 +213,7 @@ def complete_whole_shot_formal_scope_audit(
     checks.update(
         {
             "validation_metric_domain_matches": (
-                ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN == "oracle_per_trace_unit_rms"
+                validation_metric_domain == ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
             ),
             "checkpoint_raw_metric_reproduced": checkpoint_revalidation_matches,
             "selected_metric_matches_recomputed_raw_metric": math.isclose(

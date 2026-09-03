@@ -740,6 +740,7 @@ def train_shot_gather_inpainter_run(
     }
     scope_audit = formal_scope.complete_whole_shot_formal_scope_audit(
         configured_scope_audit,
+        validation_metric_domain=checkpoint.validation_metric_domain,
         availability_contract=availability_contract,
         collision_audit=collision_audit,
         amplitude_access=amplitude_access,

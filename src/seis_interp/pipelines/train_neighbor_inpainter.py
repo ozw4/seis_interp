@@ -821,6 +821,7 @@ def train_neighbor_inpainter_run(
     }
     scope_audit = formal_scope.complete_neighbor_formal_scope_audit(
         configured_scope_audit,
+        validation_metric_domain=checkpoint.validation_metric_domain,
         collision_audit=collision_audit,
         geometry_contract=geometry_contract,
         availability_contract=availability_contract,

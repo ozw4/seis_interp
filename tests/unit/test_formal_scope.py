@@ -226,6 +226,7 @@ def _neighbor_configured_audit() -> dict[str, object]:
 
 def _neighbor_completion_arguments() -> dict[str, object]:
     return {
+        "validation_metric_domain": "oracle_per_trace_unit_rms",
         "collision_audit": {
             "canonical_remaining_duplicate_physical_cells": 0,
             "train_coordinate_collision_cells": 0,
@@ -306,6 +307,19 @@ def test_neighbor_completion_with_source_bracketing_adds_bracketing_checks() -> 
     assert completed["scope_success"] is True
 
 
+def test_neighbor_completion_flags_validation_metric_domain_mismatch() -> None:
+    arguments = _neighbor_completion_arguments()
+    arguments["validation_metric_domain"] = "wrong_domain"
+
+    completed = complete_neighbor_formal_scope_audit(
+        _neighbor_configured_audit(),
+        **arguments,
+    )
+
+    assert completed["checks"]["validation_metric_domain_matches"] is False
+    assert completed["scope_success"] is False
+
+
 def test_neighbor_completion_metric_tolerance_is_checkpoint_revalidation_tolerance() -> None:
     assert CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE == 1.0e-8
     assert CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE == 1.0e-8
@@ -326,6 +340,7 @@ def test_neighbor_completion_metric_tolerance_is_checkpoint_revalidation_toleran
 
 def _whole_shot_completion_arguments() -> dict[str, object]:
     return {
+        "validation_metric_domain": "oracle_per_trace_unit_rms",
         "availability_contract": {
             TRAIN_SPLIT: {
                 "target_ffid_neighbor_entries": 0,
@@ -375,6 +390,11 @@ def test_whole_shot_completion_adds_all_checks_and_keeps_success() -> None:
 @pytest.mark.parametrize(
     ("mutate_key", "mutate_value", "failed_check"),
     [
+        (
+            ("validation_metric_domain",),
+            "wrong_domain",
+            "validation_metric_domain_matches",
+        ),
         (
             ("collision_audit", "train_duplicate_source_coordinates"),
             1,
