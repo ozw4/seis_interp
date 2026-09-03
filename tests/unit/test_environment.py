@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import json
 from typing import Any
 
 import pytest
@@ -9,8 +10,11 @@ from seis_interp.cli import collect_environment, main
 from seis_interp.commands import doctor as doctor_command
 
 
-def _report(*, commands_available: bool, data_root_readable: bool) -> dict[str, Any]:
-    command = {"available": commands_available, "path": None, "version": "1.0"}
+def _report(
+    *,
+    unavailable_commands: tuple[str, ...] = (),
+    data_root_readable: bool = True,
+) -> dict[str, Any]:
     return {
         "python": {"version": "3.10.0", "executable": "/usr/bin/python", "platform": "linux"},
         "packages": {"numpy": "2.0.0", "PyYAML": None},
@@ -22,7 +26,14 @@ def _report(*, commands_available: bool, data_root_readable: bool) -> dict[str, 
             "device_count": 0,
             "devices": [],
         },
-        "commands": {"codex": dict(command), "claude": dict(command), "gh": dict(command)},
+        "commands": {
+            name: {
+                "available": name not in unavailable_commands,
+                "path": None,
+                "version": "1.0",
+            }
+            for name in ("codex", "claude", "gh")
+        },
         "data_root": {"path": "/data", "exists": True, "readable": data_root_readable},
     }
 
@@ -42,12 +53,19 @@ def test_doctor_json_exits_successfully(capsys) -> None:
 
 
 @pytest.mark.parametrize(
-    ("commands_available", "data_root_readable", "expected_exit_code"),
-    [(True, True, 0), (False, True, 1), (True, False, 1)],
+    ("unavailable_commands", "data_root_readable", "expected_exit_code"),
+    [
+        ((), True, 0),
+        (("codex",), True, 1),
+        (("claude",), True, 1),
+        (("codex", "claude"), True, 1),
+        (("gh",), True, 0),
+        ((), False, 1),
+    ],
 )
-def test_doctor_strict_requires_ai_clis_and_readable_data_root(
+def test_doctor_strict_requires_each_ai_cli_and_readable_data_root(
     monkeypatch: pytest.MonkeyPatch,
-    commands_available: bool,
+    unavailable_commands: tuple[str, ...],
     data_root_readable: bool,
     expected_exit_code: int,
 ) -> None:
@@ -55,7 +73,7 @@ def test_doctor_strict_requires_ai_clis_and_readable_data_root(
         doctor_command,
         "collect_environment",
         lambda: _report(
-            commands_available=commands_available,
+            unavailable_commands=unavailable_commands,
             data_root_readable=data_root_readable,
         ),
     )
@@ -63,15 +81,22 @@ def test_doctor_strict_requires_ai_clis_and_readable_data_root(
     assert main(["doctor", "--strict"]) == expected_exit_code
 
 
+def test_doctor_json_prints_sorted_indented_json(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    report = _report()
+    monkeypatch.setattr(doctor_command, "collect_environment", lambda: report)
+
+    assert main(["doctor", "--json"]) == 0
+    assert capsys.readouterr().out == json.dumps(report, indent=2, sort_keys=True) + "\n"
+
+
 def test_doctor_human_readable_output_keeps_main_labels(
     monkeypatch: pytest.MonkeyPatch,
     capsys,
 ) -> None:
-    monkeypatch.setattr(
-        doctor_command,
-        "collect_environment",
-        lambda: _report(commands_available=True, data_root_readable=True),
-    )
+    monkeypatch.setattr(doctor_command, "collect_environment", _report)
 
     assert main(["doctor"]) == 0
     output = capsys.readouterr().out
