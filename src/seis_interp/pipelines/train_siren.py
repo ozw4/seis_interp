@@ -3,28 +3,23 @@
 from __future__ import annotations
 
 import json
-import math
 import platform
-import subprocess
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from numbers import Integral, Real
+from numbers import Integral
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
-import yaml
 
+from seis_interp import config_values, run_records
 from seis_interp.configuration import (
-    REPOSITORY_ROOT,
     ConfigurationError,
     get_required_config_value,
     load_resolved_config,
 )
-from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import canonical_source_files
@@ -90,11 +85,6 @@ from seis_interp.training.ffid_trainer import train_siren_by_ffid
 from seis_interp.training.point_sampler import RandomPointSampler, build_trace_points
 from seis_interp.training.trainer import train_siren
 
-CONFIG_FILE_NAME = "config.resolved.yaml"
-INPUTS_LOCK_FILE_NAME = "inputs.lock.json"
-METRICS_FILE_NAME = "metrics.json"
-RUN_FILE_NAME = "run.json"
-CHECKPOINT_RELATIVE_PATH = Path("artifacts") / "best.pt"
 PROCESSED_INPUT_FILE_NAMES = (
     TRACE_SPLIT_FILE_NAME,
     NORMALIZATION_FILE_NAME,
@@ -144,9 +134,9 @@ def train_siren_run(
 ) -> dict[str, object]:
     """Train from one prepared split and write the minimal reproducible run outputs."""
     output_directory = Path(output_dir)
-    _check_new_output_directory(output_directory)
-    started_at_utc = _utc_timestamp()
-    git_commit = _git_commit()
+    run_records.check_new_output_directory(output_directory)
+    started_at_utc = run_records.utc_timestamp()
+    git_commit = run_records.current_git_commit()
     config = load_resolved_config(Path(config_path))
     coordinate_features = _model_coordinate_features(config)
     coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
@@ -177,8 +167,8 @@ def train_siren_run(
         memory_map_amplitudes=batch_mode in _STREAMING_GLOBAL_BATCH_MODES,
     )
     split_table, normalization, preparation = _load_processed_dataset(processed_directory)
-    interim_files = _file_hashes(interim_directory, INTERIM_FILE_NAMES)
-    processed_files = _file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
+    interim_files = run_records.file_hashes(interim_directory, INTERIM_FILE_NAMES)
+    processed_files = run_records.file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
     split_rows = _validate_split_table(
         split_table,
         len(dataset.trace_table),
@@ -254,7 +244,7 @@ def train_siren_run(
             config=resolved_config,
             random_seed=random_seed,
             device=device,
-            checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+            checkpoint_path=output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
             progress_reporter=progress_reporter,
         )
     elif batch_mode == FULL_FFID_EPOCH_BATCH_MODE:
@@ -273,7 +263,7 @@ def train_siren_run(
             random_seed=random_seed,
             ffid_range=ffid_range,
             device=device,
-            checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+            checkpoint_path=output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
             progress_reporter=progress_reporter,
         )
     else:
@@ -293,7 +283,7 @@ def train_siren_run(
             evaluate_training_snr=evaluate_training_snr,
             learning_rate_schedule=learning_rate_schedule,
             device=device,
-            checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+            checkpoint_path=output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
             progress_reporter=progress_reporter,
         )
 
@@ -338,7 +328,7 @@ def train_siren_run(
     run_metadata = {
         "git_commit": git_commit,
         "started_at_utc": started_at_utc,
-        "finished_at_utc": _utc_timestamp(),
+        "finished_at_utc": run_records.utc_timestamp(),
         "status": "success",
         "device": str(device),
         "python_version": platform.python_version(),
@@ -383,7 +373,7 @@ def train_siren_run(
         model_omega_schedule=model_omega_schedule,
         model_skip_connections=model_skip_connections,
     )
-    _write_run_outputs(
+    run_records.write_run_outputs(
         output_directory,
         resolved_config,
         inputs_lock,
@@ -489,17 +479,17 @@ def _train_random_complete_traces(
     training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
     validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
     training_rows = np.concatenate(tuple(training_rows_by_ffid.values()))
-    traces_per_update = _validated_positive_config_integer(
+    traces_per_update = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.traces_per_update"),
         "training.traces_per_update",
     )
-    steps_per_epoch = _validated_positive_config_integer(
+    steps_per_epoch = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.steps_per_epoch"),
         "training.steps_per_epoch",
     )
     max_epochs = get_required_config_value(config, "training.max_epochs")
     learning_rate = get_required_config_value(config, "training.learning_rate")
-    validation_batch_size = _validated_positive_config_integer(
+    validation_batch_size = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.validation_batch_size"),
         "training.validation_batch_size",
     )
@@ -607,7 +597,7 @@ def _train_full_ffid_epoch(
 
     training_rows_by_ffid = rows_by_split[TRAIN_SPLIT]
     validation_rows_by_ffid = rows_by_split[VALIDATION_SPLIT]
-    validation_batch_size = _validated_positive_config_integer(
+    validation_batch_size = config_values.validated_positive_config_integer(
         get_required_config_value(config, "training.validation_batch_size"),
         "training.validation_batch_size",
     )
@@ -766,14 +756,14 @@ def _random_complete_trace_training_contract(
         contract.update(
             {
                 "learning_rate_schedule": learning_rate_schedule.name,
-                "initial_learning_rate": _validated_positive_config_float(
+                "initial_learning_rate": config_values.validated_positive_config_float(
                     initial_learning_rate,
                     "training.learning_rate",
                 ),
                 "minimum_learning_rate": learning_rate_schedule.minimum_learning_rate,
                 "learning_rate_schedule_step_unit": "optimizer_update",
                 "learning_rate_schedule_total_updates": (
-                    _validated_positive_config_integer(
+                    config_values.validated_positive_config_integer(
                         max_epochs,
                         "training.max_epochs",
                     )
@@ -868,34 +858,6 @@ def _integer_distribution(values: np.ndarray) -> dict[str, int | float]:
         "median": float(np.median(values)),
         "max": int(np.max(values)),
     }
-
-
-def _validated_positive_config_integer(value: object, dotted_path: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
-        raise ConfigurationError(f"{dotted_path} must be a positive integer, got {value!r}")
-    return int(value)
-
-
-def _validated_positive_config_float(value: object, dotted_path: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ConfigurationError(f"{dotted_path} must be a positive finite number, got {value!r}")
-    converted = float(value)
-    if not math.isfinite(converted) or converted <= 0.0:
-        raise ConfigurationError(f"{dotted_path} must be a positive finite number, got {value!r}")
-    return converted
-
-
-def _validated_nonnegative_config_float(value: object, dotted_path: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ConfigurationError(
-            f"{dotted_path} must be a non-negative finite number, got {value!r}"
-        )
-    converted = float(value)
-    if not math.isfinite(converted) or converted < 0.0:
-        raise ConfigurationError(
-            f"{dotted_path} must be a non-negative finite number, got {value!r}"
-        )
-    return converted
 
 
 def _encode_streaming_infinite_snr(metrics: dict[str, object]) -> dict[str, object]:
@@ -997,11 +959,11 @@ def _training_learning_rate_schedule(
             "training.minimum_learning_rate is required when "
             "training.learning_rate_schedule='cosine'"
         )
-    initial_learning_rate = _validated_positive_config_float(
+    initial_learning_rate = config_values.validated_positive_config_float(
         get_required_config_value(config, "training.learning_rate"),
         "training.learning_rate",
     )
-    minimum_learning_rate = _validated_positive_config_float(
+    minimum_learning_rate = config_values.validated_positive_config_float(
         training["minimum_learning_rate"],
         "training.minimum_learning_rate",
     )
@@ -1093,11 +1055,11 @@ def _training_correlation_loss(
             )
         return _CorrelationLossSettings()
 
-    weight = _validated_nonnegative_config_float(
+    weight = config_values.validated_nonnegative_config_float(
         training["correlation_weight"],
         "training.correlation_weight",
     )
-    eps = _validated_positive_config_float(
+    eps = config_values.validated_positive_config_float(
         training.get("correlation_eps", DEFAULT_TRACE_CORRELATION_EPS),
         "training.correlation_eps",
     )
@@ -1155,13 +1117,6 @@ def _split_counts(split_table: pd.DataFrame) -> dict[str, int]:
         split: int(split_table[SPLIT_COLUMN].eq(split).sum())
         for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
     }
-
-
-def _file_hashes(
-    directory: Path,
-    file_names: tuple[str, ...],
-) -> dict[str, dict[str, str]]:
-    return {file_name: {"sha256": file_sha256(directory / file_name)} for file_name in file_names}
 
 
 def _validate_preparation_data(
@@ -1602,55 +1557,3 @@ def _build_inputs_lock(
     if model_skip_connections is not None:
         inputs_lock["model_skip_connections"] = dict(model_skip_connections)
     return inputs_lock
-
-
-def _write_run_outputs(
-    output_directory: Path,
-    config: Mapping[str, object],
-    inputs_lock: Mapping[str, object],
-    metrics: Mapping[str, object],
-    run_metadata: Mapping[str, object],
-) -> None:
-    output_directory.mkdir(parents=True, exist_ok=True)
-    (output_directory / CONFIG_FILE_NAME).write_text(
-        yaml.safe_dump(dict(config), sort_keys=False), encoding="utf-8"
-    )
-    (output_directory / INPUTS_LOCK_FILE_NAME).write_text(
-        json.dumps(inputs_lock, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-    (output_directory / METRICS_FILE_NAME).write_text(
-        json.dumps(metrics, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-    (output_directory / RUN_FILE_NAME).write_text(
-        json.dumps(run_metadata, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _check_new_output_directory(directory: Path) -> None:
-    if directory.exists():
-        raise FileExistsError(f"run output path already exists: {directory}")
-
-
-def _git_commit() -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=REPOSITORY_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        raise RuntimeError("could not determine the current Git commit") from error
-    commit = completed.stdout.strip()
-    if not commit:
-        raise RuntimeError("git rev-parse HEAD returned an empty commit")
-    return commit
-
-
-def _utc_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")

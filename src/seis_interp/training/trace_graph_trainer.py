@@ -12,11 +12,8 @@ from typing import Protocol
 
 import torch
 
-from seis_interp.models.shot_gather_inpainter import (
-    RECEIVER_X_COUNT,
-    RECEIVER_Y_COUNT,
-)
 from seis_interp.models.trace_graph_interpolator import TraceGraphInterpolator
+from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 from seis_interp.training.amplitude_scaling import ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
 from seis_interp.training.trace_graph_checkpoints import save_trace_graph_checkpoint
 from seis_interp.training.trace_graph_losses import (

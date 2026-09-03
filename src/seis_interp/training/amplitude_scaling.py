@@ -96,6 +96,22 @@ def per_trace_rms_scaled_rows(
     return scaled
 
 
+def extract_per_trace_rms_scaled_rows(
+    amplitudes: np.ndarray,
+    array_rows: np.ndarray,
+) -> np.ndarray:
+    """Scale selected rows and return them compactly in the requested order."""
+    scaled = np.empty((len(array_rows), amplitudes.shape[1]), dtype=np.float32)
+    for start in range(0, len(array_rows), _ROW_CHUNK_SIZE):
+        stop = min(start + _ROW_CHUNK_SIZE, len(array_rows))
+        rows = array_rows[start:stop]
+        scaled[start:stop] = per_trace_rms_scaled_amplitudes(
+            amplitudes[rows],
+            array_rows=rows,
+        )
+    return scaled
+
+
 def _validated_amplitude_array(values: np.ndarray) -> np.ndarray:
     array = np.asarray(values)
     if array.ndim != 2 or array.size == 0:

@@ -10,8 +10,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-RECEIVER_X_COUNT = 8
-RECEIVER_Y_COUNT = 68
+from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
+
 DEFAULT_WIDTH = 32
 DEFAULT_STEM_KERNEL_SIZE = 7
 DEFAULT_RESIDUAL_KERNEL_SIZE = 3

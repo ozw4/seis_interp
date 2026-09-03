@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import math
 import platform
-import resource
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import asdict, dataclass
-from numbers import Integral, Real
+from numbers import Real
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 
+from seis_interp import config_values, run_records
 from seis_interp.configuration import (
     ConfigurationError,
     get_required_config_value,
@@ -28,6 +28,7 @@ from seis_interp.data.trace_store import (
     TRACES_FILE_NAME,
     canonical_source_files,
 )
+from seis_interp.evaluation import formal_scope, oracle_trace_snr
 from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX as DEFAULT_LEGACY_COARSE_SHIFT,
 )
@@ -58,21 +59,16 @@ from seis_interp.models.shared_offset_attention_inpainter import (
     MODEL_NAME as SHARED_OFFSET_ATTENTION_MODEL_NAME,
 )
 from seis_interp.pipelines.train_siren import (
-    CHECKPOINT_RELATIVE_PATH,
     PROCESSED_INPUT_FILE_NAMES,
     RANDOM_COMPLETE_TRACES_BATCH_MODE,
-    _check_new_output_directory,
     _configured_trace_amplitude_filter,
-    _file_hashes,
-    _git_commit,
     _load_processed_dataset,
     _split_counts,
-    _utc_timestamp,
     _validate_preparation_data,
     _validate_split_table,
     _validated_preparation_contract,
-    _write_run_outputs,
 )
+from seis_interp.processing import trace_canonicalization, trace_selection
 from seis_interp.processing.multiline_neighbor_geometry import (
     SOURCE_X_LINE_SPACING_M,
     SOURCE_Y_HALF_SHOT_SPACING_M,
@@ -95,10 +91,11 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
+from seis_interp.training import randomness
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
-    per_trace_rms_scaled_amplitudes,
+    extract_per_trace_rms_scaled_rows,
 )
 from seis_interp.training.neighbor_inpainter_checkpoints import (
     NeighborInpainterModel,
@@ -118,27 +115,17 @@ LEARNING_RATE_SCHEDULE = "cosine"
 MIXED_PRECISION = "bfloat16"
 VALIDATION_SCALE_SOURCE = "validation_trace_target_rms"
 TRAINING_SCALE_SOURCE = "training_trace_target_rms"
-PRIMARY_METRIC = "oracle_per_trace_unit_rms_global_snr_db"
-SUCCESS_COMPARISON = "strictly_greater_than"
-DUPLICATE_PHYSICAL_COORDINATE_POLICY = "keep_lowest_array_row"
 TARGET_COORDINATE_SCALING = "train_minmax"
 STEM_KERNEL_SIZE = 15
 RESIDUAL_KERNEL_SIZE = 7
 SINGLE_LINE_GEOMETRY = "single_source_line"
 MULTILINE_GEOMETRY = "multiline_staggered_source"
-CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE = 1.0e-8
-CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE = 1.0e-8
-WITH_REPLACEMENT_TARGET_SAMPLING = "with_replacement"
-EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING = "epoch_without_replacement"
 _SOURCE_BRACKETING_REFERENCE_MODES = frozenset(
     (
         SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
         SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
     )
 )
-NEIGHBOR_DROPOUT_SEED_OFFSET = 1
-TRAINING_AUDIT_SEED_OFFSET = 2
-EPOCH_TARGET_SAMPLING_SEED_OFFSET = 3
 
 ProgressReporter = Callable[[str], None]
 
@@ -160,14 +147,6 @@ _MULTILINE_NEIGHBORHOOD_KEYS = {
     "source_x_line_spacing_m",
     "source_y_half_shot_spacing_m",
 }
-_PHYSICAL_COORDINATE_COLUMNS = (
-    "source_x_m",
-    "source_y_m",
-    "receiver_x_m",
-    "receiver_y_m",
-)
-_EFFECTIVE_SPLITS = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
-_AMPLITUDE_ROW_CHUNK_SIZE = 4096
 _AVAILABILITY_CHUNK_SIZE = 65536
 
 
@@ -372,15 +351,15 @@ class _RandomTrainBatchProvider:
         self,
         source: _NeighborTensorSource,
         *,
-        target_sampling: str = WITH_REPLACEMENT_TARGET_SAMPLING,
+        target_sampling: str = randomness.WITH_REPLACEMENT_TARGET_SAMPLING,
         target_generator: torch.Generator | None = None,
     ) -> None:
         if target_sampling not in {
-            WITH_REPLACEMENT_TARGET_SAMPLING,
-            EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+            randomness.WITH_REPLACEMENT_TARGET_SAMPLING,
+            randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
         }:
             raise ValueError(f"unsupported target sampling mode: {target_sampling!r}")
-        if target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
+        if target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
             if not isinstance(target_generator, torch.Generator):
                 raise TypeError(
                     "target_generator is required for epoch_without_replacement sampling"
@@ -408,7 +387,7 @@ class _RandomTrainBatchProvider:
         generator: torch.Generator,
         neighbor_dropout: float,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        if self.target_sampling == WITH_REPLACEMENT_TARGET_SAMPLING:
+        if self.target_sampling == randomness.WITH_REPLACEMENT_TARGET_SAMPLING:
             # Keep this legacy path on the caller's generator: target draws and
             # neighbor dropout retain their established interleaved RNG sequence
             # when training.target_sampling is absent.
@@ -520,13 +499,19 @@ class _RawGlobalSnrEvaluator:
 
         point_count = len(self.target_positions) * self.target_amplitudes.shape[1]
         return _EvaluationResult(
-            raw_global_snr_db=_snr_db(signal_energy, error_energy),
-            predicted_unit_rms_global_snr_db=_snr_db(signal_energy, predicted_unit_error_energy),
+            raw_global_snr_db=oracle_trace_snr.global_snr_db_from_energies(
+                signal_energy, error_energy
+            ),
+            predicted_unit_rms_global_snr_db=oracle_trace_snr.global_snr_db_from_energies(
+                signal_energy, predicted_unit_error_energy
+            ),
             signal_energy=signal_energy,
             error_energy=error_energy,
             error_mean_square=error_energy / point_count,
             clean_trace_count=int(np.count_nonzero(self.clean_mask)),
-            clean_raw_global_snr_db=_snr_db(clean_signal_energy, clean_error_energy),
+            clean_raw_global_snr_db=oracle_trace_snr.global_snr_db_from_energies(
+                clean_signal_energy, clean_error_energy
+            ),
         )
 
 
@@ -541,9 +526,9 @@ def train_neighbor_inpainter_run(
 ) -> dict[str, object]:
     """Train one neighbor inpainter and write immutable, reproducible run artifacts."""
     output_directory = Path(output_dir)
-    _check_new_output_directory(output_directory)
-    started_at_utc = _utc_timestamp()
-    git_commit = _git_commit()
+    run_records.check_new_output_directory(output_directory)
+    started_at_utc = run_records.utc_timestamp()
+    git_commit = run_records.current_git_commit()
     config = load_resolved_config(Path(config_path))
     settings = _validated_settings(config, device_override=device_override)
     resolved_config = deepcopy(config)
@@ -558,15 +543,15 @@ def train_neighbor_inpainter_run(
         len(preliminary_trace_table),
         allow_excluded="trace_amplitude_filter" in preparation,
     )
-    preliminary_joined = _joined_trace_table(
+    preliminary_joined = trace_selection.join_trace_splits(
         preliminary_trace_table,
         split_table,
         split_rows,
     )
     preliminary_canonical, preliminary_duplicate_audit = (
-        _canonicalize_eligible_physical_coordinates(preliminary_joined)
+        trace_canonicalization.canonicalize_eligible_physical_coordinates(preliminary_joined)
     )
-    selected_preliminary = _selected_trace_table(
+    selected_preliminary = trace_selection.select_eligible_traces(
         preliminary_canonical,
         ffid_range=settings.ffid_range,
     )
@@ -579,8 +564,8 @@ def train_neighbor_inpainter_run(
         memory_map_amplitudes=True,
         amplitude_validation_rows=amplitude_rows_to_read,
     )
-    interim_files = _file_hashes(interim_directory, INTERIM_FILE_NAMES)
-    processed_files = _file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
+    interim_files = run_records.file_hashes(interim_directory, INTERIM_FILE_NAMES)
+    processed_files = run_records.file_hashes(processed_directory, PROCESSED_INPUT_FILE_NAMES)
     split_counts = _split_counts(split_table)
     _validate_preparation_data(preparation, dataset.metadata, split_counts, interim_files)
     trace_amplitude_filter = _configured_trace_amplitude_filter(resolved_config)
@@ -595,26 +580,34 @@ def train_neighbor_inpainter_run(
         batch_mode=RANDOM_COMPLETE_TRACES_BATCH_MODE,
         allow_whole_ffid_split=True,
     )
-    joined_table = _joined_trace_table(
+    joined_table = trace_selection.join_trace_splits(
         dataset.trace_table,
         split_table,
         split_rows,
     )
-    canonical_table, duplicate_audit = _canonicalize_eligible_physical_coordinates(joined_table)
+    canonical_table, duplicate_audit = (
+        trace_canonicalization.canonicalize_eligible_physical_coordinates(joined_table)
+    )
     if duplicate_audit != preliminary_duplicate_audit:
         raise RuntimeError("duplicate-coordinate audit changed while loading the interim dataset")
-    selected_table = _selected_trace_table(
+    selected_table = trace_selection.select_eligible_traces(
         canonical_table,
         ffid_range=settings.ffid_range,
     )
-    selection_contract = _selection_contract(
+    selection_contract = trace_selection.build_trace_selection_contract(
         canonical_table,
         selected_table,
         sample_count=len(dataset.time_s),
         configured_ffid_range=settings.ffid_range,
     )
-    configured_scope_audit = _formal_scope_audit(
-        settings,
+    configured_scope_audit = formal_scope.build_formal_scope_audit(
+        ffid_range=settings.ffid_range,
+        exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+        required_eligible_ffid_count=settings.required_eligible_ffid_count,
+        required_sample_count=settings.required_sample_count,
+        required_effective_split_counts=settings.required_effective_split_counts,
+        required_ffid_split_counts=settings.required_ffid_split_counts,
+        required_fully_excluded_ffids=settings.required_fully_excluded_ffids,
         selection_contract=selection_contract,
         preparation_contract=preparation_contract,
     )
@@ -630,7 +623,7 @@ def train_neighbor_inpainter_run(
     selected_ffids = selected_table["ffid"].to_numpy(dtype=np.int64)
     train_positions = np.flatnonzero(selected_split == TRAIN_SPLIT).astype(np.int64)
     validation_positions = np.flatnonzero(selected_split == VALIDATION_SPLIT).astype(np.int64)
-    _validate_selected_split_coverage(
+    trace_selection.validate_selected_split_coverage(
         selected_table,
         split_scope=str(preparation_contract["split_scope"]),
     )
@@ -689,8 +682,10 @@ def train_neighbor_inpainter_run(
     validation_array_rows = selected_table.iloc[validation_positions]["array_row"].to_numpy(
         dtype=np.int64
     )
-    train_amplitudes_host = _load_unit_rms_rows(dataset.amplitudes, train_array_rows)
-    validation_amplitudes_host = _load_unit_rms_rows(dataset.amplitudes, validation_array_rows)
+    train_amplitudes_host = extract_per_trace_rms_scaled_rows(dataset.amplitudes, train_array_rows)
+    validation_amplitudes_host = extract_per_trace_rms_scaled_rows(
+        dataset.amplitudes, validation_array_rows
+    )
     exact_overlap_count = _exact_overlap_amplitude_count(
         train_amplitudes_host,
         validation_amplitudes_host,
@@ -700,7 +695,7 @@ def train_neighbor_inpainter_run(
     )
 
     device = torch.device(settings.device)
-    _seed_global_model_initialization(settings.random_seed, device=device)
+    randomness.seed_global_model_initialization(settings.random_seed, device=device)
     if device.type == "cuda":
         # Some supported PyTorch/CUDA builds reject an explicit device argument
         # here even though the no-argument form works for the current device.
@@ -719,10 +714,13 @@ def train_neighbor_inpainter_run(
         source_bracketing=source_bracketing,
         source_bracketing_reference=settings.prediction_reference,
     )
-    target_sampling_seed = _target_sampling_seed(settings)
+    target_sampling_seed = randomness.target_sampling_seed(
+        settings.random_seed,
+        settings.target_sampling,
+    )
     target_sampling_generator = (
         torch.Generator(device=device).manual_seed(target_sampling_seed)
-        if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+        if settings.target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
         else None
     )
     batch_provider = _RandomTrainBatchProvider(
@@ -740,7 +738,7 @@ def train_neighbor_inpainter_run(
     )
     model = _build_inpainter_model(settings, geometry)
     generator = torch.Generator(device=device).manual_seed(
-        settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
+        settings.random_seed + randomness.NEIGHBOR_DROPOUT_SEED_OFFSET
     )
     result = train_neighbor_trace_inpainter(
         model,
@@ -748,7 +746,7 @@ def train_neighbor_inpainter_run(
         validation_evaluator,
         device=device,
         generator=generator,
-        checkpoint_path=output_directory / CHECKPOINT_RELATIVE_PATH,
+        checkpoint_path=output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
         total_steps=settings.total_steps,
         batch_size=settings.batch_size,
         neighbor_dropout=settings.neighbor_dropout,
@@ -761,7 +759,7 @@ def train_neighbor_inpainter_run(
         reporter=progress_reporter,
     )
     checkpoint = load_neighbor_inpainter_checkpoint(
-        output_directory / CHECKPOINT_RELATIVE_PATH,
+        output_directory / run_records.CHECKPOINT_RELATIVE_PATH,
         device=device,
     )
     if (
@@ -773,13 +771,15 @@ def train_neighbor_inpainter_run(
     checkpoint_revalidation_matches = math.isclose(
         best_validation.raw_global_snr_db,
         result.best_validation_global_snr_db,
-        rel_tol=CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-        abs_tol=CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
+        rel_tol=formal_scope.CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
+        abs_tol=formal_scope.CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
     )
     if not checkpoint_revalidation_matches:
         raise RuntimeError("loaded best checkpoint does not reproduce its validation S/N")
 
-    audit_generator = np.random.default_rng(settings.random_seed + TRAINING_AUDIT_SEED_OFFSET)
+    audit_generator = np.random.default_rng(
+        settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET
+    )
     audit_compact = np.sort(
         audit_generator.choice(
             len(train_positions),
@@ -820,8 +820,9 @@ def train_neighbor_inpainter_run(
         "test_targets_used_for_checkpoint_selection": False,
         "full_file_bytes_hashed": True,
     }
-    scope_audit = _completed_formal_scope_audit(
+    scope_audit = formal_scope.complete_neighbor_formal_scope_audit(
         configured_scope_audit,
+        validation_metric_domain=checkpoint.validation_metric_domain,
         collision_audit=collision_audit,
         geometry_contract=geometry_contract,
         availability_contract=availability_contract,
@@ -838,13 +839,13 @@ def train_neighbor_inpainter_run(
         geometry=geometry,
     )
     checkpoint_contract = {
-        "path": CHECKPOINT_RELATIVE_PATH.as_posix(),
-        "selection_metric": PRIMARY_METRIC,
+        "path": run_records.CHECKPOINT_RELATIVE_PATH.as_posix(),
+        "selection_metric": oracle_trace_snr.PRIMARY_METRIC,
         "best_step": result.best_step,
         "stored_validation_global_snr_db": result.best_validation_global_snr_db,
         "recomputed_validation_global_snr_db": best_validation.raw_global_snr_db,
-        "revalidation_relative_tolerance": CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-        "revalidation_absolute_tolerance": CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
+        "revalidation_relative_tolerance": formal_scope.CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
+        "revalidation_absolute_tolerance": formal_scope.CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
         "revalidation_matches": checkpoint_revalidation_matches,
     }
     metrics = _metrics_payload(
@@ -892,7 +893,7 @@ def train_neighbor_inpainter_run(
     run_metadata = {
         "git_commit": git_commit,
         "started_at_utc": started_at_utc,
-        "finished_at_utc": _utc_timestamp(),
+        "finished_at_utc": run_records.utc_timestamp(),
         "status": "success",
         "device": str(device),
         "python_version": platform.python_version(),
@@ -911,12 +912,12 @@ def train_neighbor_inpainter_run(
         "training": training_contract,
         "formal_success_scope": scope_audit,
         "checkpoint": checkpoint_contract,
-        "environment": _runtime_resource_metadata(device),
+        "environment": run_records.runtime_resource_metadata(device),
     }
     if source_bracketing_contract is not None:
         inputs_lock["source_bracketing"] = source_bracketing_contract
         run_metadata["source_bracketing"] = source_bracketing_contract
-    _write_run_outputs(
+    run_records.write_run_outputs(
         output_directory,
         resolved_config,
         inputs_lock,
@@ -932,7 +933,11 @@ def _validated_settings(
     device_override: str | None,
 ) -> _TrainingSettings:
     model_name = _validated_model_name(config)
-    _require_exact(config, "model.target_coordinate_scaling", TARGET_COORDINATE_SCALING)
+    config_values.require_exact(
+        config,
+        "model.target_coordinate_scaling",
+        TARGET_COORDINATE_SCALING,
+    )
     (
         neighbor_geometry,
         relative_receiver_x_radius,
@@ -941,7 +946,7 @@ def _validated_settings(
         relative_receiver_y_radius,
         expected_target_coordinates,
     ) = _validated_neighborhood(get_required_config_value(config, "model.neighborhood"))
-    target_coordinates = _validated_target_coordinate_names(
+    target_coordinates = config_values.validated_target_coordinate_names(
         get_required_config_value(config, "model.target_coordinates")
     )
     if target_coordinates != expected_target_coordinates:
@@ -949,15 +954,15 @@ def _validated_settings(
             "model.target_coordinates must match model.neighborhood geometry: "
             f"{list(expected_target_coordinates)!r}"
         )
-    stem_kernel_size = _odd_positive_integer(
+    stem_kernel_size = config_values.odd_positive_integer(
         get_required_config_value(config, "model.stem_kernel_size"),
         "model.stem_kernel_size",
     )
-    residual_kernel_size = _odd_positive_integer(
+    residual_kernel_size = config_values.odd_positive_integer(
         get_required_config_value(config, "model.residual_kernel_size"),
         "model.residual_kernel_size",
     )
-    temporal_dilations = _validated_positive_integer_list(
+    temporal_dilations = config_values.validated_positive_integer_list(
         get_required_config_value(config, "model.temporal_dilations"),
         "model.temporal_dilations",
     )
@@ -965,7 +970,7 @@ def _validated_settings(
     neighbor_gating = _validated_neighbor_gating(config)
     neighbor_alignment_kernel_size = _validated_neighbor_alignment_kernel_size(config)
     prediction_reference = _validated_prediction_reference(config, model_name=model_name)
-    hidden_width = _positive_integer(
+    hidden_width = config_values.positive_integer(
         get_required_config_value(config, "model.hidden_width"), "model.hidden_width"
     )
     (
@@ -1024,28 +1029,32 @@ def _validated_settings(
                 "same-line exact-receiver bracketing cannot be combined with legacy "
                 "coarse alignment"
             )
-    _require_exact(
+    config_values.require_exact(
         config,
         "sampling.duplicate_physical_coordinate_policy",
-        DUPLICATE_PHYSICAL_COORDINATE_POLICY,
+        trace_canonicalization.DUPLICATE_PHYSICAL_COORDINATE_POLICY,
     )
-    _require_exact(config, "training.amplitude_scaling", PER_TRACE_RMS_SCALING)
-    _require_exact(config, "training.loss", LOSS_NAME)
-    _require_exact(config, "training.optimizer", OPTIMIZER_NAME)
-    _require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
-    _require_exact(config, "training.mixed_precision", MIXED_PRECISION)
-    _require_exact(config, "evaluation.primary_metric", PRIMARY_METRIC)
-    _require_exact(config, "evaluation.comparison", SUCCESS_COMPARISON)
-    success_threshold_db = _finite_float(
+    config_values.require_exact(config, "training.amplitude_scaling", PER_TRACE_RMS_SCALING)
+    config_values.require_exact(config, "training.loss", LOSS_NAME)
+    config_values.require_exact(config, "training.optimizer", OPTIMIZER_NAME)
+    config_values.require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
+    config_values.require_exact(config, "training.mixed_precision", MIXED_PRECISION)
+    config_values.require_exact(
+        config, "evaluation.primary_metric", oracle_trace_snr.PRIMARY_METRIC
+    )
+    config_values.require_exact(
+        config, "evaluation.comparison", oracle_trace_snr.SUCCESS_COMPARISON
+    )
+    success_threshold_db = config_values.finite_float(
         get_required_config_value(config, "evaluation.success_threshold_db"),
         "evaluation.success_threshold_db",
     )
-    required_effective_split_counts = _validated_effective_split_counts(
+    required_effective_split_counts = config_values.validated_effective_split_counts(
         get_required_config_value(config, "evaluation.required_effective_split_counts")
     )
     evaluation = config.get("evaluation")
     required_ffid_split_counts = (
-        _validated_ffid_split_counts(evaluation["required_ffid_split_counts"])
+        config_values.validated_ffid_split_counts(evaluation["required_ffid_split_counts"])
         if isinstance(evaluation, Mapping) and "required_ffid_split_counts" in evaluation
         else None
     )
@@ -1062,22 +1071,22 @@ def _validated_settings(
         raise ConfigurationError(
             "sampling.split_scope='whole_ffid' requires evaluation.required_ffid_split_counts"
         )
-    required_fully_excluded_ffids = _validated_sorted_ffids(
+    required_fully_excluded_ffids = config_values.validated_sorted_ffids(
         get_required_config_value(config, "evaluation.required_fully_excluded_ffids"),
         "evaluation.required_fully_excluded_ffids",
     )
-    required_eligible_ffid_count = _positive_integer(
+    required_eligible_ffid_count = config_values.positive_integer(
         get_required_config_value(config, "evaluation.required_eligible_ffid_count"),
         "evaluation.required_eligible_ffid_count",
     )
-    required_sample_count = _positive_integer(
+    required_sample_count = config_values.positive_integer(
         get_required_config_value(config, "evaluation.required_sample_count"),
         "evaluation.required_sample_count",
     )
-    learning_rate = _positive_float(
+    learning_rate = config_values.positive_float(
         get_required_config_value(config, "training.learning_rate"), "training.learning_rate"
     )
-    minimum_learning_rate = _positive_float(
+    minimum_learning_rate = config_values.positive_float(
         get_required_config_value(config, "training.minimum_learning_rate"),
         "training.minimum_learning_rate",
     )
@@ -1087,13 +1096,13 @@ def _validated_settings(
             "training.minimum_learning_rate must equal "
             f"training.learning_rate * {MINIMUM_LEARNING_RATE_FACTOR:g}"
         )
-    gradient_clip_norm = _positive_float(
+    gradient_clip_norm = config_values.positive_float(
         get_required_config_value(config, "training.gradient_clip_norm"),
         "training.gradient_clip_norm",
     )
     if gradient_clip_norm != MAX_GRADIENT_NORM:
         raise ConfigurationError(f"training.gradient_clip_norm must be {MAX_GRADIENT_NORM:g}")
-    random_seed = _nonnegative_integer(
+    random_seed = config_values.nonnegative_integer(
         get_required_config_value(config, "project.random_seed"), "project.random_seed"
     )
     raw_device = device_override or get_required_config_value(config, "training.device")
@@ -1123,45 +1132,47 @@ def _validated_settings(
         source_y_half_shot_radius=source_y_half_shot_radius,
         relative_receiver_y_radius=relative_receiver_y_radius,
         learning_rate=learning_rate,
-        weight_decay=_nonnegative_float(
+        weight_decay=config_values.nonnegative_float(
             get_required_config_value(config, "training.weight_decay"),
             "training.weight_decay",
         ),
         minimum_learning_rate=minimum_learning_rate,
-        total_steps=_positive_integer(
+        total_steps=config_values.positive_integer(
             get_required_config_value(config, "training.total_steps"),
             "training.total_steps",
         ),
-        batch_size=_positive_integer(
+        batch_size=config_values.positive_integer(
             get_required_config_value(config, "training.batch_size"), "training.batch_size"
         ),
         target_sampling=_validated_target_sampling(config),
         exclude_target_ffid_neighbors=exclude_target_ffid_neighbors,
-        neighbor_dropout=_probability(
+        neighbor_dropout=config_values.probability(
             get_required_config_value(config, "training.neighbor_dropout"),
             "training.neighbor_dropout",
         ),
-        derivative_weight=_nonnegative_float(
+        derivative_weight=config_values.nonnegative_float(
             get_required_config_value(config, "training.derivative_weight"),
             "training.derivative_weight",
         ),
-        evaluation_interval_steps=_positive_integer(
+        evaluation_interval_steps=config_values.positive_integer(
             get_required_config_value(config, "training.evaluation_interval_steps"),
             "training.evaluation_interval_steps",
         ),
-        validation_batch_size=_positive_integer(
+        validation_batch_size=config_values.positive_integer(
             get_required_config_value(config, "training.validation_batch_size"),
             "training.validation_batch_size",
         ),
-        training_audit_count=_positive_integer(
+        training_audit_count=config_values.positive_integer(
             get_required_config_value(config, "training.training_audit_count"),
             "training.training_audit_count",
         ),
         mixed_precision=MIXED_PRECISION,
         device=raw_device,
-        ffid_range=_optional_ffid_range(config),
+        ffid_range=config_values.optional_ffid_range(config),
         success_threshold_db=success_threshold_db,
-        duplicate_physical_coordinate_policy=DUPLICATE_PHYSICAL_COORDINATE_POLICY,
+        duplicate_physical_coordinate_policy=(
+            trace_canonicalization.DUPLICATE_PHYSICAL_COORDINATE_POLICY
+        ),
         required_eligible_ffid_count=required_eligible_ffid_count,
         required_sample_count=required_sample_count,
         required_effective_split_counts=required_effective_split_counts,
@@ -1203,7 +1214,7 @@ def _validated_neighborhood(
         if isinstance(actual, bool) or not isinstance(actual, Real) or float(actual) != expected:
             raise ConfigurationError(f"model.neighborhood.{name} must be {expected:g}")
     radii = tuple(
-        _nonnegative_integer(neighborhood[name], f"model.neighborhood.{name}")
+        config_values.nonnegative_integer(neighborhood[name], f"model.neighborhood.{name}")
         for name in (
             "relative_receiver_x_radius",
             "source_x_line_radius",
@@ -1214,23 +1225,6 @@ def _validated_neighborhood(
     if not any(radii):
         raise ConfigurationError("model.neighborhood must include at least one non-zero radius")
     return (MULTILINE_GEOMETRY, *radii, tuple(MULTILINE_TARGET_COORDINATE_ORDER))
-
-
-def _validated_target_coordinate_names(value: object) -> tuple[str, ...]:
-    if not isinstance(value, list) or not value:
-        raise ConfigurationError("model.target_coordinates must be a non-empty list")
-    if any(not isinstance(name, str) or not name for name in value):
-        raise ConfigurationError("model.target_coordinates must contain non-empty strings")
-    converted = tuple(value)
-    if len(set(converted)) != len(converted):
-        raise ConfigurationError("model.target_coordinates must not contain duplicates")
-    return converted
-
-
-def _validated_positive_integer_list(value: object, name: str) -> tuple[int, ...]:
-    if not isinstance(value, list) or not value:
-        raise ConfigurationError(f"{name} must be a non-empty list")
-    return tuple(_positive_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
 
 
 def _validated_model_name(config: Mapping[str, object]) -> str:
@@ -1264,7 +1258,7 @@ def _validated_shared_offset_attention_settings(
         return (
             DEFAULT_NEIGHBOR_FEATURE_WIDTH,
             DEFAULT_ATTENTION_WIDTH,
-            _nonnegative_integer(
+            config_values.nonnegative_integer(
                 model.get(
                     "coarse_shift_samples_per_relative_receiver_y_index",
                     DEFAULT_LEGACY_COARSE_SHIFT,
@@ -1274,22 +1268,22 @@ def _validated_shared_offset_attention_settings(
             DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
         )
     return (
-        _positive_integer(
+        config_values.positive_integer(
             model.get("neighbor_feature_width", DEFAULT_NEIGHBOR_FEATURE_WIDTH),
             "model.neighbor_feature_width",
         ),
-        _positive_integer(
+        config_values.positive_integer(
             model.get("attention_width", DEFAULT_ATTENTION_WIDTH),
             "model.attention_width",
         ),
-        _nonnegative_integer(
+        config_values.nonnegative_integer(
             model.get(
                 "coarse_shift_samples_per_relative_receiver_y_index",
                 DEFAULT_SHARED_COARSE_SHIFT,
             ),
             "model.coarse_shift_samples_per_relative_receiver_y_index",
         ),
-        _nonnegative_float(
+        config_values.nonnegative_float(
             model.get(
                 "attention_geometry_prior_scale",
                 DEFAULT_ATTENTION_GEOMETRY_PRIOR_SCALE,
@@ -1333,7 +1327,7 @@ def _validated_neighbor_alignment_kernel_size(config: Mapping[str, object]) -> i
     model = config.get("model")
     if not isinstance(model, Mapping):
         raise ConfigurationError("model configuration must be a mapping")
-    return _odd_positive_integer(
+    return config_values.odd_positive_integer(
         model.get(
             "neighbor_alignment_kernel_size",
             DEFAULT_NEIGHBOR_ALIGNMENT_KERNEL_SIZE,
@@ -1380,23 +1374,16 @@ def _validated_target_sampling(config: Mapping[str, object]) -> str:
     training = config.get("training")
     if not isinstance(training, Mapping):
         raise ConfigurationError("training configuration must be a mapping")
-    value = training.get("target_sampling", WITH_REPLACEMENT_TARGET_SAMPLING)
+    value = training.get("target_sampling", randomness.WITH_REPLACEMENT_TARGET_SAMPLING)
     supported = {
-        WITH_REPLACEMENT_TARGET_SAMPLING,
-        EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+        randomness.WITH_REPLACEMENT_TARGET_SAMPLING,
+        randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     }
     if not isinstance(value, str) or value not in supported:
         raise ConfigurationError(
             f"training.target_sampling must be one of {sorted(supported)}, got {value!r}"
         )
     return value
-
-
-def _odd_positive_integer(value: object, name: str) -> int:
-    converted = _positive_integer(value, name)
-    if converted % 2 == 0:
-        raise ConfigurationError(f"{name} must be odd")
-    return converted
 
 
 def _build_neighbor_geometry(
@@ -1469,149 +1456,6 @@ def _build_inpainter_model(
         ),
         attention_geometry_prior_scale=settings.attention_geometry_prior_scale,
     )
-
-
-def _joined_trace_table(
-    trace_table: pd.DataFrame,
-    split_table: pd.DataFrame,
-    split_rows: np.ndarray,
-) -> pd.DataFrame:
-    split_by_array_row = np.empty(len(trace_table), dtype=object)
-    split_by_array_row[split_rows] = split_table[SPLIT_COLUMN].to_numpy()
-    trace_rows = trace_table["array_row"].to_numpy(dtype=np.int64)
-    joined = trace_table.copy()
-    joined[SPLIT_COLUMN] = split_by_array_row[trace_rows]
-    return joined
-
-
-def _canonicalize_eligible_physical_coordinates(
-    joined_table: pd.DataFrame,
-) -> tuple[pd.DataFrame, dict[str, object]]:
-    """Keep the lowest array row per eligible physical cell, before selection.
-
-    Winner selection deliberately uses only the exact physical key and
-    ``array_row``. Split labels are retained solely for the removal audit and
-    never influence which row wins.
-    """
-    keys = list(_PHYSICAL_COORDINATE_COLUMNS)
-    eligible = joined_table.loc[joined_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)].copy()
-    group_sizes = eligible.groupby(keys, sort=False, dropna=False)["array_row"].transform("size")
-    duplicate_rows = eligible.loc[group_sizes.gt(1)]
-    winners = (
-        eligible.sort_values("array_row", kind="stable")
-        .drop_duplicates(keys, keep="first")
-        .sort_index()
-    )
-    removed = eligible.loc[~eligible.index.isin(winners.index)].copy()
-    winner_lookup = winners[keys + ["array_row", "ffid", SPLIT_COLUMN]].rename(
-        columns={
-            "array_row": "kept_array_row",
-            "ffid": "kept_ffid",
-            SPLIT_COLUMN: "kept_split",
-        }
-    )
-    removed_details = removed.merge(
-        winner_lookup,
-        how="left",
-        on=keys,
-        sort=False,
-        validate="many_to_one",
-    ).sort_values("array_row")
-    canonical = joined_table.drop(index=removed.index).reset_index(drop=True)
-    canonical_eligible = canonical.loc[canonical[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)]
-    remaining_duplicate_mask = canonical_eligible.duplicated(keys, keep=False)
-    remaining_duplicate_rows = canonical_eligible.loc[remaining_duplicate_mask]
-
-    removed_counts_by_split = {
-        split: int(removed[SPLIT_COLUMN].eq(split).sum()) for split in _EFFECTIVE_SPLITS
-    }
-    removed_ffid_counts = removed["ffid"].value_counts().sort_index()
-    removed_records = [
-        {
-            "array_row": int(row.array_row),
-            "ffid": int(row.ffid),
-            "split": str(row.split),
-            "kept_array_row": int(row.kept_array_row),
-            "kept_ffid": int(row.kept_ffid),
-            "kept_split": str(row.kept_split),
-        }
-        for row in removed_details[
-            ["array_row", "ffid", SPLIT_COLUMN, "kept_array_row", "kept_ffid", "kept_split"]
-        ].itertuples(index=False)
-    ]
-    audit: dict[str, object] = {
-        "policy": DUPLICATE_PHYSICAL_COORDINATE_POLICY,
-        "physical_coordinate_key": keys,
-        "scope": "all_amplitude_eligible_splits_before_ffid_selection",
-        "winner_rule": "lowest_array_row",
-        "winner_selection_uses_split": False,
-        "winner_selection_uses_amplitude": False,
-        "input_eligible_trace_count": len(eligible),
-        "duplicate_physical_cell_count": int(duplicate_rows.drop_duplicates(keys).shape[0]),
-        "duplicate_physical_row_count": len(duplicate_rows),
-        "removed_trace_count": len(removed),
-        "removed_counts_by_split": removed_counts_by_split,
-        "removed_counts_by_ffid": {
-            str(int(ffid)): int(count) for ffid, count in removed_ffid_counts.items()
-        },
-        "removed_rows": removed_records,
-        "retained_eligible_trace_count": len(canonical_eligible),
-        "remaining_duplicate_physical_cell_count": int(
-            remaining_duplicate_rows.drop_duplicates(keys).shape[0]
-        ),
-        "remaining_duplicate_physical_row_count": len(remaining_duplicate_rows),
-    }
-    return canonical, audit
-
-
-def _selected_trace_table(
-    canonical_table: pd.DataFrame,
-    *,
-    ffid_range: tuple[int, int] | None,
-) -> pd.DataFrame:
-    selected = canonical_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)
-    if ffid_range is not None:
-        selected &= canonical_table["ffid"].between(*ffid_range)
-    result = canonical_table.loc[selected].reset_index(drop=True)
-    if result.empty:
-        raise ValueError("configured FFID selection contains no eligible traces")
-    return result
-
-
-def _validate_selected_split_coverage(table: pd.DataFrame, *, split_scope: str) -> None:
-    present_splits = set(str(value) for value in table[SPLIT_COLUMN].unique())
-    missing_splits = set(_EFFECTIVE_SPLITS) - present_splits
-    if missing_splits:
-        raise ValueError(f"selected eligible traces contain no rows for: {sorted(missing_splits)}")
-
-    split_counts_by_ffid = table.groupby("ffid")[SPLIT_COLUMN].nunique()
-    if split_scope == "per_ffid":
-        incomplete = sorted(
-            int(ffid)
-            for ffid, count in split_counts_by_ffid.items()
-            if count != len(_EFFECTIVE_SPLITS)
-        )
-        if incomplete:
-            raise ValueError(f"selected eligible FFIDs do not contain every split: {incomplete}")
-        return
-    if split_scope == "whole_ffid":
-        mixed = sorted(int(ffid) for ffid, count in split_counts_by_ffid.items() if count != 1)
-        if mixed:
-            raise ValueError(f"whole-FFID split assigns FFIDs to multiple splits: {mixed}")
-        return
-    raise ValueError(f"neighbor inpainter does not support split_scope {split_scope!r}")
-
-
-def _load_unit_rms_rows(amplitudes: np.ndarray, array_rows: np.ndarray) -> np.ndarray:
-    scaled = np.empty((len(array_rows), amplitudes.shape[1]), dtype=np.float32)
-    for start in range(0, len(array_rows), _AMPLITUDE_ROW_CHUNK_SIZE):
-        stop = min(start + _AMPLITUDE_ROW_CHUNK_SIZE, len(array_rows))
-        rows = array_rows[start:stop]
-        scaled[start:stop] = per_trace_rms_scaled_amplitudes(
-            amplitudes[rows],
-            array_rows=rows,
-        )
-    return scaled
 
 
 def _neighbor_positions(
@@ -1734,51 +1578,6 @@ def _exact_overlap_amplitude_count(
     return count
 
 
-def _selection_contract(
-    canonical_table: pd.DataFrame,
-    selected_table: pd.DataFrame,
-    *,
-    sample_count: int,
-    configured_ffid_range: tuple[int, int] | None,
-) -> dict[str, object]:
-    split_counts = {
-        split: int(selected_table[SPLIT_COLUMN].eq(split).sum())
-        for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
-    }
-    in_range = np.ones(len(canonical_table), dtype=bool)
-    if configured_ffid_range is not None:
-        in_range = canonical_table["ffid"].between(*configured_ffid_range).to_numpy()
-    full_split = canonical_table[SPLIT_COLUMN].to_numpy()
-    excluded_count = int(np.count_nonzero(in_range & (full_split == EXCLUDED_SPLIT)))
-    ffids = sorted(int(value) for value in selected_table["ffid"].unique())
-    ffids_by_split = {
-        split: sorted(
-            int(value)
-            for value in selected_table.loc[selected_table[SPLIT_COLUMN].eq(split), "ffid"].unique()
-        )
-        for split in _EFFECTIVE_SPLITS
-    }
-    split_memberships_per_ffid = selected_table.groupby("ffid")[SPLIT_COLUMN].nunique()
-    contract: dict[str, object] = {
-        "configured_ffid_range": (
-            list(configured_ffid_range) if configured_ffid_range is not None else None
-        ),
-        "selected_ffid_count": len(ffids),
-        "selected_ffid_range": [ffids[0], ffids[-1]],
-        "selected_ffids": ffids,
-        "ffids_by_split": ffids_by_split,
-        "ffid_split_counts": {
-            split: len(split_ffids) for split, split_ffids in ffids_by_split.items()
-        },
-        "ffid_split_overlap_count": int(split_memberships_per_ffid.gt(1).sum()),
-        "maximum_splits_per_ffid": int(split_memberships_per_ffid.max()),
-        "sample_count": sample_count,
-        "effective_eligible_trace_count": sum(split_counts.values()),
-        "split_counts": {**split_counts, EXCLUDED_SPLIT: excluded_count},
-    }
-    return contract
-
-
 def _geometry_contract(
     geometry: NeighborGeometryLookup | MultilineNeighborGeometryLookup,
     *,
@@ -1894,10 +1693,13 @@ def _training_contract(
         "batch_size": settings.batch_size,
         "target_sampling": settings.target_sampling,
         "exclude_target_ffid_neighbors": settings.exclude_target_ffid_neighbors,
-        "target_sampling_seed": _target_sampling_seed(settings),
-        "neighbor_dropout_seed": settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET,
+        "target_sampling_seed": randomness.target_sampling_seed(
+            settings.random_seed,
+            settings.target_sampling,
+        ),
+        "neighbor_dropout_seed": settings.random_seed + randomness.NEIGHBOR_DROPOUT_SEED_OFFSET,
         "target_sampling_rng_independent_of_neighbor_dropout": (
-            settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+            settings.target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
         ),
         "neighbor_dropout": settings.neighbor_dropout,
         "derivative_weight": settings.derivative_weight,
@@ -1916,7 +1718,7 @@ def _training_contract(
         "drawn_training_targets": provider.draw_count,
         "unique_training_targets_seen": provider.unique_target_count,
         "training_audit_count": settings.training_audit_count,
-        "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+        "training_audit_seed": settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET,
     }
 
 
@@ -2066,12 +1868,6 @@ def _neighbor_alignment_contract(model: NeighborTraceInpainter) -> dict[str, obj
     return contract
 
 
-def _target_sampling_seed(settings: _TrainingSettings) -> int:
-    if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
-        return settings.random_seed + EPOCH_TARGET_SAMPLING_SEED_OFFSET
-    return settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
-
-
 def _validated_exclude_target_ffid_neighbors(config: Mapping[str, object]) -> bool:
     training = config.get("training")
     if not isinstance(training, Mapping) or "exclude_target_ffid_neighbors" not in training:
@@ -2080,178 +1876,6 @@ def _validated_exclude_target_ffid_neighbors(config: Mapping[str, object]) -> bo
     if not isinstance(value, bool):
         raise ConfigurationError("training.exclude_target_ffid_neighbors must be a boolean")
     return value
-
-
-def _formal_scope_audit(
-    settings: _TrainingSettings,
-    *,
-    selection_contract: Mapping[str, object],
-    preparation_contract: Mapping[str, object],
-) -> dict[str, object]:
-    trace_quality = preparation_contract.get("trace_quality")
-    if not isinstance(trace_quality, Mapping):
-        raise RuntimeError("validated preparation contract is missing trace_quality")
-    fully_excluded_ffids = trace_quality.get("fully_excluded_ffids")
-    if not isinstance(fully_excluded_ffids, list):
-        raise RuntimeError("validated preparation trace_quality has invalid fully_excluded_ffids")
-    split_counts = selection_contract["split_counts"]
-    if not isinstance(split_counts, Mapping):
-        raise RuntimeError("selection split_counts must be an object")
-
-    required_split_counts = dict(settings.required_effective_split_counts)
-    actual_split_counts = {split: int(split_counts[split]) for split in _EFFECTIVE_SPLITS}
-    raw_actual_ffid_split_counts = selection_contract.get("ffid_split_counts")
-    if not isinstance(raw_actual_ffid_split_counts, Mapping):
-        raise RuntimeError("selection ffid_split_counts must be an object")
-    actual_ffid_split_counts = {
-        split: int(raw_actual_ffid_split_counts[split]) for split in _EFFECTIVE_SPLITS
-    }
-    split_scope = preparation_contract.get("split_scope")
-    if split_scope not in {"per_ffid", "whole_ffid"}:
-        raise RuntimeError("validated preparation contract has unsupported split_scope")
-    checks = {
-        "ffid_range_not_configured": settings.ffid_range is None,
-        "eligible_ffid_count_matches": (
-            selection_contract["selected_ffid_count"] == settings.required_eligible_ffid_count
-        ),
-        "sample_count_matches": (
-            selection_contract["sample_count"] == settings.required_sample_count
-        ),
-        "effective_split_counts_match": actual_split_counts == required_split_counts,
-        "fully_excluded_ffids_match": (
-            fully_excluded_ffids == list(settings.required_fully_excluded_ffids)
-        ),
-        "split_scope_structure_matches": (
-            selection_contract["ffid_split_overlap_count"] == 0
-            and selection_contract["maximum_splits_per_ffid"] == 1
-            and sum(actual_ffid_split_counts.values()) == selection_contract["selected_ffid_count"]
-            if split_scope == "whole_ffid"
-            else all(
-                count == selection_contract["selected_ffid_count"]
-                for count in actual_ffid_split_counts.values()
-            )
-        ),
-        "target_ffid_context_matches": (
-            split_scope != "whole_ffid" or settings.exclude_target_ffid_neighbors
-        ),
-    }
-    if settings.required_ffid_split_counts is not None:
-        checks["ffid_split_counts_match"] = actual_ffid_split_counts == dict(
-            settings.required_ffid_split_counts
-        )
-    return {
-        "requirements": {
-            "ffid_range": None,
-            "split_scope": split_scope,
-            "eligible_ffid_count": settings.required_eligible_ffid_count,
-            "sample_count": settings.required_sample_count,
-            "effective_split_counts": required_split_counts,
-            "ffid_split_counts": (
-                dict(settings.required_ffid_split_counts)
-                if settings.required_ffid_split_counts is not None
-                else None
-            ),
-            "fully_excluded_ffids": list(settings.required_fully_excluded_ffids),
-        },
-        "actual": {
-            "ffid_range": (list(settings.ffid_range) if settings.ffid_range is not None else None),
-            "split_scope": split_scope,
-            "eligible_ffid_count": selection_contract["selected_ffid_count"],
-            "sample_count": selection_contract["sample_count"],
-            "effective_split_counts": actual_split_counts,
-            "ffid_split_counts": actual_ffid_split_counts,
-            "ffid_split_overlap_count": selection_contract["ffid_split_overlap_count"],
-            "fully_excluded_ffids": list(fully_excluded_ffids),
-        },
-        "checks": checks,
-        "scope_success": all(checks.values()),
-    }
-
-
-def _completed_formal_scope_audit(
-    configured_scope_audit: Mapping[str, object],
-    *,
-    collision_audit: Mapping[str, object],
-    geometry_contract: Mapping[str, object],
-    availability_contract: Mapping[str, object],
-    source_bracketing_contract: Mapping[str, object] | None,
-    amplitude_access: Mapping[str, object],
-    checkpoint_revalidation_matches: bool,
-    selected_metric: float,
-    recomputed_metric: float,
-) -> dict[str, object]:
-    completed = deepcopy(dict(configured_scope_audit))
-    raw_checks = completed.get("checks")
-    if not isinstance(raw_checks, Mapping):
-        raise RuntimeError("formal scope audit checks must be an object")
-    materialized = amplitude_access.get("value_rows_materialized_by_split")
-    if not isinstance(materialized, Mapping):
-        raise RuntimeError("amplitude materialization audit must be an object")
-    checks = dict(raw_checks)
-    excludes_target_ffid = geometry_contract.get("target_ffid_neighbor_policy") == (
-        "exclude_exact_ffid"
-    )
-    target_ffid_neighbor_entries = [
-        availability_contract[split].get("target_ffid_neighbor_entries")
-        for split in (TRAIN_SPLIT, VALIDATION_SPLIT)
-        if isinstance(availability_contract.get(split), Mapping)
-    ]
-    checks.update(
-        {
-            "validation_metric_domain_matches": (
-                ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN == "oracle_per_trace_unit_rms"
-            ),
-            "checkpoint_raw_metric_reproduced": checkpoint_revalidation_matches,
-            "selected_metric_matches_recomputed_raw_metric": math.isclose(
-                selected_metric,
-                recomputed_metric,
-                rel_tol=CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-                abs_tol=CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
-            ),
-            "canonical_duplicate_physical_cells_remaining_zero": (
-                collision_audit["canonical_remaining_duplicate_physical_cells"] == 0
-            ),
-            "train_geometry_collision_cells_zero": (
-                collision_audit["train_coordinate_collision_cells"] == 0
-            ),
-            "train_validation_coordinate_overlap_zero": (
-                collision_audit["train_validation_coordinate_overlap_rows"] == 0
-            ),
-            "neighbor_center_offset_count_zero": geometry_contract["center_offset_count"] == 0,
-            "target_ffid_neighbor_entries_zero": (
-                not excludes_target_ffid or target_ffid_neighbor_entries == [0, 0]
-            ),
-            "test_value_rows_not_materialized": materialized.get(TEST_SPLIT) is False,
-            "excluded_value_rows_not_materialized": materialized.get(EXCLUDED_SPLIT) is False,
-        }
-    )
-    if source_bracketing_contract is not None:
-        bracket_audits = [
-            source_bracketing_contract.get(split) for split in (TRAIN_SPLIT, VALIDATION_SPLIT)
-        ]
-        if not all(isinstance(audit, Mapping) for audit in bracket_audits):
-            raise RuntimeError("source bracketing contract is missing split audits")
-        checks.update(
-            {
-                "source_bracketing_unresolved_rows_zero": all(
-                    audit.get("unresolved_rows") == 0 for audit in bracket_audits
-                ),
-                "source_bracketing_target_ffid_entries_zero": all(
-                    audit.get("target_ffid_reference_entries") == 0 for audit in bracket_audits
-                ),
-                "source_bracketing_same_source_y_entries_zero": all(
-                    audit.get("same_source_y_reference_entries") == 0 for audit in bracket_audits
-                ),
-                "source_bracketing_sources_train_only": all(
-                    isinstance(audit.get("source_split_counts"), Mapping)
-                    and audit["source_split_counts"].get("non_train") == 0
-                    for audit in bracket_audits
-                ),
-            }
-        )
-    completed["checks"] = checks
-    completed["scope_success"] = all(checks.values())
-    return completed
 
 
 def _metrics_payload(
@@ -2272,7 +1896,9 @@ def _metrics_payload(
     metrics = asdict(result)
     metrics["history"] = [dict(value) for value in result.history]
     accepted_metric = best_validation.raw_global_snr_db
-    metric_success = _passes_success_threshold(accepted_metric, settings.success_threshold_db)
+    metric_success = oracle_trace_snr.passes_success_threshold(
+        accepted_metric, settings.success_threshold_db
+    )
     scope_success = bool(scope_audit["scope_success"])
     metrics.update(
         {
@@ -2290,9 +1916,9 @@ def _metrics_payload(
                 best_validation.predicted_unit_rms_global_snr_db
             ),
             "best_validation_global_snr_db": accepted_metric,
-            PRIMARY_METRIC: accepted_metric,
+            oracle_trace_snr.PRIMARY_METRIC: accepted_metric,
             "success_threshold_db": settings.success_threshold_db,
-            "success_comparison": SUCCESS_COMPARISON,
+            "success_comparison": oracle_trace_snr.SUCCESS_COMPARISON,
             "metric_success": metric_success,
             "scope_success": scope_success,
             "success": metric_success and scope_success,
@@ -2300,7 +1926,7 @@ def _metrics_payload(
             "clean_validation_raw_global_snr_db": best_validation.clean_raw_global_snr_db,
             "clean_validation_global_snr_db": best_validation.clean_raw_global_snr_db,
             "training_audit_trace_count": settings.training_audit_count,
-            "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+            "training_audit_seed": settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET,
             "training_audit_global_snr_db": training_audit.raw_global_snr_db,
             "training_audit_predicted_unit_rms_global_snr_db": (
                 training_audit.predicted_unit_rms_global_snr_db
@@ -2319,143 +1945,3 @@ def _metrics_payload(
     if source_bracketing_contract is not None:
         metrics["source_bracketing"] = dict(source_bracketing_contract)
     return metrics
-
-
-def _runtime_resource_metadata(device: torch.device) -> dict[str, object]:
-    result: dict[str, object] = {
-        "process_max_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-        "cudnn_benchmark": device.type == "cuda" and torch.backends.cudnn.benchmark,
-        "cudnn_deterministic": device.type == "cuda" and torch.backends.cudnn.deterministic,
-    }
-    if device.type == "cuda":
-        result.update(
-            {
-                "cuda_max_memory_allocated_bytes": torch.cuda.max_memory_allocated(device),
-                "cuda_max_memory_reserved_bytes": torch.cuda.max_memory_reserved(device),
-            }
-        )
-    return result
-
-
-def _seed_global_model_initialization(seed: int, *, device: torch.device) -> None:
-    torch.manual_seed(seed)
-    if device.type == "cuda":
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cudnn.deterministic = False
-
-
-def _snr_db(signal_energy: float, error_energy: float) -> float:
-    if not math.isfinite(signal_energy) or signal_energy <= 0.0:
-        raise ValueError("validation signal energy must be positive and finite")
-    if not math.isfinite(error_energy) or error_energy <= 0.0:
-        raise ValueError("validation error energy must be positive and finite")
-    return 10.0 * math.log10(signal_energy / error_energy)
-
-
-def _passes_success_threshold(metric_db: float, threshold_db: float) -> bool:
-    return bool(metric_db > threshold_db)
-
-
-def _require_exact(config: Mapping[str, object], dotted_path: str, expected: object) -> None:
-    actual = get_required_config_value(config, dotted_path)
-    if actual != expected:
-        raise ConfigurationError(f"{dotted_path} must be {expected!r}, got {actual!r}")
-
-
-def _optional_ffid_range(config: Mapping[str, object]) -> tuple[int, int] | None:
-    training = config.get("training")
-    if not isinstance(training, Mapping) or "ffid_range" not in training:
-        return None
-    value = training["ffid_range"]
-    if (
-        not isinstance(value, list)
-        or len(value) != 2
-        or any(isinstance(item, bool) or not isinstance(item, Integral) for item in value)
-        or int(value[0]) < 0
-        or int(value[0]) > int(value[1])
-    ):
-        raise ConfigurationError("training.ffid_range must be [minimum, maximum] integers")
-    return int(value[0]), int(value[1])
-
-
-def _validated_effective_split_counts(value: object) -> dict[str, int]:
-    if not isinstance(value, Mapping) or set(value) != set(_EFFECTIVE_SPLITS):
-        raise ConfigurationError(
-            "evaluation.required_effective_split_counts must contain exactly "
-            f"{list(_EFFECTIVE_SPLITS)}"
-        )
-    return {
-        split: _positive_integer(
-            value[split],
-            f"evaluation.required_effective_split_counts.{split}",
-        )
-        for split in _EFFECTIVE_SPLITS
-    }
-
-
-def _validated_ffid_split_counts(value: object) -> dict[str, int]:
-    if not isinstance(value, Mapping) or set(value) != set(_EFFECTIVE_SPLITS):
-        raise ConfigurationError(
-            f"evaluation.required_ffid_split_counts must contain exactly {list(_EFFECTIVE_SPLITS)}"
-        )
-    return {
-        split: _positive_integer(
-            value[split],
-            f"evaluation.required_ffid_split_counts.{split}",
-        )
-        for split in _EFFECTIVE_SPLITS
-    }
-
-
-def _validated_sorted_ffids(value: object, name: str) -> tuple[int, ...]:
-    if not isinstance(value, list) or any(
-        isinstance(ffid, bool) or not isinstance(ffid, Integral) or int(ffid) < 0 for ffid in value
-    ):
-        raise ConfigurationError(f"{name} must be a sorted unique list of non-negative integers")
-    converted = [int(ffid) for ffid in value]
-    if converted != sorted(set(converted)):
-        raise ConfigurationError(f"{name} must be a sorted unique list of non-negative integers")
-    return tuple(converted)
-
-
-def _positive_integer(value: object, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
-        raise ConfigurationError(f"{name} must be a positive integer")
-    return int(value)
-
-
-def _nonnegative_integer(value: object, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) < 0:
-        raise ConfigurationError(f"{name} must be a non-negative integer")
-    return int(value)
-
-
-def _finite_float(value: object, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ConfigurationError(f"{name} must be a finite number")
-    converted = float(value)
-    if not math.isfinite(converted):
-        raise ConfigurationError(f"{name} must be a finite number")
-    return converted
-
-
-def _positive_float(value: object, name: str) -> float:
-    converted = _finite_float(value, name)
-    if converted <= 0.0:
-        raise ConfigurationError(f"{name} must be positive")
-    return converted
-
-
-def _nonnegative_float(value: object, name: str) -> float:
-    converted = _finite_float(value, name)
-    if converted < 0.0:
-        raise ConfigurationError(f"{name} must be non-negative")
-    return converted
-
-
-def _probability(value: object, name: str) -> float:
-    converted = _finite_float(value, name)
-    if converted < 0.0 or converted >= 1.0:
-        raise ConfigurationError(f"{name} must be in [0, 1)")
-    return converted

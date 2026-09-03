@@ -5,9 +5,11 @@ import pytest
 import torch
 
 from seis_interp.pipelines.train_neighbor_inpainter import (
-    EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     _NeighborTensorSource,
     _RandomTrainBatchProvider,
+)
+from seis_interp.training.randomness import (
+    EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
 )
 
 

@@ -9,6 +9,7 @@ from seis_interp.training import amplitude_scaling as scaling_module
 from seis_interp.training.amplitude_scaling import (
     PER_TRACE_RMS_SCALING,
     TRAIN_GLOBAL_RMS_SCALING,
+    extract_per_trace_rms_scaled_rows,
     per_trace_rms_scaled_amplitudes,
     per_trace_rms_scaled_rows,
     validated_amplitude_scaling,
@@ -110,6 +111,63 @@ def test_per_trace_rms_scaling_rejects_undefined_scales(
 def test_per_trace_rms_scaling_rejects_invalid_arrays(bad_value: np.ndarray) -> None:
     with pytest.raises(ValueError, match="amplitudes"):
         per_trace_rms_scaled_amplitudes(bad_value)
+
+
+def test_extract_scaled_rows_returns_unit_rms_float32_in_requested_order() -> None:
+    amplitudes = np.asarray(
+        [
+            [3.0, 4.0, 0.0],
+            [0.0, 0.0, 12.0],
+            [-2.0, 1.0, 2.0],
+            [6.0, 8.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    original = amplitudes.copy()
+    array_rows = np.asarray([3, 0, 2], dtype=np.int64)
+
+    extracted = extract_per_trace_rms_scaled_rows(amplitudes, array_rows)
+
+    assert extracted.shape == (3, 3)
+    assert extracted.dtype == np.float32
+    trace_rms = np.sqrt(np.mean(np.square(extracted.astype(np.float64)), axis=1))
+    np.testing.assert_allclose(trace_rms, np.ones(3), rtol=1.0e-7)
+    expected = per_trace_rms_scaled_amplitudes(amplitudes)[array_rows]
+    np.testing.assert_allclose(extracted, expected, rtol=1.0e-7)
+    np.testing.assert_array_equal(amplitudes, original)
+
+
+def test_extract_scaled_rows_is_compact_unlike_row_aligned_scaling() -> None:
+    amplitudes = np.asarray(
+        [
+            [3.0, 4.0, 0.0],
+            [0.0, 0.0, 12.0],
+            [-2.0, 1.0, 2.0],
+        ],
+        dtype=np.float32,
+    )
+    array_rows = np.asarray([2, 0], dtype=np.int64)
+
+    extracted = extract_per_trace_rms_scaled_rows(amplitudes, array_rows)
+    row_aligned = per_trace_rms_scaled_rows(amplitudes, array_rows)
+
+    assert extracted.shape == (2, 3)
+    assert row_aligned.shape == amplitudes.shape
+    np.testing.assert_allclose(extracted, row_aligned[array_rows], rtol=1.0e-7)
+    np.testing.assert_array_equal(row_aligned[1], np.zeros(3, dtype=np.float32))
+
+
+def test_extract_scaled_rows_matches_across_chunk_sizes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    amplitudes = np.arange(1, 21, dtype=np.float32).reshape(5, 4)
+    array_rows = np.asarray([4, 1, 3, 0, 2], dtype=np.int64)
+    single_chunk = extract_per_trace_rms_scaled_rows(amplitudes, array_rows)
+
+    monkeypatch.setattr(scaling_module, "_ROW_CHUNK_SIZE", 2)
+    multi_chunk = extract_per_trace_rms_scaled_rows(amplitudes, array_rows)
+
+    np.testing.assert_array_equal(single_chunk, multi_chunk)
 
 
 def test_amplitude_scaling_names_are_strict() -> None:

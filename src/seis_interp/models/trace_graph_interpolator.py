@@ -10,11 +10,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from seis_interp.models.shot_gather_inpainter import (
-    RECEIVER_X_COUNT,
-    RECEIVER_Y_COUNT,
-    inverse_distance_reference,
-)
+from seis_interp.models.shot_gather_inpainter import inverse_distance_reference
+from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 
 TRACE_LATTICE_GRAPH_MODE = "trace_lattice"
 SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE = "source_receiver_bipartite"

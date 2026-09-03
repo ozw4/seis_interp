@@ -8,10 +8,12 @@ import yaml
 
 from seis_interp.configuration import ConfigurationError, load_resolved_config
 from seis_interp.pipelines.train_neighbor_inpainter import (
-    EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
-    WITH_REPLACEMENT_TARGET_SAMPLING,
     _validated_settings,
     train_neighbor_inpainter_run,
+)
+from seis_interp.training.randomness import (
+    EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+    WITH_REPLACEMENT_TARGET_SAMPLING,
 )
 from tests.integration.test_train_neighbor_inpainter_pipeline import (
     _build_neighbor_training_fixture,
