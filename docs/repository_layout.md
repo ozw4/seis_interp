@@ -1,6 +1,6 @@
 # `seis_interp` リポジトリ フォルダ構成規約
 
-> POC向け / Version 0.3 / 2026-08-22
+> POC向け / Version 0.4 / 2026-09-03
 
 ## 目的
 
@@ -34,6 +34,10 @@ seis_interp/
 │   └── seis_interp/
 │       ├── __init__.py
 │       ├── cli.py
+│       ├── commands/
+│       │   ├── doctor.py
+│       │   ├── data.py
+│       │   └── train.py
 │       ├── data/
 │       ├── processing/
 │       ├── models/
@@ -51,6 +55,7 @@ seis_interp/
 │   └── default.yaml
 │
 ├── studies/
+│   ├── README.md
 │   ├── _template/
 │   │   ├── README.md
 │   │   ├── config.yaml
@@ -101,7 +106,12 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 | 場所 | 置くもの／置かないもの |
 |---|---|
 | `src/` | SEG-Y I/O、座標計算、mask、正規化、SIREN、学習、評価、可視化、pipelineを置く。Notebook専用コードやstudy固有条件は置かない。 |
+| `src/seis_interp/cli.py` | parserの組み立てとdispatchだけを置く。command handlerやdata・training依存は置かない。 |
+| `src/seis_interp/commands/` | command別のargparse登録、出力・エラー処理、pipeline呼び出しを置く。training／preparation pipelineのimportはhandler内のlazy importとする。command registryやclass階層は作らない。 |
+| `src/seis_interp/pipelines/` | 実行orchestrationを置く。他pipelineのprivate実装をimportしない。 |
 | `scripts/` | CLIを呼ぶ薄いshell wrapperや環境セットアップ補助だけを置く。manifest解析、download、checksum、SEG-Y QCなどの主要ロジックは`src/`へ置く。 |
+| `tests/fixtures/` | 複数test moduleが共有するsynthetic dataset／config生成を、責務別のmodule名で置く。assertion、expected value、mockは置かない。 |
+| `tests/unit/`・`tests/integration/` | test本体とmodule内だけで使う小さなhelperを置く。別のtest moduleをimportしない。共有setupは`tests/fixtures/`から取る。 |
 | `studies/` | 一つの研究質問について現在の研究契約と必要な判断理由を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
 | `data/` | C3 NAは外部公開データなので`external/`へ置く。manifestと説明文書はGit管理し、実SEG-Y、大容量配列、download lockはGitへ入れない。 |
 | `runs/` | run IDにUTC時刻とGit SHAを含める。resolved config、input lock、metrics、logs、checkpoint、figuresを保存する。 |
