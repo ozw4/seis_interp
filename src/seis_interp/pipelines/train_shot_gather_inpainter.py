@@ -36,7 +36,6 @@ from seis_interp.models.shot_gather_inpainter import (
     ShotGatherInpainter,
 )
 from seis_interp.pipelines.train_neighbor_inpainter import (
-    DUPLICATE_PHYSICAL_COORDINATE_POLICY,
     EPOCH_TARGET_SAMPLING_SEED_OFFSET,
     EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     NEIGHBOR_DROPOUT_SEED_OFFSET,
@@ -45,9 +44,7 @@ from seis_interp.pipelines.train_neighbor_inpainter import (
     TARGET_COORDINATE_SCALING,
     TRAINING_AUDIT_SEED_OFFSET,
     WITH_REPLACEMENT_TARGET_SAMPLING,
-    _canonicalize_eligible_physical_coordinates,
     _formal_scope_audit,
-    _load_unit_rms_rows,
     _passes_success_threshold,
     _seed_global_model_initialization,
     _snr_db,
@@ -61,7 +58,7 @@ from seis_interp.pipelines.train_siren import (
     _validate_preparation_data,
     _validated_preparation_contract,
 )
-from seis_interp.processing import trace_selection
+from seis_interp.processing import trace_canonicalization, trace_selection
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
     SPLIT_COLUMN,
@@ -72,6 +69,7 @@ from seis_interp.processing.trace_splits import (
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
+    extract_per_trace_rms_scaled_rows,
 )
 from seis_interp.training.shot_gather_inpainter_checkpoints import (
     SOURCE_WEIGHTING_SCHEMA_VERSION,
@@ -515,7 +513,7 @@ def train_shot_gather_inpainter_run(
         split_rows,
     )
     preliminary_canonical, preliminary_duplicate_audit = (
-        _canonicalize_eligible_physical_coordinates(preliminary_joined)
+        trace_canonicalization.canonicalize_eligible_physical_coordinates(preliminary_joined)
     )
     selected_preliminary = trace_selection.select_eligible_traces(
         preliminary_canonical,
@@ -549,7 +547,9 @@ def train_shot_gather_inpainter_run(
     if preparation_contract.get("split_scope") != "whole_ffid":
         raise ConfigurationError("shot gather inpainter requires sampling.split_scope='whole_ffid'")
     joined_table = trace_selection.join_trace_splits(dataset.trace_table, split_table, split_rows)
-    canonical_table, duplicate_audit = _canonicalize_eligible_physical_coordinates(joined_table)
+    canonical_table, duplicate_audit = (
+        trace_canonicalization.canonicalize_eligible_physical_coordinates(joined_table)
+    )
     if duplicate_audit != preliminary_duplicate_audit:
         raise RuntimeError("duplicate-coordinate audit changed while loading amplitudes")
     selected_table = trace_selection.select_eligible_traces(
@@ -584,8 +584,10 @@ def train_shot_gather_inpainter_run(
     validation_arrays = selected_table.iloc[validation_positions]["array_row"].to_numpy(
         dtype=np.int64
     )
-    train_amplitudes_host = _load_unit_rms_rows(dataset.amplitudes, train_arrays)
-    validation_amplitudes_host = _load_unit_rms_rows(dataset.amplitudes, validation_arrays)
+    train_amplitudes_host = extract_per_trace_rms_scaled_rows(dataset.amplitudes, train_arrays)
+    validation_amplitudes_host = extract_per_trace_rms_scaled_rows(
+        dataset.amplitudes, validation_arrays
+    )
     device = torch.device(settings.device)
     _seed_global_model_initialization(settings.random_seed, device=device)
     if device.type == "cuda":
@@ -894,7 +896,7 @@ def _validated_settings(
     config_values.require_exact(
         config,
         "sampling.duplicate_physical_coordinate_policy",
-        DUPLICATE_PHYSICAL_COORDINATE_POLICY,
+        trace_canonicalization.DUPLICATE_PHYSICAL_COORDINATE_POLICY,
     )
     config_values.require_exact(config, "training.amplitude_scaling", PER_TRACE_RMS_SCALING)
     config_values.require_exact(config, "training.loss", LOSS_NAME)
@@ -1062,7 +1064,9 @@ def _validated_settings(
             get_required_config_value(config, "evaluation.success_threshold_db"),
             "evaluation.success_threshold_db",
         ),
-        duplicate_physical_coordinate_policy=DUPLICATE_PHYSICAL_COORDINATE_POLICY,
+        duplicate_physical_coordinate_policy=(
+            trace_canonicalization.DUPLICATE_PHYSICAL_COORDINATE_POLICY
+        ),
         required_eligible_ffid_count=config_values.positive_integer(
             get_required_config_value(config, "evaluation.required_eligible_ffid_count"),
             "evaluation.required_eligible_ffid_count",
