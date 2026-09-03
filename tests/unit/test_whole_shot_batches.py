@@ -101,6 +101,21 @@ def test_epoch_sequence_is_independent_of_batch_partition() -> None:
     assert _drawn_sequence(first_source) == _drawn_sequence(second_source)
 
 
+def test_epoch_sequence_replays_dedicated_randperm_generator() -> None:
+    source = _FakeTensorSource()
+    provider = _epoch_provider(source, _FakeTargets(4), seed=13)
+    dropout_generator = torch.Generator(device=source.device).manual_seed(0)
+
+    for batch_size in (3, 5):
+        provider(batch_size, generator=dropout_generator, neighbor_dropout=0.0)
+
+    expected_generator = torch.Generator(device=source.device).manual_seed(13)
+    first_epoch = torch.randperm(4, generator=expected_generator)
+    second_epoch = torch.randperm(4, generator=expected_generator)
+    expected = torch.cat([first_epoch, second_epoch]).tolist()
+    assert _drawn_sequence(source) == expected
+
+
 def test_epoch_target_order_is_independent_of_dropout_rng() -> None:
     first_source = _FakeTensorSource()
     first = _epoch_provider(first_source, _FakeTargets(6), seed=21)
