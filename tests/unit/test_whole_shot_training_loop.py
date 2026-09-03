@@ -214,12 +214,12 @@ def test_progress_uses_supplied_labels_in_order(tmp_path: Path) -> None:
     )
 
 
-def test_model_switches_between_train_and_eval(tmp_path: Path) -> None:
-    recorder = _Recorder([1.0, 2.0])
-    _run(recorder, tmp_path, total_steps=1)
+def test_model_switches_to_train_on_every_step_and_eval_for_validation(tmp_path: Path) -> None:
+    recorder = _Recorder([1.0, 2.0, 3.0])
+    _run(recorder, tmp_path, total_steps=2)
 
-    assert recorder.training_step_model_training == [True]
-    assert recorder.validation_model_training == [False, False]
+    assert recorder.training_step_model_training == [True, True]
+    assert recorder.validation_model_training == [False, False, False]
 
 
 def test_validation_runs_in_inference_mode(tmp_path: Path) -> None:

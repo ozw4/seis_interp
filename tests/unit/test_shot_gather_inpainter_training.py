@@ -659,6 +659,46 @@ def test_shot_gather_step_runs_forward_and_losses_in_one_autocast_scope(
     ]
 
 
+def test_wrapper_forwards_the_loop_computed_autocast_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded_flags: list[bool] = []
+    real_step = shot_gather_inpainter_trainer._shot_gather_training_step
+
+    def recording_step(
+        model: ShotGatherInpainter,
+        batch: tuple[torch.Tensor, ...],
+        *,
+        derivative_weight: float,
+        use_cuda_bfloat16: bool,
+    ) -> object:
+        recorded_flags.append(use_cuda_bfloat16)
+        return real_step(
+            model,
+            batch,
+            derivative_weight=derivative_weight,
+            use_cuda_bfloat16=use_cuda_bfloat16,
+        )
+
+    monkeypatch.setattr(
+        shot_gather_inpainter_trainer,
+        "_shot_gather_training_step",
+        recording_step,
+    )
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+    batch = _gather_batch_tensors()
+
+    train_shot_gather_inpainter(
+        model,
+        lambda _batch_size, *, generator, neighbor_dropout: batch,
+        lambda _model: 0.0,
+        **_wrapper_keywords(tmp_path, use_bfloat16=True),
+    )
+
+    assert recorded_flags == [False]
+
+
 def test_shot_gather_step_skips_autocast_without_cuda_bfloat16(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
