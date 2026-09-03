@@ -12,8 +12,6 @@ from seis_interp.models.shot_gather_inpainter import (
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
-    RECEIVER_X_COUNT,
-    RECEIVER_Y_COUNT,
     SHOT_GATHER_INPUT_FEATURE_NAMES,
     DynamicSourceAttention,
     FactorizedGatherResidualBlock,
@@ -22,6 +20,7 @@ from seis_interp.models.shot_gather_inpainter import (
     inverse_distance_reference,
     ordered_raw_input_feature_names,
 )
+from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 
 
 def _inputs(

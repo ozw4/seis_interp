@@ -30,8 +30,6 @@ from seis_interp.models.shot_gather_inpainter import (
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
     RECEIVER_POSITION_CONDITIONING_MODES,
-    RECEIVER_X_COUNT,
-    RECEIVER_Y_COUNT,
     SOURCE_FEATURE_MODES,
     SOURCE_WEIGHTING_MODES,
     ShotGatherInpainter,
@@ -55,6 +53,11 @@ from seis_interp.pipelines.train_siren import (
     _validated_preparation_contract,
 )
 from seis_interp.processing import trace_canonicalization, trace_selection
+from seis_interp.processing.c3_receiver_grid import (
+    RECEIVER_X_COUNT,
+    RECEIVER_Y_COUNT,
+    receiver_grid_offsets,
+)
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
     SPLIT_COLUMN,
@@ -577,7 +580,7 @@ def train_shot_gather_inpainter_run(
             f"{failed_checks}; configure training.ffid_range for a diagnostic subset"
         )
 
-    receiver_x_offsets, receiver_y_offsets = _receiver_grid(selected_table)
+    receiver_x_offsets, receiver_y_offsets = receiver_grid_offsets(selected_table)
     selected_split = selected_table[SPLIT_COLUMN].to_numpy()
     train_positions = np.flatnonzero(selected_split == TRAIN_SPLIT).astype(np.int64)
     validation_positions = np.flatnonzero(selected_split == VALIDATION_SPLIT).astype(np.int64)
@@ -1098,19 +1101,6 @@ def _validate_split_table_for_gathers(split_table: pd.DataFrame, row_count: int)
     from seis_interp.pipelines.train_siren import _validate_split_table
 
     return _validate_split_table(split_table, row_count, allow_excluded=True)
-
-
-def _receiver_grid(table: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    relative_x = (table["receiver_x_m"] - table["source_x_m"]).to_numpy(dtype=np.float64)
-    relative_y = (table["receiver_y_m"] - table["source_y_m"]).to_numpy(dtype=np.float64)
-    x_values = np.unique(relative_x)
-    y_values = np.unique(relative_y)
-    if len(x_values) != RECEIVER_X_COUNT or len(y_values) != RECEIVER_Y_COUNT:
-        raise ValueError(
-            "selected data must expose the fixed 8 x 68 relative-receiver grid; "
-            f"got {len(x_values)} x {len(y_values)}"
-        )
-    return np.sort(x_values), np.sort(y_values)
 
 
 def _build_gather_tensors(

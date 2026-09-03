@@ -12,11 +12,8 @@ from typing import Protocol
 
 import torch
 
-from seis_interp.models.shot_gather_inpainter import (
-    RECEIVER_X_COUNT,
-    RECEIVER_Y_COUNT,
-    ShotGatherInpainter,
-)
+from seis_interp.models.shot_gather_inpainter import ShotGatherInpainter
+from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 from seis_interp.training.amplitude_scaling import ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
 from seis_interp.training.shot_gather_inpainter_checkpoints import (
     save_shot_gather_inpainter_checkpoint,

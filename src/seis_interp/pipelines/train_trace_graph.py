@@ -23,10 +23,6 @@ from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
 from seis_interp.evaluation import formal_scope, oracle_trace_snr
-from seis_interp.models.shot_gather_inpainter import (
-    RECEIVER_X_COUNT,
-    RECEIVER_Y_COUNT,
-)
 from seis_interp.models.trace_graph_interpolator import (
     ATTENTION_TIME_RESOLUTIONS,
     GRAPH_MODES,
@@ -53,7 +49,6 @@ from seis_interp.pipelines.train_shot_gather_inpainter import (
     _metrics_payload,
     _RandomTrainGatherProvider,
     _RawGlobalSnrEvaluator,
-    _receiver_grid,
     _sample_training_audit_targets,
     _ShotGatherTensorSource,
     _source_collision_audit,
@@ -69,6 +64,11 @@ from seis_interp.pipelines.train_siren import (
     _validated_preparation_contract,
 )
 from seis_interp.processing import trace_canonicalization, trace_selection
+from seis_interp.processing.c3_receiver_grid import (
+    RECEIVER_X_COUNT,
+    RECEIVER_Y_COUNT,
+    receiver_grid_offsets,
+)
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
     SPLIT_COLUMN,
@@ -240,7 +240,7 @@ def train_trace_graph_run(
             f"{failed_checks}; configure training.ffid_range for a diagnostic subset"
         )
 
-    receiver_x_offsets, receiver_y_offsets = _receiver_grid(selected_table)
+    receiver_x_offsets, receiver_y_offsets = receiver_grid_offsets(selected_table)
     selected_split = selected_table[SPLIT_COLUMN].to_numpy()
     train_positions = np.flatnonzero(selected_split == TRAIN_SPLIT).astype(np.int64)
     validation_positions = np.flatnonzero(selected_split == VALIDATION_SPLIT).astype(np.int64)

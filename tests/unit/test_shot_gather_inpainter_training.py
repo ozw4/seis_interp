@@ -15,13 +15,12 @@ from seis_interp.models.shot_gather_inpainter import (
     MOMENTS_SOURCE_FEATURE_MODE,
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
-    RECEIVER_X_COUNT,
-    RECEIVER_Y_COUNT,
     ShotGatherInpainter,
 )
 from seis_interp.pipelines.train_shot_gather_inpainter import (
     _nearest_train_source_indices,
 )
+from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 from seis_interp.training.shot_gather_inpainter_checkpoints import (
     load_shot_gather_inpainter_checkpoint,
     save_shot_gather_inpainter_checkpoint,
