@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from seis_interp.cli import build_parser
+from seis_interp.data.whole_shot import nearest_train_source_indices
 from seis_interp.models.shot_gather_inpainter import (
     DYNAMIC_ATTENTION_INPUT_FEATURE_NAMES,
     DYNAMIC_ATTENTION_SOURCE_WEIGHTING,
@@ -16,9 +17,6 @@ from seis_interp.models.shot_gather_inpainter import (
     NO_RECEIVER_POSITION_CONDITIONING,
     ORDERED_RAW_SOURCE_FEATURE_MODE,
     ShotGatherInpainter,
-)
-from seis_interp.pipelines.train_shot_gather_inpainter import (
-    _nearest_train_source_indices,
 )
 from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 from seis_interp.training.shot_gather_inpainter_checkpoints import (
@@ -386,7 +384,7 @@ def test_nearest_train_sources_exclude_target_and_break_ties_by_ffid() -> None:
     train_ffids = np.asarray([30, 10, 20, 40], dtype=np.int64)
     train_sources = np.asarray([[1.0, 0.0], [-1.0, 0.0], [0.0, 0.0], [3.0, 0.0]])
 
-    indices = _nearest_train_source_indices(
+    indices = nearest_train_source_indices(
         train_ffids,
         train_sources,
         np.asarray([20, 99]),

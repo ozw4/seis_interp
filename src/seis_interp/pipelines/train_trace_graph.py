@@ -19,6 +19,7 @@ from seis_interp.configuration import (
     get_required_config_value,
     load_resolved_config,
 )
+from seis_interp.data import whole_shot
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
@@ -34,25 +35,18 @@ from seis_interp.pipelines.train_neighbor_inpainter import (
     EPOCH_TARGET_SAMPLING_SEED_OFFSET,
     EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     NEIGHBOR_DROPOUT_SEED_OFFSET,
-    TARGET_COORDINATE_SCALING,
     TRAINING_AUDIT_SEED_OFFSET,
     WITH_REPLACEMENT_TARGET_SAMPLING,
     _seed_global_model_initialization,
 )
 from seis_interp.pipelines.train_shot_gather_inpainter import (
-    NEIGHBORHOOD_TYPE,
-    SOURCE_DISTANCE,
-    TARGET_COORDINATES,
     TRAINING_SCALE_SOURCE,
     VALIDATION_SCALE_SOURCE,
-    _build_gather_tensors,
     _metrics_payload,
     _RandomTrainGatherProvider,
     _RawGlobalSnrEvaluator,
     _sample_training_audit_targets,
-    _ShotGatherTensorSource,
     _source_collision_audit,
-    _validate_split_table_for_gathers,
 )
 from seis_interp.pipelines.train_siren import (
     PROCESSED_INPUT_FILE_NAMES,
@@ -61,6 +55,7 @@ from seis_interp.pipelines.train_siren import (
     _load_processed_dataset,
     _split_counts,
     _validate_preparation_data,
+    _validate_split_table,
     _validated_preparation_contract,
 )
 from seis_interp.processing import trace_canonicalization, trace_selection
@@ -164,7 +159,11 @@ def train_trace_graph_run(
     processed_directory = Path(processed_dir)
     split_table, _normalization, preparation = _load_processed_dataset(processed_directory)
     preliminary_trace_table = pd.read_parquet(interim_directory / TRACES_FILE_NAME)
-    split_rows = _validate_split_table_for_gathers(split_table, len(preliminary_trace_table))
+    split_rows = _validate_split_table(
+        split_table,
+        len(preliminary_trace_table),
+        allow_excluded=True,
+    )
     preliminary_joined = trace_selection.join_trace_splits(
         preliminary_trace_table,
         split_table,
@@ -257,14 +256,14 @@ def train_trace_graph_run(
     if device.type == "cuda":
         with torch.cuda.device(device):
             torch.cuda.reset_peak_memory_stats()
-    train_components = _build_gather_tensors(
+    train_components = whole_shot.build_gather_tensors(
         selected_table.iloc[train_positions],
         train_amplitudes_host,
         receiver_x_offsets=receiver_x_offsets,
         receiver_y_offsets=receiver_y_offsets,
         device=device,
     )
-    validation_components = _build_gather_tensors(
+    validation_components = whole_shot.build_gather_tensors(
         selected_table.iloc[validation_positions],
         validation_amplitudes_host,
         receiver_x_offsets=receiver_x_offsets,
@@ -274,7 +273,7 @@ def train_trace_graph_run(
     del train_amplitudes_host, validation_amplitudes_host
     train_ffids, train_sources, train_gathers, train_availability = train_components
     val_ffids, val_sources, val_gathers, val_availability = validation_components
-    source = _ShotGatherTensorSource(
+    source = whole_shot.WholeShotTensorSource(
         train_ffids=train_ffids,
         train_source_coordinates_m=train_sources,
         train_gathers=train_gathers,
@@ -420,8 +419,8 @@ def train_trace_graph_run(
     }
     training_contract = _training_contract(settings, result, batch_provider)
     neighborhood_contract = {
-        "type": NEIGHBORHOOD_TYPE,
-        "distance": SOURCE_DISTANCE,
+        "type": whole_shot.NEIGHBORHOOD_TYPE,
+        "distance": whole_shot.SOURCE_DISTANCE,
         "source_gather_count": settings.source_gather_count,
         "source_split": TRAIN_SPLIT,
         "target_ffid_policy": "exclude_exact_ffid",
@@ -468,9 +467,9 @@ def train_trace_graph_run(
         "receiver_grid": receiver_grid_contract,
         "neighborhood": neighborhood_contract,
         "target_coordinates": {
-            "order": list(TARGET_COORDINATES),
+            "order": list(whole_shot.TARGET_COORDINATES),
             "fit_split": TRAIN_SPLIT,
-            "scaling": TARGET_COORDINATE_SCALING,
+            "scaling": whole_shot.TARGET_COORDINATE_SCALING,
             "minimum": list(source.coordinate_min),
             "maximum": list(source.coordinate_max),
             "constant_axis_value": 0.0,
@@ -526,20 +525,26 @@ def _validated_settings(
     config_values.require_exact(
         config,
         "model.target_coordinate_scaling",
-        TARGET_COORDINATE_SCALING,
+        whole_shot.TARGET_COORDINATE_SCALING,
     )
     target_coordinates = config_values.validated_target_coordinate_names(
         get_required_config_value(config, "model.target_coordinates")
     )
-    if target_coordinates != TARGET_COORDINATES:
-        raise ConfigurationError(f"model.target_coordinates must be {list(TARGET_COORDINATES)!r}")
+    if target_coordinates != whole_shot.TARGET_COORDINATES:
+        raise ConfigurationError(
+            f"model.target_coordinates must be {list(whole_shot.TARGET_COORDINATES)!r}"
+        )
     neighborhood = get_required_config_value(config, "model.neighborhood")
     if not isinstance(neighborhood, Mapping):
         raise ConfigurationError("model.neighborhood must be a mapping")
-    if neighborhood.get("type") != NEIGHBORHOOD_TYPE:
-        raise ConfigurationError(f"model.neighborhood.type must be {NEIGHBORHOOD_TYPE!r}")
-    if neighborhood.get("distance") != SOURCE_DISTANCE:
-        raise ConfigurationError(f"model.neighborhood.distance must be {SOURCE_DISTANCE!r}")
+    if neighborhood.get("type") != whole_shot.NEIGHBORHOOD_TYPE:
+        raise ConfigurationError(
+            f"model.neighborhood.type must be {whole_shot.NEIGHBORHOOD_TYPE!r}"
+        )
+    if neighborhood.get("distance") != whole_shot.SOURCE_DISTANCE:
+        raise ConfigurationError(
+            f"model.neighborhood.distance must be {whole_shot.SOURCE_DISTANCE!r}"
+        )
     source_gather_count = config_values.positive_integer(
         neighborhood.get("source_gather_count"),
         "model.neighborhood.source_gather_count",
@@ -768,8 +773,8 @@ def _model_contract(
         "node_static_feature_names": list(NODE_STATIC_FEATURE_NAMES),
         "node_definition": "one_trace_per_node_time_as_latent_sequence",
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
-        "target_coordinates": list(TARGET_COORDINATES),
-        "target_coordinate_scaling": TARGET_COORDINATE_SCALING,
+        "target_coordinates": list(whole_shot.TARGET_COORDINATES),
+        "target_coordinate_scaling": whole_shot.TARGET_COORDINATE_SCALING,
         "receiver_grid_shape": [RECEIVER_X_COUNT, RECEIVER_Y_COUNT],
         "source_gather_count": settings.source_gather_count,
         "prediction_reference": "receiver_wise_inverse_source_distance",
