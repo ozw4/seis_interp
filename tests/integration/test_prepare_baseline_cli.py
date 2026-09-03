@@ -53,7 +53,7 @@ def _write_study_config(
     legacy_study_seed: bool = False,
 ) -> Path:
     repository = tmp_path / "repository"
-    monkeypatch.setattr("seis_interp.cli.REPOSITORY_ROOT", repository)
+    monkeypatch.setattr("seis_interp.commands.data.REPOSITORY_ROOT", repository)
     default_path = repository / "configs" / "default.yaml"
     study_path = repository / "studies" / "study" / "config.yaml"
     default_path.parent.mkdir(parents=True)

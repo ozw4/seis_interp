@@ -71,9 +71,9 @@ def _mock_manifest_and_verification(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manifest = DatasetManifest(tmp_path / "manifest.yaml", FILE_SPECS)
-    monkeypatch.setattr("seis_interp.cli.load_manifest", lambda _path: manifest)
+    monkeypatch.setattr("seis_interp.commands.data.load_manifest", lambda _path: manifest)
     monkeypatch.setattr(
-        "seis_interp.cli.verify_seg_c3_na",
+        "seis_interp.commands.data.verify_seg_c3_na",
         lambda _manifest, _root: _verification_results(tmp_path),
     )
 
@@ -116,9 +116,9 @@ def test_prepare_c3_survey_cli_stops_before_pipeline_on_verification_failure(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     manifest = DatasetManifest(tmp_path / "manifest.yaml", FILE_SPECS)
-    monkeypatch.setattr("seis_interp.cli.load_manifest", lambda _path: manifest)
+    monkeypatch.setattr("seis_interp.commands.data.load_manifest", lambda _path: manifest)
     monkeypatch.setattr(
-        "seis_interp.cli.verify_seg_c3_na",
+        "seis_interp.commands.data.verify_seg_c3_na",
         lambda _manifest, _root: (
             VerificationResult("part_a.sgy", False, "checksum_mismatch", "bad checksum"),
         ),
@@ -138,9 +138,9 @@ def test_prepare_c3_survey_cli_requires_verification_for_every_manifest_file(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     manifest = DatasetManifest(tmp_path / "manifest.yaml", FILE_SPECS)
-    monkeypatch.setattr("seis_interp.cli.load_manifest", lambda _path: manifest)
+    monkeypatch.setattr("seis_interp.commands.data.load_manifest", lambda _path: manifest)
     monkeypatch.setattr(
-        "seis_interp.cli.verify_seg_c3_na",
+        "seis_interp.commands.data.verify_seg_c3_na",
         lambda _manifest, _root: (VerificationResult("part_a.sgy", True, "ok", "verified"),),
     )
     monkeypatch.setattr(
@@ -179,9 +179,9 @@ def test_prepare_c3_survey_cli_rejects_misaligned_verification_results(
             path=tmp_path / "wrong" / results[0].name,
             sha256=results[0].sha256,
         )
-    monkeypatch.setattr("seis_interp.cli.load_manifest", lambda _path: manifest)
+    monkeypatch.setattr("seis_interp.commands.data.load_manifest", lambda _path: manifest)
     monkeypatch.setattr(
-        "seis_interp.cli.verify_seg_c3_na",
+        "seis_interp.commands.data.verify_seg_c3_na",
         lambda _manifest, _root: tuple(results),
     )
     monkeypatch.setattr(
