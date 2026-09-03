@@ -35,7 +35,6 @@ from seis_interp.pipelines.train_shot_gather_inpainter import (
     TRAINING_SCALE_SOURCE,
     VALIDATION_SCALE_SOURCE,
     _metrics_payload,
-    _RandomTrainGatherProvider,
     _RawGlobalSnrEvaluator,
     _sample_training_audit_targets,
     _source_collision_audit,
@@ -75,6 +74,9 @@ from seis_interp.training.trace_graph_trainer import (
     MINIMUM_LEARNING_RATE_FACTOR,
     TraceGraphTrainingResult,
     train_trace_graph_interpolator,
+)
+from seis_interp.training.whole_shot_batches import (
+    RandomWholeShotBatchProvider,
 )
 
 MODEL_NAME = "trace_graph_interpolator"
@@ -293,7 +295,7 @@ def train_trace_graph_run(
         if settings.target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
         else None
     )
-    batch_provider = _RandomTrainGatherProvider(
+    batch_provider = RandomWholeShotBatchProvider(
         source,
         train_targets,
         target_sampling=settings.target_sampling,
@@ -780,7 +782,7 @@ def _model_contract(
 def _training_contract(
     settings: _TrainingSettings,
     result: TraceGraphTrainingResult,
-    provider: _RandomTrainGatherProvider,
+    provider: RandomWholeShotBatchProvider,
 ) -> dict[str, object]:
     return {
         "batch_mode": "random_whole_ffid_gathers",
