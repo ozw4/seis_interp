@@ -15,15 +15,15 @@ from seis_interp.training.randomness import (
     EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     WITH_REPLACEMENT_TARGET_SAMPLING,
 )
-from tests.integration.test_train_neighbor_inpainter_pipeline import (
-    _build_neighbor_training_fixture,
+from tests.fixtures.neighbor_training import (
+    prepare_neighbor_training_fixture,
 )
 
 
 def test_target_sampling_config_defaults_to_legacy_and_accepts_epoch_mode(
     tmp_path: Path,
 ) -> None:
-    config_path, _interim, _processed = _build_neighbor_training_fixture(tmp_path)
+    config_path, _interim, _processed = prepare_neighbor_training_fixture(tmp_path)
     config = load_resolved_config(config_path)
 
     assert (
@@ -43,7 +43,7 @@ def test_target_sampling_config_rejects_unsupported_values(
     tmp_path: Path,
     invalid: object,
 ) -> None:
-    config_path, _interim, _processed = _build_neighbor_training_fixture(tmp_path)
+    config_path, _interim, _processed = prepare_neighbor_training_fixture(tmp_path)
     config = load_resolved_config(config_path)
     config["training"]["target_sampling"] = invalid
 
@@ -52,7 +52,7 @@ def test_target_sampling_config_rejects_unsupported_values(
 
 
 def test_epoch_target_sampling_provenance_records_independent_seeds(tmp_path: Path) -> None:
-    config_path, interim, processed = _build_neighbor_training_fixture(tmp_path)
+    config_path, interim, processed = prepare_neighbor_training_fixture(tmp_path)
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config["training"]["target_sampling"] = EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
