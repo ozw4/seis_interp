@@ -22,9 +22,6 @@ from seis_interp.training.whole_shot_training_loop import (
     run_whole_shot_training_loop,
 )
 
-MINIMUM_LEARNING_RATE_FACTOR = 0.03
-MAX_GRADIENT_NORM = 1.0
-
 Reporter = Callable[[str], None]
 
 

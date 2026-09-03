@@ -55,7 +55,7 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
-from seis_interp.training import randomness
+from seis_interp.training import randomness, whole_shot_training_loop
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
@@ -63,8 +63,6 @@ from seis_interp.training.amplitude_scaling import (
 )
 from seis_interp.training.trace_graph_checkpoints import load_trace_graph_checkpoint
 from seis_interp.training.trace_graph_trainer import (
-    MAX_GRADIENT_NORM,
-    MINIMUM_LEARNING_RATE_FACTOR,
     TraceGraphTrainingResult,
     train_trace_graph_interpolator,
 )
@@ -595,7 +593,7 @@ def _validated_settings(
     )
     if not math.isclose(
         minimum_learning_rate,
-        learning_rate * MINIMUM_LEARNING_RATE_FACTOR,
+        learning_rate * whole_shot_training_loop.MINIMUM_LEARNING_RATE_FACTOR,
         rel_tol=1.0e-12,
         abs_tol=0.0,
     ):
@@ -606,8 +604,10 @@ def _validated_settings(
         get_required_config_value(config, "training.gradient_clip_norm"),
         "training.gradient_clip_norm",
     )
-    if gradient_clip_norm != MAX_GRADIENT_NORM:
-        raise ConfigurationError(f"training.gradient_clip_norm must be {MAX_GRADIENT_NORM:g}")
+    if gradient_clip_norm != whole_shot_training_loop.MAX_GRADIENT_NORM:
+        raise ConfigurationError(
+            f"training.gradient_clip_norm must be {whole_shot_training_loop.MAX_GRADIENT_NORM:g}"
+        )
     training = config.get("training")
     if not isinstance(training, Mapping):
         raise ConfigurationError("training must be a mapping")
@@ -795,8 +795,8 @@ def _training_contract(
         "weight_decay": settings.weight_decay,
         "learning_rate_schedule": LEARNING_RATE_SCHEDULE,
         "minimum_learning_rate": settings.minimum_learning_rate,
-        "minimum_learning_rate_factor": MINIMUM_LEARNING_RATE_FACTOR,
-        "gradient_clip_norm": MAX_GRADIENT_NORM,
+        "minimum_learning_rate_factor": whole_shot_training_loop.MINIMUM_LEARNING_RATE_FACTOR,
+        "gradient_clip_norm": whole_shot_training_loop.MAX_GRADIENT_NORM,
         "total_steps": settings.total_steps,
         "batch_size_ffids": settings.batch_size,
         "target_sampling": settings.target_sampling,
