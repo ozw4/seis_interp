@@ -6,7 +6,7 @@ import math
 import platform
 from collections.abc import Callable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -24,20 +24,13 @@ from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
 from seis_interp.evaluation import formal_scope, oracle_trace_snr
+from seis_interp.evaluation import whole_shot as whole_shot_evaluation
 from seis_interp.models.trace_graph_interpolator import (
     ATTENTION_TIME_RESOLUTIONS,
     GRAPH_MODES,
     NODE_STATIC_FEATURE_NAMES,
     POOLED_ATTENTION_TIME_RESOLUTION,
     TraceGraphInterpolator,
-)
-from seis_interp.pipelines.train_shot_gather_inpainter import (
-    TRAINING_SCALE_SOURCE,
-    VALIDATION_SCALE_SOURCE,
-    _metrics_payload,
-    _RawGlobalSnrEvaluator,
-    _sample_training_audit_targets,
-    _source_collision_audit,
 )
 from seis_interp.pipelines.train_siren import (
     PROCESSED_INPUT_FILE_NAMES,
@@ -301,7 +294,7 @@ def train_trace_graph_run(
         target_sampling=settings.target_sampling,
         target_generator=target_sampling_generator,
     )
-    validation_evaluator = _RawGlobalSnrEvaluator(
+    validation_evaluator = whole_shot_evaluation.WholeShotGlobalSnrEvaluator(
         source,
         validation_targets,
         batch_size=settings.validation_batch_size,
@@ -365,12 +358,12 @@ def train_trace_graph_run(
     if not checkpoint_revalidation_matches:
         raise RuntimeError("loaded best checkpoint does not reproduce validation S/N")
 
-    training_audit_targets = _sample_training_audit_targets(
+    training_audit_targets = whole_shot_evaluation.sample_training_audit_targets(
         train_targets,
         trace_count=settings.training_audit_count,
         random_seed=settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET,
     )
-    training_audit = _RawGlobalSnrEvaluator(
+    training_audit = whole_shot_evaluation.WholeShotGlobalSnrEvaluator(
         source,
         training_audit_targets,
         batch_size=settings.validation_batch_size,
@@ -380,7 +373,7 @@ def train_trace_graph_run(
         TRAIN_SPLIT: source.audit(train_targets),
         VALIDATION_SPLIT: source.audit(validation_targets),
     }
-    collision_audit = _source_collision_audit(
+    collision_audit = whole_shot_evaluation.source_collision_audit(
         train_sources,
         val_sources,
         duplicate_audit=duplicate_audit,
@@ -435,11 +428,13 @@ def train_trace_graph_run(
         "revalidation_matches": checkpoint_revalidation_matches,
         "graph_mode": checkpoint.graph_mode,
     }
-    metrics = _metrics_payload(
-        result,
+    base_metrics = asdict(result)
+    base_metrics["history"] = [dict(value) for value in result.history]
+    metrics = whole_shot_evaluation.build_whole_shot_metrics(
+        base_metrics,
         best_validation=best_validation,
         training_audit=training_audit,
-        settings=settings,
+        success_threshold_db=settings.success_threshold_db,
         selection_contract=selection_contract,
         duplicate_audit=duplicate_audit,
         collision_audit=collision_audit,
@@ -787,9 +782,9 @@ def _training_contract(
     return {
         "batch_mode": "random_whole_ffid_gathers",
         "amplitude_scaling": PER_TRACE_RMS_SCALING,
-        "training_scale_source": TRAINING_SCALE_SOURCE,
+        "training_scale_source": whole_shot_evaluation.TRAINING_SCALE_SOURCE,
         "validation_metric_domain": ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
-        "validation_scale_source": VALIDATION_SCALE_SOURCE,
+        "validation_scale_source": whole_shot_evaluation.VALIDATION_SCALE_SOURCE,
         "loss": LOSS_NAME,
         "loss_target_mask": "eligible_receiver_cells",
         "spectrum_weight": settings.spectrum_weight,
