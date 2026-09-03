@@ -1,12 +1,88 @@
-"""Random whole-shot target batch provider shared by gather pipelines."""
+"""Whole-shot batch contract and random target batch provider for gather pipelines."""
 
 from __future__ import annotations
+
+from typing import Protocol
 
 import numpy as np
 import torch
 
 from seis_interp.data import whole_shot
+from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 from seis_interp.training import randomness
+
+WholeShotBatch = tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]
+
+
+class WholeShotBatchProvider(Protocol):
+    """Supply one random whole-shot batch using caller-owned randomness."""
+
+    def __call__(
+        self,
+        batch_size: int,
+        *,
+        generator: torch.Generator,
+        neighbor_dropout: float,
+    ) -> WholeShotBatch: ...
+
+
+def validated_whole_shot_batch(batch: object, *, batch_size: int) -> WholeShotBatch:
+    """Check the six-tensor whole-shot batch contract shared by gather trainers."""
+    if not isinstance(batch, tuple) or len(batch) != 6:
+        raise TypeError(
+            "batch_provider must return six tensors: (neighbors, availability, "
+            "source_deltas, target_coordinates, targets, target_availability)"
+        )
+    names = (
+        "neighbors",
+        "availability",
+        "source_deltas",
+        "target_coordinates",
+        "targets",
+        "target_availability",
+    )
+    if not all(isinstance(value, torch.Tensor) for value in batch):
+        invalid_name = next(
+            name
+            for name, value in zip(names, batch, strict=True)
+            if not isinstance(value, torch.Tensor)
+        )
+        raise TypeError(f"batch {invalid_name} must be a torch.Tensor")
+    neighbors, availability, source_deltas, target_coordinates, targets, target_mask = batch
+    if neighbors.ndim != 5 or neighbors.shape[0] != batch_size:
+        raise ValueError("batch neighbors must have shape (batch, sources, 8, 68, time)")
+    _, source_count, receiver_x, receiver_y, time_count = neighbors.shape
+    if (receiver_x, receiver_y) != (RECEIVER_X_COUNT, RECEIVER_Y_COUNT) or time_count < 2:
+        raise ValueError("batch neighbors must have shape (batch, sources, 8, 68, time>=2)")
+    if availability.shape != (batch_size, source_count, RECEIVER_X_COUNT, RECEIVER_Y_COUNT):
+        raise ValueError("batch availability must match neighbor source and receiver dimensions")
+    if source_deltas.shape != (batch_size, source_count, 2):
+        raise ValueError("batch source_deltas must have shape (batch, sources, 2)")
+    if target_coordinates.shape != (batch_size, 2):
+        raise ValueError("batch target_coordinates must have shape (batch, 2)")
+    expected_targets = (batch_size, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, time_count)
+    if targets.shape != expected_targets:
+        raise ValueError(f"batch targets must have shape {expected_targets}")
+    if target_mask.shape != expected_targets[:3]:
+        raise ValueError("batch target_availability must match target receiver dimensions")
+    for name, value in (
+        ("neighbors", neighbors),
+        ("source_deltas", source_deltas),
+        ("target_coordinates", target_coordinates),
+        ("targets", targets),
+    ):
+        if not value.is_floating_point():
+            raise TypeError(f"batch {name} must have a floating-point dtype")
+    if availability.dtype != torch.bool or target_mask.dtype != torch.bool:
+        raise TypeError("batch availability tensors must have dtype torch.bool")
+    return batch
 
 
 class RandomWholeShotBatchProvider:
@@ -44,7 +120,7 @@ class RandomWholeShotBatchProvider:
         *,
         generator: torch.Generator,
         neighbor_dropout: float,
-    ) -> tuple[torch.Tensor, ...]:
+    ) -> WholeShotBatch:
         if self.target_sampling == randomness.WITH_REPLACEMENT_TARGET_SAMPLING:
             target_indices = torch.randint(
                 self.targets.ffid_count,

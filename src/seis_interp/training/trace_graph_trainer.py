@@ -13,7 +13,6 @@ from typing import Protocol
 import torch
 
 from seis_interp.models.trace_graph_interpolator import TraceGraphInterpolator
-from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 from seis_interp.training.amplitude_scaling import ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN
 from seis_interp.training.trace_graph_checkpoints import save_trace_graph_checkpoint
 from seis_interp.training.trace_graph_losses import (
@@ -22,31 +21,15 @@ from seis_interp.training.trace_graph_losses import (
     slope_consistency_loss,
     spectrum_loss,
 )
+from seis_interp.training.whole_shot_batches import (
+    WholeShotBatchProvider,
+    validated_whole_shot_batch,
+)
 
 MINIMUM_LEARNING_RATE_FACTOR = 0.03
 MAX_GRADIENT_NORM = 1.0
 
-TraceGraphBatch = tuple[
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-    torch.Tensor,
-]
 Reporter = Callable[[str], None]
-
-
-class TraceGraphBatchProvider(Protocol):
-    """Supply one random whole-shot batch using caller-owned randomness."""
-
-    def __call__(
-        self,
-        batch_size: int,
-        *,
-        generator: torch.Generator,
-        neighbor_dropout: float,
-    ) -> TraceGraphBatch: ...
 
 
 class TraceGraphValidationEvaluator(Protocol):
@@ -69,7 +52,7 @@ class TraceGraphTrainingResult:
 
 def train_trace_graph_interpolator(
     model: TraceGraphInterpolator,
-    batch_provider: TraceGraphBatchProvider,
+    batch_provider: WholeShotBatchProvider,
     validation_evaluator: TraceGraphValidationEvaluator,
     *,
     device: torch.device | str,
@@ -154,7 +137,7 @@ def train_trace_graph_interpolator(
             generator=generator,
             neighbor_dropout=neighbor_dropout_value,
         )
-        batch = _validated_batch(raw_batch, batch_size=batch_size_value)
+        batch = validated_whole_shot_batch(raw_batch, batch_size=batch_size_value)
         (
             neighbors,
             availability,
@@ -266,57 +249,6 @@ def _evaluate_validation(
             validation_evaluator(model),
             "validation global S/N",
         )
-
-
-def _validated_batch(batch: object, *, batch_size: int) -> TraceGraphBatch:
-    if not isinstance(batch, tuple) or len(batch) != 6:
-        raise TypeError(
-            "batch_provider must return six tensors: (neighbors, availability, "
-            "source_deltas, target_coordinates, targets, target_availability)"
-        )
-    names = (
-        "neighbors",
-        "availability",
-        "source_deltas",
-        "target_coordinates",
-        "targets",
-        "target_availability",
-    )
-    if not all(isinstance(value, torch.Tensor) for value in batch):
-        invalid_name = next(
-            name
-            for name, value in zip(names, batch, strict=True)
-            if not isinstance(value, torch.Tensor)
-        )
-        raise TypeError(f"batch {invalid_name} must be a torch.Tensor")
-    neighbors, availability, source_deltas, target_coordinates, targets, target_mask = batch
-    if neighbors.ndim != 5 or neighbors.shape[0] != batch_size:
-        raise ValueError("batch neighbors must have shape (batch, sources, 8, 68, time)")
-    _, source_count, receiver_x, receiver_y, time_count = neighbors.shape
-    if (receiver_x, receiver_y) != (RECEIVER_X_COUNT, RECEIVER_Y_COUNT) or time_count < 2:
-        raise ValueError("batch neighbors must have shape (batch, sources, 8, 68, time>=2)")
-    if availability.shape != (batch_size, source_count, RECEIVER_X_COUNT, RECEIVER_Y_COUNT):
-        raise ValueError("batch availability must match neighbor source and receiver dimensions")
-    if source_deltas.shape != (batch_size, source_count, 2):
-        raise ValueError("batch source_deltas must have shape (batch, sources, 2)")
-    if target_coordinates.shape != (batch_size, 2):
-        raise ValueError("batch target_coordinates must have shape (batch, 2)")
-    expected_targets = (batch_size, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, time_count)
-    if targets.shape != expected_targets:
-        raise ValueError(f"batch targets must have shape {expected_targets}")
-    if target_mask.shape != expected_targets[:3]:
-        raise ValueError("batch target_availability must match target receiver dimensions")
-    for name, value in (
-        ("neighbors", neighbors),
-        ("source_deltas", source_deltas),
-        ("target_coordinates", target_coordinates),
-        ("targets", targets),
-    ):
-        if not value.is_floating_point():
-            raise TypeError(f"batch {name} must have a floating-point dtype")
-    if availability.dtype != torch.bool or target_mask.dtype != torch.bool:
-        raise TypeError("batch availability tensors must have dtype torch.bool")
-    return batch
 
 
 def _require_finite_tensor(value: torch.Tensor, name: str, *, step: int) -> None:
