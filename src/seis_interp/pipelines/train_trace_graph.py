@@ -45,12 +45,8 @@ from seis_interp.pipelines.train_neighbor_inpainter import (
     WITH_REPLACEMENT_TARGET_SAMPLING,
     _canonicalize_eligible_physical_coordinates,
     _formal_scope_audit,
-    _joined_trace_table,
     _load_unit_rms_rows,
     _seed_global_model_initialization,
-    _selected_trace_table,
-    _selection_contract,
-    _validate_selected_split_coverage,
 )
 from seis_interp.pipelines.train_shot_gather_inpainter import (
     CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
@@ -80,6 +76,7 @@ from seis_interp.pipelines.train_siren import (
     _validate_preparation_data,
     _validated_preparation_contract,
 )
+from seis_interp.processing import trace_selection
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
     SPLIT_COLUMN,
@@ -175,7 +172,7 @@ def train_trace_graph_run(
     split_table, _normalization, preparation = _load_processed_dataset(processed_directory)
     preliminary_trace_table = pd.read_parquet(interim_directory / TRACES_FILE_NAME)
     split_rows = _validate_split_table_for_gathers(split_table, len(preliminary_trace_table))
-    preliminary_joined = _joined_trace_table(
+    preliminary_joined = trace_selection.join_trace_splits(
         preliminary_trace_table,
         split_table,
         split_rows,
@@ -183,7 +180,7 @@ def train_trace_graph_run(
     preliminary_canonical, preliminary_duplicate_audit = (
         _canonicalize_eligible_physical_coordinates(preliminary_joined)
     )
-    selected_preliminary = _selected_trace_table(
+    selected_preliminary = trace_selection.select_eligible_traces(
         preliminary_canonical,
         ffid_range=settings.ffid_range,
     )
@@ -214,13 +211,15 @@ def train_trace_graph_run(
     )
     if preparation_contract.get("split_scope") != "whole_ffid":
         raise ConfigurationError("trace graph training requires sampling.split_scope='whole_ffid'")
-    joined_table = _joined_trace_table(dataset.trace_table, split_table, split_rows)
+    joined_table = trace_selection.join_trace_splits(dataset.trace_table, split_table, split_rows)
     canonical_table, duplicate_audit = _canonicalize_eligible_physical_coordinates(joined_table)
     if duplicate_audit != preliminary_duplicate_audit:
         raise RuntimeError("duplicate-coordinate audit changed while loading amplitudes")
-    selected_table = _selected_trace_table(canonical_table, ffid_range=settings.ffid_range)
-    _validate_selected_split_coverage(selected_table, split_scope="whole_ffid")
-    selection_contract = _selection_contract(
+    selected_table = trace_selection.select_eligible_traces(
+        canonical_table, ffid_range=settings.ffid_range
+    )
+    trace_selection.validate_selected_split_coverage(selected_table, split_scope="whole_ffid")
+    selection_contract = trace_selection.build_trace_selection_contract(
         canonical_table,
         selected_table,
         sample_count=len(dataset.time_s),

@@ -67,6 +67,7 @@ from seis_interp.pipelines.train_siren import (
     _validate_split_table,
     _validated_preparation_contract,
 )
+from seis_interp.processing import trace_selection
 from seis_interp.processing.multiline_neighbor_geometry import (
     SOURCE_X_LINE_SPACING_M,
     SOURCE_Y_HALF_SHOT_SPACING_M,
@@ -552,7 +553,7 @@ def train_neighbor_inpainter_run(
         len(preliminary_trace_table),
         allow_excluded="trace_amplitude_filter" in preparation,
     )
-    preliminary_joined = _joined_trace_table(
+    preliminary_joined = trace_selection.join_trace_splits(
         preliminary_trace_table,
         split_table,
         split_rows,
@@ -560,7 +561,7 @@ def train_neighbor_inpainter_run(
     preliminary_canonical, preliminary_duplicate_audit = (
         _canonicalize_eligible_physical_coordinates(preliminary_joined)
     )
-    selected_preliminary = _selected_trace_table(
+    selected_preliminary = trace_selection.select_eligible_traces(
         preliminary_canonical,
         ffid_range=settings.ffid_range,
     )
@@ -589,7 +590,7 @@ def train_neighbor_inpainter_run(
         batch_mode=RANDOM_COMPLETE_TRACES_BATCH_MODE,
         allow_whole_ffid_split=True,
     )
-    joined_table = _joined_trace_table(
+    joined_table = trace_selection.join_trace_splits(
         dataset.trace_table,
         split_table,
         split_rows,
@@ -597,11 +598,11 @@ def train_neighbor_inpainter_run(
     canonical_table, duplicate_audit = _canonicalize_eligible_physical_coordinates(joined_table)
     if duplicate_audit != preliminary_duplicate_audit:
         raise RuntimeError("duplicate-coordinate audit changed while loading the interim dataset")
-    selected_table = _selected_trace_table(
+    selected_table = trace_selection.select_eligible_traces(
         canonical_table,
         ffid_range=settings.ffid_range,
     )
-    selection_contract = _selection_contract(
+    selection_contract = trace_selection.build_trace_selection_contract(
         canonical_table,
         selected_table,
         sample_count=len(dataset.time_s),
@@ -624,7 +625,7 @@ def train_neighbor_inpainter_run(
     selected_ffids = selected_table["ffid"].to_numpy(dtype=np.int64)
     train_positions = np.flatnonzero(selected_split == TRAIN_SPLIT).astype(np.int64)
     validation_positions = np.flatnonzero(selected_split == VALIDATION_SPLIT).astype(np.int64)
-    _validate_selected_split_coverage(
+    trace_selection.validate_selected_split_coverage(
         selected_table,
         split_scope=str(preparation_contract["split_scope"]),
     )
@@ -1445,19 +1446,6 @@ def _build_inpainter_model(
     )
 
 
-def _joined_trace_table(
-    trace_table: pd.DataFrame,
-    split_table: pd.DataFrame,
-    split_rows: np.ndarray,
-) -> pd.DataFrame:
-    split_by_array_row = np.empty(len(trace_table), dtype=object)
-    split_by_array_row[split_rows] = split_table[SPLIT_COLUMN].to_numpy()
-    trace_rows = trace_table["array_row"].to_numpy(dtype=np.int64)
-    joined = trace_table.copy()
-    joined[SPLIT_COLUMN] = split_by_array_row[trace_rows]
-    return joined
-
-
 def _canonicalize_eligible_physical_coordinates(
     joined_table: pd.DataFrame,
 ) -> tuple[pd.DataFrame, dict[str, object]]:
@@ -1536,44 +1524,6 @@ def _canonicalize_eligible_physical_coordinates(
         "remaining_duplicate_physical_row_count": len(remaining_duplicate_rows),
     }
     return canonical, audit
-
-
-def _selected_trace_table(
-    canonical_table: pd.DataFrame,
-    *,
-    ffid_range: tuple[int, int] | None,
-) -> pd.DataFrame:
-    selected = canonical_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)
-    if ffid_range is not None:
-        selected &= canonical_table["ffid"].between(*ffid_range)
-    result = canonical_table.loc[selected].reset_index(drop=True)
-    if result.empty:
-        raise ValueError("configured FFID selection contains no eligible traces")
-    return result
-
-
-def _validate_selected_split_coverage(table: pd.DataFrame, *, split_scope: str) -> None:
-    present_splits = set(str(value) for value in table[SPLIT_COLUMN].unique())
-    missing_splits = set(_EFFECTIVE_SPLITS) - present_splits
-    if missing_splits:
-        raise ValueError(f"selected eligible traces contain no rows for: {sorted(missing_splits)}")
-
-    split_counts_by_ffid = table.groupby("ffid")[SPLIT_COLUMN].nunique()
-    if split_scope == "per_ffid":
-        incomplete = sorted(
-            int(ffid)
-            for ffid, count in split_counts_by_ffid.items()
-            if count != len(_EFFECTIVE_SPLITS)
-        )
-        if incomplete:
-            raise ValueError(f"selected eligible FFIDs do not contain every split: {incomplete}")
-        return
-    if split_scope == "whole_ffid":
-        mixed = sorted(int(ffid) for ffid, count in split_counts_by_ffid.items() if count != 1)
-        if mixed:
-            raise ValueError(f"whole-FFID split assigns FFIDs to multiple splits: {mixed}")
-        return
-    raise ValueError(f"neighbor inpainter does not support split_scope {split_scope!r}")
 
 
 def _load_unit_rms_rows(amplitudes: np.ndarray, array_rows: np.ndarray) -> np.ndarray:
@@ -1706,51 +1656,6 @@ def _exact_overlap_amplitude_count(
             np.array_equal(train_amplitudes[train_index], validation_amplitudes[validation_index])
         )
     return count
-
-
-def _selection_contract(
-    canonical_table: pd.DataFrame,
-    selected_table: pd.DataFrame,
-    *,
-    sample_count: int,
-    configured_ffid_range: tuple[int, int] | None,
-) -> dict[str, object]:
-    split_counts = {
-        split: int(selected_table[SPLIT_COLUMN].eq(split).sum())
-        for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
-    }
-    in_range = np.ones(len(canonical_table), dtype=bool)
-    if configured_ffid_range is not None:
-        in_range = canonical_table["ffid"].between(*configured_ffid_range).to_numpy()
-    full_split = canonical_table[SPLIT_COLUMN].to_numpy()
-    excluded_count = int(np.count_nonzero(in_range & (full_split == EXCLUDED_SPLIT)))
-    ffids = sorted(int(value) for value in selected_table["ffid"].unique())
-    ffids_by_split = {
-        split: sorted(
-            int(value)
-            for value in selected_table.loc[selected_table[SPLIT_COLUMN].eq(split), "ffid"].unique()
-        )
-        for split in _EFFECTIVE_SPLITS
-    }
-    split_memberships_per_ffid = selected_table.groupby("ffid")[SPLIT_COLUMN].nunique()
-    contract: dict[str, object] = {
-        "configured_ffid_range": (
-            list(configured_ffid_range) if configured_ffid_range is not None else None
-        ),
-        "selected_ffid_count": len(ffids),
-        "selected_ffid_range": [ffids[0], ffids[-1]],
-        "selected_ffids": ffids,
-        "ffids_by_split": ffids_by_split,
-        "ffid_split_counts": {
-            split: len(split_ffids) for split, split_ffids in ffids_by_split.items()
-        },
-        "ffid_split_overlap_count": int(split_memberships_per_ffid.gt(1).sum()),
-        "maximum_splits_per_ffid": int(split_memberships_per_ffid.max()),
-        "sample_count": sample_count,
-        "effective_eligible_trace_count": sum(split_counts.values()),
-        "split_counts": {**split_counts, EXCLUDED_SPLIT: excluded_count},
-    }
-    return contract
 
 
 def _geometry_contract(
