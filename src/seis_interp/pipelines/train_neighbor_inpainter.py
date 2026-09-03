@@ -28,6 +28,7 @@ from seis_interp.data.trace_store import (
     TRACES_FILE_NAME,
     canonical_source_files,
 )
+from seis_interp.evaluation import formal_scope, oracle_trace_snr
 from seis_interp.models.neighbor_trace_inpainter import (
     DEFAULT_COARSE_SHIFT_SAMPLES_PER_RELATIVE_RECEIVER_Y_INDEX as DEFAULT_LEGACY_COARSE_SHIFT,
 )
@@ -113,15 +114,11 @@ LEARNING_RATE_SCHEDULE = "cosine"
 MIXED_PRECISION = "bfloat16"
 VALIDATION_SCALE_SOURCE = "validation_trace_target_rms"
 TRAINING_SCALE_SOURCE = "training_trace_target_rms"
-PRIMARY_METRIC = "oracle_per_trace_unit_rms_global_snr_db"
-SUCCESS_COMPARISON = "strictly_greater_than"
 TARGET_COORDINATE_SCALING = "train_minmax"
 STEM_KERNEL_SIZE = 15
 RESIDUAL_KERNEL_SIZE = 7
 SINGLE_LINE_GEOMETRY = "single_source_line"
 MULTILINE_GEOMETRY = "multiline_staggered_source"
-CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE = 1.0e-8
-CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE = 1.0e-8
 WITH_REPLACEMENT_TARGET_SAMPLING = "with_replacement"
 EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING = "epoch_without_replacement"
 _SOURCE_BRACKETING_REFERENCE_MODES = frozenset(
@@ -154,7 +151,6 @@ _MULTILINE_NEIGHBORHOOD_KEYS = {
     "source_x_line_spacing_m",
     "source_y_half_shot_spacing_m",
 }
-_EFFECTIVE_SPLITS = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
 _AVAILABILITY_CHUNK_SIZE = 65536
 
 
@@ -507,13 +503,19 @@ class _RawGlobalSnrEvaluator:
 
         point_count = len(self.target_positions) * self.target_amplitudes.shape[1]
         return _EvaluationResult(
-            raw_global_snr_db=_snr_db(signal_energy, error_energy),
-            predicted_unit_rms_global_snr_db=_snr_db(signal_energy, predicted_unit_error_energy),
+            raw_global_snr_db=oracle_trace_snr.global_snr_db_from_energies(
+                signal_energy, error_energy
+            ),
+            predicted_unit_rms_global_snr_db=oracle_trace_snr.global_snr_db_from_energies(
+                signal_energy, predicted_unit_error_energy
+            ),
             signal_energy=signal_energy,
             error_energy=error_energy,
             error_mean_square=error_energy / point_count,
             clean_trace_count=int(np.count_nonzero(self.clean_mask)),
-            clean_raw_global_snr_db=_snr_db(clean_signal_energy, clean_error_energy),
+            clean_raw_global_snr_db=oracle_trace_snr.global_snr_db_from_energies(
+                clean_signal_energy, clean_error_energy
+            ),
         )
 
 
@@ -602,8 +604,14 @@ def train_neighbor_inpainter_run(
         sample_count=len(dataset.time_s),
         configured_ffid_range=settings.ffid_range,
     )
-    configured_scope_audit = _formal_scope_audit(
-        settings,
+    configured_scope_audit = formal_scope.build_formal_scope_audit(
+        ffid_range=settings.ffid_range,
+        exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+        required_eligible_ffid_count=settings.required_eligible_ffid_count,
+        required_sample_count=settings.required_sample_count,
+        required_effective_split_counts=settings.required_effective_split_counts,
+        required_ffid_split_counts=settings.required_ffid_split_counts,
+        required_fully_excluded_ffids=settings.required_fully_excluded_ffids,
         selection_contract=selection_contract,
         preparation_contract=preparation_contract,
     )
@@ -764,8 +772,8 @@ def train_neighbor_inpainter_run(
     checkpoint_revalidation_matches = math.isclose(
         best_validation.raw_global_snr_db,
         result.best_validation_global_snr_db,
-        rel_tol=CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-        abs_tol=CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
+        rel_tol=formal_scope.CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
+        abs_tol=formal_scope.CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
     )
     if not checkpoint_revalidation_matches:
         raise RuntimeError("loaded best checkpoint does not reproduce its validation S/N")
@@ -811,7 +819,7 @@ def train_neighbor_inpainter_run(
         "test_targets_used_for_checkpoint_selection": False,
         "full_file_bytes_hashed": True,
     }
-    scope_audit = _completed_formal_scope_audit(
+    scope_audit = formal_scope.complete_neighbor_formal_scope_audit(
         configured_scope_audit,
         collision_audit=collision_audit,
         geometry_contract=geometry_contract,
@@ -830,12 +838,12 @@ def train_neighbor_inpainter_run(
     )
     checkpoint_contract = {
         "path": run_records.CHECKPOINT_RELATIVE_PATH.as_posix(),
-        "selection_metric": PRIMARY_METRIC,
+        "selection_metric": oracle_trace_snr.PRIMARY_METRIC,
         "best_step": result.best_step,
         "stored_validation_global_snr_db": result.best_validation_global_snr_db,
         "recomputed_validation_global_snr_db": best_validation.raw_global_snr_db,
-        "revalidation_relative_tolerance": CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-        "revalidation_absolute_tolerance": CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
+        "revalidation_relative_tolerance": formal_scope.CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
+        "revalidation_absolute_tolerance": formal_scope.CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
         "revalidation_matches": checkpoint_revalidation_matches,
     }
     metrics = _metrics_payload(
@@ -1029,8 +1037,12 @@ def _validated_settings(
     config_values.require_exact(config, "training.optimizer", OPTIMIZER_NAME)
     config_values.require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
     config_values.require_exact(config, "training.mixed_precision", MIXED_PRECISION)
-    config_values.require_exact(config, "evaluation.primary_metric", PRIMARY_METRIC)
-    config_values.require_exact(config, "evaluation.comparison", SUCCESS_COMPARISON)
+    config_values.require_exact(
+        config, "evaluation.primary_metric", oracle_trace_snr.PRIMARY_METRIC
+    )
+    config_values.require_exact(
+        config, "evaluation.comparison", oracle_trace_snr.SUCCESS_COMPARISON
+    )
     success_threshold_db = config_values.finite_float(
         get_required_config_value(config, "evaluation.success_threshold_db"),
         "evaluation.success_threshold_db",
@@ -1867,178 +1879,6 @@ def _validated_exclude_target_ffid_neighbors(config: Mapping[str, object]) -> bo
     return value
 
 
-def _formal_scope_audit(
-    settings: _TrainingSettings,
-    *,
-    selection_contract: Mapping[str, object],
-    preparation_contract: Mapping[str, object],
-) -> dict[str, object]:
-    trace_quality = preparation_contract.get("trace_quality")
-    if not isinstance(trace_quality, Mapping):
-        raise RuntimeError("validated preparation contract is missing trace_quality")
-    fully_excluded_ffids = trace_quality.get("fully_excluded_ffids")
-    if not isinstance(fully_excluded_ffids, list):
-        raise RuntimeError("validated preparation trace_quality has invalid fully_excluded_ffids")
-    split_counts = selection_contract["split_counts"]
-    if not isinstance(split_counts, Mapping):
-        raise RuntimeError("selection split_counts must be an object")
-
-    required_split_counts = dict(settings.required_effective_split_counts)
-    actual_split_counts = {split: int(split_counts[split]) for split in _EFFECTIVE_SPLITS}
-    raw_actual_ffid_split_counts = selection_contract.get("ffid_split_counts")
-    if not isinstance(raw_actual_ffid_split_counts, Mapping):
-        raise RuntimeError("selection ffid_split_counts must be an object")
-    actual_ffid_split_counts = {
-        split: int(raw_actual_ffid_split_counts[split]) for split in _EFFECTIVE_SPLITS
-    }
-    split_scope = preparation_contract.get("split_scope")
-    if split_scope not in {"per_ffid", "whole_ffid"}:
-        raise RuntimeError("validated preparation contract has unsupported split_scope")
-    checks = {
-        "ffid_range_not_configured": settings.ffid_range is None,
-        "eligible_ffid_count_matches": (
-            selection_contract["selected_ffid_count"] == settings.required_eligible_ffid_count
-        ),
-        "sample_count_matches": (
-            selection_contract["sample_count"] == settings.required_sample_count
-        ),
-        "effective_split_counts_match": actual_split_counts == required_split_counts,
-        "fully_excluded_ffids_match": (
-            fully_excluded_ffids == list(settings.required_fully_excluded_ffids)
-        ),
-        "split_scope_structure_matches": (
-            selection_contract["ffid_split_overlap_count"] == 0
-            and selection_contract["maximum_splits_per_ffid"] == 1
-            and sum(actual_ffid_split_counts.values()) == selection_contract["selected_ffid_count"]
-            if split_scope == "whole_ffid"
-            else all(
-                count == selection_contract["selected_ffid_count"]
-                for count in actual_ffid_split_counts.values()
-            )
-        ),
-        "target_ffid_context_matches": (
-            split_scope != "whole_ffid" or settings.exclude_target_ffid_neighbors
-        ),
-    }
-    if settings.required_ffid_split_counts is not None:
-        checks["ffid_split_counts_match"] = actual_ffid_split_counts == dict(
-            settings.required_ffid_split_counts
-        )
-    return {
-        "requirements": {
-            "ffid_range": None,
-            "split_scope": split_scope,
-            "eligible_ffid_count": settings.required_eligible_ffid_count,
-            "sample_count": settings.required_sample_count,
-            "effective_split_counts": required_split_counts,
-            "ffid_split_counts": (
-                dict(settings.required_ffid_split_counts)
-                if settings.required_ffid_split_counts is not None
-                else None
-            ),
-            "fully_excluded_ffids": list(settings.required_fully_excluded_ffids),
-        },
-        "actual": {
-            "ffid_range": (list(settings.ffid_range) if settings.ffid_range is not None else None),
-            "split_scope": split_scope,
-            "eligible_ffid_count": selection_contract["selected_ffid_count"],
-            "sample_count": selection_contract["sample_count"],
-            "effective_split_counts": actual_split_counts,
-            "ffid_split_counts": actual_ffid_split_counts,
-            "ffid_split_overlap_count": selection_contract["ffid_split_overlap_count"],
-            "fully_excluded_ffids": list(fully_excluded_ffids),
-        },
-        "checks": checks,
-        "scope_success": all(checks.values()),
-    }
-
-
-def _completed_formal_scope_audit(
-    configured_scope_audit: Mapping[str, object],
-    *,
-    collision_audit: Mapping[str, object],
-    geometry_contract: Mapping[str, object],
-    availability_contract: Mapping[str, object],
-    source_bracketing_contract: Mapping[str, object] | None,
-    amplitude_access: Mapping[str, object],
-    checkpoint_revalidation_matches: bool,
-    selected_metric: float,
-    recomputed_metric: float,
-) -> dict[str, object]:
-    completed = deepcopy(dict(configured_scope_audit))
-    raw_checks = completed.get("checks")
-    if not isinstance(raw_checks, Mapping):
-        raise RuntimeError("formal scope audit checks must be an object")
-    materialized = amplitude_access.get("value_rows_materialized_by_split")
-    if not isinstance(materialized, Mapping):
-        raise RuntimeError("amplitude materialization audit must be an object")
-    checks = dict(raw_checks)
-    excludes_target_ffid = geometry_contract.get("target_ffid_neighbor_policy") == (
-        "exclude_exact_ffid"
-    )
-    target_ffid_neighbor_entries = [
-        availability_contract[split].get("target_ffid_neighbor_entries")
-        for split in (TRAIN_SPLIT, VALIDATION_SPLIT)
-        if isinstance(availability_contract.get(split), Mapping)
-    ]
-    checks.update(
-        {
-            "validation_metric_domain_matches": (
-                ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN == "oracle_per_trace_unit_rms"
-            ),
-            "checkpoint_raw_metric_reproduced": checkpoint_revalidation_matches,
-            "selected_metric_matches_recomputed_raw_metric": math.isclose(
-                selected_metric,
-                recomputed_metric,
-                rel_tol=CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-                abs_tol=CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
-            ),
-            "canonical_duplicate_physical_cells_remaining_zero": (
-                collision_audit["canonical_remaining_duplicate_physical_cells"] == 0
-            ),
-            "train_geometry_collision_cells_zero": (
-                collision_audit["train_coordinate_collision_cells"] == 0
-            ),
-            "train_validation_coordinate_overlap_zero": (
-                collision_audit["train_validation_coordinate_overlap_rows"] == 0
-            ),
-            "neighbor_center_offset_count_zero": geometry_contract["center_offset_count"] == 0,
-            "target_ffid_neighbor_entries_zero": (
-                not excludes_target_ffid or target_ffid_neighbor_entries == [0, 0]
-            ),
-            "test_value_rows_not_materialized": materialized.get(TEST_SPLIT) is False,
-            "excluded_value_rows_not_materialized": materialized.get(EXCLUDED_SPLIT) is False,
-        }
-    )
-    if source_bracketing_contract is not None:
-        bracket_audits = [
-            source_bracketing_contract.get(split) for split in (TRAIN_SPLIT, VALIDATION_SPLIT)
-        ]
-        if not all(isinstance(audit, Mapping) for audit in bracket_audits):
-            raise RuntimeError("source bracketing contract is missing split audits")
-        checks.update(
-            {
-                "source_bracketing_unresolved_rows_zero": all(
-                    audit.get("unresolved_rows") == 0 for audit in bracket_audits
-                ),
-                "source_bracketing_target_ffid_entries_zero": all(
-                    audit.get("target_ffid_reference_entries") == 0 for audit in bracket_audits
-                ),
-                "source_bracketing_same_source_y_entries_zero": all(
-                    audit.get("same_source_y_reference_entries") == 0 for audit in bracket_audits
-                ),
-                "source_bracketing_sources_train_only": all(
-                    isinstance(audit.get("source_split_counts"), Mapping)
-                    and audit["source_split_counts"].get("non_train") == 0
-                    for audit in bracket_audits
-                ),
-            }
-        )
-    completed["checks"] = checks
-    completed["scope_success"] = all(checks.values())
-    return completed
-
-
 def _metrics_payload(
     result: NeighborInpainterTrainingResult,
     *,
@@ -2057,7 +1897,9 @@ def _metrics_payload(
     metrics = asdict(result)
     metrics["history"] = [dict(value) for value in result.history]
     accepted_metric = best_validation.raw_global_snr_db
-    metric_success = _passes_success_threshold(accepted_metric, settings.success_threshold_db)
+    metric_success = oracle_trace_snr.passes_success_threshold(
+        accepted_metric, settings.success_threshold_db
+    )
     scope_success = bool(scope_audit["scope_success"])
     metrics.update(
         {
@@ -2075,9 +1917,9 @@ def _metrics_payload(
                 best_validation.predicted_unit_rms_global_snr_db
             ),
             "best_validation_global_snr_db": accepted_metric,
-            PRIMARY_METRIC: accepted_metric,
+            oracle_trace_snr.PRIMARY_METRIC: accepted_metric,
             "success_threshold_db": settings.success_threshold_db,
-            "success_comparison": SUCCESS_COMPARISON,
+            "success_comparison": oracle_trace_snr.SUCCESS_COMPARISON,
             "metric_success": metric_success,
             "scope_success": scope_success,
             "success": metric_success and scope_success,
@@ -2112,15 +1954,3 @@ def _seed_global_model_initialization(seed: int, *, device: torch.device) -> Non
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False
-
-
-def _snr_db(signal_energy: float, error_energy: float) -> float:
-    if not math.isfinite(signal_energy) or signal_energy <= 0.0:
-        raise ValueError("validation signal energy must be positive and finite")
-    if not math.isfinite(error_energy) or error_energy <= 0.0:
-        raise ValueError("validation error energy must be positive and finite")
-    return 10.0 * math.log10(signal_energy / error_energy)
-
-
-def _passes_success_threshold(metric_db: float, threshold_db: float) -> bool:
-    return bool(metric_db > threshold_db)

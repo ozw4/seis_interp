@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
 from seis_interp.evaluation.oracle_trace_snr import (
@@ -34,6 +35,9 @@ def test_success_requires_strictly_greater_metric() -> None:
     assert passes_success_threshold(20.000001, 20.0) is True
     assert passes_success_threshold(20.0, 20.0) is False
     assert passes_success_threshold(19.999999, 20.0) is False
+    assert passes_success_threshold(15.0, 15.0) is False
+    assert passes_success_threshold(np.nextafter(15.0, math.inf), 15.0) is True
+    assert passes_success_threshold(np.nextafter(20.0, math.inf), 20.0) is True
 
 
 def test_primary_metric_and_comparison_constants() -> None:

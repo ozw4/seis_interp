@@ -21,7 +21,6 @@ from seis_interp.models.neighbor_trace_inpainter import (
 )
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.train_neighbor_inpainter import (
-    _passes_success_threshold,
     _validated_settings,
     train_neighbor_inpainter_run,
 )
@@ -1069,10 +1068,3 @@ def test_pipeline_rejects_fixed_contract_drift(
 
     with pytest.raises(ConfigurationError, match=message):
         _validated_settings(config, device_override="cpu")
-
-
-def test_success_threshold_is_strictly_greater_than() -> None:
-    assert _passes_success_threshold(15.0, 15.0) is False
-    assert _passes_success_threshold(np.nextafter(15.0, math.inf), 15.0) is True
-    assert _passes_success_threshold(20.0, 20.0) is False
-    assert _passes_success_threshold(np.nextafter(20.0, math.inf), 20.0) is True

@@ -22,6 +22,7 @@ from seis_interp.configuration import (
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import TRACES_FILE_NAME, canonical_source_files
+from seis_interp.evaluation import formal_scope, oracle_trace_snr
 from seis_interp.models.shot_gather_inpainter import (
     RECEIVER_X_COUNT,
     RECEIVER_Y_COUNT,
@@ -37,24 +38,18 @@ from seis_interp.pipelines.train_neighbor_inpainter import (
     EPOCH_TARGET_SAMPLING_SEED_OFFSET,
     EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     NEIGHBOR_DROPOUT_SEED_OFFSET,
-    PRIMARY_METRIC,
-    SUCCESS_COMPARISON,
     TARGET_COORDINATE_SCALING,
     TRAINING_AUDIT_SEED_OFFSET,
     WITH_REPLACEMENT_TARGET_SAMPLING,
-    _formal_scope_audit,
     _seed_global_model_initialization,
 )
 from seis_interp.pipelines.train_shot_gather_inpainter import (
-    CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
-    CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
     NEIGHBORHOOD_TYPE,
     SOURCE_DISTANCE,
     TARGET_COORDINATES,
     TRAINING_SCALE_SOURCE,
     VALIDATION_SCALE_SOURCE,
     _build_gather_tensors,
-    _completed_scope_audit,
     _metrics_payload,
     _RandomTrainGatherProvider,
     _RawGlobalSnrEvaluator,
@@ -225,8 +220,14 @@ def train_trace_graph_run(
         sample_count=len(dataset.time_s),
         configured_ffid_range=settings.ffid_range,
     )
-    configured_scope_audit = _formal_scope_audit(
-        settings,
+    configured_scope_audit = formal_scope.build_formal_scope_audit(
+        ffid_range=settings.ffid_range,
+        exclude_target_ffid_neighbors=settings.exclude_target_ffid_neighbors,
+        required_eligible_ffid_count=settings.required_eligible_ffid_count,
+        required_sample_count=settings.required_sample_count,
+        required_effective_split_counts=settings.required_effective_split_counts,
+        required_ffid_split_counts=settings.required_ffid_split_counts,
+        required_fully_excluded_ffids=settings.required_fully_excluded_ffids,
         selection_contract=selection_contract,
         preparation_contract=preparation_contract,
     )
@@ -362,8 +363,8 @@ def train_trace_graph_run(
     checkpoint_revalidation_matches = math.isclose(
         best_validation.raw_global_snr_db,
         result.best_validation_global_snr_db,
-        rel_tol=CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-        abs_tol=CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
+        rel_tol=formal_scope.CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
+        abs_tol=formal_scope.CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
     )
     if not checkpoint_revalidation_matches:
         raise RuntimeError("loaded best checkpoint does not reproduce validation S/N")
@@ -400,7 +401,7 @@ def train_trace_graph_run(
         "test_targets_used_for_checkpoint_selection": False,
         "full_file_bytes_hashed": True,
     }
-    scope_audit = _completed_scope_audit(
+    scope_audit = formal_scope.complete_whole_shot_formal_scope_audit(
         configured_scope_audit,
         availability_contract=availability_contract,
         collision_audit=collision_audit,
@@ -428,12 +429,12 @@ def train_trace_graph_run(
     }
     checkpoint_contract = {
         "path": run_records.CHECKPOINT_RELATIVE_PATH.as_posix(),
-        "selection_metric": PRIMARY_METRIC,
+        "selection_metric": oracle_trace_snr.PRIMARY_METRIC,
         "best_step": result.best_step,
         "stored_validation_global_snr_db": result.best_validation_global_snr_db,
         "recomputed_validation_global_snr_db": best_validation.raw_global_snr_db,
-        "revalidation_relative_tolerance": CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
-        "revalidation_absolute_tolerance": CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
+        "revalidation_relative_tolerance": formal_scope.CHECKPOINT_REVALIDATION_RELATIVE_TOLERANCE,
+        "revalidation_absolute_tolerance": formal_scope.CHECKPOINT_REVALIDATION_ABSOLUTE_TOLERANCE,
         "revalidation_matches": checkpoint_revalidation_matches,
         "graph_mode": checkpoint.graph_mode,
     }
@@ -574,8 +575,12 @@ def _validated_settings(
     config_values.require_exact(config, "training.optimizer", OPTIMIZER_NAME)
     config_values.require_exact(config, "training.learning_rate_schedule", LEARNING_RATE_SCHEDULE)
     config_values.require_exact(config, "training.mixed_precision", MIXED_PRECISION)
-    config_values.require_exact(config, "evaluation.primary_metric", PRIMARY_METRIC)
-    config_values.require_exact(config, "evaluation.comparison", SUCCESS_COMPARISON)
+    config_values.require_exact(
+        config, "evaluation.primary_metric", oracle_trace_snr.PRIMARY_METRIC
+    )
+    config_values.require_exact(
+        config, "evaluation.comparison", oracle_trace_snr.SUCCESS_COMPARISON
+    )
     exclude_target_ffid_neighbors = get_required_config_value(
         config,
         "training.exclude_target_ffid_neighbors",
