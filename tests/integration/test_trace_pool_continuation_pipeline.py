@@ -20,7 +20,7 @@ from seis_interp.configuration import (
 from seis_interp.pipelines import batching_ablation as pipeline
 from seis_interp.pipelines.domain_scaling import deterministic_nested_trace_subsets
 from seis_interp.processing.trace_splits import TRAIN_SPLIT
-from tests.integration.test_domain_scaling_pipeline import build_experiment_fixture
+from tests.fixtures.siren_experiment import build_experiment_fixture
 
 
 def test_study_011_config_locks_the_seven_stage_continuation() -> None:

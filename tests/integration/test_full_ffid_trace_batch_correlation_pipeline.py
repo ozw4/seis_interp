@@ -20,7 +20,7 @@ from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines import batching_ablation as pipeline
 from seis_interp.processing.trace_splits import TRAIN_SPLIT
 from seis_interp.training.correlation_loss import trace_correlation_loss
-from tests.integration.test_domain_scaling_pipeline import build_experiment_fixture
+from tests.fixtures.siren_experiment import build_experiment_fixture
 
 
 def test_study_009_config_locks_trace_batches_with_correlation_loss() -> None:

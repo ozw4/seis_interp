@@ -21,7 +21,7 @@ from seis_interp.configuration import (
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines import correlation_loss_ablation as pipeline
 from seis_interp.processing.trace_splits import TRAIN_SPLIT
-from tests.integration.test_domain_scaling_pipeline import build_experiment_fixture
+from tests.fixtures.siren_experiment import build_experiment_fixture
 
 
 def test_study_005_config_locks_the_fixed_conditions() -> None:
