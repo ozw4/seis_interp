@@ -273,6 +273,25 @@ def test_supplied_finite_check_names_are_reported(tmp_path: Path) -> None:
         _run(recorder, tmp_path, training_step=nan_metric_step)
 
 
+def test_supplied_finite_checks_run_in_order(tmp_path: Path) -> None:
+    recorder = _Recorder([1.0, 2.0])
+
+    def two_nan_checks_step(
+        model: _TinyModel,
+        batch: tuple[torch.Tensor, ...],
+        use_cuda_bfloat16: bool,
+    ) -> WholeShotStepResult:
+        nan = torch.tensor(float("nan"))
+        return WholeShotStepResult(
+            loss=torch.square(model.weight).sum(),
+            history_metrics=(),
+            finite_checks=(("training first check", nan), ("training second check", nan)),
+        )
+
+    with pytest.raises(FloatingPointError, match="training first check is non-finite at step 1"):
+        _run(recorder, tmp_path, training_step=two_nan_checks_step)
+
+
 @pytest.mark.parametrize(
     ("override", "match"),
     [
