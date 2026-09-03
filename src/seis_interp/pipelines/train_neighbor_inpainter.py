@@ -91,6 +91,7 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
+from seis_interp.training import randomness
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
@@ -119,17 +120,12 @@ STEM_KERNEL_SIZE = 15
 RESIDUAL_KERNEL_SIZE = 7
 SINGLE_LINE_GEOMETRY = "single_source_line"
 MULTILINE_GEOMETRY = "multiline_staggered_source"
-WITH_REPLACEMENT_TARGET_SAMPLING = "with_replacement"
-EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING = "epoch_without_replacement"
 _SOURCE_BRACKETING_REFERENCE_MODES = frozenset(
     (
         SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_REFERENCE,
         SAME_LINE_EXACT_RECEIVER_LINEAR_BRACKETING_CHANNELS_REFERENCE,
     )
 )
-NEIGHBOR_DROPOUT_SEED_OFFSET = 1
-TRAINING_AUDIT_SEED_OFFSET = 2
-EPOCH_TARGET_SAMPLING_SEED_OFFSET = 3
 
 ProgressReporter = Callable[[str], None]
 
@@ -355,15 +351,15 @@ class _RandomTrainBatchProvider:
         self,
         source: _NeighborTensorSource,
         *,
-        target_sampling: str = WITH_REPLACEMENT_TARGET_SAMPLING,
+        target_sampling: str = randomness.WITH_REPLACEMENT_TARGET_SAMPLING,
         target_generator: torch.Generator | None = None,
     ) -> None:
         if target_sampling not in {
-            WITH_REPLACEMENT_TARGET_SAMPLING,
-            EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+            randomness.WITH_REPLACEMENT_TARGET_SAMPLING,
+            randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
         }:
             raise ValueError(f"unsupported target sampling mode: {target_sampling!r}")
-        if target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
+        if target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
             if not isinstance(target_generator, torch.Generator):
                 raise TypeError(
                     "target_generator is required for epoch_without_replacement sampling"
@@ -391,7 +387,7 @@ class _RandomTrainBatchProvider:
         generator: torch.Generator,
         neighbor_dropout: float,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        if self.target_sampling == WITH_REPLACEMENT_TARGET_SAMPLING:
+        if self.target_sampling == randomness.WITH_REPLACEMENT_TARGET_SAMPLING:
             # Keep this legacy path on the caller's generator: target draws and
             # neighbor dropout retain their established interleaved RNG sequence
             # when training.target_sampling is absent.
@@ -699,7 +695,7 @@ def train_neighbor_inpainter_run(
     )
 
     device = torch.device(settings.device)
-    _seed_global_model_initialization(settings.random_seed, device=device)
+    randomness.seed_global_model_initialization(settings.random_seed, device=device)
     if device.type == "cuda":
         # Some supported PyTorch/CUDA builds reject an explicit device argument
         # here even though the no-argument form works for the current device.
@@ -718,10 +714,13 @@ def train_neighbor_inpainter_run(
         source_bracketing=source_bracketing,
         source_bracketing_reference=settings.prediction_reference,
     )
-    target_sampling_seed = _target_sampling_seed(settings)
+    target_sampling_seed = randomness.target_sampling_seed(
+        settings.random_seed,
+        settings.target_sampling,
+    )
     target_sampling_generator = (
         torch.Generator(device=device).manual_seed(target_sampling_seed)
-        if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+        if settings.target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
         else None
     )
     batch_provider = _RandomTrainBatchProvider(
@@ -739,7 +738,7 @@ def train_neighbor_inpainter_run(
     )
     model = _build_inpainter_model(settings, geometry)
     generator = torch.Generator(device=device).manual_seed(
-        settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
+        settings.random_seed + randomness.NEIGHBOR_DROPOUT_SEED_OFFSET
     )
     result = train_neighbor_trace_inpainter(
         model,
@@ -778,7 +777,9 @@ def train_neighbor_inpainter_run(
     if not checkpoint_revalidation_matches:
         raise RuntimeError("loaded best checkpoint does not reproduce its validation S/N")
 
-    audit_generator = np.random.default_rng(settings.random_seed + TRAINING_AUDIT_SEED_OFFSET)
+    audit_generator = np.random.default_rng(
+        settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET
+    )
     audit_compact = np.sort(
         audit_generator.choice(
             len(train_positions),
@@ -1373,10 +1374,10 @@ def _validated_target_sampling(config: Mapping[str, object]) -> str:
     training = config.get("training")
     if not isinstance(training, Mapping):
         raise ConfigurationError("training configuration must be a mapping")
-    value = training.get("target_sampling", WITH_REPLACEMENT_TARGET_SAMPLING)
+    value = training.get("target_sampling", randomness.WITH_REPLACEMENT_TARGET_SAMPLING)
     supported = {
-        WITH_REPLACEMENT_TARGET_SAMPLING,
-        EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+        randomness.WITH_REPLACEMENT_TARGET_SAMPLING,
+        randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     }
     if not isinstance(value, str) or value not in supported:
         raise ConfigurationError(
@@ -1692,10 +1693,13 @@ def _training_contract(
         "batch_size": settings.batch_size,
         "target_sampling": settings.target_sampling,
         "exclude_target_ffid_neighbors": settings.exclude_target_ffid_neighbors,
-        "target_sampling_seed": _target_sampling_seed(settings),
-        "neighbor_dropout_seed": settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET,
+        "target_sampling_seed": randomness.target_sampling_seed(
+            settings.random_seed,
+            settings.target_sampling,
+        ),
+        "neighbor_dropout_seed": settings.random_seed + randomness.NEIGHBOR_DROPOUT_SEED_OFFSET,
         "target_sampling_rng_independent_of_neighbor_dropout": (
-            settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+            settings.target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
         ),
         "neighbor_dropout": settings.neighbor_dropout,
         "derivative_weight": settings.derivative_weight,
@@ -1714,7 +1718,7 @@ def _training_contract(
         "drawn_training_targets": provider.draw_count,
         "unique_training_targets_seen": provider.unique_target_count,
         "training_audit_count": settings.training_audit_count,
-        "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+        "training_audit_seed": settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET,
     }
 
 
@@ -1864,12 +1868,6 @@ def _neighbor_alignment_contract(model: NeighborTraceInpainter) -> dict[str, obj
     return contract
 
 
-def _target_sampling_seed(settings: _TrainingSettings) -> int:
-    if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
-        return settings.random_seed + EPOCH_TARGET_SAMPLING_SEED_OFFSET
-    return settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
-
-
 def _validated_exclude_target_ffid_neighbors(config: Mapping[str, object]) -> bool:
     training = config.get("training")
     if not isinstance(training, Mapping) or "exclude_target_ffid_neighbors" not in training:
@@ -1928,7 +1926,7 @@ def _metrics_payload(
             "clean_validation_raw_global_snr_db": best_validation.clean_raw_global_snr_db,
             "clean_validation_global_snr_db": best_validation.clean_raw_global_snr_db,
             "training_audit_trace_count": settings.training_audit_count,
-            "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+            "training_audit_seed": settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET,
             "training_audit_global_snr_db": training_audit.raw_global_snr_db,
             "training_audit_predicted_unit_rms_global_snr_db": (
                 training_audit.predicted_unit_rms_global_snr_db
@@ -1947,11 +1945,3 @@ def _metrics_payload(
     if source_bracketing_contract is not None:
         metrics["source_bracketing"] = dict(source_bracketing_contract)
     return metrics
-
-
-def _seed_global_model_initialization(seed: int, *, device: torch.device) -> None:
-    torch.manual_seed(seed)
-    if device.type == "cuda":
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cudnn.deterministic = False

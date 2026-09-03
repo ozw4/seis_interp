@@ -31,14 +31,6 @@ from seis_interp.models.trace_graph_interpolator import (
     POOLED_ATTENTION_TIME_RESOLUTION,
     TraceGraphInterpolator,
 )
-from seis_interp.pipelines.train_neighbor_inpainter import (
-    EPOCH_TARGET_SAMPLING_SEED_OFFSET,
-    EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
-    NEIGHBOR_DROPOUT_SEED_OFFSET,
-    TRAINING_AUDIT_SEED_OFFSET,
-    WITH_REPLACEMENT_TARGET_SAMPLING,
-    _seed_global_model_initialization,
-)
 from seis_interp.pipelines.train_shot_gather_inpainter import (
     TRAINING_SCALE_SOURCE,
     VALIDATION_SCALE_SOURCE,
@@ -71,6 +63,7 @@ from seis_interp.processing.trace_splits import (
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
 )
+from seis_interp.training import randomness
 from seis_interp.training.amplitude_scaling import (
     ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN,
     PER_TRACE_RMS_SCALING,
@@ -252,7 +245,7 @@ def train_trace_graph_run(
         dataset.amplitudes, validation_arrays
     )
     device = torch.device(settings.device)
-    _seed_global_model_initialization(settings.random_seed, device=device)
+    randomness.seed_global_model_initialization(settings.random_seed, device=device)
     if device.type == "cuda":
         with torch.cuda.device(device):
             torch.cuda.reset_peak_memory_stats()
@@ -294,8 +287,10 @@ def train_trace_graph_run(
         availability=val_availability,
     )
     target_sampling_generator = (
-        torch.Generator(device=device).manual_seed(_target_sampling_seed(settings))
-        if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+        torch.Generator(device=device).manual_seed(
+            randomness.target_sampling_seed(settings.random_seed, settings.target_sampling)
+        )
+        if settings.target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
         else None
     )
     batch_provider = _RandomTrainGatherProvider(
@@ -326,7 +321,7 @@ def train_trace_graph_run(
         distance_epsilon=settings.distance_epsilon,
     )
     generator = torch.Generator(device=device).manual_seed(
-        settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
+        settings.random_seed + randomness.NEIGHBOR_DROPOUT_SEED_OFFSET
     )
     result = train_trace_graph_interpolator(
         model,
@@ -371,7 +366,7 @@ def train_trace_graph_run(
     training_audit_targets = _sample_training_audit_targets(
         train_targets,
         trace_count=settings.training_audit_count,
-        random_seed=settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+        random_seed=settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET,
     )
     training_audit = _RawGlobalSnrEvaluator(
         source,
@@ -619,10 +614,10 @@ def _validated_settings(
     training = config.get("training")
     if not isinstance(training, Mapping):
         raise ConfigurationError("training must be a mapping")
-    target_sampling = training.get("target_sampling", WITH_REPLACEMENT_TARGET_SAMPLING)
+    target_sampling = training.get("target_sampling", randomness.WITH_REPLACEMENT_TARGET_SAMPLING)
     if target_sampling not in {
-        WITH_REPLACEMENT_TARGET_SAMPLING,
-        EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
+        randomness.WITH_REPLACEMENT_TARGET_SAMPLING,
+        randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING,
     }:
         raise ConfigurationError("training.target_sampling is unsupported")
     raw_device = device_override or get_required_config_value(config, "training.device")
@@ -808,13 +803,16 @@ def _training_contract(
         "total_steps": settings.total_steps,
         "batch_size_ffids": settings.batch_size,
         "target_sampling": settings.target_sampling,
-        "target_sampling_seed": _target_sampling_seed(settings),
+        "target_sampling_seed": randomness.target_sampling_seed(
+            settings.random_seed,
+            settings.target_sampling,
+        ),
         "target_sampling_rng_independent_of_neighbor_dropout": (
-            settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
+            settings.target_sampling == randomness.EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING
         ),
         "exclude_target_ffid_neighbors": settings.exclude_target_ffid_neighbors,
         "neighbor_dropout": settings.neighbor_dropout,
-        "neighbor_dropout_seed": settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET,
+        "neighbor_dropout_seed": settings.random_seed + randomness.NEIGHBOR_DROPOUT_SEED_OFFSET,
         "neighbor_dropout_scope": "whole_source_gather",
         "evaluation_interval_steps": settings.evaluation_interval_steps,
         "validation_batch_size_ffids": settings.validation_batch_size,
@@ -826,11 +824,5 @@ def _training_contract(
         "drawn_training_ffids": provider.draw_count,
         "unique_training_ffids_seen": provider.unique_target_count,
         "training_audit_trace_count": settings.training_audit_count,
-        "training_audit_seed": settings.random_seed + TRAINING_AUDIT_SEED_OFFSET,
+        "training_audit_seed": settings.random_seed + randomness.TRAINING_AUDIT_SEED_OFFSET,
     }
-
-
-def _target_sampling_seed(settings: _TrainingSettings) -> int:
-    if settings.target_sampling == EPOCH_WITHOUT_REPLACEMENT_TARGET_SAMPLING:
-        return settings.random_seed + EPOCH_TARGET_SAMPLING_SEED_OFFSET
-    return settings.random_seed + NEIGHBOR_DROPOUT_SEED_OFFSET
