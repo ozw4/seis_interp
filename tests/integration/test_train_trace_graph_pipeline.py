@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
 import yaml
 
 from seis_interp.cli import main
-from seis_interp.training.shot_gather_inpainter_checkpoints import (
-    load_shot_gather_inpainter_checkpoint,
-)
+from seis_interp.training.trace_graph_checkpoints import load_trace_graph_checkpoint
 from tests.fixtures.whole_shot_survey import prepare_whole_shot_survey
 
 
-def _build_shot_gather_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _build_trace_graph_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     interim, processed, trace_filter = prepare_whole_shot_survey(tmp_path)
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -32,14 +31,22 @@ def _build_shot_gather_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                     "amplitude": "train_global_rms",
                 },
                 "model": {
-                    "name": "shot_gather_inpainter",
+                    "name": "trace_graph_interpolator",
                     "hidden_width": 8,
+                    "graph_mode": "trace_lattice",
+                    "attention_time_resolution": "pooled",
+                    "use_gradient_checkpointing": False,
+                    "refinement_passes": 1,
+                    "message_passing_rounds": 1,
+                    "time_downsample_factor": 5,
+                    "stem_kernel_size": 3,
+                    "temporal_kernel_size": 3,
+                    "temporal_dilations": [1],
+                    "spatial_kernel_size": 3,
+                    "attention_width": 8,
+                    "distance_epsilon": 1.0e-6,
                     "target_coordinates": ["source_x_m", "source_y_m"],
                     "target_coordinate_scaling": "train_minmax",
-                    "stem_kernel_size": 3,
-                    "residual_kernel_size": 3,
-                    "temporal_dilations": [1],
-                    "distance_epsilon": 1.0e-6,
                     "neighborhood": {
                         "type": "nearest_train_source_gathers",
                         "distance": "euclidean_source_xy_m",
@@ -48,7 +55,7 @@ def _build_shot_gather_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                 },
                 "training": {
                     "amplitude_scaling": "per_trace_rms",
-                    "loss": "l2_plus_first_difference",
+                    "loss": "masked_l2_spectrum_slope_amplitude",
                     "optimizer": "adamw",
                     "learning_rate": 1.0e-3,
                     "weight_decay": 1.0e-5,
@@ -59,7 +66,9 @@ def _build_shot_gather_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                     "target_sampling": "epoch_without_replacement",
                     "exclude_target_ffid_neighbors": True,
                     "neighbor_dropout": 0.0,
-                    "derivative_weight": 0.1,
+                    "spectrum_weight": 0.0,
+                    "slope_weight": 0.0,
+                    "amplitude_weight": 0.0,
                     "gradient_clip_norm": 1.0,
                     "evaluation_interval_steps": 1,
                     "validation_batch_size": 1,
@@ -94,17 +103,17 @@ def _build_shot_gather_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     return config, interim, processed
 
 
-def test_cli_runs_leakage_safe_whole_shot_pipeline(
+def test_cli_runs_leakage_safe_trace_graph_pipeline(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, interim, processed = _build_shot_gather_fixture(tmp_path)
+    config, interim, processed = _build_trace_graph_fixture(tmp_path)
     output = tmp_path / "run"
 
     exit_code = main(
         [
             "train",
-            "shot-gather-inpainter",
+            "trace-graph",
             "--config",
             str(config),
             "--interim",
@@ -123,111 +132,50 @@ def test_cli_runs_leakage_safe_whole_shot_pipeline(
     captured = capsys.readouterr()
     metrics = json.loads(captured.out)
     assert metrics == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
-    assert "shot_gather_inpainter 0/1" in captured.err
-    assert "shot_gather_inpainter 1/1" in captured.err
+    assert "trace_graph_interpolator 0/1" in captured.err
+    assert "trace_graph_interpolator 1/1" in captured.err
+
+    assert math.isfinite(metrics["oracle_per_trace_unit_rms_global_snr_db"])
     assert metrics["validation_metric_domain"] == "oracle_per_trace_unit_rms"
     assert metrics["training_audit_trace_count"] == 4
-    assert metrics["formal_success_scope"]["checks"]["target_ffid_neighbor_entries_zero"]
-    assert metrics["formal_success_scope"]["checks"]["neighbor_sources_train_only"]
+    assert metrics["duplicate_physical_coordinates"]["remaining_duplicate_physical_cell_count"] == 0
+
+    scope_checks = metrics["formal_success_scope"]["checks"]
+    assert scope_checks["target_ffid_neighbor_entries_zero"]
+    assert scope_checks["neighbor_sources_train_only"]
+    assert scope_checks["train_source_coordinate_collisions_zero"]
+    assert scope_checks["train_validation_source_coordinate_overlap_zero"]
+    assert scope_checks["checkpoint_raw_metric_reproduced"]
+    assert scope_checks["validation_metric_domain_matches"]
+
     inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
     assert inputs_lock["preparation"]["split_scope"] == "whole_ffid"
+    assert inputs_lock["selection"]["ffid_split_overlap_count"] == 0
+    assert inputs_lock["selection"]["maximum_splits_per_ffid"] == 1
+    assert inputs_lock["receiver_grid"]["shape"] == [8, 68]
+    assert (
+        inputs_lock["duplicate_physical_coordinates"] == (metrics["duplicate_physical_coordinates"])
+    )
     assert inputs_lock["amplitude_access"]["value_rows_materialized_by_split"] == {
         "excluded": False,
         "test": False,
         "train": True,
         "validation": True,
     }
-    assert inputs_lock["model"]["input_feature_schema_version"] == 1
-    assert inputs_lock["model"]["input_feature_names"]
-    assert inputs_lock["model"]["source_feature_mode"] == "moments"
-    assert inputs_lock["model"]["source_weighting"] == "inverse_distance"
-    assert inputs_lock["model"]["source_weighting_schema_version"] == 1
-    assert inputs_lock["model"]["source_weighting_input_feature_names"] == []
-    assert inputs_lock["model"]["receiver_position_conditioning"] == "none"
+    assert inputs_lock["model"]["graph_mode"] == "trace_lattice"
+    assert inputs_lock["training"]["target_sampling"] == "epoch_without_replacement"
+    assert inputs_lock["training"]["target_sampling_seed"] == 5 + 3
+    assert inputs_lock["training"]["neighbor_dropout_seed"] == 5 + 1
     assert inputs_lock["training"]["target_sampling_rng_independent_of_neighbor_dropout"]
-    assert (
-        inputs_lock["training"]["target_sampling_seed"]
-        != inputs_lock["training"]["neighbor_dropout_seed"]
-    )
+
     resolved = yaml.safe_load((output / "config.resolved.yaml").read_text(encoding="utf-8"))
     assert resolved["training"]["device"] == "cpu"
-    checkpoint = load_shot_gather_inpainter_checkpoint(output / "artifacts/best.pt")
+
+    checkpoint = load_trace_graph_checkpoint(output / "artifacts/best.pt")
     assert checkpoint.best_step == metrics["best_step"]
-    assert (
-        checkpoint.input_feature_schema_version
-        == inputs_lock["model"]["input_feature_schema_version"]
-    )
-    assert list(checkpoint.input_feature_names) == inputs_lock["model"]["input_feature_names"]
-    assert checkpoint.source_feature_mode == inputs_lock["model"]["source_feature_mode"]
-    assert checkpoint.source_weighting == inputs_lock["model"]["source_weighting"]
-    assert (
-        checkpoint.source_weighting_schema_version
-        == (inputs_lock["model"]["source_weighting_schema_version"])
-    )
-    assert (
-        list(checkpoint.source_weighting_input_feature_names)
-        == (inputs_lock["model"]["source_weighting_input_feature_names"])
-    )
-    assert (
-        checkpoint.receiver_position_conditioning
-        == (inputs_lock["model"]["receiver_position_conditioning"])
-    )
+    assert checkpoint.graph_mode == "trace_lattice"
+    assert checkpoint.graph_mode == inputs_lock["checkpoint"]["graph_mode"]
     assert (
         checkpoint.best_validation_global_snr_db
         == metrics["oracle_per_trace_unit_rms_global_snr_db"]
-    )
-
-
-def test_cli_records_dynamic_source_weighting_schema(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config, interim, processed = _build_shot_gather_fixture(tmp_path)
-    configured = yaml.safe_load(config.read_text(encoding="utf-8"))
-    configured["model"]["source_weighting"] = "dynamic_attention"
-    config.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
-    output = tmp_path / "dynamic-run"
-
-    exit_code = main(
-        [
-            "train",
-            "shot-gather-inpainter",
-            "--config",
-            str(config),
-            "--interim",
-            str(interim),
-            "--processed",
-            str(processed),
-            "--output",
-            str(output),
-            "--device",
-            "cpu",
-            "--json",
-        ]
-    )
-
-    assert exit_code == 0
-    capsys.readouterr()
-    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
-    model_contract = inputs_lock["model"]
-    assert model_contract["source_weighting"] == "dynamic_attention"
-    assert model_contract["source_weighting_schema_version"] == 1
-    assert model_contract["source_weighting_input_feature_names"] == [
-        "masked_neighbor_waveform",
-        "normalized_source_direction_x",
-        "normalized_source_direction_y",
-        "normalized_source_distance",
-        "target_coordinate_x",
-        "target_coordinate_y",
-        "receiver_coordinate_x",
-        "receiver_coordinate_y",
-    ]
-    assert model_contract["prediction_reference"] == (
-        "receiver_time_dynamic_attention_over_inverse_distance_logits"
-    )
-    checkpoint = load_shot_gather_inpainter_checkpoint(output / "artifacts/best.pt")
-    assert checkpoint.source_weighting == "dynamic_attention"
-    assert (
-        list(checkpoint.source_weighting_input_feature_names)
-        == (model_contract["source_weighting_input_feature_names"])
     )
