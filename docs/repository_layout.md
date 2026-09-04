@@ -1,6 +1,6 @@
 # `seis_interp` リポジトリ フォルダ構成規約
 
-> POC向け / Version 0.4 / 2026-09-03
+> POC向け
 
 ## 目的
 
@@ -99,7 +99,9 @@ Dev Container内では`SEIS_INTERP_DATA_ROOT=/workspace/data`とし、SEG C3 NA�
 
 `README.md`には現在の研究質問、入力、方法、採否基準、制約、現在の結果を書く。`config.yaml`は実行可能な条件、`inputs.yaml`は実行可能な入力契約である。重要な判断理由があるstudyでは`decisions.md`を置き、現行条件を選んだ理由、supersededとなった判断、将来の変更時に必要な証拠を記録する。`decisions.md`は、条件または評価規則を変更するときに参照する。
 
-PRごとの実装説明、現在のclass/function contract、test件数、全epoch履歴、terminal log、全run metadataは`decisions.md`へ置かない。これらの正本はcode/tests、Git/PR、`runs/`である。
+`README.md`と`docs/`は現行仕様のスナップショットとし、変更履歴、移行手順、issue参照は書かない。経緯が必要な場合は`decisions.md`へ置く。
+
+PRごとの実装説明、現在のclass/function contract、test件数、全epoch履歴、terminal log、全run metadataは`decisions.md`と`reports/`へ置かない。これらの正本はcode/tests、Git/PR、`runs/`である。
 
 ## 3. ディレクトリ境界
 

@@ -104,7 +104,7 @@ dataset.json     dataset metadata, including the source SHA-256
 
 Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_row`. The coordinate rules are documented in [`docs/coordinate_conventions.md`](docs/coordinate_conventions.md).
 
-`data prepare-baseline` requires `--config` because the holdout design is a study condition. Configuration values are resolved in this order: the file named by `extends`, the selected study config, then explicit CLI overrides. The command writes `trace_split.parquet`, `normalization.json`, and `preparation.json`; the latter records the resolved split values, supported normalization methods, and repository-relative config source. Legacy `study.random_seed` is rejected; study-specific seed overrides belong at `project.random_seed`.
+`data prepare-baseline` requires `--config` because the holdout design is a study condition. Configuration values are resolved in this order: the file named by `extends`, the selected study config, then explicit CLI overrides. The command writes `trace_split.parquet`, `normalization.json`, and `preparation.json`; the latter records the resolved split values, supported normalization methods, and repository-relative config source. Study-specific seed overrides belong at `project.random_seed`; `study.random_seed` is rejected.
 
 SEG-Y inputs and everything under `data/interim/` and `data/processed/` are generated or externally obtained data and must not be committed to Git.
 

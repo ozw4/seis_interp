@@ -34,7 +34,7 @@ neighbor whose exact FFID ID matches the target FFID is masked. This
 pseudo-held-out-FFID context matches validation, where the target FFID is absent
 from the train pool.
 
-Stage 01 moves the accepted Study 018 architecture to the corrected whole-FFID
+Stage 01 moves the accepted Study 018 architecture to the whole-FFID
 split and matched target-FFID mask for 2,500 updates. Before changing the model,
 deterministic geometry probes measure zero-neighbor coverage and the useful source
 aperture. K274 leaves
@@ -63,63 +63,63 @@ representation, joint-shot capacity, and geometry conditioning:
 
 | Stage | Isolated condition | Validation S/N |
 |---:|---|---:|
-| 01 | K274 matched baseline | 4.431249374754326 dB |
-| 02 | K714 crossline support | 7.783543855019937 dB |
-| 03 | K1374 complete validation coverage | 8.719953365995504 dB |
-| 04 | K274 plus shot-bracketing residual | 8.51333997509688 dB |
-| 05 | K1374 plus shot-bracketing residual | 8.595997409114656 dB |
+| 01 | K274 matched baseline | 4.4312 dB |
+| 02 | K714 crossline support | 7.7835 dB |
+| 03 | K1374 complete validation coverage | 8.72 dB |
+| 04 | K274 plus shot-bracketing residual | 8.5133 dB |
+| 05 | K1374 plus shot-bracketing residual | 8.596 dB |
 
-Stage 02 improved Stage 01 by 3.352294480265612 dB, and Stage 03 added
-0.936409510975567 dB. The bracketing reference improved matched K274 by
-4.082090600342554 dB, but combining it with K1374 was 0.123955956880849 dB
+Stage 02 improved Stage 01 by 3.3523 dB, and Stage 03 added
+0.9364 dB. The bracketing reference improved matched K274 by
+4.0821 dB, but combining it with K1374 was 0.124 dB
 worse than Stage 03.
 
 | Stage | Isolated continuation condition | Validation S/N |
 |---:|---|---:|
-| 06 | Stage 03 + epoch-without-replacement sampling | 8.715600689719826 dB |
-| 07 | Stage 06 + 6,030 updates | **9.099802401746661 dB** |
-| 08 | Uncollapsed lower/upper bracket channels | 8.47432990435385 dB |
-| 09 | K8 joint 8 x 68 shot gather | 6.78268810859847 dB |
-| 10 | Stage 09 + receiver-y dilation | 6.775663646870017 dB |
-| 11 | Stage 09 + ordered raw source channels | 6.799961202685375 dB |
-| 12 | Stage 09 + width 128 | 7.010553558041961 dB |
-| 13 | Stage 09 + full 767-sample temporal field | 6.8193386756736505 dB |
-| 14 | Stage 12 + receiver-cell learned FiLM | 7.028111512586028 dB |
-| 16 | Stage 09 + inverse-distance power 2 | 6.998159535214238 dB |
-| 17 | Stage 09 + pure MSE objective | 6.779432582049562 dB |
-| 18 | Stage 09 without neighbor dropout | 6.782754397212449 dB |
-| 19 | Stage 12 + 6,000 updates / five TRAIN sweeps | 7.409153447682268 dB |
-| 20 | Stage 12 + inverse-distance power 2 | 7.284502495688106 dB |
-| 21 | Stage 09 + receiver/time dynamic source attention | 7.02265866708403 dB |
-| 22 | Stage 20 + 6,000 updates / five TRAIN sweeps | 7.7007124673434095 dB |
+| 06 | Stage 03 + epoch-without-replacement sampling | 8.7156 dB |
+| 07 | Stage 06 + 6,030 updates | **9.0998 dB** |
+| 08 | Uncollapsed lower/upper bracket channels | 8.4743 dB |
+| 09 | K8 joint 8 x 68 shot gather | 6.7827 dB |
+| 10 | Stage 09 + receiver-y dilation | 6.7757 dB |
+| 11 | Stage 09 + ordered raw source channels | 6.8 dB |
+| 12 | Stage 09 + width 128 | 7.0106 dB |
+| 13 | Stage 09 + full 767-sample temporal field | 6.8193 dB |
+| 14 | Stage 12 + receiver-cell learned FiLM | 7.0281 dB |
+| 16 | Stage 09 + inverse-distance power 2 | 6.9982 dB |
+| 17 | Stage 09 + pure MSE objective | 6.7794 dB |
+| 18 | Stage 09 without neighbor dropout | 6.7828 dB |
+| 19 | Stage 12 + 6,000 updates / five TRAIN sweeps | 7.4092 dB |
+| 20 | Stage 12 + inverse-distance power 2 | 7.2845 dB |
+| 21 | Stage 09 + receiver/time dynamic source attention | 7.0227 dB |
+| 22 | Stage 20 + 6,000 updates / five TRAIN sweeps | 7.7007 dB |
 
-Stage 07 improved Stage 03 by 0.379849035751157 dB. Its second half improved
-only 0.128858813549325 dB over step 3,015, and the current best remains
-15.900197598253339 dB below the strict threshold. Stage 15 K16 was rejected
+Stage 07 improved Stage 03 by 0.3798 dB. Its second half improved
+only 0.1289 dB over step 3,015, and the current best remains
+15.9002 dB below the strict threshold. Stage 15 K16 was rejected
 before a formal run because full-validation geometry diagnostics showed K16
 and K32 references below K8; immutable stage numbering is retained.
 
 Removing joint-shot neighbor dropout changed Stage 09 by only
-0.000066288613979 dB. Width 128 plus squared-distance weighting improved
-Stage 12 by 0.273948937646145 dB, while extending width 128 to 6,000 updates
-improved it by 0.398599889640307 dB. Both formal runs retained full scope and
+0.0001 dB. Width 128 plus squared-distance weighting improved
+Stage 12 by 0.2739 dB, while extending width 128 to 6,000 updates
+improved it by 0.3986 dB. Both formal runs retained full scope and
 checkpoint agreement, but neither exceeded the trace-model best.
 
-Dynamic source attention improved Stage 09 by 0.239970558485560 dB and also
+Dynamic source attention improved Stage 09 by 0.24 dB and also
 passed full scope and checkpoint revalidation. Adding that full isolated gain
-to Stage 20 predicts only 7.524473054173666 dB, still below Stage 07, so an
+to Stage 20 predicts only 7.5245 dB, still below Stage 07, so an
 attention combination is not promoted.
 
-Stage 22 improved Stage 20 by 0.416209971655303 dB and its second half added
-0.290585628981104 dB. It is the strongest joint-shot result but remains
-1.399089934403252 dB below Stage 07 and 13.642615093183897 dB below the
-21.343327560527307 dB long-run promotion gate. No Stage 23 or 50,000-step
+Stage 22 improved Stage 20 by 0.4162 dB and its second half added
+0.2906 dB. It is the strongest joint-shot result but remains
+1.3991 dB below Stage 07 and 13.6426 dB below the
+21.3433 dB long-run promotion gate. No Stage 23 or 50,000-step
 extension is promoted under the unchanged split, raw metric, and data.
 
-The matching Study 018 architecture gained 3.656672439472694 dB between its
+The matching Study 018 architecture gained 3.6567 dB between its
 2,500- and 50,000-step results. A 2,500-step candidate therefore needed at
-least 21.343327560527307 dB to leave an evidence-backed path to 25 dB. Stage 03
-was 12.623374194531802 dB below that promotion gate, so no budget-only 10,000-
+least 21.3433 dB to leave an evidence-backed path to 25 dB. Stage 03
+was 12.6234 dB below that promotion gate, so no budget-only 10,000-
 or 50,000-step extension was run.
 
 The study was reopened after the user explicitly required experiments to
@@ -147,7 +147,7 @@ whole-FFID split and the existing primary metric.
 
 ## Reproduction
 
-Prepare the corrected split:
+Prepare the split:
 
 ```bash
 python -m seis_interp.cli data prepare-baseline \

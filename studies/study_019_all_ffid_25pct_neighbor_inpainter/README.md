@@ -4,8 +4,8 @@
 
 `completed` — the 25 dB threshold was not reached
 
-This within-FFID trace-ratio interpretation is retained as completed history.
-The user's corrected whole-FFID condition is handled by
+This study applies the 25% ratio inside every FFID. The whole-FFID variant of the
+same ratio is a separate scope, covered by
 [`study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter`](../study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/README.md).
 
 ## Research question
@@ -65,27 +65,27 @@ allowed only if the Stage 07 absolute result leaves an evidence-backed path to
 ## Current result
 
 The strict 25 dB target was not reached. Stage 01 reached
-`14.222844294958843 dB` after 2,500 updates. This is 2.580838795167327 dB below
+`14.2228 dB` after 2,500 updates. This is 2.5808 dB below
 the same architecture and budget at 50% density. Stage 02's explicit neighbor
-reference reached `14.22890961173312 dB`, only 0.006065316774277463 dB above
+reference reached `14.2289 dB`, only 0.0061 dB above
 Stage 01, and was not promoted. Stage 03's single shared-attention fusion fell
-to `9.819645233036228 dB` (`-4.403199061922615 dB` versus Stage 01), so early
+to `9.8196 dB` (`-4.4032 dB` versus Stage 01), so early
 compression of K274 neighbors was rejected. Stage 04 increased mean validation
 availability from 54.788 to 132.690 traces with K734 but reached only
-`14.089875885195529 dB` (`-0.1329684097633148 dB` versus Stage 01), so aperture
+`14.0899 dB` (`-0.133 dB` versus Stage 01), so aperture
 growth was also rejected. Stage 05's deterministic coarse shift reached
-`14.204319211934315 dB` (`-0.018525083024528 dB` versus Stage 01), so it was not
+`14.2043 dB` (`-0.0185 dB` versus Stage 01), so it was not
 promoted. All five full-scope runs passed the complete leakage and scope audit
 and reproduced their saved checkpoint metric. Stage 06 reached
-`14.438497913078372 dB`, a `+0.215653618119529 dB` gain over Stage 01 and just
+`14.4385 dB`, a `+0.2157 dB` gain over Stage 01 and just
 passed the predeclared `+0.20 dB` gate for a fresh 10,000-update diagnostic.
 
-That Stage 07 run reached the study best of `16.348938587526803 dB` at step
-10,000, `8.651061412473197 dB` below the strict target. Its late 2,500-step gain
-had fallen to `+0.215778544578125 dB`, and it missed the evidence-based
-50,000-step promotion gate by `6.901326764414691 dB`. The budget-only formal
+That Stage 07 run reached the study best of `16.3489 dB` at step
+10,000, `8.6511 dB` below the strict target. Its late 2,500-step gain
+had fallen to `+0.2158 dB`, and it missed the evidence-based
+50,000-step promotion gate by `6.9013 dB`. The budget-only formal
 extension was therefore stopped. The best checkpoint reproduced exactly,
-the training audit reached `16.592268072774452 dB`, and all scope and leakage
+the training audit reached `16.5923 dB`, and all scope and leakage
 checks passed.
 
 Immutable staged runs are stored under
