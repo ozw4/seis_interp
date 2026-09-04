@@ -37,17 +37,7 @@ source–receiver 二部グラフ定式化、および
 全 validation 293,151 トレース × 625 サンプル、float64 エネルギー累積。
 厳密比較 `> 20.0 dB`。
 
-### 2.3 実装(本 study で新規追加)
-
-| 部品 | ファイル |
-|---|---|
-| GNN モデル | `src/seis_interp/models/trace_graph_interpolator.py` |
-| 複合損失 | `src/seis_interp/training/trace_graph_losses.py` |
-| トレーナ | `src/seis_interp/training/trace_graph_trainer.py` |
-| チェックポイント | `src/seis_interp/training/trace_graph_checkpoints.py` |
-| パイプライン | `src/seis_interp/pipelines/train_trace_graph.py` |
-| CLI | `python -m seis_interp.cli train trace-graph` |
-| 単体テスト | `tests/unit/test_trace_graph_{interpolator,losses,training}.py`(45 件) |
+### 2.3 モデルと損失
 
 モデル要点:
 
@@ -64,8 +54,8 @@ source–receiver 二部グラフ定式化、および
   セル集約 + source–source attention、エッジはゲート付き残差で更新。
 - 予測 = 逆距離リファレンス + zero-init デコーダ残差(ソース順序に対して置換不変。
   マスク済み近傍振幅が出力に影響しないことを単体テストで保証)。
-- 追加オプション: attention の時間分解能(pooled / per_frame / per_frame_shifted)、
-  activation checkpointing(スケール時のメモリ束縛解消のため途中導入)。
+- オプション: attention の時間分解能(pooled / per_frame / per_frame_shifted)、
+  activation checkpointing(スケール時のメモリ束縛を解消する)。
 
 複合損失(`trace_graph_losses.py`):
 
@@ -171,7 +161,7 @@ stage03 checkpoint の誤差分布:
 
 ## 7. 判定(2026-08-31 時点)
 
-**公式基準は未達。** 最良の確定値は stage21 の **12.469212932215141 dB**
+**公式基準は未達。** 最良の確定値は stage21 の **12.4692 dB**
 (GNN trace_lattice、w128/r6/batch4、25,000 updates、全監査通過)であり、
 厳密 20 dB 基準に対し **7.53 dB 不足**。スケールした GNN は本 split 上の
 全コントロール(既存採用アーキテクチャ含む)を上回ったが、観測された
