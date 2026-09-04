@@ -118,7 +118,7 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 | `tests/unit/`・`tests/integration/` | test本体とmodule内だけで使う小さなhelperを置く。別のtest moduleをimportしない。共有setupは`tests/fixtures/`から取る。 |
 | `studies/` | 一つの研究質問について現在の研究契約と必要な判断理由を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
 | `data/` | C3 NAは外部公開データなので`external/`へ置く。source由来のtrace dataは`interim/`、dataset partition、normalization、別生成のinterpolation mask artifact、model-independentなbenchmark case artifactは`processed/`へ置く。manifestと説明文書はGit管理し、実SEG-Y、大容量配列、download lock、生成artifactはGitへ入れない。 |
-| `runs/` | run IDにUTC時刻とGit SHAを含める。model、training、prediction、metricを含むresolved config、input lock、metrics、run metadataを保存し、checkpointを持つpipelineは`artifacts/`へ置く。formal studyのrun directoryはimmutableとし、明示的なscratch workspaceだけがoverwriteableな現在出力を持てる。 |
+| `runs/` | model、training、prediction、metricを扱う。run IDにUTC時刻とGit SHAを含め、resolved config、input lock、metrics、run metadataを保存し、checkpointを持つpipelineは`artifacts/`へ置く。formal studyのrun directoryはimmutableとし、明示的なscratch workspaceだけがoverwriteableな現在出力を持てる。 |
 | `results/` | 採用判断後に追加する。全runのコピーではなく、正式採用した図表・モデル・評価結果だけを保持する。 |
 | `notebooks/` | 必要な場合だけstudy配下に置き、geometry QC、探索、結果レビューに限定する。主要ロジックは`src/`からimportする。 |
 

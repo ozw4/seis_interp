@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import copy
 import json
+from fractions import Fraction
 from pathlib import Path
 from types import MappingProxyType
 
+import numpy as np
 import pytest
 
 from seis_interp.data.benchmark_case_store import (
@@ -121,8 +123,10 @@ def test_rejects_inexact_top_level_keys(change: str) -> None:
         (("mask", "missing_fraction"), 1.0, "missing_fraction"),
         (("mask", "missing_fraction"), float("inf"), "missing_fraction"),
         (("mask", "missing_fraction"), float("nan"), "missing_fraction"),
+        (("mask", "missing_fraction"), Fraction(1, 2), "missing_fraction"),
         (("mask", "random_seed"), -1, "random_seed"),
         (("mask", "random_seed"), True, "random_seed"),
+        (("mask", "random_seed"), np.int64(42), "random_seed"),
         (("mask", "candidate_trace_count"), 0, "candidate_trace_count"),
         (("mask", "candidate_ffid_count"), False, "candidate_ffid_count"),
         (("mask", "counts", "observed"), 0, "counts.observed"),

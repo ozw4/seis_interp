@@ -6,7 +6,7 @@ Data are separated by origin, processing stage, and artifact responsibility.
 - `interim/`: source-derived trace data and reproducible intermediate conversions.
 - `processed/`: dataset partitions, normalization, separately generated interpolation masks, and model-independent benchmark cases.
 
-A prepared dataset partition and its masks use this layout:
+A prepared dataset partition, its masks, and benchmark cases use this layout:
 
 ```text
 data/processed/<dataset>/<partition-id>/

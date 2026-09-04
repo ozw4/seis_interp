@@ -6,7 +6,6 @@ import json
 import math
 import re
 from collections.abc import Mapping
-from numbers import Integral, Real
 from pathlib import Path
 
 from seis_interp.data.interpolation_mask_store import OUTPUT_FILE_NAMES as MASK_FILE_NAMES
@@ -128,9 +127,9 @@ def _validate_mask_summary(value: object) -> None:
     fraction = summary["missing_fraction"]
     if (
         isinstance(fraction, bool)
-        or not isinstance(fraction, Real)
-        or not math.isfinite(float(fraction))
-        or not 0.0 < float(fraction) < 1.0
+        or not isinstance(fraction, float)
+        or not math.isfinite(fraction)
+        or not 0.0 < fraction < 1.0
     ):
         raise ValueError("mask.missing_fraction must be finite and strictly between 0 and 1")
 
@@ -217,9 +216,9 @@ def _positive_integer(value: object, name: str) -> int:
 
 
 def _nonnegative_integer(value: object, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{name} must be a nonnegative integer")
-    return int(value)
+    return value
 
 
 def _case_json(case: Mapping[str, object]) -> str:
