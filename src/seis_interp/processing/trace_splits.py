@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from numbers import Integral, Real
 
 import numpy as np
@@ -15,6 +16,48 @@ TRAIN_SPLIT = "train"
 VALIDATION_SPLIT = "validation"
 TEST_SPLIT = "test"
 EXCLUDED_SPLIT = "excluded"
+
+
+def validate_prepared_split_assignments(
+    joined_table: pd.DataFrame,
+    preparation: Mapping[str, object],
+) -> None:
+    """Validate recorded split counts and whole-FFID membership when applicable."""
+    effective_splits = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
+    actual_split_counts = {
+        split: int(joined_table[SPLIT_COLUMN].eq(split).sum()) for split in effective_splits
+    }
+    recorded_split_counts = preparation.get("split_counts")
+    if recorded_split_counts != actual_split_counts:
+        raise ValueError(
+            "preparation.json split_counts do not match trace_split.parquet: "
+            f"recorded={recorded_split_counts!r}, actual={actual_split_counts!r}"
+        )
+
+    if preparation.get("split_scope") != "whole_ffid":
+        return
+
+    _validated_ffids(joined_table)
+    eligible = joined_table.loc[joined_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)]
+    actual_ffid_split_counts = {
+        split: int(eligible.loc[eligible[SPLIT_COLUMN].eq(split), "ffid"].nunique())
+        for split in effective_splits
+    }
+    recorded_ffid_split_counts = preparation.get("ffid_split_counts")
+    if recorded_ffid_split_counts != actual_ffid_split_counts:
+        raise ValueError(
+            "preparation.json ffid_split_counts do not match trace_split.parquet: "
+            f"recorded={recorded_ffid_split_counts!r}, actual={actual_ffid_split_counts!r}"
+        )
+
+    splits_per_ffid = eligible.groupby("ffid")[SPLIT_COLUMN].nunique()
+    crossing_ffids = splits_per_ffid.index[splits_per_ffid.gt(1)].tolist()
+    if crossing_ffids:
+        raise ValueError(
+            "trace_split.parquet does not contain disjoint whole-FFID splits; "
+            "FFIDs in multiple non-excluded splits: "
+            f"{crossing_ffids}"
+        )
 
 
 def assign_random_trace_splits(

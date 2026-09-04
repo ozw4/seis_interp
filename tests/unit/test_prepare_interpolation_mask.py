@@ -80,19 +80,20 @@ def _write_inputs(
     _write_json(interim / "dataset.json", {"dataset_id": DATASET_ID})
 
     _split_table().to_parquet(processed / "trace_split.parquet", index=False)
-    _write_json(
-        processed / "preparation.json",
-        {
-            "dataset_id": DATASET_ID,
-            "trace_count": len(trace_table),
-            "split_scope": split_scope,
-            "input_files": {
-                "traces.parquet": {
-                    "sha256": file_sha256(interim / "traces.parquet"),
-                }
-            },
+    preparation = {
+        "dataset_id": DATASET_ID,
+        "trace_count": len(trace_table),
+        "split_scope": split_scope,
+        "split_counts": {"train": 6, "validation": 4, "test": 6},
+        "input_files": {
+            "traces.parquet": {
+                "sha256": file_sha256(interim / "traces.parquet"),
+            }
         },
-    )
+    }
+    if split_scope == "whole_ffid":
+        preparation["ffid_split_counts"] = {"train": 3, "validation": 2, "test": 3}
+    _write_json(processed / "preparation.json", preparation)
     return interim, processed
 
 
@@ -273,22 +274,49 @@ def test_random_whole_ffid_rejects_a_non_whole_ffid_split_scope(tmp_path: Path) 
         )
 
 
-def test_random_whole_ffid_rejects_an_ffid_crossing_non_excluded_partitions(
+def test_whole_ffid_scope_rejects_crossing_ffid_outside_requested_partition(
     tmp_path: Path,
 ) -> None:
     interim, processed = _write_inputs(tmp_path)
     split_path = processed / "trace_split.parquet"
     split_table = pd.read_parquet(split_path)
-    split_table.loc[split_table["array_row"].eq(0), "split"] = "test"
+    split_table.loc[split_table["array_row"].eq(0), "split"] = "validation"
     split_table.to_parquet(split_path, index=False)
+    preparation_path = processed / "preparation.json"
+    preparation = _read_json(preparation_path)
+    preparation["split_counts"] = {"train": 5, "validation": 5, "test": 6}
+    preparation["ffid_split_counts"] = {"train": 3, "validation": 3, "test": 3}
+    _write_json(preparation_path, preparation)
 
-    with pytest.raises(ValueError, match="FFIDs also occur"):
+    with pytest.raises(ValueError, match="disjoint whole-FFID"):
         _prepare(
             interim,
             processed,
             tmp_path / "mask",
-            kind=RANDOM_WHOLE_FFID_MASK_KIND,
+            kind=RANDOM_TRACE_MASK_KIND,
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("split_counts", "split_counts do not match"),
+        ("ffid_split_counts", "ffid_split_counts do not match"),
+    ],
+)
+def test_rejects_split_counts_inconsistent_with_partition_artifact(
+    tmp_path: Path,
+    field: str,
+    message: str,
+) -> None:
+    interim, processed = _write_inputs(tmp_path)
+    preparation_path = processed / "preparation.json"
+    preparation = _read_json(preparation_path)
+    preparation[field]["test"] -= 1
+    _write_json(preparation_path, preparation)
+
+    with pytest.raises(ValueError, match=message):
+        _prepare(interim, processed, tmp_path / "mask")
 
 
 @pytest.mark.parametrize(
@@ -424,6 +452,11 @@ def test_rejects_an_empty_requested_partition(tmp_path: Path) -> None:
     split_table = pd.read_parquet(split_path)
     split_table.loc[split_table["split"].eq("test"), "split"] = "excluded"
     split_table.to_parquet(split_path, index=False)
+    preparation_path = processed / "preparation.json"
+    preparation = _read_json(preparation_path)
+    preparation["split_counts"]["test"] = 0
+    preparation["ffid_split_counts"]["test"] = 0
+    _write_json(preparation_path, preparation)
 
     with pytest.raises(ValueError, match="partition 'test' is empty"):
         _prepare(interim, processed, tmp_path / "mask")

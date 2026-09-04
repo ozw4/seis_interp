@@ -35,6 +35,7 @@ from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
+    validate_prepared_split_assignments,
 )
 
 _MASK_PARTITIONS = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
@@ -95,6 +96,7 @@ def prepare_interpolation_mask(
     split_by_array_row = dict(zip(split_rows, split_table[SPLIT_COLUMN].to_numpy(), strict=True))
     trace_partitions = trace_table["array_row"].map(split_by_array_row)
     joined_table = trace_table.assign(**{SPLIT_COLUMN: trace_partitions})
+    validate_prepared_split_assignments(joined_table, preparation)
     canonical_table, duplicate_audit = canonicalize_eligible_physical_coordinates(joined_table)
     candidate_table = canonical_table.loc[canonical_table[SPLIT_COLUMN].eq(stored_partition)].copy()
     if candidate_table.empty:
@@ -108,13 +110,7 @@ def prepare_interpolation_mask(
             random_seed=random_seed,
         )
     else:
-        _validate_whole_ffid_partition(
-            trace_table,
-            trace_partitions,
-            candidate_table,
-            preparation,
-            partition=stored_partition,
-        )
+        _require_whole_ffid_split_scope(preparation)
         mask_table = make_random_whole_ffid_mask(
             candidate_table,
             missing_fraction=missing_fraction,
@@ -306,35 +302,9 @@ def _candidate_ffid_count(candidate_table: pd.DataFrame) -> int:
     return int(candidate_table["ffid"].nunique())
 
 
-def _validate_whole_ffid_partition(
-    trace_table: pd.DataFrame,
-    trace_partitions: pd.Series,
-    candidate_table: pd.DataFrame,
-    preparation: Mapping[str, object],
-    *,
-    partition: str,
-) -> None:
+def _require_whole_ffid_split_scope(preparation: Mapping[str, object]) -> None:
     if preparation.get("split_scope") != WHOLE_FFID_SPLIT_SCOPE:
         raise ValueError(
             f"{RANDOM_WHOLE_FFID_MASK_KIND} requires "
             f"{PREPARATION_FILE_NAME} split_scope={WHOLE_FFID_SPLIT_SCOPE!r}"
-        )
-
-    candidate_ffids = candidate_table["ffid"].drop_duplicates()
-    memberships = pd.DataFrame(
-        {
-            "ffid": trace_table["ffid"].to_numpy(),
-            SPLIT_COLUMN: trace_partitions.to_numpy(),
-        }
-    )
-    relevant = memberships.loc[
-        memberships["ffid"].isin(candidate_ffids) & memberships[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)
-    ]
-    split_counts = relevant.groupby("ffid", dropna=False)[SPLIT_COLUMN].nunique()
-    crossing_ffids = split_counts.index[split_counts.gt(1)].tolist()
-    if crossing_ffids:
-        raise ValueError(
-            f"{RANDOM_WHOLE_FFID_MASK_KIND} requires complete FFIDs in partition "
-            f"{partition!r}; FFIDs also occur in another non-excluded partition: "
-            f"{crossing_ffids}"
         )
