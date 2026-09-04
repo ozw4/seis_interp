@@ -26,6 +26,9 @@ from seis_interp.processing.interpolation_masks import (
     make_random_whole_ffid_mask,
     validate_interpolation_mask,
 )
+from seis_interp.processing.trace_canonicalization import (
+    canonicalize_eligible_physical_coordinates,
+)
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
     SPLIT_COLUMN,
@@ -91,7 +94,9 @@ def prepare_interpolation_mask(
 
     split_by_array_row = dict(zip(split_rows, split_table[SPLIT_COLUMN].to_numpy(), strict=True))
     trace_partitions = trace_table["array_row"].map(split_by_array_row)
-    candidate_table = trace_table.loc[trace_partitions.eq(stored_partition)].copy()
+    joined_table = trace_table.assign(**{SPLIT_COLUMN: trace_partitions})
+    canonical_table, duplicate_audit = canonicalize_eligible_physical_coordinates(joined_table)
+    candidate_table = canonical_table.loc[canonical_table[SPLIT_COLUMN].eq(stored_partition)].copy()
     if candidate_table.empty:
         raise ValueError(f"dataset partition {stored_partition!r} is empty")
     candidate_ffid_count = _candidate_ffid_count(candidate_table)
@@ -129,6 +134,10 @@ def prepare_interpolation_mask(
         "config_source": stored_config_source,
         "candidate_trace_count": int(len(candidate_table)),
         "candidate_ffid_count": candidate_ffid_count,
+        "duplicate_physical_coordinates": {
+            "policy": duplicate_audit["policy"],
+            "removed_trace_count": duplicate_audit["removed_trace_count"],
+        },
         "input_files": {
             group: {file_name: {"sha256": file_sha256(path)} for file_name, path in paths.items()}
             for group, paths in input_paths.items()

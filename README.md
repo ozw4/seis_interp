@@ -113,6 +113,8 @@ Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_ro
 
 `data prepare-mask` separately assigns `observed` and `evaluation_target` roles within one `train`, `validation`, or `test` partition. Its model-independent artifact contains `observation_mask.parquet` and `interpolation_mask.json`, so multiple masks can share one unchanged dataset partition. The supported kinds are currently `random_trace` and `random_whole_ffid`; a whole-FFID mask requires a dataset partition prepared with whole-FFID splitting. Partition, kind, and missing fraction come from `interpolation_mask.*`, while the seed comes from `project.random_seed`; `prepare-mask` does not provide CLI overrides for these conditions.
 
+Before selecting the requested partition, `prepare-mask` canonicalizes duplicate physical trace cells across all non-excluded partitions by keeping the lowest `array_row`. Candidate counts therefore describe the canonicalized rows. `interpolation_mask.json` records this policy and the number of rows removed, while the existing partition artifact remains unchanged.
+
 ```yaml
 project:
   random_seed: 42

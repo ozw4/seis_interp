@@ -28,10 +28,15 @@ CONFIG_SOURCE = "studies/study_001/config.yaml"
 
 
 def _trace_table() -> pd.DataFrame:
+    array_rows = np.arange(16, dtype=np.int64)
     return pd.DataFrame(
         {
-            "array_row": np.arange(16, dtype=np.int64),
+            "array_row": array_rows,
             "ffid": np.repeat(np.arange(100, 108, dtype=np.int64), 2),
+            "source_x_m": array_rows.astype(np.float64),
+            "source_y_m": np.zeros(16, dtype=np.float64),
+            "receiver_x_m": array_rows.astype(np.float64) + 100.0,
+            "receiver_y_m": np.full(16, 200.0, dtype=np.float64),
         }
     )
 
@@ -170,6 +175,72 @@ def test_trace_row_order_does_not_change_role_mapping(tmp_path: Path) -> None:
     assert _role_by_array_row(first_mask) == _role_by_array_row(second_mask)
 
 
+def test_duplicate_physical_cells_are_canonicalized_before_random_masking(
+    tmp_path: Path,
+) -> None:
+    interim, processed = _write_inputs(tmp_path)
+    traces_path = interim / "traces.parquet"
+    trace_table = pd.read_parquet(traces_path)
+    physical_key = ["source_x_m", "source_y_m", "receiver_x_m", "receiver_y_m"]
+    trace_table.loc[15, physical_key] = trace_table.loc[12, physical_key].to_numpy()
+    trace_table.to_parquet(traces_path, index=False)
+    preparation_path = processed / "preparation.json"
+    preparation = _read_json(preparation_path)
+    preparation["input_files"]["traces.parquet"]["sha256"] = file_sha256(traces_path)
+    _write_json(preparation_path, preparation)
+
+    metadata = _prepare(interim, processed, tmp_path / "mask")
+    mask_table, _ = load_interpolation_mask(tmp_path / "mask")
+    masked_traces = mask_table.merge(trace_table, on="array_row", validate="one_to_one")
+
+    assert set(mask_table["array_row"]) == {10, 11, 12, 13, 14}
+    assert 12 in set(mask_table["array_row"])
+    assert 15 not in set(mask_table["array_row"])
+    assert not masked_traces.duplicated(physical_key, keep=False).any()
+    assert masked_traces.groupby(physical_key)[OBSERVATION_ROLE_COLUMN].nunique().eq(1).all()
+    assert metadata["candidate_trace_count"] == 5
+    assert metadata["duplicate_physical_coordinates"] == {
+        "policy": "keep_lowest_array_row",
+        "removed_trace_count": 1,
+    }
+
+
+def test_duplicate_input_order_does_not_change_canonical_random_mask(tmp_path: Path) -> None:
+    first_interim, first_processed = _write_inputs(tmp_path, name="first")
+    first_traces_path = first_interim / "traces.parquet"
+    trace_table = pd.read_parquet(first_traces_path)
+    physical_key = ["source_x_m", "source_y_m", "receiver_x_m", "receiver_y_m"]
+    trace_table.loc[15, physical_key] = trace_table.loc[12, physical_key].to_numpy()
+    trace_table.to_parquet(first_traces_path, index=False)
+
+    second_interim, second_processed = _write_inputs(tmp_path, name="second")
+    second_traces_path = second_interim / "traces.parquet"
+    trace_table.iloc[::-1].reset_index(drop=True).to_parquet(second_traces_path, index=False)
+
+    for interim, processed in (
+        (first_interim, first_processed),
+        (second_interim, second_processed),
+    ):
+        preparation_path = processed / "preparation.json"
+        preparation = _read_json(preparation_path)
+        preparation["input_files"]["traces.parquet"]["sha256"] = file_sha256(
+            interim / "traces.parquet"
+        )
+        _write_json(preparation_path, preparation)
+
+    first_metadata = _prepare(first_interim, first_processed, tmp_path / "first_mask")
+    second_metadata = _prepare(second_interim, second_processed, tmp_path / "second_mask")
+    first_mask, _ = load_interpolation_mask(tmp_path / "first_mask")
+    second_mask, _ = load_interpolation_mask(tmp_path / "second_mask")
+
+    assert _role_by_array_row(first_mask) == _role_by_array_row(second_mask)
+    assert first_metadata["candidate_trace_count"] == second_metadata["candidate_trace_count"]
+    assert (
+        first_metadata["duplicate_physical_coordinates"]
+        == second_metadata["duplicate_physical_coordinates"]
+    )
+
+
 def test_random_whole_ffid_assigns_one_role_to_each_ffid(tmp_path: Path) -> None:
     interim, processed = _write_inputs(tmp_path)
 
@@ -295,6 +366,10 @@ def test_metadata_records_input_hashes_and_candidate_counts(tmp_path: Path) -> N
     assert metadata["config_source"] == CONFIG_SOURCE
     assert metadata["candidate_trace_count"] == 6
     assert metadata["candidate_ffid_count"] == 3
+    assert metadata["duplicate_physical_coordinates"] == {
+        "policy": "keep_lowest_array_row",
+        "removed_trace_count": 0,
+    }
     assert metadata["input_files"] == {
         "interim": {
             "traces.parquet": {"sha256": file_sha256(interim / "traces.parquet")},

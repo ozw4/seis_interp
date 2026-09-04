@@ -27,6 +27,8 @@ def _write_interim_survey(tmp_path: Path) -> Path:
     traces_per_ffid = 2
     trace_count = ffid_count * traces_per_ffid
     trace_indices = np.arange(trace_count, dtype=np.int64)
+    source_x_m = trace_indices.astype(np.float64) * 10.0
+    source_y_m = trace_indices.astype(np.float64) * 20.0
     trace_table = pd.DataFrame(
         {
             "trace_index": trace_indices,
@@ -39,6 +41,10 @@ def _write_interim_survey(tmp_path: Path) -> Path:
             "offset_m": trace_indices.astype(np.float64) + 100.0,
             "azimuth_deg": trace_indices.astype(np.float64) * 5.0,
             "sample_interval_s": np.full(trace_count, 0.008),
+            "source_x_m": source_x_m,
+            "source_y_m": source_y_m,
+            "receiver_x_m": source_x_m + 100.0,
+            "receiver_y_m": source_y_m + 200.0,
         }
     )
     amplitudes = np.arange(1, trace_count * 4 + 1, dtype=np.float32).reshape(trace_count, 4)
