@@ -23,6 +23,6 @@ Study 014) — large enough to cover the extrapolation with margin, small enough
 The near-zero control and the ingredient attribution are settled Study 014 facts; repeating
 them at 8x budget adds cost without information. Instead, determinism is the gate: with seed,
 model, data, and batch schedule identical to Study 014, the first 50,000 updates must reproduce
-Study 014's recorded best (16.13774316268436 dB within 0.05 dB) or the decision is
+Study 014's recorded best (16.1377 dB within 0.05 dB) or the decision is
 `baseline_not_reproduced`. The tolerance is deliberately tight because Study 014 itself
 reproduced the informal scratch run to four decimal places under the same setup.

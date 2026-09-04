@@ -13,14 +13,14 @@ from seis_interp.cli import main
 from seis_interp.configuration import ConfigurationError
 from seis_interp.pipelines.train_siren import train_siren_run
 from seis_interp.training.checkpoints import load_siren_checkpoint
-from tests.integration.test_train_siren_full_ffid_pipeline import _build_full_ffid_fixture
+from tests.fixtures.full_ffid_siren import prepare_full_ffid_siren_fixture
 
 
 def test_random_complete_traces_filters_ffids_and_selects_by_streamed_global_snr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {
@@ -183,7 +183,7 @@ def test_random_complete_traces_filters_ffids_and_selects_by_streamed_global_snr
 def test_random_complete_traces_cosine_schedule_records_the_full_horizon_contract(
     tmp_path: Path,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {
@@ -236,7 +236,7 @@ def test_cosine_schedule_is_rejected_outside_random_complete_traces(
     tmp_path: Path,
     batch_mode: str,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {
@@ -258,7 +258,7 @@ def test_cosine_schedule_is_rejected_outside_random_complete_traces(
 
 
 def test_random_complete_traces_rejects_an_empty_ffid_range(tmp_path: Path) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {
@@ -284,7 +284,7 @@ def test_random_complete_traces_cli_reports_only_the_global_selection_metric(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {
@@ -322,7 +322,7 @@ def test_random_complete_traces_cli_reports_only_the_global_selection_metric(
 
 
 def test_full_ffid_epoch_can_apply_the_same_optional_ffid_range(tmp_path: Path) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {

@@ -19,12 +19,15 @@ from seis_interp.models.shot_gather_inpainter import (
     ShotGatherInpainter,
 )
 from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
+from seis_interp.training import shot_gather_inpainter_trainer
 from seis_interp.training.shot_gather_inpainter_checkpoints import (
     load_shot_gather_inpainter_checkpoint,
     save_shot_gather_inpainter_checkpoint,
 )
 from seis_interp.training.shot_gather_inpainter_trainer import (
+    ShotGatherTrainingResult,
     _masked_mean_square,
+    _shot_gather_training_step,
     train_shot_gather_inpainter,
 )
 
@@ -494,6 +497,225 @@ def test_trainer_can_keep_step_zero_and_does_not_force_step_one_validation(
     assert [row["step"] for row in result.history] == [0, 2]
     assert "loss" not in result.history[0]
     assert load_shot_gather_inpainter_checkpoint(tmp_path / "best.pt").best_step == 0
+
+
+def _gather_batch_tensors() -> tuple[torch.Tensor, ...]:
+    neighbors = torch.randn(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, 3)
+    availability = torch.ones(1, 2, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    source_deltas = torch.tensor([[[1.0, 0.0], [-1.0, 0.0]]])
+    target_coordinates = torch.zeros(1, 2)
+    targets = neighbors.mean(dim=1) + 0.1
+    target_mask = torch.ones(1, RECEIVER_X_COUNT, RECEIVER_Y_COUNT, dtype=torch.bool)
+    return (neighbors, availability, source_deltas, target_coordinates, targets, target_mask)
+
+
+def _wrapper_keywords(tmp_path: Path, **overrides: object) -> dict[str, object]:
+    keywords: dict[str, object] = {
+        "device": "cpu",
+        "generator": torch.Generator().manual_seed(4),
+        "checkpoint_path": tmp_path / "best.pt",
+        "total_steps": 1,
+        "batch_size": 1,
+        "neighbor_dropout": 0.0,
+        "derivative_weight": 0.1,
+        "learning_rate": 1.0e-3,
+        "weight_decay": 0.0,
+        "validation_interval": 1,
+        "use_bfloat16": False,
+        "training_ffid_count": 3,
+        "training_trace_count": 100,
+        "reporter": lambda _message: None,
+    }
+    keywords.update(overrides)
+    return keywords
+
+
+def test_trainer_keeps_result_type_history_keys_and_progress_format(tmp_path: Path) -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+    batch = _gather_batch_tensors()
+    validation_values = iter((1.0, 1.25))
+    messages: list[str] = []
+
+    result = train_shot_gather_inpainter(
+        model,
+        lambda _batch_size, *, generator, neighbor_dropout: batch,
+        lambda _model: next(validation_values),
+        **_wrapper_keywords(tmp_path, reporter=messages.append),
+    )
+
+    assert isinstance(result, ShotGatherTrainingResult)
+    row = result.history[1]
+    assert list(row) == [
+        "step",
+        "loss",
+        "mse",
+        "derivative_mse",
+        "learning_rate",
+        "validation_global_snr_db",
+    ]
+    assert messages[0] == ("shot_gather_inpainter 0/1: oracle_per_trace_unit_rms_global_snr_db=1")
+    assert messages[1] == (
+        f"shot_gather_inpainter 1/1: loss={row['loss']:.8g} mse={row['mse']:.8g} "
+        f"derivative_mse={row['derivative_mse']:.8g} "
+        f"learning_rate={row['learning_rate']:.8g} "
+        "oracle_per_trace_unit_rms_global_snr_db=1.25"
+    )
+
+
+def test_trainer_rejects_negative_and_non_finite_derivative_weight(tmp_path: Path) -> None:
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+
+    def _unused_provider(
+        batch_size: int,
+        *,
+        generator: torch.Generator,
+        neighbor_dropout: float,
+    ) -> tuple[torch.Tensor, ...]:
+        raise AssertionError("batch_provider must not be called")
+
+    with pytest.raises(ValueError, match="derivative_weight must be non-negative"):
+        train_shot_gather_inpainter(
+            model,
+            _unused_provider,
+            lambda _model: 0.0,
+            **_wrapper_keywords(tmp_path, derivative_weight=-0.1),
+        )
+    with pytest.raises(ValueError, match="derivative_weight must be a finite number"):
+        train_shot_gather_inpainter(
+            model,
+            _unused_provider,
+            lambda _model: 0.0,
+            **_wrapper_keywords(tmp_path, derivative_weight=float("nan")),
+        )
+
+
+def test_trainer_rejects_wrong_model_type(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="model must be a ShotGatherInpainter"):
+        train_shot_gather_inpainter(
+            torch.nn.Linear(2, 2),
+            lambda _batch_size, *, generator, neighbor_dropout: _gather_batch_tensors(),
+            lambda _model: 0.0,
+            **_wrapper_keywords(tmp_path),
+        )
+
+
+def test_shot_gather_step_runs_forward_and_losses_in_one_autocast_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = {"value": False}
+
+    class _FakeAutocast:
+        def __init__(self, device_type: str, dtype: torch.dtype) -> None:
+            assert device_type == "cuda"
+            assert dtype == torch.bfloat16
+
+        def __enter__(self) -> None:
+            active["value"] = True
+
+        def __exit__(self, *exc: object) -> bool:
+            active["value"] = False
+            return False
+
+    monkeypatch.setattr(torch, "autocast", _FakeAutocast)
+
+    real_masked_mean_square = shot_gather_inpainter_trainer._masked_mean_square
+    loss_scope_flags: list[bool] = []
+
+    def recording_masked_mean_square(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        loss_scope_flags.append(active["value"])
+        return real_masked_mean_square(values, mask)
+
+    monkeypatch.setattr(
+        shot_gather_inpainter_trainer,
+        "_masked_mean_square",
+        recording_masked_mean_square,
+    )
+
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+    forward_scope_flags: list[bool] = []
+    original_forward = model.forward
+
+    def recording_forward(*args: object, **kwargs: object) -> torch.Tensor:
+        forward_scope_flags.append(active["value"])
+        return original_forward(*args, **kwargs)
+
+    monkeypatch.setattr(model, "forward", recording_forward)
+
+    result = _shot_gather_training_step(
+        model,
+        _gather_batch_tensors(),
+        derivative_weight=0.5,
+        use_cuda_bfloat16=True,
+    )
+
+    assert forward_scope_flags == [True]
+    assert loss_scope_flags == [True, True]
+    assert active["value"] is False
+    metrics = dict(result.history_metrics)
+    torch.testing.assert_close(result.loss, metrics["mse"] + 0.5 * metrics["derivative_mse"])
+    assert [name for name, _ in result.finite_checks] == [
+        "training MSE",
+        "training derivative MSE",
+    ]
+
+
+def test_wrapper_forwards_the_loop_computed_autocast_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded_flags: list[bool] = []
+    real_step = shot_gather_inpainter_trainer._shot_gather_training_step
+
+    def recording_step(
+        model: ShotGatherInpainter,
+        batch: tuple[torch.Tensor, ...],
+        *,
+        derivative_weight: float,
+        use_cuda_bfloat16: bool,
+    ) -> object:
+        recorded_flags.append(use_cuda_bfloat16)
+        return real_step(
+            model,
+            batch,
+            derivative_weight=derivative_weight,
+            use_cuda_bfloat16=use_cuda_bfloat16,
+        )
+
+    monkeypatch.setattr(
+        shot_gather_inpainter_trainer,
+        "_shot_gather_training_step",
+        recording_step,
+    )
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+    batch = _gather_batch_tensors()
+
+    train_shot_gather_inpainter(
+        model,
+        lambda _batch_size, *, generator, neighbor_dropout: batch,
+        lambda _model: 0.0,
+        **_wrapper_keywords(tmp_path, use_bfloat16=True),
+    )
+
+    assert recorded_flags == [False]
+
+
+def test_shot_gather_step_skips_autocast_without_cuda_bfloat16(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _forbidden_autocast(*args: object, **kwargs: object) -> None:
+        raise AssertionError("torch.autocast must not be entered on CPU")
+
+    monkeypatch.setattr(torch, "autocast", _forbidden_autocast)
+    model = ShotGatherInpainter(width=8, temporal_dilations=(1,))
+
+    result = _shot_gather_training_step(
+        model,
+        _gather_batch_tensors(),
+        derivative_weight=0.1,
+        use_cuda_bfloat16=False,
+    )
+
+    assert bool(torch.isfinite(result.loss))
 
 
 def test_cli_parser_exposes_shot_gather_command_without_overwrite() -> None:

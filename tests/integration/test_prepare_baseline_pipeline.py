@@ -576,7 +576,7 @@ def test_cli_writes_final_resolved_config_values(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repository = tmp_path / "repository"
-    monkeypatch.setattr("seis_interp.cli.REPOSITORY_ROOT", repository)
+    monkeypatch.setattr("seis_interp.commands.data.REPOSITORY_ROOT", repository)
     default_config = repository / "configs" / "default.yaml"
     study_config = repository / "studies" / "study" / "config.yaml"
     default_config.parent.mkdir(parents=True)

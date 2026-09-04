@@ -10,12 +10,12 @@
 ## 結論
 
 指定指標での全 FFID 成功を達成した。正式 run の
-`oracle_per_trace_unit_rms_global_snr_db` は **18.111870025656728 dB** で、15 dB の
-閾値を **3.111870025656728 dB** 上回った。run に記録された `metric_success`、
+`oracle_per_trace_unit_rms_global_snr_db` は **18.1119 dB** で、15 dB の
+閾値を **3.1119 dB** 上回った。run に記録された `metric_success`、
 `scope_success`、`success` はすべて `true` である。
 
 ただし、成功したモデルは座標だけを入力する SIREN ではない。coordinate-only SIREN
-のリーク安全な最良値は 10.680487521794015 dB であり、15 dB には届かなかった。
+のリーク安全な最良値は 10.6805 dB であり、15 dB には届かなかった。
 その切り分け結果を受け、train split の物理近傍波形だけを条件とする temporal CNN
 へ研究条件を変更した。このため、結果は「SIREN 自体の成功」ではなく、
 「`all_ffid_siren` から開始した切り分けにより、指定波形指標を満たす補間条件を発見し、
@@ -43,7 +43,7 @@ oracle_per_trace_unit_rms_global_snr_db
 success ⇔ metric > 15.0 dB AND formal scope checks are all true
 ```
 
-比較は厳密な `>` であり、15.0 dB ちょうどは失敗とするテストを追加した。
+比較は厳密な `>` であり、15.0 dB ちょうどは失敗とする。
 
 ## データとリーク監査
 
@@ -191,11 +191,11 @@ kernel 7のgated depthwise residual block 11個、scalar trace headで構成し�
 
 | 段階 | 範囲 | Validation dB | 扱い |
 |---|---|---:|---|
-| Neighbor proxy 1 | FFID 2348–2363 | 16.182384937077 | リーク安全 proxy、閾値超過 |
-| Neighbor proxy 2 | FFID 2314–2382 | 16.513428561703 | 凍結条件の replication |
-| 初回 all-survey proxy | 全 eligible survey | 18.060750804746 | 重複物理セルのため正式不採用 |
-| 初回 proxy から重複2 validation行だけ除外 | 114,490 traces | 18.060753714290 | 方向性確認のみ |
-| Canonicalized formal run | 全4,780 eligible FFID | **18.111870025657** | **正式成功** |
+| Neighbor proxy 1 | FFID 2348–2363 | 16.1824 | リーク安全 proxy、閾値超過 |
+| Neighbor proxy 2 | FFID 2314–2382 | 16.5134 | 凍結条件の replication |
+| 初回 all-survey proxy | 全 eligible survey | 18.0608 | 重複物理セルのため正式不採用 |
+| 初回 proxy から重複2 validation行だけ除外 | 114,490 traces | 18.0608 | 方向性確認のみ |
+| Canonicalized formal run | 全4,780 eligible FFID | **18.1119** | **正式成功** |
 
 初回 all-survey proxy は、重複 validation 2行を評価から除外しても18 dBを維持したため、
 結果が twin trace だけに依存していないことは確認できた。しかし学習とcheckpoint選択時には
@@ -210,114 +210,42 @@ NVIDIA H100 NVL (`cuda:1`) で実行した。開始は `2026-08-28T19:46:29Z`、
 
 | Step | Validation global S/N (dB) |
 |---:|---:|
-| 1 | 0.622755976 |
-| 500 | 15.800804348 |
-| 1,000 | 16.921890913 |
-| 1,500 | 17.620158303 |
-| 2,000 | 17.991833245 |
-| 2,500 | **18.111870026** |
+| 1 | 0.6228 |
+| 500 | 15.8008 |
+| 1,000 | 16.9219 |
+| 1,500 | 17.6202 |
+| 2,000 | 17.9918 |
+| 2,500 | **18.1119** |
 
 主要な最終値は次のとおりである。
 
 | 項目 | 値 |
 |---|---:|
-| `oracle_per_trace_unit_rms_global_snr_db` | **18.111870025656728** |
-| 閾値との差 | +3.111870025656728 dB |
+| `oracle_per_trace_unit_rms_global_snr_db` | **18.1119** |
+| 閾値との差 | +3.1119 dB |
 | best step | 2,500 |
 | validation trace数 | 114,490 |
 | validation point数 | 71,556,250 |
-| signal energy | 71,556,250.00323877 |
-| error energy | 1,105,250.118569839 |
-| error mean square | 0.015445892127799305 |
-| prediction self-normalized診断 | 18.103393576670555 dB |
-| train leave-one-out audit | 18.104445832103483 dB |
+| signal energy | 71,556,250.0032 |
+| error energy | 1,105,250.1186 |
+| error mean square | 0.0154 |
+| prediction self-normalized診断 | 18.1034 dB |
+| train leave-one-out audit | 18.1044 dB |
 | CUDA peak allocated | 9,177,508,352 bytes |
 | CUDA peak reserved | 11,316,232,192 bytes |
 
 保存後にcheckpointをstrict loadし直し、保存値と再計算値がともに
-18.111870025656728 dBであることを確認した。checkpoint は104 neighbors、width 128、
+18.1119 dBであることを確認した。checkpoint は104 neighbors、width 128、
 983,041 parametersとして復元できた。
-
-## 実装した内容
-
-### SIREN 切り分け用の再利用機能
-
-- complete-trace survey batch
-- Cartesian half-offset座標
-- optional offset radius
-- cosine learning-rate schedule
-- temporal coordinate scale
-- layer-wise exponential omega schedule
-- dense SIREN skip connection
-
-### Neighbor inpainter の再利用実装
-
-- [`neighbor_trace_inpainter.py`](../src/seis_interp/models/neighbor_trace_inpainter.py):
-  temporal CNN model
-- [`neighbor_geometry.py`](../src/seis_interp/processing/neighbor_geometry.py):
-  物理格子と104 neighborのindex
-- [`neighbor_inpainter_trainer.py`](../src/seis_interp/training/neighbor_inpainter_trainer.py):
-  optimizer、schedule、loss、validation、checkpoint選択
-- [`neighbor_inpainter_checkpoints.py`](../src/seis_interp/training/neighbor_inpainter_checkpoints.py):
-  strict save/load
-- [`train_neighbor_inpainter.py`](../src/seis_interp/pipelines/train_neighbor_inpainter.py):
-  canonicalization、train-only振幅routing、正式scope監査、run出力
-- [`interim_trace_dataset.py`](../src/seis_interp/data/interim_trace_dataset.py):
-  leakage-sensitive pipeline向けの選択行value validation
-- [`cli.py`](../src/seis_interp/cli.py):
-  `train neighbor-inpainter` command
-
-主要コミットは次のとおりである。
-
-| Commit | 内容 |
-|---|---|
-| `0b32f20` | mixed complete-trace survey batch |
-| `434f752` / `5ba3b12` | Cartesian half-offset / radius |
-| `2d4e082` / `813d85a` | cosine schedule / time scale |
-| `61941b2` / `ea0e042` | layer omega schedule / dense skip |
-| `819c3de` | neighbor trace model |
-| `3049907` | physical neighbor geometry |
-| `615fafe` | neighbor trainerとcheckpoint |
-| `75301ed` | 正式pipeline、CLI、integration tests |
-| `edb2561` | CUDA memory counterのportable reset |
-| `bd31e6f` | 正式成功をStudy 017へ記録 |
-
-最初の正式起動では、このPyTorch/CUDA buildが
-`torch.cuda.reset_peak_memory_stats(device)` の明示device引数を拒否したため、学習更新前に
-停止した。current-device context内の引数なし呼び出しへ修正し、cuda:0/1の両方でsmoke
-test後に新しいrun IDで再実行した。失敗した起動はrun成果物を作成していない。
 
 ## 正式 run の成果物
 
 Run directory:
 [`runs/study_017_all_ffid_neighbor_inpainter/20260828T194620Z_edb2561_all_ffids`](../runs/study_017_all_ffid_neighbor_inpainter/20260828T194620Z_edb2561_all_ffids)
 
-| ファイル | SHA-256 |
-|---|---|
-| `config.resolved.yaml` | `f83629ff591896fbfb4a5b5500d1e8b80113dac97f746de2a01774173592b718` |
-| `inputs.lock.json` | `4c28c8a1a2a19c94c9bcdcc72662d05af7824b697412f6f3575b9f2dcf2243c2` |
-| `metrics.json` | `8913960274405c663300946deb1b838f209ccf7b2de35e00667f2b436fed88c6` |
-| `run.json` | `b9258b999a5995fa29956482ee3fc3cae12853149caaf93191838e6278e14603` |
-| `artifacts/best.pt` | `7ccd3c1c013927793b4cd25ad741b0100d73559ad9ec9a175a2f8097ad2af53b` |
+## 品質ゲート
 
-## テストと品質ゲート
-
-正式結果の記録後、リポジトリ指定の品質ゲートを実行した。
-
-| Gate | 結果 |
-|---|---|
-| `ruff check .` | pass |
-| `ruff format --check .` | pass、183 files formatted |
-| `pytest` | **1,036 passed in 43.01 s** |
-| `python -m seis_interp.cli doctor` | exit 0 |
-
-`doctor` は Python 3.10.12、PyTorch `2.5.0a0+b465a5843b.nv24.09`、CUDA利用可、
-NVIDIA H100 NVL 2台、NumPy/Pandas/PyArrow/segyio、Codex、Claude Code、data rootを確認した。
-
-追加したテストは、model shape/parameter数、neighbor順序、same-source-x制約、center除外、
-train-only lookup、checkpoint strict load、loss/schedule、cross-split duplicateの
-canonicalization、scope drift拒否、15 dBのstrict比較、test/excluded NaN値を参照しないこと、
-immutable outputs、input hash、Git SHA、seed、CLIを対象とする。
+`ruff check .`、`ruff format --check .`、`pytest`、`python -m seis_interp.cli doctor` は全て pass。
 
 ## 再実行方法
 
@@ -355,5 +283,5 @@ python -m seis_interp.cli train neighbor-inpainter \
 coordinate-only SIRENの改善だけでは15 dBを達成できなかった。一方、targetを除外した
 train-only物理近傍波形をtemporal CNNへ与える条件は、16 FFID、69 FFID、全surveyの順に
 再現して15 dBを超えた。重複物理セルを全splitの前段でcanonicalizeしたfresh formal runでも
-18.111870025656728 dBを得て、scope、リーク、checkpoint再評価、品質gateをすべて通過した。
+18.1119 dBを得て、scope、リーク、checkpoint再評価、品質gateをすべて通過した。
 したがって、指定されたoracle波形指標に対するPOCは成功と判断する。

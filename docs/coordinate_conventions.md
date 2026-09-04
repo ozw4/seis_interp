@@ -1,8 +1,8 @@
 # Coordinate conventions
 
-> POC向け / Step 1 / SEG C3 Narrow-Azimuth
+> POC向け / SEG C3 Narrow-Azimuth
 
-Step 1では、SEG-Yを固定形状の5D配列へ変換せず、各traceを1行とするtableとして扱う。ここではその際に採用した座標規約を記録する。実装は`src/seis_interp/processing/geometry.py`と`src/seis_interp/data/segy_index.py`にある。
+SEG-Yを固定形状の5D配列へ変換せず、各traceを1行とするtableとして扱う。この文書はそのときの座標規約を定める。実装は`src/seis_interp/processing/geometry.py`と`src/seis_interp/data/segy_index.py`にある。
 
 ## SEG-Y coordinate scalar
 
@@ -136,7 +136,7 @@ Siren.forward()はdtype変換を行わない。
 
 ## Regeneration boundary
 
-interim datasetは引き続き`azimuth_deg`を保存するため、この規約変更による再生成は不要である。一方、既存のprocessed datasetにある`normalization.json`は旧い線形azimuthの正規化契約に基づくため、更新後の`prepare-baseline`で再生成する。pipelineが一体で管理する`trace_split.parquet`と`preparation.json`も同じprocessed datasetとして再生成し、手編集しない。
+interim datasetは物理値の`azimuth_deg`だけを保存し、正規化契約を持たない。正規化はprocessed dataset側の契約であり、`normalization.json`、`trace_split.parquet`、`preparation.json`は`prepare-baseline`が一体で生成する。この3ファイルは手編集せず、座標規約または正規化契約を変えたときはprocessed datasetごと再生成する。
 
 ## Selectionの記録
 

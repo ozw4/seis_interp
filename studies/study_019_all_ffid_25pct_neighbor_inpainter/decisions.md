@@ -40,8 +40,8 @@ reference tests whether the existing CNN is spending its limited budget
 reconstructing a baseline waveform from zero. The mode is optional so legacy
 models and checkpoints retain their exact behavior.
 
-**Result:** Stage 02 reached `14.22890961173312 dB`, only
-`+0.006065316774277463 dB` above Stage 01 at the same 2,500-update budget. This
+**Result:** Stage 02 reached `14.2289 dB`, only
+`+0.0061 dB` above Stage 01 at the same 2,500-update budget. This
 is not a material gain, so the condition is not promoted to longer training.
 
 ## 2026-08-31 — Isolate geometry-aware fusion from aperture density
@@ -63,12 +63,12 @@ The Stage 03 distance-prior scale is 0.1: at scale 1.0 the sparse K274 mask
 would leave an effective attention support of only about 2.5 neighbors and
 nearly eliminate gradients to distant offsets before learning.
 
-**Result:** Stage 03 reached `9.819645233036228 dB`, which is
-`-4.403199061922615 dB` relative to Stage 01. Its training audit was
-`9.822922017404714 dB`, so the loss is not explained by overfitting; compressing
+**Result:** Stage 03 reached `9.8196 dB`, which is
+`-4.4032 dB` relative to Stage 01. Its training audit was
+`9.8229 dB`, so the loss is not explained by overfitting; compressing
 all K274 inputs into one shared attended feature is the observed bottleneck.
 Stage 04 raised mean validation availability from 54.788 to 132.690 but reached
-only `14.089875885195529 dB`, or `-0.1329684097633148 dB` relative to Stage 01.
+only `14.0899 dB`, or `-0.133 dB` relative to Stage 01.
 Neither condition is promoted.
 
 ## 2026-08-31 — Isolate deterministic receiver-y moveout alignment
@@ -89,9 +89,9 @@ maximum. Hard alignment therefore tests a mechanism that the accepted FIR did
 not absorb. The legacy default remains zero so existing models and checkpoints
 retain exact behavior.
 
-**Result:** Stage 05 reached `14.204319211934315 dB`, or
-`-0.018525083024528 dB` relative to Stage 01. The checkpoint metric reproduced
-exactly and the training audit reached `14.278501922544663 dB`; the condition
+**Result:** Stage 05 reached `14.2043 dB`, or
+`-0.0185 dB` relative to Stage 01. The checkpoint metric reproduced
+exactly and the training audit reached `14.2785 dB`; the condition
 therefore fails the `+0.10 dB` continuation gate and is not promoted.
 
 ## 2026-08-31 — Isolate model width after mechanism tests
@@ -107,8 +107,8 @@ alignment did not improve the matched baseline. Width is the remaining
 low-complexity capacity control supported by the existing pipeline. It must gain
 at least `0.20 dB` at 2,500 updates to become the longer-budget candidate.
 
-**Result:** Stage 06 reached `14.438497913078372 dB`, or
-`+0.215653618119529 dB` relative to Stage 01, with the best checkpoint at the
+**Result:** Stage 06 reached `14.4385 dB`, or
+`+0.2157 dB` relative to Stage 01, with the best checkpoint at the
 final step. The gain narrowly passes the promotion gate, so width 512 is carried
 forward without any rejected mechanism changes.
 
@@ -121,16 +121,16 @@ initialization with `total_steps: 10000`, evaluation every 2,500 steps, and a
 10,000-trace training audit. It does not continue the 2,500-step checkpoint,
 whose cosine schedule has already reached its minimum learning rate.
 
-**Reason:** Study 018 gained 1.7497346480585065 dB from 10,000 to 50,000 updates.
-Under that observed tail, Stage 07 must reach at least `23.250265351941493 dB`
+**Reason:** Study 018 gained 1.7497 dB from 10,000 to 50,000 updates.
+Under that observed tail, Stage 07 must reach at least `23.2503 dB`
 to leave a budget-only path to the strict 25 dB target. A lower result stops the
 50,000-step formal run unless the measured tail is demonstrably much steeper.
 
-**Result:** Stage 07 reached `16.348938587526803 dB` at step 10,000, a
-`+1.910440674448431 dB` gain over Stage 06 and `+2.126094292567959 dB` over
-Stage 01. The late 2,500-step gains contracted from `+0.999179080543796 dB` to
-`+0.575298687927150 dB` and then `+0.215778544578125 dB`. The result is
-`6.901326764414691 dB` below the 50,000-step promotion gate, so the formal
+**Result:** Stage 07 reached `16.3489 dB` at step 10,000, a
+`+1.9104 dB` gain over Stage 06 and `+2.1261 dB` over
+Stage 01. The late 2,500-step gains contracted from `+0.9992 dB` to
+`+0.5753 dB` and then `+0.2158 dB`. The result is
+`6.9013 dB` below the 50,000-step promotion gate, so the formal
 extension is rejected. The study closes with a best full-scope result of
-`16.348938587526803 dB`, below the strict 25 dB target by
-`8.651061412473197 dB`.
+`16.3489 dB`, below the strict 25 dB target by
+`8.6511 dB`.

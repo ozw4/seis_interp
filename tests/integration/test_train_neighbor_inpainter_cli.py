@@ -10,8 +10,8 @@ from seis_interp.cli import main
 from seis_interp.training.neighbor_inpainter_checkpoints import (
     load_neighbor_inpainter_checkpoint,
 )
-from tests.integration.test_train_neighbor_inpainter_pipeline import (
-    _build_neighbor_training_fixture,
+from tests.fixtures.neighbor_training import (
+    prepare_neighbor_training_fixture,
 )
 
 
@@ -19,7 +19,7 @@ def test_cli_runs_neighbor_inpainter_with_device_override_and_json(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, interim, processed = _build_neighbor_training_fixture(
+    config, interim, processed = prepare_neighbor_training_fixture(
         tmp_path,
         configured_device="cuda:0",
     )

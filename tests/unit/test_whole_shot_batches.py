@@ -4,7 +4,10 @@ import numpy as np
 import pytest
 import torch
 
-from seis_interp.training.whole_shot_batches import RandomWholeShotBatchProvider
+from seis_interp.training.whole_shot_batches import (
+    RandomWholeShotBatchProvider,
+    validated_whole_shot_batch,
+)
 
 SOURCE_GATHER_COUNT = 2
 
@@ -208,3 +211,95 @@ def test_unsupported_sampling_mode_is_rejected() -> None:
             target_sampling="round_robin",
             target_generator=None,
         )
+
+
+def _valid_whole_shot_batch() -> tuple[torch.Tensor, ...]:
+    return (
+        torch.zeros(1, SOURCE_GATHER_COUNT, 8, 68, 2),
+        torch.ones(1, SOURCE_GATHER_COUNT, 8, 68, dtype=torch.bool),
+        torch.zeros(1, SOURCE_GATHER_COUNT, 2),
+        torch.zeros(1, 2),
+        torch.zeros(1, 8, 68, 2),
+        torch.ones(1, 8, 68, dtype=torch.bool),
+    )
+
+
+def _batch_with(index: int, value: object) -> tuple[object, ...]:
+    replaced = list(_valid_whole_shot_batch())
+    replaced[index] = value
+    return tuple(replaced)
+
+
+def test_validated_batch_returns_the_same_tuple_object() -> None:
+    batch = _valid_whole_shot_batch()
+    assert validated_whole_shot_batch(batch, batch_size=1) is batch
+
+
+def test_validated_batch_rejects_non_tuple() -> None:
+    with pytest.raises(TypeError, match="batch_provider must return six tensors"):
+        validated_whole_shot_batch(list(_valid_whole_shot_batch()), batch_size=1)
+
+
+def test_validated_batch_rejects_wrong_element_count() -> None:
+    with pytest.raises(TypeError, match="batch_provider must return six tensors"):
+        validated_whole_shot_batch(_valid_whole_shot_batch()[:5], batch_size=1)
+
+
+def test_validated_batch_names_the_non_tensor_element() -> None:
+    with pytest.raises(TypeError, match="batch source_deltas must be a torch.Tensor"):
+        validated_whole_shot_batch(_batch_with(2, [[0.0, 0.0]]), batch_size=1)
+
+
+def test_validated_batch_rejects_wrong_neighbor_batch_dimension() -> None:
+    wrong = torch.zeros(2, SOURCE_GATHER_COUNT, 8, 68, 2)
+    with pytest.raises(ValueError, match="batch neighbors must have shape"):
+        validated_whole_shot_batch(_batch_with(0, wrong), batch_size=1)
+
+
+def test_validated_batch_rejects_wrong_receiver_grid_and_short_time_axis() -> None:
+    wrong_grid = torch.zeros(1, SOURCE_GATHER_COUNT, 8, 67, 2)
+    with pytest.raises(ValueError, match="time>=2"):
+        validated_whole_shot_batch(_batch_with(0, wrong_grid), batch_size=1)
+    short_time = torch.zeros(1, SOURCE_GATHER_COUNT, 8, 68, 1)
+    with pytest.raises(ValueError, match="time>=2"):
+        validated_whole_shot_batch(_batch_with(0, short_time), batch_size=1)
+
+
+def test_validated_batch_rejects_wrong_availability_shape() -> None:
+    wrong = torch.ones(1, SOURCE_GATHER_COUNT + 1, 8, 68, dtype=torch.bool)
+    with pytest.raises(ValueError, match="batch availability must match neighbor source"):
+        validated_whole_shot_batch(_batch_with(1, wrong), batch_size=1)
+
+
+def test_validated_batch_rejects_wrong_source_delta_shape() -> None:
+    wrong = torch.zeros(1, SOURCE_GATHER_COUNT, 3)
+    with pytest.raises(ValueError, match="batch source_deltas must have shape"):
+        validated_whole_shot_batch(_batch_with(2, wrong), batch_size=1)
+
+
+def test_validated_batch_rejects_wrong_target_coordinate_shape() -> None:
+    with pytest.raises(ValueError, match="batch target_coordinates must have shape"):
+        validated_whole_shot_batch(_batch_with(3, torch.zeros(1, 3)), batch_size=1)
+
+
+def test_validated_batch_rejects_target_time_mismatch() -> None:
+    with pytest.raises(ValueError, match="batch targets must have shape"):
+        validated_whole_shot_batch(_batch_with(4, torch.zeros(1, 8, 68, 3)), batch_size=1)
+
+
+def test_validated_batch_rejects_wrong_target_availability_shape() -> None:
+    wrong = torch.ones(1, 8, 67, dtype=torch.bool)
+    with pytest.raises(ValueError, match="target_availability must match target receiver"):
+        validated_whole_shot_batch(_batch_with(5, wrong), batch_size=1)
+
+
+def test_validated_batch_rejects_non_floating_value_tensor() -> None:
+    wrong = torch.zeros(1, 8, 68, 2, dtype=torch.int64)
+    with pytest.raises(TypeError, match="batch targets must have a floating-point dtype"):
+        validated_whole_shot_batch(_batch_with(4, wrong), batch_size=1)
+
+
+def test_validated_batch_rejects_non_boolean_availability() -> None:
+    wrong = torch.ones(1, 8, 68)
+    with pytest.raises(TypeError, match="availability tensors must have dtype torch.bool"):
+        validated_whole_shot_batch(_batch_with(5, wrong), batch_size=1)

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
+import subprocess
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -9,14 +12,33 @@ import pandas as pd
 import pytest
 import yaml
 
+from seis_interp.configuration import REPOSITORY_ROOT
 from seis_interp.pipelines import batching_ablation as pipeline
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.processing.trace_splits import TRAIN_SPLIT
-from tests.integration.test_domain_scaling_pipeline import build_experiment_fixture
-from tests.integration.test_official_siren_baseline_pipeline import (
-    _assert_finite_json,
-    _git_head,
-)
+from tests.fixtures.siren_experiment import build_experiment_fixture
+
+
+def _git_head() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _assert_finite_json(value: object) -> None:
+    if isinstance(value, float):
+        assert math.isfinite(value)
+    elif isinstance(value, Mapping):
+        for child in value.values():
+            _assert_finite_json(child)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for child in value:
+            _assert_finite_json(child)
+
 
 _CONDITION_ORDER = ["global_rms_control", "per_trace_rms", "huber_global_rms"]
 

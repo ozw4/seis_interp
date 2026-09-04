@@ -42,11 +42,12 @@ python scripts/run_study_005_correlation_loss_ablation.py \
   --device cuda:0
 ```
 
-## Decision log
+## Current conclusion
 
-- 2026-08-26: Compare only MSE and MSE plus correlation weight 0.1 on the identical full-batch
-  eight-trace subset; do not add this POC-specific loss to the production trainer before evidence.
-- 2026-08-26: Both `mse_control` and `mse_corr_0p1` completed 50,000 full-batch updates.
-- 2026-08-26: The summary decision was `full_batch_control_succeeds`.
-- 2026-08-26: Best median S/N / correlation were 32.48 dB / 0.9997 for control and 33.15 dB / 0.9998 with correlation loss.
-- 2026-08-26: Stop this correlation-loss path because full batching alone escaped collapse; no causal benefit is attributed to the auxiliary loss.
+Both `mse_control` and `mse_corr_0p1` completed 50,000 full-batch updates and escaped the
+near-zero predictor, giving the summary decision `full_batch_control_succeeds`. Best median trace
+S/N and correlation were 32.48 dB / 0.9997 for the control and 33.15 dB / 0.9998 with correlation
+loss. Because the MSE control alone succeeded, no causal benefit is attributed to the auxiliary
+loss and the correlation-loss path is closed.
+
+Historical rationale belongs in [`decisions.md`](decisions.md).

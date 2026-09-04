@@ -29,7 +29,8 @@ MODEL_TYPE = "shot_gather_inpainter"
 MOMENTS_INPUT_FEATURE_SCHEMA_VERSION = 1
 ORDERED_RAW_INPUT_FEATURE_SCHEMA_VERSION = 2
 SOURCE_WEIGHTING_SCHEMA_VERSION = 1
-# Backward-compatible alias for the original/default moments feature schema.
+# Unqualified alias of the moments schema, not of whichever schema is newest: it stays 1
+# when another input feature schema is added.
 INPUT_FEATURE_SCHEMA_VERSION = 1
 
 

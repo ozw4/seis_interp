@@ -50,14 +50,14 @@ identity-initialized 31-tap depthwise neighbor-alignment FIR. Train for 50,000
 updates with the established replacement sampler.
 
 **Reason:** At 2,500 updates, width 384 improved the width-256 condition by
-0.235723936732938 dB, the gate by 0.050655681414636 dB, and the lightweight FIR
-by 0.130940880975036 dB. Their combined condition preserved the gains and reached
-16.80368309012617 dB, 0.437127913217366 dB above Stage 07. In contrast, the
-parameter-heavy kernel-31 stem lost 0.200347210137853 dB, crossline neighbors lost
-0.245816612566314 dB, and epoch-without-replacement sampling changed the 10,000-
-step result by only -0.001931552368223 dB. Training budget was the largest
+0.2357 dB, the gate by 0.0507 dB, and the lightweight FIR
+by 0.1309 dB. Their combined condition preserved the gains and reached
+16.8037 dB, 0.4371 dB above Stage 07. In contrast, the
+parameter-heavy kernel-31 stem lost 0.2003 dB, crossline neighbors lost
+0.2458 dB, and epoch-without-replacement sampling changed the 10,000-
+step result by only -0.0019 dB. Training budget was the largest
 positive factor: extending the width-256 condition from 2,500 to 10,000 updates
-added 1.881867263685486 dB and was still improving at the final checkpoint.
+added 1.8819 dB and was still improving at the final checkpoint.
 
 ## 2026-08-29 — Accept the 50,000-update formal result
 
@@ -66,7 +66,7 @@ added 1.881867263685486 dB and was still improving at the final checkpoint.
 **Decision:** Accept run
 `20260829T075432Z_ee3d9e5_formal_50000_steps` as satisfying this study's formal
 success contract. Its best and final checkpoint reached
-`oracle_per_trace_unit_rms_global_snr_db = 20.460355529598864`, strictly above
+`oracle_per_trace_unit_rms_global_snr_db = 20.4604`, strictly above
 20 dB, with `metric_success`, `scope_success`, and overall `success` all true.
 
 **Reason:** The saved checkpoint reproduced the selected raw validation metric

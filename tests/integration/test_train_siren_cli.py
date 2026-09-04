@@ -8,13 +8,13 @@ import yaml
 
 from seis_interp.cli import main
 from seis_interp.training.checkpoints import load_siren_checkpoint
-from tests.integration.test_train_siren_pipeline import _build_training_fixture
+from tests.fixtures.siren_training import prepare_siren_training_fixture
 
 
 def test_cli_runs_training_with_device_override_and_json_output(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    config, interim, processed = _build_training_fixture(tmp_path, configured_device="cuda")
+    config, interim, processed = prepare_siren_training_fixture(tmp_path, configured_device="cuda")
     output = tmp_path / "run"
 
     exit_code = main(
@@ -49,7 +49,7 @@ def test_cli_runs_training_with_device_override_and_json_output(
 def test_cli_labels_both_validation_metrics(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    config, interim, processed = _build_training_fixture(tmp_path)
+    config, interim, processed = prepare_siren_training_fixture(tmp_path)
     output = tmp_path / "run"
 
     exit_code = main(
@@ -81,7 +81,7 @@ def test_cli_labels_both_validation_metrics(
 
 
 def test_cli_reports_nonempty_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    config, interim, processed = _build_training_fixture(tmp_path)
+    config, interim, processed = prepare_siren_training_fixture(tmp_path)
     output = tmp_path / "run"
     output.mkdir()
     (output / "marker").write_text("keep", encoding="utf-8")
@@ -109,7 +109,7 @@ def test_cli_rejects_unknown_training_amplitude_scaling_before_data_loading(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, _, _ = _build_training_fixture(tmp_path)
+    config, _, _ = prepare_siren_training_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"]["amplitude_scaling"] = "global_rms"
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -138,7 +138,7 @@ def test_cli_rejects_unknown_training_amplitude_scaling_before_data_loading(
 
 
 def test_cli_does_not_offer_training_overwrite(tmp_path: Path) -> None:
-    config, interim, processed = _build_training_fixture(tmp_path)
+    config, interim, processed = prepare_siren_training_fixture(tmp_path)
 
     with pytest.raises(SystemExit, match="2"):
         main(

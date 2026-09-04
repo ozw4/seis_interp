@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -12,129 +11,20 @@ import yaml
 
 from seis_interp.cli import main
 from seis_interp.configuration import ConfigurationError
-from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.train_siren import train_siren_run
 from seis_interp.processing.normalization import read_normalization_parameters
 from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
 from seis_interp.processing.trace_splits import EXCLUDED_SPLIT
 from seis_interp.training.checkpoints import load_siren_checkpoint
-
-
-def _build_full_ffid_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
-    source_a = tmp_path / "source_a.sgy"
-    source_b = tmp_path / "source_b.sgy"
-    source_a.write_bytes(b"synthetic source A")
-    source_b.write_bytes(b"synthetic source B")
-    interim = tmp_path / "interim"
-    trace_count = 30
-    sample_count = 4
-    array_indices = np.arange(trace_count)
-    cmp_x_m = array_indices.astype(np.float64)
-    cmp_y_m = array_indices.astype(np.float64) * 2.0
-    offset_m = 100.0 + array_indices.astype(np.float64)
-    azimuth_deg = array_indices.astype(np.float64) * 7.0
-    azimuth_rad = np.deg2rad(azimuth_deg)
-    half_offset_x_m = 0.5 * offset_m * np.sin(azimuth_rad)
-    half_offset_y_m = 0.5 * offset_m * np.cos(azimuth_rad)
-    trace_table = pd.DataFrame(
-        {
-            "source_file": np.repeat([source_a.name, source_b.name], [20, 10]),
-            "trace_index": np.concatenate(
-                [np.arange(20, dtype=np.int64), np.arange(10, dtype=np.int64)]
-            ),
-            "ffid": np.repeat([10, 20, 30], 10),
-            "source_x_m": cmp_x_m + half_offset_x_m,
-            "source_y_m": cmp_y_m + half_offset_y_m,
-            "receiver_x_m": cmp_x_m - half_offset_x_m,
-            "receiver_y_m": cmp_y_m - half_offset_y_m,
-            "cmp_x_m": cmp_x_m,
-            "cmp_y_m": cmp_y_m,
-            "offset_m": offset_m,
-            "azimuth_deg": azimuth_deg,
-            "sample_interval_s": np.full(trace_count, 0.008),
-        }
-    )
-    time_s = np.arange(sample_count, dtype=np.float64) * 0.008
-    amplitudes = (
-        np.sin(array_indices[:, np.newaxis] * 0.2 + time_s[np.newaxis, :] * 10.0) + 1.5
-    ).astype(np.float32)
-    write_interim_trace_dataset(
-        interim,
-        trace_table,
-        amplitudes,
-        time_s,
-        source_a,
-        "synthetic",
-        selection={"ffid_scope": "all", "include_incomplete_ffids": True},
-    )
-    metadata_path = interim / "dataset.json"
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata.pop("source_file")
-    metadata.pop("source_sha256")
-    metadata["source_files"] = [
-        {"name": source.name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
-        for source in (source_a, source_b)
-    ]
-    metadata_path.write_text(
-        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-
-    processed = tmp_path / "processed"
-    prepare_baseline_dataset(
-        interim,
-        processed,
-        holdout_fraction=0.3,
-        validation_fraction_of_holdout=0.5,
-        random_seed=7,
-        split_scope="per_ffid",
-        config_source="studies/synthetic/config.yaml",
-    )
-    config = tmp_path / "config.yaml"
-    config.write_text(
-        yaml.safe_dump(
-            {
-                "project": {"random_seed": 7},
-                "sampling": {
-                    "random_trace_holdout_fraction": 0.3,
-                    "validation_fraction_of_holdout": 0.5,
-                    "split_scope": "per_ffid",
-                },
-                "normalization": {
-                    "coordinates": "train_minmax_linear_plus_azimuth_sin_cos",
-                    "amplitude": "train_global_rms",
-                },
-                "model": {
-                    "name": "siren",
-                    "input_features": 6,
-                    "hidden_width": 8,
-                    "hidden_layers": 1,
-                    "omega_0": 10.0,
-                    "hidden_omega": 1.0,
-                },
-                "training": {
-                    "batch_mode": "full_ffid_epoch",
-                    "loss": "l2",
-                    "optimizer": "adam",
-                    "learning_rate": 1.0e-3,
-                    "max_epochs": 2,
-                    "early_stopping_patience": 2,
-                    "validation_batch_size": 5,
-                    "device": "cpu",
-                },
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    return config, interim, processed
+from tests.fixtures.full_ffid_siren import prepare_full_ffid_siren_fixture
 
 
 def test_full_ffid_pipeline_streams_training_and_writes_the_run_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     output = tmp_path / "run"
     import seis_interp.pipelines.train_siren as pipeline
 
@@ -236,7 +126,7 @@ def test_train_siren_batch_modes_support_cartesian_coordinates(
     input_features: int,
     includes_radius: bool,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"].update(
         {
@@ -320,7 +210,7 @@ def test_train_siren_batch_modes_apply_and_record_post_normalization_time_scale(
     batch_mode: str,
     sampler_name: str,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"]["time_coordinate_scale"] = 4.0
     config_payload["training"].update(
@@ -398,7 +288,7 @@ def test_train_siren_batch_modes_apply_and_record_post_normalization_time_scale(
 def test_explicit_unit_time_coordinate_scale_preserves_legacy_provenance(
     tmp_path: Path,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"]["time_coordinate_scale"] = 1.0
     config_payload["training"].update(
@@ -440,7 +330,7 @@ def test_train_siren_batch_modes_record_exponential_layer_omega_schedule(
     tmp_path: Path,
     batch_mode: str,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"].update(
         {
@@ -494,7 +384,7 @@ def test_train_siren_rejects_unknown_layer_omega_schedule_before_data_load(
     monkeypatch: pytest.MonkeyPatch,
     schedule: object,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"]["layer_omega_schedule"] = schedule
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -515,7 +405,7 @@ def test_train_siren_rejects_unknown_layer_omega_schedule_before_data_load(
 def test_train_siren_rejects_exponential_schedule_with_one_sine_layer(
     tmp_path: Path,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"]["layer_omega_schedule"] = "exponential"
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -537,7 +427,7 @@ def test_train_siren_batch_modes_record_dense_skip_connections(
     tmp_path: Path,
     batch_mode: str,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"].update(
         {
@@ -594,7 +484,7 @@ def test_train_siren_rejects_unknown_skip_connections_before_data_load(
     monkeypatch: pytest.MonkeyPatch,
     skip_connections: object,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"]["skip_connections"] = skip_connections
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -630,7 +520,7 @@ def test_train_siren_rejects_invalid_time_coordinate_scale(
     tmp_path: Path,
     invalid_scale: object,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["model"]["time_coordinate_scale"] = invalid_scale
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -652,7 +542,7 @@ def test_full_ffid_pipeline_supports_per_trace_rms_as_a_training_target_scaling(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"]["amplitude_scaling"] = "per_trace_rms"
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -716,7 +606,7 @@ def test_full_ffid_pipeline_forwards_and_records_active_trace_correlation_loss(
     monkeypatch: pytest.MonkeyPatch,
     amplitude_scaling: str,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {
@@ -775,7 +665,7 @@ def test_full_ffid_pipeline_forwards_and_records_active_trace_correlation_loss(
 def test_full_ffid_pipeline_omits_trace_correlation_provenance_for_pure_mse(
     tmp_path: Path,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     output = tmp_path / "run"
 
     metrics = train_siren_run(
@@ -802,7 +692,7 @@ def test_full_ffid_pipeline_never_routes_amplitude_filtered_rows(
     monkeypatch: pytest.MonkeyPatch,
     amplitude_scaling: str,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     amplitudes_path = interim / "amplitudes.npy"
     amplitudes = np.load(amplitudes_path, allow_pickle=False)
     amplitudes[:5] = 0.0
@@ -871,7 +761,7 @@ def test_full_ffid_pipeline_never_routes_amplitude_filtered_rows(
 def test_full_ffid_pipeline_rejects_a_stale_pre_filter_preparation(
     tmp_path: Path,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["sampling"]["trace_amplitude_filter"] = {
         "exclude_all_zero": True,
@@ -893,7 +783,7 @@ def test_full_ffid_pipeline_routes_no_test_rows_to_training_or_validation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     split_table = pd.read_parquet(processed / "trace_split.parquet")
     expected = {
         split: set(split_table.loc[split_table["split"] == split, "array_row"])
@@ -930,7 +820,7 @@ def test_full_ffid_pipeline_routes_no_test_rows_to_training_or_validation(
 
 
 def test_full_ffid_pipeline_requires_per_ffid_preparation(tmp_path: Path) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     preparation_path = processed / "preparation.json"
     preparation = json.loads(preparation_path.read_text(encoding="utf-8"))
     preparation["split_scope"] = "global"
@@ -950,7 +840,7 @@ def test_full_ffid_pipeline_requires_per_ffid_preparation(tmp_path: Path) -> Non
 def test_full_ffid_pipeline_ignores_inherited_random_point_step_controls(
     tmp_path: Path,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"]["batch_size"] = "not used by full_ffid_epoch"
     config_payload["training"]["steps_per_epoch"] = -100
@@ -974,7 +864,7 @@ def test_full_ffid_pipeline_rejects_invalid_validation_batch_size_before_trainin
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"]["validation_batch_size"] = 0
     config.write_text(
@@ -1000,7 +890,7 @@ def test_full_ffid_pipeline_rejects_unknown_training_amplitude_scaling(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"]["amplitude_scaling"] = "global_rms"
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -1022,7 +912,7 @@ def test_active_trace_correlation_loss_rejects_random_points_before_data_load(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"].update(
         {
@@ -1050,7 +940,7 @@ def test_full_ffid_cli_keeps_json_clean_while_reporting_progress(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     output = tmp_path / "run"
 
     exit_code = main(
@@ -1079,7 +969,7 @@ def test_full_ffid_cli_prints_the_human_training_summary(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     output = tmp_path / "run"
 
     exit_code = main(
@@ -1110,7 +1000,7 @@ def test_full_ffid_cli_labels_per_trace_validation_as_oracle_normalized(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     config_payload = yaml.safe_load(config.read_text(encoding="utf-8"))
     config_payload["training"]["amplitude_scaling"] = "per_trace_rms"
     config.write_text(yaml.safe_dump(config_payload, sort_keys=False), encoding="utf-8")
@@ -1142,7 +1032,7 @@ def test_full_ffid_cli_serializes_perfect_validation_as_explicit_infinity(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config, interim, processed = _build_full_ffid_fixture(tmp_path)
+    config, interim, processed = prepare_full_ffid_siren_fixture(tmp_path)
     output = tmp_path / "run"
     monkeypatch.setattr(
         "seis_interp.pipelines.train_siren.evaluate_model_global_snr_by_ffid",

@@ -12,11 +12,15 @@ from seis_interp.models.trace_graph_interpolator import (
     TRACE_LATTICE_GRAPH_MODE,
     TraceGraphInterpolator,
 )
+from seis_interp.training import trace_graph_trainer
 from seis_interp.training.trace_graph_checkpoints import (
     load_trace_graph_checkpoint,
     save_trace_graph_checkpoint,
 )
-from seis_interp.training.trace_graph_trainer import train_trace_graph_interpolator
+from seis_interp.training.trace_graph_trainer import (
+    TraceGraphTrainingResult,
+    train_trace_graph_interpolator,
+)
 
 SOURCES = 3
 TIME = 20
@@ -169,9 +173,196 @@ def test_trainer_disabled_terms_stay_zero(tmp_path: Path) -> None:
     assert row["loss"] == row["mask_mse"]
 
 
-def test_trainer_rejects_negative_loss_weights(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="spectrum_weight"):
-        _train(_small_model(), tmp_path / "best.pt", spectrum_weight=-0.1)
+@pytest.mark.parametrize(
+    "name",
+    ["spectrum_weight", "slope_weight", "amplitude_weight"],
+)
+def test_trainer_rejects_negative_and_non_finite_loss_weights(tmp_path: Path, name: str) -> None:
+    with pytest.raises(ValueError, match=f"{name} must be non-negative"):
+        _train(_small_model(), tmp_path / "best.pt", **{name: -0.1})
+    with pytest.raises(ValueError, match=f"{name} must be a finite number"):
+        _train(_small_model(), tmp_path / "best.pt", **{name: float("nan")})
+
+
+def test_trainer_keeps_result_type_and_short_progress_labels(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    messages: list[str] = []
+    result = _train(
+        _small_model(),
+        tmp_path / "best.pt",
+        total_steps=1,
+        spectrum_weight=0.1,
+        slope_weight=0.1,
+        amplitude_weight=0.1,
+        reporter=messages.append,
+    )
+
+    assert isinstance(result, TraceGraphTrainingResult)
+    row = result.history[1]
+    assert list(row) == [
+        "step",
+        "loss",
+        "mask_mse",
+        "spectrum_loss",
+        "slope_loss",
+        "amplitude_loss",
+        "learning_rate",
+        "validation_global_snr_db",
+    ]
+    assert messages[0] == (
+        "trace_graph_interpolator 0/1: oracle_per_trace_unit_rms_global_snr_db="
+        f"{result.history[0]['validation_global_snr_db']:.8g}"
+    )
+    assert messages[1] == (
+        f"trace_graph_interpolator 1/1: loss={row['loss']:.8g} mask_mse={row['mask_mse']:.8g} "
+        f"spectrum={row['spectrum_loss']:.8g} "
+        f"slope={row['slope_loss']:.8g} "
+        f"amplitude={row['amplitude_loss']:.8g} "
+        f"learning_rate={row['learning_rate']:.8g} "
+        f"oracle_per_trace_unit_rms_global_snr_db={row['validation_global_snr_db']:.8g}"
+    )
+    assert "spectrum_loss=" not in messages[1]
+
+
+def test_trace_graph_step_runs_only_the_forward_in_autocast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = {"value": False}
+
+    class _FakeAutocast:
+        def __init__(self, device_type: str, dtype: torch.dtype) -> None:
+            assert device_type == "cuda"
+            assert dtype == torch.bfloat16
+
+        def __enter__(self) -> None:
+            active["value"] = True
+
+        def __exit__(self, *exc: object) -> bool:
+            active["value"] = False
+            return False
+
+    monkeypatch.setattr(torch, "autocast", _FakeAutocast)
+
+    scope_at_loss_calls: dict[str, bool] = {}
+    for name in (
+        "masked_mean_square",
+        "spectrum_loss",
+        "slope_consistency_loss",
+        "amplitude_envelope_loss",
+    ):
+        real_function = getattr(trace_graph_trainer, name)
+
+        def recording_loss(
+            prediction: torch.Tensor,
+            targets: torch.Tensor,
+            target_availability: torch.Tensor,
+            *,
+            _real: object = real_function,
+            _name: str = name,
+        ) -> torch.Tensor:
+            scope_at_loss_calls[_name] = active["value"]
+            return _real(prediction, targets, target_availability)
+
+        monkeypatch.setattr(trace_graph_trainer, name, recording_loss)
+
+    model = _small_model()
+    forward_scope_flags: list[bool] = []
+    original_forward = model.forward
+
+    def recording_forward(*args: object, **kwargs: object) -> torch.Tensor:
+        forward_scope_flags.append(active["value"])
+        return original_forward(*args, **kwargs)
+
+    monkeypatch.setattr(model, "forward", recording_forward)
+
+    provider = _SyntheticProvider()
+    batch = provider(1, generator=torch.Generator().manual_seed(0), neighbor_dropout=0.0)
+    result = trace_graph_trainer._trace_graph_training_step(
+        model,
+        batch,
+        spectrum_weight=0.1,
+        slope_weight=0.2,
+        amplitude_weight=0.3,
+        use_cuda_bfloat16=True,
+    )
+
+    assert forward_scope_flags == [True]
+    assert scope_at_loss_calls == {
+        "masked_mean_square": False,
+        "spectrum_loss": False,
+        "slope_consistency_loss": False,
+        "amplitude_envelope_loss": False,
+    }
+    assert active["value"] is False
+    metrics = dict(result.history_metrics)
+    torch.testing.assert_close(
+        result.loss,
+        metrics["mask_mse"]
+        + 0.1 * metrics["spectrum_loss"]
+        + 0.2 * metrics["slope_loss"]
+        + 0.3 * metrics["amplitude_loss"],
+    )
+    assert [name for name, _ in result.finite_checks] == ["training mask MSE"]
+
+
+def test_wrapper_forwards_the_loop_computed_autocast_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded_flags: list[bool] = []
+    real_step = trace_graph_trainer._trace_graph_training_step
+
+    def recording_step(
+        model: TraceGraphInterpolator,
+        batch: tuple[torch.Tensor, ...],
+        *,
+        spectrum_weight: float,
+        slope_weight: float,
+        amplitude_weight: float,
+        use_cuda_bfloat16: bool,
+    ) -> object:
+        recorded_flags.append(use_cuda_bfloat16)
+        return real_step(
+            model,
+            batch,
+            spectrum_weight=spectrum_weight,
+            slope_weight=slope_weight,
+            amplitude_weight=amplitude_weight,
+            use_cuda_bfloat16=use_cuda_bfloat16,
+        )
+
+    monkeypatch.setattr(trace_graph_trainer, "_trace_graph_training_step", recording_step)
+    torch.manual_seed(0)
+
+    _train(_small_model(), tmp_path / "best.pt", total_steps=1, use_bfloat16=True)
+
+    assert recorded_flags == [False]
+
+
+def test_trace_graph_step_skips_autocast_without_cuda_bfloat16(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _forbidden_autocast(*args: object, **kwargs: object) -> None:
+        raise AssertionError("torch.autocast must not be entered on CPU")
+
+    monkeypatch.setattr(torch, "autocast", _forbidden_autocast)
+    provider = _SyntheticProvider()
+    batch = provider(1, generator=torch.Generator().manual_seed(0), neighbor_dropout=0.0)
+
+    result = trace_graph_trainer._trace_graph_training_step(
+        _small_model(),
+        batch,
+        spectrum_weight=0.0,
+        slope_weight=0.0,
+        amplitude_weight=0.0,
+        use_cuda_bfloat16=False,
+    )
+
+    assert bool(torch.isfinite(result.loss))
+    metrics = dict(result.history_metrics)
+    assert float(metrics["spectrum_loss"]) == 0.0
+    assert float(metrics["slope_loss"]) == 0.0
+    assert float(metrics["amplitude_loss"]) == 0.0
 
 
 def test_trainer_rejects_wrong_model_type(tmp_path: Path) -> None:

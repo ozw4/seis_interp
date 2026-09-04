@@ -109,7 +109,7 @@ python -m seis_interp.cli train trace-graph \
 The strict 20 dB threshold has not been reached. The deterministic
 inverse-distance reference floor is 7.089 dB. The best result is Stage 21
 (`trace_lattice`, width 128, 6 rounds, batch 4, 25,000 updates) at
-`12.469212932215141` dB with every audit passing, which exceeds the strongest
+`12.4692` dB with every audit passing, which exceeds the strongest
 control by 1.15 dB but remains 7.53 dB below the strict threshold. Controls
 calibrate the split: the accepted study 018 per-trace architecture reaches
 11.318 dB and the joint shot-gather CNN 7.768 dB at the 2,500-update budget.

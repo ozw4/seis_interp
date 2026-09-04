@@ -1,35 +1,17 @@
 # seis_interp
 
-`seis_interp` is a proof-of-concept repository for coordinate-based seismic interpolation inspired by the implicit neural representation (INR) method described in *Robust unsupervised 5D seismic data reconstruction on regular and irregular grids*.
+`seis_interp` is a proof-of-concept repository for multidimensional seismic interpolation, inspired by the implicit neural representation (INR) method described in *Robust unsupervised 5D seismic data reconstruction on regular and irregular grids*. It is not intended to reproduce every number or experiment in the paper.
 
-The first target is a controlled experiment on the SEG C3 Narrow-Azimuth dataset. The goal is to test whether a sinusoidal multilayer perceptron can reconstruct held-out seismic traces from their physical coordinates. This repository is not intended to reproduce every number or experiment in the paper.
+## Project scope
 
-## SEG C3 NA data
+The main target is the SEG C3 Narrow-Azimuth dataset: held-out traces of a marine 3-D survey are reconstructed from their physical coordinates and from neighboring traces. The repository currently trains and evaluates four model families:
 
-The Dev Container uses the repository data tree as its data root:
+- a coordinate-only SIREN,
+- a train-only physical-neighbor temporal trace inpainter,
+- a whole-shot gather inpainter over the fixed receiver grid,
+- a trace-node graph gather interpolator.
 
-```text
-SEIS_INTERP_DATA_ROOT=/workspace/data
-```
-
-The four SEG-Y files are stored locally under `/workspace/data/external/seg_c3_na/`. The manifest and documentation are tracked; raw SEG-Y files, `download.lock.yaml`, intermediate arrays, and processed datasets are ignored by Git.
-
-From the repository root:
-
-```bash
-./scripts/download_seg_c3_na.sh
-./scripts/verify_seg_c3_na.sh
-./scripts/inspect_seg_c3_na.sh
-```
-
-The inspection script checks SEG-Y structure, FFID coverage, source and receiver geometry, midpoint, offset, azimuth, delay time, and sampled-amplitude statistics. It reads complete trace headers but samples only 32 evenly spaced trace amplitudes per file by default.
-
-```bash
-./scripts/inspect_seg_c3_na.sh --sample-traces 64
-./scripts/inspect_seg_c3_na.sh --json > seg_c3_na_inspection.json
-```
-
-Interrupted downloads resume from their `.part` files. Use `./scripts/download_seg_c3_na.sh --force` to discard existing complete and partial files. See [`data/external/seg_c3_na/README.md`](data/external/seg_c3_na/README.md) for details.
+Research questions, conditions, and recorded outcomes live in numbered studies; see [Studies and reports](#studies-and-reports).
 
 ## Development environment
 
@@ -62,24 +44,56 @@ The repository scripts automatically prefer `/workspace/.venv/bin/python`. The f
 
 Codex and Claude user state are stored in Docker named volumes. This keeps their local databases writable and preserves authentication across normal container rebuilds without sharing the host SQLite state files.
 
-## Prepare a complete SEG C3 NA shot
+## SEG C3 NA data
 
-Install the SEG-Y and table extras, then convert one shot of a downloaded SEG-Y file into an interim trace dataset:
+The Dev Container uses the repository data tree as its data root:
+
+```text
+SEIS_INTERP_DATA_ROOT=/workspace/data
+```
+
+The four SEG-Y files are stored locally under `/workspace/data/external/seg_c3_na/`. The manifest and documentation are tracked; raw SEG-Y files, `download.lock.yaml`, intermediate arrays, and processed datasets are ignored by Git.
+
+From the repository root:
+
+```bash
+./scripts/download_seg_c3_na.sh
+./scripts/verify_seg_c3_na.sh
+./scripts/inspect_seg_c3_na.sh
+```
+
+The inspection script checks SEG-Y structure, FFID coverage, source and receiver geometry, midpoint, offset, azimuth, delay time, and sampled-amplitude statistics. Interrupted downloads resume from their `.part` files; use `--force` to discard existing complete and partial files. See [`data/external/seg_c3_na/README.md`](data/external/seg_c3_na/README.md) for details.
+
+## Data preparation
+
+The `data` command group acquires and prepares datasets:
+
+```text
+data download           download an external dataset
+data verify             verify an external dataset against its manifest
+data inspect            inspect SEG-Y structure and content
+data prepare-c3-shot    write one complete SEG C3 NA shot as an interim dataset
+data prepare-c3-survey  write every manifest-declared FFID as one interim dataset
+data prepare-baseline   create trace splits and normalization metadata
+```
+
+Run `python -m seis_interp.cli data <command> --help` for the full argument list. A typical single-shot flow:
 
 ```bash
 python -m pip install -e ".[dev,data,segy]"
 
 python -m seis_interp.cli data prepare-c3-shot \
   --input "$SEIS_INTERP_DATA_ROOT/external/seg_c3_na/<file>.sgy" \
-  --output data/interim/c3_na/complete_shot
-
-python -m seis_interp.cli data prepare-c3-shot \
-  --input "$SEIS_INTERP_DATA_ROOT/external/seg_c3_na/<file>.sgy" \
   --output data/interim/c3_na/ffid_<id> \
   --ffid <id>
+
+python -m seis_interp.cli data prepare-baseline \
+  --config studies/<study>/config.yaml \
+  --input data/interim/c3_na/ffid_<id> \
+  --output data/processed/c3_na/<split-name>
 ```
 
-Without `--ffid` the command selects the numerically smallest FFID whose trace count equals `--expected-traces` (544, the traces in a complete SEG C3 NA shot). Each run writes four files into the output directory:
+Each interim dataset contains four files:
 
 ```text
 traces.parquet   one row per selected trace, with an array_row column
@@ -90,47 +104,34 @@ dataset.json     dataset metadata, including the source SHA-256
 
 Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_row`. The coordinate rules are documented in [`docs/coordinate_conventions.md`](docs/coordinate_conventions.md).
 
-SEG-Y inputs and everything under `data/interim/` are generated or externally obtained data and must not be committed to Git.
+`data prepare-baseline` requires `--config` because the holdout design is a study condition. Configuration values are resolved in this order: the file named by `extends`, the selected study config, then explicit CLI overrides. The command writes `trace_split.parquet`, `normalization.json`, and `preparation.json`; the latter records the resolved split values, supported normalization methods, and repository-relative config source. Study-specific seed overrides belong at `project.random_seed`; `study.random_seed` is rejected.
 
-Create the trace-level split and training-only normalization metadata used by the baseline study:
+SEG-Y inputs and everything under `data/interim/` and `data/processed/` are generated or externally obtained data and must not be committed to Git.
 
-```bash
-python -m seis_interp.cli data prepare-baseline \
-  --config studies/study_001_c3_na_baseline/config.yaml \
-  --input data/interim/c3_na/ffid_2348 \
-  --output data/processed/c3_na/ffid_2348_random_split
+## Training commands
+
+The `train` command group trains the four model families:
+
+```text
+train siren                  coordinate-only SIREN on prepared trace splits
+train neighbor-inpainter     physical-neighbor temporal trace inpainter
+train shot-gather-inpainter  joint whole-shot gather inpainter
+train trace-graph            trace-node graph gather interpolator
 ```
 
-Configuration values are resolved in this order: the file named by `extends`, the selected
-study config, then explicit CLI overrides. `--config` is required because the trace holdout
-design is a study condition. `--holdout-fraction`,
-`--validation-fraction-of-holdout`, and `--random-seed` override the corresponding
-`sampling.*` and `project.random_seed` values when supplied. The command writes only
-`trace_split.parquet`, `normalization.json`, and `preparation.json`; the latter records the
-resolved split values, supported normalization methods, and repository-relative config source.
-Legacy `study.random_seed` is rejected; study-specific seed overrides belong at
-`project.random_seed`.
-
-Regenerate that processed dataset after changing the coordinate representation or split
-conditions, then train the SIREN:
+Every train command takes required `--config`, `--interim`, `--processed`, and `--output` paths, plus optional `--device` and `--json`; run `python -m seis_interp.cli train <command> --help` for details. With `--json`, metrics go to stdout and training progress goes to stderr. For example:
 
 ```bash
-python -m seis_interp.cli data prepare-baseline \
-  --config studies/study_001_c3_na_baseline/config.yaml \
-  --input data/interim/c3_na/ffid_2348 \
-  --output data/processed/c3_na/ffid_2348_random_split \
-  --overwrite
-
 python -m seis_interp.cli train siren \
-  --config studies/study_001_c3_na_baseline/config.yaml \
-  --interim data/interim/c3_na/ffid_2348 \
-  --processed data/processed/c3_na/ffid_2348_random_split \
-  --output runs/study_001_c3_na_baseline/<run-id>
+  --config studies/<study>/config.yaml \
+  --interim data/interim/c3_na/ffid_<id> \
+  --processed data/processed/c3_na/<split-name> \
+  --output runs/<study>/<run-id>
 ```
 
-The interim table retains the physical five-dimensional mapping with `azimuth_deg`. Model
-inputs derive sine and cosine from azimuth, so the numerical SIREN input has six features; see
-[`docs/coordinate_conventions.md`](docs/coordinate_conventions.md). A training run writes:
+## Run outputs
+
+A training run writes:
 
 ```text
 config.resolved.yaml
@@ -140,10 +141,11 @@ run.json
 artifacts/best.pt
 ```
 
-`run.json` records the Git commit, UTC start and finish times, success status, effective device,
-Python and PyTorch versions, and random seed. Training run directories are immutable: choose a
-new run ID for every invocation. The run directory and checkpoint are generated outputs and must
-not be committed to Git.
+`run.json` records the Git commit, UTC start and finish times, success status, effective device, Python and PyTorch versions, and random seed. Formal study run directories are immutable: choose a new run ID for every invocation. Scratch workspaces labeled in the study index instead maintain an overwriteable current output. The run directory and checkpoint are generated outputs and must not be committed to Git.
+
+## Studies and reports
+
+Numbered studies under `studies/` are the authoritative record of research questions, conditions, and outcomes. Start from the study index at [`studies/README.md`](studies/README.md). Accepted figures and human-readable reports, when they exist, live under `results/` and `reports/`.
 
 ## Quality checks
 
@@ -151,6 +153,7 @@ not be committed to Git.
 ruff check .
 ruff format --check .
 pytest
+python -m seis_interp.cli doctor
 ```
 
 ## Repository layout
@@ -158,8 +161,8 @@ pytest
 The authoritative layout rules are in [`docs/repository_layout.md`](docs/repository_layout.md). In brief:
 
 ```text
-src/       reusable implementation
-scripts/   thin CLI wrappers
+src/       reusable implementation, including the CLI and its command modules
+scripts/   thin CLI wrappers and study runners
 studies/   research questions, conditions, and decision records
 data/      external data and reproducible processing stages
 runs/      machine-generated execution records
@@ -168,7 +171,3 @@ reports/   human-readable reports, added only when needed
 ```
 
 Large SEG-Y files, intermediate arrays, checkpoints, and full run outputs are not committed to Git.
-
-## Current study
-
-The initial study is [`study_001_c3_na_baseline`](studies/study_001_c3_na_baseline/README.md). It will compare the INR reconstruction against simple trace-interpolation baselines using complete held-out traces as ground truth.
