@@ -117,8 +117,8 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 | `tests/fixtures/` | 複数test moduleが共有するsynthetic dataset／config生成を、責務別のmodule名で置く。assertion、expected value、mockは置かない。 |
 | `tests/unit/`・`tests/integration/` | test本体とmodule内だけで使う小さなhelperを置く。別のtest moduleをimportしない。共有setupは`tests/fixtures/`から取る。 |
 | `studies/` | 一つの研究質問について現在の研究契約と必要な判断理由を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
-| `data/` | C3 NAは外部公開データなので`external/`へ置く。source由来のtrace dataは`interim/`、dataset partition、normalization、別生成のinterpolation mask artifactは`processed/`へ置く。manifestと説明文書はGit管理し、実SEG-Y、大容量配列、download lock、生成artifactはGitへ入れない。 |
-| `runs/` | run IDにUTC時刻とGit SHAを含める。resolved config、input lock、metrics、run metadataを保存し、checkpointを持つpipelineは`artifacts/`へ置く。formal studyのrun directoryはimmutableとし、明示的なscratch workspaceだけがoverwriteableな現在出力を持てる。 |
+| `data/` | C3 NAは外部公開データなので`external/`へ置く。source由来のtrace dataは`interim/`、dataset partition、normalization、別生成のinterpolation mask artifact、model-independentなbenchmark case artifactは`processed/`へ置く。manifestと説明文書はGit管理し、実SEG-Y、大容量配列、download lock、生成artifactはGitへ入れない。 |
+| `runs/` | run IDにUTC時刻とGit SHAを含める。model、training、prediction、metricを含むresolved config、input lock、metrics、run metadataを保存し、checkpointを持つpipelineは`artifacts/`へ置く。formal studyのrun directoryはimmutableとし、明示的なscratch workspaceだけがoverwriteableな現在出力を持てる。 |
 | `results/` | 採用判断後に追加する。全runのコピーではなく、正式採用した図表・モデル・評価結果だけを保持する。 |
 | `notebooks/` | 必要な場合だけstudy配下に置き、geometry QC、探索、結果レビューに限定する。主要ロジックは`src/`からimportする。 |
 
@@ -139,6 +139,8 @@ runs/<study>/<run-id>/config.resolved.yaml
 ```
 
 Dataset partition条件はstudy configの`sampling.*`、interpolation mask条件は`interpolation_mask.*`へ置く。partitionは`trace_split.parquet`の`split`、partition内のvisibilityは別artifactである`observation_mask.parquet`の`observation_role`として表し、同じ列や同じ意味として扱わない。mask生成logicは`src/seis_interp/`、具体的な条件はstudy config、生成物は`data/processed/`へ置く。mask artifactに`schema_version`は設けない。
+
+study configの`benchmark_case.id`はcase identityである。benchmark caseはinterim data、prepared partition、maskをexact hashで固定するmodel-independentなdata artifactであり、runではない。role domainは`canonical_present_traces`とし、絶対pathや`schema_version`は保存しない。model、training、prediction、metricは`runs/`側の責務とする。
 
 名前は小文字ASCIIの`snake_case`を基本とし、数値には可能な限り意味と単位を含める。
 

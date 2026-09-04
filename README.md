@@ -76,9 +76,10 @@ data prepare-c3-shot    write one complete SEG C3 NA shot as an interim dataset
 data prepare-c3-survey  write every manifest-declared FFID as one interim dataset
 data prepare-baseline   create a dataset partition and train-only normalization metadata
 data prepare-mask       create interpolation visibility within one dataset partition
+data prepare-benchmark-case  bind an existing partition and mask by exact file hashes
 ```
 
-Run `python -m seis_interp.cli data <command> --help` for the full argument list. A survey-to-mask flow is:
+Run `python -m seis_interp.cli data <command> --help` for the full argument list. A survey-to-benchmark-case flow is:
 
 ```bash
 python -m pip install -e ".[dev,data,segy]"
@@ -96,6 +97,13 @@ python -m seis_interp.cli data prepare-mask \
   --input data/interim/c3_na/all_ffids \
   --processed data/processed/c3_na/<partition-id> \
   --output data/processed/c3_na/<partition-id>/masks/<mask-id>
+
+python -m seis_interp.cli data prepare-benchmark-case \
+  --config studies/<study>/config.yaml \
+  --input data/interim/c3_na/all_ffids \
+  --processed data/processed/c3_na/<partition-id> \
+  --mask data/processed/c3_na/<partition-id>/masks/<mask-id> \
+  --output data/processed/c3_na/<partition-id>/cases/<case-id>
 ```
 
 Each interim dataset contains four files:
@@ -115,6 +123,8 @@ Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_ro
 
 Before selecting the requested partition, `prepare-mask` verifies that `preparation.json` split counts match `trace_split.parquet`. For `split_scope: whole_ffid`, it also verifies the FFID counts and that every non-excluded FFID belongs to exactly one effective split. It then canonicalizes duplicate physical trace cells across all non-excluded partitions by keeping the lowest `array_row`. Candidate counts therefore describe the canonicalized rows. `interpolation_mask.json` records this policy and the number of rows removed, while the existing partition artifact remains unchanged.
 
+`data prepare-benchmark-case` validates an existing interim dataset, prepared partition, and mask artifact, then binds their nine files by exact SHA-256 in a model-independent `benchmark_case.json`. It does not regenerate or copy those artifacts. The case fixes the `canonical_present_traces` role domain and keeps evaluation-target amplitudes for scoring only. POCS, DRR, SIREN, CNN, and GNN method configuration and results are not part of the case; neither is a 5D crop, which belongs to the later volume-adapter contract.
+
 ```yaml
 project:
   random_seed: 42
@@ -123,6 +133,9 @@ interpolation_mask:
   partition: test
   kind: random_trace
   missing_fraction: 0.8
+
+benchmark_case:
+  id: c3_na_test_random_trace_80_seed42
 ```
 
 SEG-Y inputs and everything under `data/interim/` and `data/processed/` are generated or externally obtained data and must not be committed to Git.
