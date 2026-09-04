@@ -11,10 +11,10 @@ SEG C3 Narrow-Azimuthを用いる5D seismic interpolation POCで、コード、�
 | 対象 | 配置先 | 原則 |
 |---|---|---|
 | 再利用する実装 | `src/seis_interp/` | studyに依存しない処理を置く。結果へ影響するロジックはテスト可能にする。 |
-| 薄い実行補助 | `scripts/` | 環境変数とCLI呼び出しだけを扱う。データ処理ロジックは置かない。 |
+| 実行補助 | `scripts/` | 環境変数、CLI呼び出し、study固有の実行entrypointを扱う。再利用するデータ処理ロジックは置かない。 |
 | 現在の研究契約と必要な判断理由 | `studies/<study>/` | 研究質問ごとに、現在の契約を`README.md`、実行条件を`config.yaml`、入力契約を`inputs.yaml`へ置く。重要な判断理由がある場合だけ`decisions.md`を置く。 |
 | データ | `data/` | 由来と処理段階で`external`、`interim`、`processed`を分ける。 |
-| 実行履歴 | `runs/` | runごとの設定、入力、指標、ログ、成果物を機械生成し、手編集しない。 |
+| 実行履歴 | `runs/` | runごとの設定、入力、指標、成果物を機械生成し、手編集しない。 |
 | 採用した成果 | `results/` | 採用した図表・モデルのみを置き、生成元runを記録する。 |
 | 文書 | `docs/`、`reports/` | 規約は`docs/`、人が読む技術報告は`reports/`へ置く。 |
 
@@ -111,12 +111,12 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 | `src/seis_interp/cli.py` | parserの組み立てとdispatchだけを置く。command handlerやdata・training依存は置かない。 |
 | `src/seis_interp/commands/` | command別のargparse登録、出力・エラー処理、pipeline呼び出しを置く。training／preparation pipelineのimportはhandler内のlazy importとする。command registryやclass階層は作らない。 |
 | `src/seis_interp/pipelines/` | 実行orchestrationを置く。他pipelineのprivate実装をimportしない。 |
-| `scripts/` | CLIを呼ぶ薄いshell wrapperや環境セットアップ補助だけを置く。manifest解析、download、checksum、SEG-Y QCなどの主要ロジックは`src/`へ置く。 |
+| `scripts/` | CLIを呼ぶ薄いwrapper、環境セットアップ補助、study固有の実行entrypointを置く。manifest解析、download、checksum、SEG-Y QCなど再利用するロジックは`src/`へ置く。 |
 | `tests/fixtures/` | 複数test moduleが共有するsynthetic dataset／config生成を、責務別のmodule名で置く。assertion、expected value、mockは置かない。 |
 | `tests/unit/`・`tests/integration/` | test本体とmodule内だけで使う小さなhelperを置く。別のtest moduleをimportしない。共有setupは`tests/fixtures/`から取る。 |
 | `studies/` | 一つの研究質問について現在の研究契約と必要な判断理由を管理する。同じ問いでseedやepochだけを変える場合は別studyではなく別runとする。checkpointや全実行結果は置かない。 |
 | `data/` | C3 NAは外部公開データなので`external/`へ置く。manifestと説明文書はGit管理し、実SEG-Y、大容量配列、download lockはGitへ入れない。 |
-| `runs/` | run IDにUTC時刻とGit SHAを含める。resolved config、input lock、metrics、logs、checkpoint、figuresを保存する。 |
+| `runs/` | run IDにUTC時刻とGit SHAを含める。resolved config、input lock、metrics、run metadataを保存し、checkpointを持つpipelineは`artifacts/`へ置く。formal studyのrun directoryはimmutableとし、明示的なscratch workspaceだけがoverwriteableな現在出力を持てる。 |
 | `results/` | 採用判断後に追加する。全runのコピーではなく、正式採用した図表・モデル・評価結果だけを保持する。 |
 | `notebooks/` | 必要な場合だけstudy配下に置き、geometry QC、探索、結果レビューに限定する。主要ロジックは`src/`からimportする。 |
 
@@ -169,7 +169,7 @@ study_003_omega0_sensitivity
 |---|---|
 | ルート直下の`train.py`、`plot.py`、`analysis.py` | 再利用コードは`src/`、単発条件はstudy、実行入口はCLIまたは薄いscriptへ分ける。 |
 | `utils.py`、`misc.py`、`common.py` | `coordinates.py`、`trace_masks.py`、`metrics.py`のように責務を名前で示す。 |
-| `latest`、`final2`、`temp`などの名称 | study ID、run ID、result IDで識別する。 |
+| formal study、run、result、保持artifactでの`latest`、`final2`、`temp`などの名称 | study ID、run ID、result IDで識別する。番号なしのscratch workspaceは明示的にscratchと表示し、formalなstudy indexから除外する。 |
 | 絶対パス、秘密情報、大容量データのcommit | `.env`、manifest、Git ignore、checksumを使用する。 |
 | run結果の手編集 | 条件を修正して再実行する。 |
 | Notebookだけにある主要ロジック | `src/`へ移し、Notebookからimportする。 |

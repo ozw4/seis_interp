@@ -141,7 +141,7 @@ run.json
 artifacts/best.pt
 ```
 
-`run.json` records the Git commit, UTC start and finish times, success status, effective device, Python and PyTorch versions, and random seed. Training run directories are immutable: choose a new run ID for every invocation. The run directory and checkpoint are generated outputs and must not be committed to Git.
+`run.json` records the Git commit, UTC start and finish times, success status, effective device, Python and PyTorch versions, and random seed. Formal study run directories are immutable: choose a new run ID for every invocation. Scratch workspaces labeled in the study index instead maintain an overwriteable current output. The run directory and checkpoint are generated outputs and must not be committed to Git.
 
 ## Studies and reports
 
