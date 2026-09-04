@@ -101,7 +101,7 @@ the data-scaling axis (batch and steps) remains the productive direction.
 ## Accept the scaled trace graph as study best; threshold remains unmet
 
 Stage 19 (width 128, twelve rounds, batch 4, 10,000 updates, activation
-checkpointing) reached 12.239264085153996 dB with checkpoint revalidation and
+checkpointing) reached 12.2393 dB with checkpoint revalidation and
 the full formal scope audit passing, exceeding the strongest control
 (per-trace K1374 at 11.318 dB) by 0.92 dB. Its budget curve
 (10.700 / 11.684 / 12.068 / 12.239 dB at 2.5k/5k/7.5k/10k) still decays, so
@@ -111,7 +111,7 @@ the study stays open with the continuation plan recorded in the report.
 ## Close the budget axis after Stage 21 convergence
 
 Stage 21 (width 128, six rounds, batch 4, 25,000 updates) reached
-12.469212932215141 dB with all audits passing, the study best. Its final
+12.4692 dB with all audits passing, the study best. Its final
 increments (+0.09 / +0.06 / +0.03 dB per 2,500 updates) show the current
 model family converging near 12.5-13 dB on this split, so further
 budget-only extensions are not evidence-backed. Reaching the strict 20 dB

@@ -57,16 +57,16 @@ may be accepted.
 ## Current result
 
 The fresh 50,000-update formal run completed successfully at
-`20.460355529598864 dB`, exceeding the strict 20 dB threshold by
-`0.460355529598864 dB`. The metric first crossed 20 dB at 30,000 updates and the
+`20.4604 dB`, exceeding the strict 20 dB threshold by
+`0.4604 dB`. The metric first crossed 20 dB at 30,000 updates and the
 best checkpoint was the final 50,000-update checkpoint. Its exact checkpoint
 revalidation and every formal scope check passed, so `metric_success`,
 `scope_success`, and overall `success` are all true.
 
-The strongest pre-formal diagnostic was Stage 09 at 18.24842244059429 dB after
+The strongest pre-formal diagnostic was Stage 09 at 18.2484 dB after
 10,000 updates. At 2,500 updates, combining width 384, coordinate-dependent
-neighbor gating, and the lightweight alignment FIR reached 16.80368309012617 dB,
-0.437127913217366 dB above the width-256 comparison. The formal run and staged
+neighbor gating, and the lightweight alignment FIR reached 16.8037 dB,
+0.4371 dB above the width-256 comparison. The formal run and staged
 immutable runs are recorded under
 `runs/study_018_all_ffid_50pct_neighbor_inpainter/`. The full investigation is
 summarized in

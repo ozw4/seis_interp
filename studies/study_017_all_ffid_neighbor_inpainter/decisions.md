@@ -61,7 +61,7 @@ study as completed.
 
 **Reason:**
 The fresh seed-42 run trained after global physical-cell canonicalization and reached
-18.111870025656728 dB at step 2,500, exceeding the strict 15 dB rule by 3.111870025656728 dB.
+18.1119 dB at step 2,500, exceeding the strict 15 dB rule by 3.1119 dB.
 All formal scope and leakage checks passed: 4,780 eligible FFIDs, 625 samples, effective
 train/validation/test counts 1,842,090/114,490/346,885, no remaining duplicate or overlapping
 physical cells, no target-center neighbors, and no materialized test or excluded amplitude

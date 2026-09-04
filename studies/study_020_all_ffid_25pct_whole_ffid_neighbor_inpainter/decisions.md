@@ -79,8 +79,8 @@ dropout and zero-initialize the residual head.
 **Reason:** Whole-FFID withholding removes an entire source point. A
 geometry-only diagnostic found exact-receiver two-sided brackets for 397,535 of
 437,087 validation traces and a one-sided train source for every remaining
-trace. The deterministic reference alone measured 5.4785273632 dB, versus
-4.3999236270 dB for nearest-shot copying. This is not a 25 dB candidate by
+trace. The deterministic reference alone measured 5.4785 dB, versus
+4.3999 dB for nearest-shot copying. This is not a 25 dB candidate by
 itself, but it supplies a source-axis-aligned waveform while leaving the K274
 CNN to learn the residual. Formal audits require zero unresolved rows, zero
 non-train sources, zero target-FFID sources, and zero same-source-y sources.
@@ -107,14 +107,14 @@ after seeing the combined metric.
 
 **Decision:** Complete the study without a 10,000- or 50,000-step extension.
 Retain Stage 03 K1374 as the best validated candidate at
-8.719953365995504 dB. Record the strict 25 dB criterion as not reached.
+8.72 dB. Record the strict 25 dB criterion as not reached.
 
-**Reason:** Stage 03 was 16.280046634004496 dB below the threshold. The matching
-Study 018 architecture gained 3.656672439472694 dB from 2,500 to 50,000
-updates, so a short-run candidate needed 21.343327560527307 dB to retain that
-empirical path. Stage 03 was 12.623374194531802 dB below the promotion gate.
-Stage 05 did not provide positive interaction: 8.595997409114656 dB was
-0.123955956880849 dB below Stage 03. More budget or the previously observed
+**Reason:** Stage 03 was 16.28 dB below the threshold. The matching
+Study 018 architecture gained 3.6567 dB from 2,500 to 50,000
+updates, so a short-run candidate needed 21.3433 dB to retain that
+empirical path. Stage 03 was 12.6234 dB below the promotion gate.
+Stage 05 did not provide positive interaction: 8.596 dB was
+0.124 dB below Stage 03. More budget or the previously observed
 small width gain has no evidence-backed route across the remaining gap.
 
 ## 2026-08-31 — Reopen the study until the strict threshold is measured
@@ -145,11 +145,11 @@ matched budget in Stage 06, then train Stage 07 for 6,030 updates so its
 `96 trace/update` batches cover at least all 578,685 TRAIN traces once. Keep
 K1374, width, split, target-FFID masking, loss, and metric unchanged.
 
-**Reason:** Stage 06 measured 8.715600689719826 dB and showed that sampler order
-alone did not explain Stage 03. Stage 07 improved from 8.970943588197336 dB at
-step 3,015 to 9.099802401746661 dB at step 6,030. This is the new formal best,
-but the second half added only 0.128858813549325 dB and still leaves
-15.900197598253339 dB to the strict threshold.
+**Reason:** Stage 06 measured 8.7156 dB and showed that sampler order
+alone did not explain Stage 03. Stage 07 improved from 8.9709 dB at
+step 3,015 to 9.0998 dB at step 6,030. This is the new formal best,
+but the second half added only 0.1289 dB and still leaves
+15.9002 dB to the strict threshold.
 
 ## 2026-08-31 — Isolate a leakage-safe joint shot-gather path
 
@@ -169,7 +169,7 @@ traces, so receiver coherence is potentially useful. The path also provides a
 formal home for train-only source-lattice diagnostics. All completed formal runs
 in Stages 09--14 and 16--17 passed the same split, amplitude-access, collision,
 target-mask, and checkpoint checks. Stage 15 had no formal run. The strongest
-short joint-shot result so far is 7.028111512586028 dB, below the trace-model
+short joint-shot result so far is 7.0281 dB, below the trace-model
 best.
 
 ## 2026-08-31 — Promote capacity and squared-distance weighting only
@@ -182,12 +182,12 @@ their combination at 2,500 updates, and extend width 128 to five TRAIN sweeps.
 Do not promote K16/K32, receiver-y dilation, full temporal field, ordered-raw
 features, pure MSE, or receiver-cell FiLM as independent winners.
 
-**Reason:** Width 128 measured 7.010553558041961 dB, `+0.227865449443491 dB`
-over Stage 09. Squared-distance weighting measured 6.998159535214238 dB,
-`+0.215471426615768 dB`; its zero-step reference was independently reproduced
-at 6.443429389385823 dB. In contrast, K16/K32 geometry diagnostics degraded the
+**Reason:** Width 128 measured 7.0106 dB, `+0.2279 dB`
+over Stage 09. Squared-distance weighting measured 6.9982 dB,
+`+0.2155 dB`; its zero-step reference was independently reproduced
+at 6.4434 dB. In contrast, K16/K32 geometry diagnostics degraded the
 reference, and the rejected mechanisms changed Stage 09 or Stage 12 by at most
-0.036650567075181 dB. Combination and budget runs preserve the original split
+0.0367 dB. Combination and budget runs preserve the original split
 and acceptance rule.
 
 ## 2026-09-01 — Promote the observed joint-shot interactions
@@ -201,11 +201,11 @@ with the already promoted squared-distance reference as Stage 22. Stage 21
 changes source weighting only; Stage 22 changes budget only relative to Stage
 20. Keep the split, raw metric, checkpoint selection, and scope rules fixed.
 
-**Reason:** Stage 18 measured 6.782754397212449 dB, only
-+0.000066288613979 dB above Stage 09. Stage 20 measured
-7.284502495688106 dB, +0.273948937646145 dB over Stage 12. Stage 19 measured
-7.409153447682268 dB after 6,000 steps, +0.398599889640307 dB over Stage 12;
-its second half still added 0.264818095201537 dB. This supplies the predeclared
+**Reason:** Stage 18 measured 6.7828 dB, only
++0.0001 dB above Stage 09. Stage 20 measured
+7.2845 dB, +0.2739 dB over Stage 12. Stage 19 measured
+7.4092 dB after 6,000 steps, +0.3986 dB over Stage 12;
+its second half still added 0.2648 dB. This supplies the predeclared
 promotion evidence for Stage 22 while Stage 21 addresses the independently
 diagnosed time-, receiver-, and source-dependent weighting error.
 
@@ -220,12 +220,12 @@ Stage 22 as the final promoted whole-shot combination. Do not run Stage 23,
 Mark the study blocked rather than successful. Preserve all completed runs and
 the strict `>25 dB` result as immutable evidence.
 
-**Reason:** Stage 21 measured 7.02265866708403 dB, +0.239970558485560 dB over
-Stage 09. Adding that full gain to Stage 20 forecasts 7.524473054173666 dB,
-still 1.575329347572995 dB below Stage 07. Stage 22 measured
-7.7007124673434095 dB at step 6,000, +0.416209971655303 dB over Stage 20 and
-+0.290585628981104 dB after step 3,000. Despite those real gains, it remains
-13.642615093183897 dB below the 21.343327560527307 dB long-run gate. The
+**Reason:** Stage 21 measured 7.0227 dB, +0.24 dB over
+Stage 09. Adding that full gain to Stage 20 forecasts 7.5245 dB,
+still 1.5753 dB below Stage 07. Stage 22 measured
+7.7007 dB at step 6,000, +0.4162 dB over Stage 20 and
++0.2906 dB after step 3,000. Despite those real gains, it remains
+13.6426 dB below the 21.3433 dB long-run gate. The
 target-optimized 384--512-neighbor linear-span diagnostic is approximately
 23.36 dB, also below the formal threshold. No tested or promoted information
-path supports the remaining 15.900197598253339 dB under the unchanged contract.
+path supports the remaining 15.9002 dB under the unchanged contract.

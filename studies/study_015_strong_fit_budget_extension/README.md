@@ -54,7 +54,7 @@ The report with maximum median training-trace S/N is classified with the shared 
 
 One gate precedes the decision. Because the seed, model, data, and batch schedule are identical
 to Study 014's run, the first 50,000 updates must reproduce it: the best median training-trace
-S/N among reports at or before step 50,000 must match Study 014's recorded 16.13774316268436 dB
+S/N among reports at or before step 50,000 must match Study 014's recorded 16.1377 dB
 within 0.05 dB, otherwise the decision is `baseline_not_reproduced`. Otherwise the decision
 follows the classification: `extended_budget_strong_fit`, `extended_budget_escaped_zero_predictor`,
 or `extended_budget_near_zero`. The summary also records `first_strong_fit_step`, the first
@@ -91,7 +91,7 @@ Run `20260827T054748Z_94b479e_full_trace_batch_per_trace_rms`; decision
 `extended_budget_strong_fit`.
 
 The baseline gate passed exactly: the best median training-trace S/N within the first 50,000
-updates was 16.13774316268436 dB, identical to Study 014's recorded value to full float
+updates was 16.1377 dB, identical to Study 014's recorded value to full float
 precision, confirming a bit-exact reproduction of the shared seed-42 schedule.
 
 The recommended recipe reaches `strong_fit`. The median training-trace S/N first crossed 20 dB

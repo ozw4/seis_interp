@@ -131,8 +131,8 @@ from the reusable prepared split artifact.
 Formal run
 [`20260828T194620Z_edb2561_all_ffids`](../../runs/study_017_all_ffid_neighbor_inpainter/20260828T194620Z_edb2561_all_ffids/metrics.json)
 completed all 2,500 updates and reached
-`oracle_per_trace_unit_rms_global_snr_db = 18.111870025656728` at step 2,500. This is
-3.111870025656728 dB above the strict 15 dB threshold. Both `metric_success` and
+`oracle_per_trace_unit_rms_global_snr_db = 18.1119` at step 2,500. This is
+3.1119 dB above the strict 15 dB threshold. Both `metric_success` and
 `scope_success` are true, so the formal run records `success: true`.
 
 The accepted validation contains 114,490 canonical traces and 71,556,250 samples. The run used
@@ -141,7 +141,7 @@ all 4,780 eligible FFIDs, recorded the effective train/validation/test counts as
 zero remaining duplicate cells, train-coordinate collisions, train-validation coordinate
 overlaps, or target-center neighbor offsets. Test and excluded amplitude values were not
 materialized. Reloading the saved checkpoint reproduced the accepted metric, and the independent
-training audit reached 18.104445832103483 dB.
+training audit reached 18.1044 dB.
 
 The run is tied to Git commit `edb2561ffa731f02e2c87325ba340ebce9671104`, seed 42, and an
 NVIDIA H100 NVL. Its checkpoint, resolved configuration, input hashes, complete metric history,
