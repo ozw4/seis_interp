@@ -27,6 +27,7 @@ from seis_interp.processing.interpolation_masks import (
     validate_interpolation_mask,
 )
 from seis_interp.processing.trace_canonicalization import (
+    PHYSICAL_COORDINATE_COLUMNS,
     canonicalize_eligible_physical_coordinates,
 )
 from seis_interp.processing.trace_splits import (
@@ -72,6 +73,7 @@ def prepare_interpolation_mask(
         },
     }
     _require_input_files(input_paths)
+    input_file_metadata = _input_file_metadata(input_paths)
 
     dataset_metadata = _read_json_object(
         input_paths["interim"][METADATA_FILE_NAME],
@@ -90,15 +92,20 @@ def prepare_interpolation_mask(
         dataset_metadata,
         preparation,
         trace_count=len(trace_table),
-        traces_path=input_paths["interim"][TRACES_FILE_NAME],
+        trace_sha256=input_file_metadata["interim"][TRACES_FILE_NAME]["sha256"],
     )
 
-    split_by_array_row = dict(zip(split_rows, split_table[SPLIT_COLUMN].to_numpy(), strict=True))
-    trace_partitions = trace_table["array_row"].map(split_by_array_row)
-    joined_table = trace_table.assign(**{SPLIT_COLUMN: trace_partitions})
+    split_by_array_row = np.empty(len(source_rows), dtype=object)
+    split_by_array_row[split_rows] = split_table[SPLIT_COLUMN].to_numpy()
+    trace_partitions = pd.Series(split_by_array_row[source_rows], index=trace_table.index)
+    joined_columns = ["array_row", "ffid", *PHYSICAL_COORDINATE_COLUMNS]
+    joined_table = trace_table.loc[:, joined_columns].assign(**{SPLIT_COLUMN: trace_partitions})
     validate_prepared_split_assignments(joined_table, preparation)
     canonical_table, duplicate_audit = canonicalize_eligible_physical_coordinates(joined_table)
-    candidate_table = canonical_table.loc[canonical_table[SPLIT_COLUMN].eq(stored_partition)].copy()
+    candidate_table = canonical_table.loc[
+        canonical_table[SPLIT_COLUMN].eq(stored_partition),
+        ["array_row", "ffid"],
+    ].copy()
     if candidate_table.empty:
         raise ValueError(f"dataset partition {stored_partition!r} is empty")
     candidate_ffid_count = _candidate_ffid_count(candidate_table)
@@ -134,10 +141,7 @@ def prepare_interpolation_mask(
             "policy": duplicate_audit["policy"],
             "removed_trace_count": duplicate_audit["removed_trace_count"],
         },
-        "input_files": {
-            group: {file_name: {"sha256": file_sha256(path)} for file_name, path in paths.items()}
-            for group, paths in input_paths.items()
-        },
+        "input_files": input_file_metadata,
     }
     return write_interpolation_mask(
         Path(output_dir),
@@ -197,6 +201,15 @@ def _require_input_files(input_paths: Mapping[str, Mapping[str, Path]]) -> None:
         raise FileNotFoundError(f"interpolation mask inputs are missing required files: {missing}")
 
 
+def _input_file_metadata(
+    input_paths: Mapping[str, Mapping[str, Path]],
+) -> dict[str, dict[str, dict[str, str]]]:
+    return {
+        group: {file_name: {"sha256": file_sha256(path)} for file_name, path in paths.items()}
+        for group, paths in input_paths.items()
+    }
+
+
 def _read_json_object(path: Path, *, description: str) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -232,7 +245,7 @@ def _validate_input_metadata(
     preparation: Mapping[str, object],
     *,
     trace_count: int,
-    traces_path: Path,
+    trace_sha256: str,
 ) -> None:
     dataset_id = _metadata_text(dataset_metadata, "dataset_id", METADATA_FILE_NAME)
     prepared_dataset_id = _metadata_text(preparation, "dataset_id", PREPARATION_FILE_NAME)
@@ -254,13 +267,11 @@ def _validate_input_metadata(
         )
 
     expected_hash = _recorded_trace_hash(preparation)
-    if expected_hash is not None:
-        actual_hash = file_sha256(traces_path)
-        if expected_hash != actual_hash:
-            raise ValueError(
-                f"{PREPARATION_FILE_NAME} input hash for {TRACES_FILE_NAME} does not match "
-                "the current file"
-            )
+    if expected_hash is not None and expected_hash != trace_sha256:
+        raise ValueError(
+            f"{PREPARATION_FILE_NAME} input hash for {TRACES_FILE_NAME} does not match "
+            "the current file"
+        )
 
 
 def _metadata_text(metadata: Mapping[str, object], key: str, description: str) -> str:

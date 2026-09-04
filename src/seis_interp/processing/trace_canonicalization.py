@@ -14,7 +14,7 @@ from seis_interp.processing.trace_splits import (
 
 DUPLICATE_PHYSICAL_COORDINATE_POLICY = "keep_lowest_array_row"
 
-_PHYSICAL_COORDINATE_COLUMNS = (
+PHYSICAL_COORDINATE_COLUMNS = (
     "source_x_m",
     "source_y_m",
     "receiver_x_m",
@@ -32,7 +32,7 @@ def canonicalize_eligible_physical_coordinates(
     ``array_row``. Split labels are retained solely for the removal audit and
     never influence which row wins.
     """
-    keys = list(_PHYSICAL_COORDINATE_COLUMNS)
+    keys = list(PHYSICAL_COORDINATE_COLUMNS)
     eligible = joined_table.loc[joined_table[SPLIT_COLUMN].ne(EXCLUDED_SPLIT)].copy()
     group_sizes = eligible.groupby(keys, sort=False, dropna=False)["array_row"].transform("size")
     duplicate_rows = eligible.loc[group_sizes.gt(1)]

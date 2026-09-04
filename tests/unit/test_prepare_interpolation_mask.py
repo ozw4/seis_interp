@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import seis_interp.pipelines.prepare_interpolation_mask as interpolation_mask_pipeline
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interpolation_mask_store import (
     MASK_METADATA_FILE_NAME,
@@ -22,6 +23,7 @@ from seis_interp.processing.interpolation_masks import (
     RANDOM_TRACE_MASK_KIND,
     RANDOM_WHOLE_FFID_MASK_KIND,
 )
+from seis_interp.processing.trace_canonicalization import PHYSICAL_COORDINATE_COLUMNS
 
 DATASET_ID = "synthetic"
 CONFIG_SOURCE = "studies/study_001/config.yaml"
@@ -174,6 +176,86 @@ def test_trace_row_order_does_not_change_role_mapping(tmp_path: Path) -> None:
     second_mask, _ = load_interpolation_mask(tmp_path / "second_mask")
 
     assert _role_by_array_row(first_mask) == _role_by_array_row(second_mask)
+
+
+def test_pipeline_materializes_only_mask_columns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interim, processed = _write_inputs(tmp_path)
+    canonical_input_columns: list[str] = []
+    candidate_columns: list[str] = []
+    canonicalize = interpolation_mask_pipeline.canonicalize_eligible_physical_coordinates
+    make_mask = interpolation_mask_pipeline.make_random_trace_mask
+
+    def recording_canonicalize(
+        joined_table: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, dict[str, object]]:
+        canonical_input_columns.extend(joined_table.columns)
+        return canonicalize(joined_table)
+
+    def recording_make_mask(
+        candidate_table: pd.DataFrame,
+        *,
+        missing_fraction: float,
+        random_seed: int,
+    ) -> pd.DataFrame:
+        candidate_columns.extend(candidate_table.columns)
+        return make_mask(
+            candidate_table,
+            missing_fraction=missing_fraction,
+            random_seed=random_seed,
+        )
+
+    monkeypatch.setattr(
+        interpolation_mask_pipeline,
+        "canonicalize_eligible_physical_coordinates",
+        recording_canonicalize,
+    )
+    monkeypatch.setattr(
+        interpolation_mask_pipeline,
+        "make_random_trace_mask",
+        recording_make_mask,
+    )
+
+    _prepare(interim, processed, tmp_path / "mask")
+
+    assert canonical_input_columns == [
+        "array_row",
+        "ffid",
+        *PHYSICAL_COORDINATE_COLUMNS,
+        "split",
+    ]
+    assert candidate_columns == ["array_row", "ffid"]
+
+
+def test_pipeline_hashes_each_input_file_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interim, processed = _write_inputs(tmp_path)
+    hashed_paths: list[Path] = []
+
+    def recording_file_sha256(path: Path) -> str:
+        hashed_paths.append(path)
+        return file_sha256(path)
+
+    monkeypatch.setattr(
+        interpolation_mask_pipeline,
+        "file_sha256",
+        recording_file_sha256,
+    )
+
+    _prepare(interim, processed, tmp_path / "mask")
+
+    expected_paths = [
+        interim / "traces.parquet",
+        interim / "dataset.json",
+        processed / "trace_split.parquet",
+        processed / "preparation.json",
+    ]
+    assert all(hashed_paths.count(path) == 1 for path in expected_paths)
+    assert len(hashed_paths) == len(expected_paths)
 
 
 def test_duplicate_physical_cells_are_canonicalized_before_random_masking(

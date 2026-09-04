@@ -120,7 +120,7 @@ def validate_interpolation_mask(
 
     if expected_array_rows is not None:
         expected = _validated_expected_array_rows(expected_array_rows)
-        if set(array_rows.tolist()) != set(expected.tolist()):
+        if not np.array_equal(np.sort(array_rows), np.sort(expected)):
             raise ValueError("interpolation mask array_row values do not match the expected set")
 
 
