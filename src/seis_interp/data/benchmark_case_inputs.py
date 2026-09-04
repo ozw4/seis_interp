@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
+from seis_interp.data.benchmark_case_store import validate_benchmark_case
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interpolation_mask_store import OUTPUT_FILE_NAMES as MASK_FILE_NAMES
 from seis_interp.data.prepared_partition import OUTPUT_FILE_NAMES as PREPARED_FILE_NAMES
@@ -45,14 +46,13 @@ def verify_benchmark_case_inputs(
     mask_dir: Path,
 ) -> None:
     """Require current input hashes to exactly match one benchmark case."""
-    if not isinstance(case, Mapping):
-        raise ValueError("benchmark case must be an object")
+    validate_benchmark_case(case)
     current = collect_benchmark_input_hashes(
         interim_dir=interim_dir,
         processed_dir=processed_dir,
         mask_dir=mask_dir,
     )
-    if case.get("input_files") != current:
+    if case["input_files"] != current:
         raise ValueError("benchmark case input_files do not match the current input files")
 
 

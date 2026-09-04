@@ -272,6 +272,48 @@ def test_verification_rejects_changed_file(
         )
 
 
+def test_verification_rejects_invalid_role_contract(tmp_path: Path) -> None:
+    interim, processed, mask = prepare_benchmark_case_artifacts(tmp_path)
+    case = _prepare(interim, processed, mask, processed / "case")
+    role_contract = case["role_contract"]
+    assert isinstance(role_contract, dict)
+    role_contract["evaluation_target_amplitude_use"] = "training"
+
+    with pytest.raises(ValueError, match="role_contract"):
+        verify_benchmark_case_inputs(
+            case,
+            interim_dir=interim,
+            processed_dir=processed,
+            mask_dir=mask,
+        )
+
+
+def test_verification_rejects_incomplete_case_before_hashing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interim, processed, mask = prepare_benchmark_case_artifacts(tmp_path)
+    case = _prepare(interim, processed, mask, processed / "case")
+    del case["mask"]
+
+    def unexpected_hash_collection(*args: object, **kwargs: object) -> object:
+        pytest.fail("input hashes were collected before validating the benchmark case")
+
+    monkeypatch.setattr(
+        benchmark_inputs,
+        "collect_benchmark_input_hashes",
+        unexpected_hash_collection,
+    )
+
+    with pytest.raises(ValueError, match="benchmark case"):
+        verify_benchmark_case_inputs(
+            case,
+            interim_dir=interim,
+            processed_dir=processed,
+            mask_dir=mask,
+        )
+
+
 def test_requires_every_input_file_before_hashing(tmp_path: Path) -> None:
     interim, processed, mask = prepare_benchmark_case_artifacts(tmp_path)
     (mask / MASK_TABLE_FILE_NAME).unlink()
