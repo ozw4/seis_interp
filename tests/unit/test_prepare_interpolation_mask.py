@@ -559,6 +559,22 @@ def test_rejects_an_unknown_mask_kind(tmp_path: Path) -> None:
         _prepare(interim, processed, tmp_path / "mask", kind="native_missing")
 
 
+def test_rejects_a_validated_but_unhandled_mask_kind(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interim, processed = _write_inputs(tmp_path)
+    future_kind = "contiguous_shot"
+    monkeypatch.setattr(
+        interpolation_mask_pipeline,
+        "MASK_KINDS",
+        (*interpolation_mask_pipeline.MASK_KINDS, future_kind),
+    )
+
+    with pytest.raises(AssertionError, match=f"unhandled mask kind: {future_kind}"):
+        _prepare(interim, processed, tmp_path / "mask", kind=future_kind)
+
+
 @pytest.mark.parametrize("config_source", ["", " ", "/tmp/config.yaml", "../config.yaml", "a\\b"])
 def test_rejects_non_portable_config_sources(tmp_path: Path, config_source: str) -> None:
     interim, processed = _write_inputs(tmp_path)

@@ -20,6 +20,7 @@ from seis_interp.pipelines.prepare_baseline import (
     WHOLE_FFID_SPLIT_SCOPE,
 )
 from seis_interp.processing.interpolation_masks import (
+    MASK_KINDS,
     RANDOM_TRACE_MASK_KIND,
     RANDOM_WHOLE_FFID_MASK_KIND,
     make_random_trace_mask,
@@ -116,13 +117,15 @@ def prepare_interpolation_mask(
             missing_fraction=missing_fraction,
             random_seed=random_seed,
         )
-    else:
+    elif stored_kind == RANDOM_WHOLE_FFID_MASK_KIND:
         _require_whole_ffid_split_scope(preparation)
         mask_table = make_random_whole_ffid_mask(
             candidate_table,
             missing_fraction=missing_fraction,
             random_seed=random_seed,
         )
+    else:
+        raise AssertionError(f"unhandled mask kind: {stored_kind}")
 
     candidate_rows = candidate_table["array_row"].to_numpy(dtype=np.int64)
     validate_interpolation_mask(mask_table, expected_array_rows=candidate_rows)
@@ -158,11 +161,8 @@ def _validated_partition(value: str) -> str:
 
 
 def _validated_kind(value: str) -> str:
-    if value not in (RANDOM_TRACE_MASK_KIND, RANDOM_WHOLE_FFID_MASK_KIND):
-        raise ValueError(
-            "kind must be one of "
-            f"{[RANDOM_TRACE_MASK_KIND, RANDOM_WHOLE_FFID_MASK_KIND]}, got {value!r}"
-        )
+    if value not in MASK_KINDS:
+        raise ValueError(f"kind must be one of {list(MASK_KINDS)}, got {value!r}")
     return value
 
 
