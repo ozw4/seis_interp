@@ -389,6 +389,55 @@ def _prepare_mask(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_benchmark_case(args: argparse.Namespace) -> int:
+    # Imported here so that unrelated commands keep working without the data extras.
+    from seis_interp.data.benchmark_case_store import validated_case_id
+    from seis_interp.pipelines.prepare_benchmark_case import prepare_benchmark_case
+
+    try:
+        config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
+        case_id = validated_case_id(get_required_config_value(config, "benchmark_case.id"))
+        config_source = repository_relative_config_source(
+            args.config,
+            repository_root=REPOSITORY_ROOT,
+        )
+    except (OSError, ValueError) as error:
+        print(f"data prepare-benchmark-case failed: {error}", file=sys.stderr)
+        return 1
+
+    try:
+        summary = prepare_benchmark_case(
+            interim_dir=args.input,
+            processed_dir=args.processed,
+            mask_dir=args.mask,
+            output_dir=args.output,
+            case_id=case_id,
+            config_source=config_source,
+            overwrite=args.overwrite,
+        )
+    except (OSError, ValueError) as error:
+        print(f"data prepare-benchmark-case failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        mask = summary["mask"]
+        counts = mask["counts"]
+        print(f"Configuration: {summary['config_source']}")
+        print(f"Case ID: {summary['case_id']}")
+        print(f"Dataset ID: {summary['dataset_id']}")
+        print(f"Partition: {summary['partition']}")
+        print(f"Mask kind: {mask['kind']}")
+        print(f"Observed traces: {counts['observed']}")
+        print(f"Evaluation target traces: {counts['evaluation_target']}")
+        print(f"Input dataset: {args.input}")
+        print(f"Prepared partition: {args.processed}")
+        print(f"Mask artifact: {args.mask}")
+        print(f"Output directory: {args.output}")
+    return 0
+
+
 def _config_value_or_override(
     override: object | None,
     config: Mapping[str, object],
@@ -642,3 +691,46 @@ def add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     )
     prepare_mask.add_argument("--json", action="store_true", help="Print the summary as JSON.")
     prepare_mask.set_defaults(handler=_prepare_mask)
+
+    prepare_case = data_commands.add_parser(
+        "prepare-benchmark-case",
+        help="Bind an existing prepared partition and mask by exact file hashes.",
+        description="Bind an existing prepared partition and mask by exact file hashes.",
+    )
+    prepare_case.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Study configuration YAML containing benchmark_case.id.",
+    )
+    prepare_case.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="Input interim trace dataset directory.",
+    )
+    prepare_case.add_argument(
+        "--processed",
+        type=Path,
+        required=True,
+        help="Prepared dataset partition directory.",
+    )
+    prepare_case.add_argument(
+        "--mask",
+        type=Path,
+        required=True,
+        help="Existing interpolation mask artifact directory.",
+    )
+    prepare_case.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Output benchmark case directory.",
+    )
+    prepare_case.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace benchmark_case.json in an existing output directory.",
+    )
+    prepare_case.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    prepare_case.set_defaults(handler=_prepare_benchmark_case)

@@ -70,7 +70,7 @@ def test_download_cli_reports_failures_with_the_existing_prefix(monkeypatch, cap
     assert "Download failed: manifest is unreadable" in capsys.readouterr().err
 
 
-def test_data_parser_exposes_the_seven_subcommands(capsys) -> None:
+def test_data_parser_exposes_the_eight_subcommands(capsys) -> None:
     with pytest.raises(SystemExit) as excinfo:
         build_parser().parse_args(["data", "--help"])
 
@@ -84,6 +84,7 @@ def test_data_parser_exposes_the_seven_subcommands(capsys) -> None:
         "prepare-c3-survey",
         "prepare-baseline",
         "prepare-mask",
+        "prepare-benchmark-case",
     ):
         assert name in help_text
 
@@ -98,6 +99,7 @@ def test_importing_data_commands_defers_preparation_pipelines() -> None:
         "        'seis_interp.pipelines.prepare_c3',\n"
         "        'seis_interp.pipelines.prepare_baseline',\n"
         "        'seis_interp.pipelines.prepare_interpolation_mask',\n"
+        "        'seis_interp.pipelines.prepare_benchmark_case',\n"
         "        'seis_interp.processing.trace_amplitude_filter',\n"
         "        'torch',\n"
         "    )\n"
@@ -329,3 +331,233 @@ def test_prepare_mask_reports_pipeline_errors(
 
     assert exit_code == 1
     assert capsys.readouterr().err == ("data prepare-mask failed: invalid partition artifact\n")
+
+
+CASE_SUMMARY: dict[str, object] = {
+    "case_id": "synthetic_test_seed42",
+    "dataset_id": "synthetic",
+    "partition": "test",
+    "config_source": "studies/study/config.yaml",
+    "role_contract": {
+        "domain": "canonical_present_traces",
+        "observed_role": "observed",
+        "evaluation_target_role": "evaluation_target",
+        "evaluation_target_amplitude_use": "scoring_only",
+    },
+    "mask": {
+        "kind": "random_trace",
+        "missing_fraction": 0.8,
+        "random_seed": 42,
+        "candidate_trace_count": 10,
+        "candidate_ffid_count": 2,
+        "counts": {"total": 10, "observed": 2, "evaluation_target": 8},
+        "duplicate_physical_coordinates": {
+            "policy": "keep_lowest_array_row",
+            "removed_trace_count": 0,
+        },
+    },
+    "input_files": {},
+}
+
+
+def _write_benchmark_case_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    case_id: object = "synthetic_test_seed42",
+    include_case_id: bool = True,
+) -> Path:
+    repository = tmp_path / "repository"
+    config_path = repository / "studies" / "study" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    (repository / "pyproject.toml").write_text("[project]\nname = 'test'\n", encoding="utf-8")
+    benchmark_case = {"id": case_id} if include_case_id else {}
+    config_path.write_text(
+        yaml.safe_dump({"benchmark_case": benchmark_case}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(data_commands, "REPOSITORY_ROOT", repository)
+    return config_path
+
+
+def _benchmark_case_arguments(tmp_path: Path, config_path: Path) -> list[str]:
+    return [
+        "data",
+        "prepare-benchmark-case",
+        "--config",
+        str(config_path),
+        "--input",
+        str(tmp_path / "interim"),
+        "--processed",
+        str(tmp_path / "processed"),
+        "--mask",
+        str(tmp_path / "mask"),
+        "--output",
+        str(tmp_path / "case"),
+    ]
+
+
+def test_prepare_benchmark_case_requires_all_path_arguments(capsys) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["data", "prepare-benchmark-case"])
+
+    assert excinfo.value.code == 2
+    error = capsys.readouterr().err
+    for option in ("--config", "--input", "--processed", "--mask", "--output"):
+        assert option in error
+
+
+def test_prepare_benchmark_case_passes_config_and_paths_to_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _write_benchmark_case_config(tmp_path, monkeypatch)
+    received: dict[str, object] = {}
+
+    def fake_prepare_benchmark_case(**kwargs: Any) -> dict[str, object]:
+        received.update(kwargs)
+        return CASE_SUMMARY
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_benchmark_case.prepare_benchmark_case",
+        fake_prepare_benchmark_case,
+    )
+
+    exit_code = main([*_benchmark_case_arguments(tmp_path, config_path), "--overwrite"])
+
+    assert exit_code == 0
+    assert received == {
+        "interim_dir": tmp_path / "interim",
+        "processed_dir": tmp_path / "processed",
+        "mask_dir": tmp_path / "mask",
+        "output_dir": tmp_path / "case",
+        "case_id": "synthetic_test_seed42",
+        "config_source": "studies/study/config.yaml",
+        "overwrite": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("case_id", "include_case_id", "message"),
+    [
+        ("", True, "case_id"),
+        ("bad/id", True, "case_id"),
+        (None, False, "benchmark_case.id"),
+    ],
+)
+def test_prepare_benchmark_case_rejects_invalid_or_missing_case_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case_id: object,
+    include_case_id: bool,
+    message: str,
+) -> None:
+    config_path = _write_benchmark_case_config(
+        tmp_path,
+        monkeypatch,
+        case_id=case_id,
+        include_case_id=include_case_id,
+    )
+
+    exit_code = main(_benchmark_case_arguments(tmp_path, config_path))
+
+    assert exit_code == 1
+    assert message in capsys.readouterr().err
+
+
+def test_prepare_benchmark_case_reports_pipeline_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_benchmark_case_config(tmp_path, monkeypatch)
+
+    def fail(**kwargs: Any) -> dict[str, object]:
+        raise ValueError("mask does not match partition")
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_benchmark_case.prepare_benchmark_case",
+        fail,
+    )
+
+    exit_code = main(_benchmark_case_arguments(tmp_path, config_path))
+
+    assert exit_code == 1
+    assert capsys.readouterr().err == (
+        "data prepare-benchmark-case failed: mask does not match partition\n"
+    )
+
+
+def test_prepare_benchmark_case_json_output_contains_only_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_benchmark_case_config(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_benchmark_case.prepare_benchmark_case",
+        lambda **kwargs: CASE_SUMMARY,
+    )
+
+    exit_code = main([*_benchmark_case_arguments(tmp_path, config_path), "--json"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.err == ""
+    assert json.loads(captured.out) == CASE_SUMMARY
+
+
+def test_prepare_benchmark_case_human_output_contains_contract_and_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_benchmark_case_config(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_benchmark_case.prepare_benchmark_case",
+        lambda **kwargs: CASE_SUMMARY,
+    )
+
+    exit_code = main(_benchmark_case_arguments(tmp_path, config_path))
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Configuration: studies/study/config.yaml" in output
+    assert "Case ID: synthetic_test_seed42" in output
+    assert "Dataset ID: synthetic" in output
+    assert "Partition: test" in output
+    assert "Mask kind: random_trace" in output
+    assert "Observed traces: 2" in output
+    assert "Evaluation target traces: 8" in output
+    assert f"Input dataset: {tmp_path / 'interim'}" in output
+    assert f"Prepared partition: {tmp_path / 'processed'}" in output
+    assert f"Mask artifact: {tmp_path / 'mask'}" in output
+    assert f"Output directory: {tmp_path / 'case'}" in output
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["--case-id", "--partition", "--kind", "--missing-fraction", "--random-seed"],
+)
+def test_prepare_benchmark_case_has_no_mask_condition_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+) -> None:
+    config_path = _write_benchmark_case_config(tmp_path, monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        main([*_benchmark_case_arguments(tmp_path, config_path), option, "value"])
+
+    assert excinfo.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+
+def test_prepare_benchmark_case_help_describes_exact_hash_binding(capsys) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["data", "prepare-benchmark-case", "--help"])
+
+    assert excinfo.value.code == 0
+    assert "exact file hashes" in capsys.readouterr().out
