@@ -310,6 +310,85 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_mask(args: argparse.Namespace) -> int:
+    # Imported here so that unrelated commands keep working without the data extras.
+    from seis_interp.config_values import finite_float, nonnegative_integer
+    from seis_interp.pipelines.prepare_interpolation_mask import prepare_interpolation_mask
+    from seis_interp.processing.interpolation_masks import MASK_KINDS
+    from seis_interp.processing.trace_splits import TEST_SPLIT, TRAIN_SPLIT, VALIDATION_SPLIT
+
+    try:
+        config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
+        study_config = config.get("study")
+        if isinstance(study_config, Mapping) and "random_seed" in study_config:
+            raise ConfigurationError("study.random_seed is not supported; use project.random_seed")
+
+        random_seed = nonnegative_integer(
+            get_required_config_value(config, "project.random_seed"),
+            "project.random_seed",
+        )
+        partition = get_required_config_value(config, "interpolation_mask.partition")
+        allowed_partitions = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
+        if not isinstance(partition, str) or partition not in allowed_partitions:
+            raise ConfigurationError(
+                "interpolation_mask.partition must be one of "
+                f"{list(allowed_partitions)}, got {partition!r}"
+            )
+
+        kind = get_required_config_value(config, "interpolation_mask.kind")
+        if not isinstance(kind, str) or kind not in MASK_KINDS:
+            raise ConfigurationError(
+                f"interpolation_mask.kind must be one of {list(MASK_KINDS)}, got {kind!r}"
+            )
+
+        missing_fraction = finite_float(
+            get_required_config_value(config, "interpolation_mask.missing_fraction"),
+            "interpolation_mask.missing_fraction",
+        )
+        if not 0.0 < missing_fraction < 1.0:
+            raise ConfigurationError(
+                "interpolation_mask.missing_fraction must be strictly between 0 and 1"
+            )
+        config_source = repository_relative_config_source(
+            args.config,
+            repository_root=REPOSITORY_ROOT,
+        )
+    except (OSError, ValueError) as error:
+        print(f"data prepare-mask failed: {error}", file=sys.stderr)
+        return 1
+
+    try:
+        summary = prepare_interpolation_mask(
+            interim_dir=args.input,
+            processed_dir=args.processed,
+            output_dir=args.output,
+            partition=partition,
+            kind=kind,
+            missing_fraction=missing_fraction,
+            random_seed=random_seed,
+            config_source=config_source,
+            overwrite=args.overwrite,
+        )
+    except (OSError, ValueError) as error:
+        print(f"data prepare-mask failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        counts = summary["counts"]
+        print(f"Configuration: {summary['config_source']}")
+        print(f"Input dataset: {args.input}")
+        print(f"Dataset partition: {args.processed}")
+        print(f"Output directory: {args.output}")
+        print(f"Mask kind: {summary['kind']}")
+        print(f"Partition: {summary['partition']}")
+        print(f"Candidate traces: {summary['candidate_trace_count']}")
+        print(f"Observed traces: {counts['observed']}")
+        print(f"Evaluation target traces: {counts['evaluation_target']}")
+    return 0
+
+
 def _config_value_or_override(
     override: object | None,
     config: Mapping[str, object],
@@ -527,3 +606,39 @@ def add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     )
     prepare_baseline.add_argument("--json", action="store_true", help="Print the summary as JSON.")
     prepare_baseline.set_defaults(handler=_prepare_baseline)
+
+    prepare_mask = data_commands.add_parser(
+        "prepare-mask",
+        help="Create observed and evaluation target visibility within one dataset partition.",
+    )
+    prepare_mask.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Study configuration YAML containing interpolation_mask conditions.",
+    )
+    prepare_mask.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="Input interim trace dataset directory.",
+    )
+    prepare_mask.add_argument(
+        "--processed",
+        type=Path,
+        required=True,
+        help="Processed dataset partition directory created by prepare-baseline.",
+    )
+    prepare_mask.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Output interpolation mask directory.",
+    )
+    prepare_mask.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace files generated by this pipeline in an existing output directory.",
+    )
+    prepare_mask.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    prepare_mask.set_defaults(handler=_prepare_mask)

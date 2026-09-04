@@ -74,23 +74,28 @@ data verify             verify an external dataset against its manifest
 data inspect            inspect SEG-Y structure and content
 data prepare-c3-shot    write one complete SEG C3 NA shot as an interim dataset
 data prepare-c3-survey  write every manifest-declared FFID as one interim dataset
-data prepare-baseline   create trace splits and normalization metadata
+data prepare-baseline   create a dataset partition and train-only normalization metadata
+data prepare-mask       create interpolation visibility within one dataset partition
 ```
 
-Run `python -m seis_interp.cli data <command> --help` for the full argument list. A typical single-shot flow:
+Run `python -m seis_interp.cli data <command> --help` for the full argument list. A survey-to-mask flow is:
 
 ```bash
 python -m pip install -e ".[dev,data,segy]"
 
-python -m seis_interp.cli data prepare-c3-shot \
-  --input "$SEIS_INTERP_DATA_ROOT/external/seg_c3_na/<file>.sgy" \
-  --output data/interim/c3_na/ffid_<id> \
-  --ffid <id>
+python -m seis_interp.cli data prepare-c3-survey \
+  --output data/interim/c3_na/all_ffids
 
 python -m seis_interp.cli data prepare-baseline \
   --config studies/<study>/config.yaml \
-  --input data/interim/c3_na/ffid_<id> \
-  --output data/processed/c3_na/<split-name>
+  --input data/interim/c3_na/all_ffids \
+  --output data/processed/c3_na/<partition-id>
+
+python -m seis_interp.cli data prepare-mask \
+  --config studies/<study>/config.yaml \
+  --input data/interim/c3_na/all_ffids \
+  --processed data/processed/c3_na/<partition-id> \
+  --output data/processed/c3_na/<partition-id>/masks/<mask-id>
 ```
 
 Each interim dataset contains four files:
@@ -104,7 +109,19 @@ dataset.json     dataset metadata, including the source SHA-256
 
 Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_row`. The coordinate rules are documented in [`docs/coordinate_conventions.md`](docs/coordinate_conventions.md).
 
-`data prepare-baseline` requires `--config` because the holdout design is a study condition. Configuration values are resolved in this order: the file named by `extends`, the selected study config, then explicit CLI overrides. The command writes `trace_split.parquet`, `normalization.json`, and `preparation.json`; the latter records the resolved split values, supported normalization methods, and repository-relative config source. Study-specific seed overrides belong at `project.random_seed`; `study.random_seed` is rejected.
+`data prepare-baseline` requires `--config` because the dataset partition is a study condition. It writes `trace_split.parquet`, train-only `normalization.json`, and `preparation.json`. Configuration values are resolved in this order: the file named by `extends`, the selected study config, then explicit CLI overrides. The preparation metadata records the resolved partition values, supported normalization methods, and repository-relative config source. Study-specific seed values belong at `project.random_seed`; `study.random_seed` is rejected.
+
+`data prepare-mask` separately assigns `observed` and `evaluation_target` roles within one `train`, `validation`, or `test` partition. Its model-independent artifact contains `observation_mask.parquet` and `interpolation_mask.json`, so multiple masks can share one unchanged dataset partition. The supported kinds are currently `random_trace` and `random_whole_ffid`; a whole-FFID mask requires a dataset partition prepared with whole-FFID splitting. Partition, kind, and missing fraction come from `interpolation_mask.*`, while the seed comes from `project.random_seed`; `prepare-mask` does not provide CLI overrides for these conditions.
+
+```yaml
+project:
+  random_seed: 42
+
+interpolation_mask:
+  partition: test
+  kind: random_trace
+  missing_fraction: 0.8
+```
 
 SEG-Y inputs and everything under `data/interim/` and `data/processed/` are generated or externally obtained data and must not be committed to Git.
 
@@ -113,7 +130,7 @@ SEG-Y inputs and everything under `data/interim/` and `data/processed/` are gene
 The `train` command group trains the four model families:
 
 ```text
-train siren                  coordinate-only SIREN on prepared trace splits
+train siren                  coordinate-only SIREN on prepared dataset partitions
 train neighbor-inpainter     physical-neighbor temporal trace inpainter
 train shot-gather-inpainter  joint whole-shot gather inpainter
 train trace-graph            trace-node graph gather interpolator
