@@ -12,13 +12,9 @@ import pandas as pd
 
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interpolation_mask_store import write_interpolation_mask
+from seis_interp.data.prepared_partition import PREPARATION_FILE_NAME, TRACE_SPLIT_FILE_NAME
 from seis_interp.data.trace_store import METADATA_FILE_NAME, TRACES_FILE_NAME
 from seis_interp.data.trace_table import validated_array_rows
-from seis_interp.pipelines.prepare_baseline import (
-    PREPARATION_FILE_NAME,
-    TRACE_SPLIT_FILE_NAME,
-    WHOLE_FFID_SPLIT_SCOPE,
-)
 from seis_interp.processing.interpolation_masks import (
     MASK_KINDS,
     RANDOM_TRACE_MASK_KIND,
@@ -37,6 +33,7 @@ from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
+    WHOLE_FFID_SPLIT_SCOPE,
     validate_prepared_split_assignments,
 )
 

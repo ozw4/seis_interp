@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from seis_interp.cli import main
+from seis_interp.data.prepared_partition import OUTPUT_FILE_NAMES as PREPARED_FILE_NAMES
 from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines import prepare_baseline as prepare_baseline_pipeline
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
@@ -29,6 +30,13 @@ EXPECTED_TRAIN_ROWS = np.asarray(
 )
 EXPECTED_HELD_OUT_ROWS = np.asarray([7, 9, 14, 15], dtype=np.int64)
 EXPECTED_TRAIN_RMS = 11.792476415070755
+
+
+def test_prepared_partition_file_contract_remains_public_from_pipeline() -> None:
+    assert prepare_baseline_pipeline.OUTPUT_FILE_NAMES == PREPARED_FILE_NAMES
+    assert prepare_baseline_pipeline.TRACE_SPLIT_FILE_NAME == "trace_split.parquet"
+    assert prepare_baseline_pipeline.NORMALIZATION_FILE_NAME == "normalization.json"
+    assert prepare_baseline_pipeline.PREPARATION_FILE_NAME == "preparation.json"
 
 
 def _write_interim_dataset(tmp_path: Path) -> Path:

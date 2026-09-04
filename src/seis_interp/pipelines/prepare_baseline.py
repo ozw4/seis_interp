@@ -11,6 +11,12 @@ import pandas as pd
 
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
+from seis_interp.data.prepared_partition import (
+    NORMALIZATION_FILE_NAME,
+    OUTPUT_FILE_NAMES,
+    PREPARATION_FILE_NAME,
+    TRACE_SPLIT_FILE_NAME,
+)
 from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_store import canonical_source_files
 from seis_interp.processing.normalization import (
@@ -24,30 +30,21 @@ from seis_interp.processing.trace_amplitude_filter import (
 )
 from seis_interp.processing.trace_splits import (
     EXCLUDED_SPLIT,
+    GLOBAL_SPLIT_SCOPE,
+    PER_FFID_SPLIT_SCOPE,
     SPLIT_COLUMN,
+    SPLIT_SCOPES,
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
+    WHOLE_FFID_SPLIT_SCOPE,
     assign_random_trace_splits,
     assign_random_trace_splits_by_ffid,
     assign_random_whole_ffid_splits,
 )
 
-TRACE_SPLIT_FILE_NAME = "trace_split.parquet"
-NORMALIZATION_FILE_NAME = "normalization.json"
-PREPARATION_FILE_NAME = "preparation.json"
 COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
 AMPLITUDE_NORMALIZATION_METHOD = "train_global_rms"
-GLOBAL_SPLIT_SCOPE = "global"
-PER_FFID_SPLIT_SCOPE = "per_ffid"
-WHOLE_FFID_SPLIT_SCOPE = "whole_ffid"
-SPLIT_SCOPES = frozenset((GLOBAL_SPLIT_SCOPE, PER_FFID_SPLIT_SCOPE, WHOLE_FFID_SPLIT_SCOPE))
-
-OUTPUT_FILE_NAMES = (
-    TRACE_SPLIT_FILE_NAME,
-    NORMALIZATION_FILE_NAME,
-    PREPARATION_FILE_NAME,
-)
 
 
 def prepare_baseline_dataset(

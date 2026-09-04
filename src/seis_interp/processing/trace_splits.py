@@ -17,6 +17,18 @@ VALIDATION_SPLIT = "validation"
 TEST_SPLIT = "test"
 EXCLUDED_SPLIT = "excluded"
 
+GLOBAL_SPLIT_SCOPE = "global"
+PER_FFID_SPLIT_SCOPE = "per_ffid"
+WHOLE_FFID_SPLIT_SCOPE = "whole_ffid"
+
+SPLIT_SCOPES = frozenset(
+    (
+        GLOBAL_SPLIT_SCOPE,
+        PER_FFID_SPLIT_SCOPE,
+        WHOLE_FFID_SPLIT_SCOPE,
+    )
+)
+
 
 def validate_prepared_split_assignments(
     joined_table: pd.DataFrame,
@@ -34,7 +46,7 @@ def validate_prepared_split_assignments(
             f"recorded={recorded_split_counts!r}, actual={actual_split_counts!r}"
         )
 
-    if preparation.get("split_scope") != "whole_ffid":
+    if preparation.get("split_scope") != WHOLE_FFID_SPLIT_SCOPE:
         return
 
     _validated_ffids(joined_table)
