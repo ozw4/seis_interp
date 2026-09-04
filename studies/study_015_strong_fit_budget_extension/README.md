@@ -91,8 +91,9 @@ Run `20260827T054748Z_94b479e_full_trace_batch_per_trace_rms`; decision
 `extended_budget_strong_fit`.
 
 The baseline gate passed exactly: the best median training-trace S/N within the first 50,000
-updates was 16.1377 dB, identical to Study 014's recorded value to full float
-precision, confirming a bit-exact reproduction of the shared seed-42 schedule.
+updates was identical to Study 014's recorded value at full float precision, confirming a
+bit-exact reproduction of the shared seed-42 schedule. Both read 16.1377 dB rounded to four
+decimal places; `config.yaml` holds the gate's full-precision baseline.
 
 The recommended recipe reaches `strong_fit`. The median training-trace S/N first crossed 20 dB
 at step 199,000 (20.03 dB, median trace correlation 0.9950), about 4x Study 014's budget. The

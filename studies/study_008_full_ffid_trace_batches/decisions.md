@@ -31,8 +31,9 @@ evaluations over the 435-trace training pool. Every update used all 625 samples 
 distinct randomly selected training traces, and all 100 full-training reports were finite.
 
 **Decision:** Record `full_ffid_near_zero`. The best report occurred at step 3,500 with -0.001160
-dB median training-trace S/N, -0 dB global S/N, 0.002370 median trace correlation, and a
-0.005476 prediction/target RMS ratio. Final median training-trace S/N was -0.04134 dB.
+dB median training-trace S/N, approximately 0 dB global S/N, 0.002370 median trace
+correlation, and a 0.005476 prediction/target RMS ratio. Final median training-trace S/N was
+-0.04134 dB.
 
 **Evidence:** Run `20260826T065417Z_fa548ba_tracebatch8_trace435`; summary
 `20260826T065417Z_fa548ba_summary.json`.

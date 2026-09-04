@@ -103,6 +103,8 @@ Dev Container内では`SEIS_INTERP_DATA_ROOT=/workspace/data`とし、SEG C3 NA�
 
 PRごとの実装説明、現在のclass/function contract、test件数、全epoch履歴、terminal log、全run metadataは`decisions.md`と`reports/`へ置かない。これらの正本はcode/tests、Git/PR、`runs/`である。
 
+人が読む指標は小数4桁へ丸める。閾値比較には判定に必要な桁を残す。full-precision一致を主張する箇所では、exact値を残すか表示値が丸め済みであると明記する。丸めて0になる値は`-0`ではなく`approximately 0`と書く。
+
 ## 3. ディレクトリ境界
 
 | 場所 | 置くもの／置かないもの |
