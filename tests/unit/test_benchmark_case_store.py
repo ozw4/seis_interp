@@ -17,6 +17,7 @@ from seis_interp.data.benchmark_case_store import (
     load_benchmark_case,
     validate_benchmark_case,
     validated_case_id,
+    validated_config_source,
     write_benchmark_case,
 )
 from seis_interp.data.interpolation_mask_store import OUTPUT_FILE_NAMES as MASK_FILE_NAMES
@@ -160,6 +161,30 @@ def test_accepts_none_config_source() -> None:
     case["config_source"] = None
 
     validate_benchmark_case(case)
+
+
+@pytest.mark.parametrize(
+    "config_source",
+    [
+        "/tmp/config.yaml",
+        "C:\\work\\config.yaml",
+        "../config.yaml",
+        "study\\config.yaml",
+    ],
+)
+def test_rejects_nonportable_config_source(config_source: str) -> None:
+    case = _case()
+    case["config_source"] = config_source
+
+    with pytest.raises(ValueError, match="config_source"):
+        validate_benchmark_case(case)
+
+
+def test_validated_config_source_returns_portable_value() -> None:
+    assert validated_config_source("studies/synthetic/config.yaml") == (
+        "studies/synthetic/config.yaml"
+    )
+    assert validated_config_source(None) is None
 
 
 def test_whole_ffid_trace_counts_need_not_match_requested_fraction() -> None:

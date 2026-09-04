@@ -6,7 +6,7 @@ import json
 import math
 import re
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from seis_interp.data.interpolation_mask_store import OUTPUT_FILE_NAMES as MASK_FILE_NAMES
 from seis_interp.data.prepared_partition import OUTPUT_FILE_NAMES as PREPARED_FILE_NAMES
@@ -72,9 +72,7 @@ def validate_benchmark_case(case: Mapping[str, object]) -> None:
     partition = case_object["partition"]
     if not isinstance(partition, str) or partition not in _PARTITIONS:
         raise ValueError(f"partition must be one of {sorted(_PARTITIONS)}, got {partition!r}")
-    config_source = case_object["config_source"]
-    if config_source is not None:
-        _trimmed_text(config_source, "config_source")
+    validated_config_source(case_object["config_source"])
 
     role_contract = case_object["role_contract"]
     if not isinstance(role_contract, Mapping) or dict(role_contract) != _ROLE_CONTRACT:
@@ -116,6 +114,30 @@ def validated_case_id(value: object) -> str:
     if "/" in case_id or "\\" in case_id:
         raise ValueError("case_id must not contain path separators")
     return case_id
+
+
+def validated_config_source(value: object) -> str | None:
+    """Return a portable repository-relative configuration source."""
+    if value is None:
+        return None
+    config_source = _trimmed_text(value, "config_source")
+    if "\\" in config_source:
+        raise ValueError("config_source must use POSIX path separators")
+
+    posix_path = PurePosixPath(config_source)
+    windows_path = PureWindowsPath(config_source)
+    if (
+        posix_path.is_absolute()
+        or windows_path.is_absolute()
+        or windows_path.drive
+        or windows_path.root
+    ):
+        raise ValueError("config_source must not be an absolute path")
+    if not posix_path.parts:
+        raise ValueError("config_source must identify a configuration file")
+    if ".." in posix_path.parts or ".." in windows_path.parts:
+        raise ValueError("config_source must not escape the repository")
+    return posix_path.as_posix()
 
 
 def _validate_mask_summary(value: object) -> None:

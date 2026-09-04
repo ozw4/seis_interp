@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from numbers import Integral
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 
 import numpy as np
 
@@ -14,6 +14,7 @@ from seis_interp.data.benchmark_case_store import (
     EVALUATION_TARGET_AMPLITUDE_USE,
     MASK_DOMAIN,
     validated_case_id,
+    validated_config_source,
     write_benchmark_case,
 )
 from seis_interp.data.interim_trace_dataset import load_interim_trace_dataset
@@ -50,7 +51,7 @@ def prepare_benchmark_case(
 ) -> dict[str, object]:
     """Validate existing artifacts and bind them by exact hash."""
     stored_case_id = validated_case_id(case_id)
-    stored_config_source = _validated_config_source(config_source)
+    stored_config_source = validated_config_source(config_source)
     if not isinstance(overwrite, bool):
         raise ValueError("overwrite must be a boolean")
 
@@ -108,30 +109,6 @@ def prepare_benchmark_case(
         case,
         overwrite=overwrite,
     )
-
-
-def _validated_config_source(value: str | None) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value.strip() or value != value.strip():
-        raise ValueError("config_source must be a non-empty repository-relative path")
-    if "\\" in value:
-        raise ValueError("config_source must use POSIX path separators")
-
-    posix_path = PurePosixPath(value)
-    windows_path = PureWindowsPath(value)
-    if (
-        posix_path.is_absolute()
-        or windows_path.is_absolute()
-        or windows_path.drive
-        or windows_path.root
-    ):
-        raise ValueError("config_source must not be an absolute path")
-    if not posix_path.parts:
-        raise ValueError("config_source must identify a configuration file")
-    if ".." in posix_path.parts or ".." in windows_path.parts:
-        raise ValueError("config_source must not escape the repository")
-    return posix_path.as_posix()
 
 
 def _read_json_object(path: Path, *, description: str) -> dict[str, object]:
