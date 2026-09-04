@@ -1960,7 +1960,8 @@ def run_training_fit_condition(
         if uses_trace_correlation_loss:
             if validated_traces_per_update is None:
                 raise RuntimeError("trace correlation loss requires traces_per_update")
-            # RandomTraceBatchSampler returns complete traces in trace-major order.
+            # The reshape is only valid because RandomTraceBatchSampler returns complete
+            # traces in trace-major order.
             correlation_loss = trace_correlation_loss(
                 prediction.reshape(validated_traces_per_update, sample_count),
                 target_tensor.reshape(validated_traces_per_update, sample_count),

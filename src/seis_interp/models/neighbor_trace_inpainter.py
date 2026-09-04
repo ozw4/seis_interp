@@ -346,7 +346,8 @@ class NeighborTraceInpainter(nn.Module):
             self.coarse_sample_shifts = (
                 offset_tensor[:, 3] * self.coarse_shift_samples_per_relative_receiver_y_index
             )
-        # Preserve the original public attribute while exposing the constructor field name.
+        # Both names are public: `dilations` is the read API, `temporal_dilations` the
+        # constructor field.
         self.dilations = self.temporal_dilations
         self.input_channels = 2 * self.neighbor_count + self.target_coordinate_count + 1
 

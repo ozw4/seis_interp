@@ -6,8 +6,8 @@ import argparse
 
 from seis_interp.commands.data import add_data_commands
 
-# The redundant alias keeps `seis_interp.cli.collect_environment` importable for
-# existing callers after the doctor implementation moved to `commands.doctor`.
+# The redundant alias keeps `seis_interp.cli.collect_environment` importable even though
+# the implementation lives in `commands.doctor`.
 from seis_interp.commands.doctor import (
     add_doctor_command,
 )
