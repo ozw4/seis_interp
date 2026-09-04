@@ -15,8 +15,12 @@
 
 ## Required checks
 
+- Run tests that directly cover the changed behavior and its immediate dependents.
+- Do not run the full test suite unless the user explicitly requests it or the change has repository-wide impact.
+- Report the exact test commands and results at handoff. Full-suite regression testing is handled by CI.
+
 ```bash
 ruff check .
 ruff format --check .
-pytest
+pytest <relevant test files>
 ```
