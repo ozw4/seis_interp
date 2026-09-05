@@ -9,33 +9,58 @@ import numpy as np
 import pandas as pd
 
 from seis_interp.data.benchmark_case_store import load_benchmark_case
-from seis_interp.data.interpolation_mask_store import load_interpolation_mask
-from seis_interp.data.prepared_partition import TRACE_SPLIT_FILE_NAME
 from seis_interp.data.trace_store import write_interim_trace_dataset
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
 from seis_interp.pipelines.prepare_benchmark_case import prepare_benchmark_case
 from seis_interp.pipelines.prepare_interpolation_mask import prepare_interpolation_mask
 from seis_interp.processing.interpolation_masks import RANDOM_TRACE_MASK_KIND
-from seis_interp.processing.trace_splits import TEST_SPLIT, WHOLE_FFID_SPLIT_SCOPE
+from seis_interp.processing.trace_splits import (
+    C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE,
+    TEST_SPLIT,
+    TRAIN_SPLIT,
+    VALIDATION_SPLIT,
+)
 
 RECEIVER_X_OFFSETS_M = np.arange(-140.0, 141.0, 40.0)
 RECEIVER_Y_OFFSETS_M = np.arange(-2680.0, 1.0, 40.0)
+SOURCE_LINE_RANGES = {
+    TRAIN_SPLIT: (0, 1),
+    VALIDATION_SPLIT: (1, 2),
+    TEST_SPLIT: (2, 4),
+}
+VOLUME_SOURCE_LINE_RANGE = (2, 4)
+VOLUME_SHOT_IN_LINE_RANGE = (0, 2)
+
+_FFIDS_BY_PHYSICAL_LINE = (
+    (91, 12, 77),
+    (43, 8, 105),
+    (68, 31, 97),
+    (24, 113, 56),
+    (84, 19, 102),
+)
 
 
-def make_c3_trace_table() -> pd.DataFrame:
-    """Return two staggered source lines with three complete shots each."""
+def make_c3_trace_table(
+    *,
+    physical_source_line_indices: tuple[int, ...] = (0, 1),
+    omitted_shots: frozenset[tuple[int, int]] = frozenset(),
+) -> pd.DataFrame:
+    """Return physical C3 source lines with three fixed-grid shots each."""
     records: list[dict[str, float | int]] = []
-    ffids = ((91, 12, 77), (43, 8, 105))
-    source_y_lines = ((0.0, 80.0, 160.0), (40.0, 120.0, 200.0))
     array_row = 0
-    for line, source_x_m in enumerate((1000.0, 2000.0)):
-        for shot, source_y_m in enumerate(source_y_lines[line]):
+    for physical_line in physical_source_line_indices:
+        source_x_m = 1000.0 + 160.0 * physical_line
+        source_y_start_m = 40.0 * (physical_line % 2)
+        for shot in range(3):
+            if (physical_line, shot) in omitted_shots:
+                continue
+            source_y_m = source_y_start_m + 80.0 * shot
             for relative_x_m in RECEIVER_X_OFFSETS_M:
                 for relative_y_m in RECEIVER_Y_OFFSETS_M:
                     records.append(
                         {
                             "array_row": array_row,
-                            "ffid": ffids[line][shot],
+                            "ffid": _FFIDS_BY_PHYSICAL_LINE[physical_line][shot],
                             "source_x_m": source_x_m,
                             "source_y_m": source_y_m,
                             "receiver_x_m": source_x_m + relative_x_m,
@@ -56,9 +81,17 @@ class PreparedC3VolumeArtifacts:
     shot_in_line_range: tuple[int, int]
 
 
-def prepare_c3_volume_artifacts(tmp_path: Path) -> PreparedC3VolumeArtifacts:
-    """Create current interim, partition, mask, and case artifacts for one dense shot."""
-    geometry = make_c3_trace_table()
+def prepare_c3_volume_artifacts(
+    tmp_path: Path,
+    *,
+    physical_source_line_indices: tuple[int, ...] = (0, 1, 2, 3),
+    omitted_shots: frozenset[tuple[int, int]] = frozenset(),
+) -> PreparedC3VolumeArtifacts:
+    """Create a source-block partition, random mask, and case for a C3 crop."""
+    geometry = make_c3_trace_table(
+        physical_source_line_indices=physical_source_line_indices,
+        omitted_shots=omitted_shots,
+    )
     trace_count = len(geometry)
     source = tmp_path / "synthetic.sgy"
     source.write_bytes(b"synthetic SEG-Y placeholder")
@@ -89,10 +122,11 @@ def prepare_c3_volume_artifacts(tmp_path: Path) -> PreparedC3VolumeArtifacts:
     prepare_baseline_dataset(
         interim,
         processed,
-        holdout_fraction=0.5,
-        validation_fraction_of_holdout=0.5,
+        holdout_fraction=None,
+        validation_fraction_of_holdout=None,
         random_seed=42,
-        split_scope=WHOLE_FFID_SPLIT_SCOPE,
+        split_scope=C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE,
+        source_line_ranges=SOURCE_LINE_RANGES,
         config_source="studies/synthetic/config.yaml",
     )
     mask = processed / "masks" / "test-random-trace"
@@ -116,28 +150,11 @@ def prepare_c3_volume_artifacts(tmp_path: Path) -> PreparedC3VolumeArtifacts:
         config_source="studies/synthetic/config.yaml",
     )
     load_benchmark_case(case)
-
-    stored_traces = pd.read_parquet(interim / "traces.parquet")
-    splits = pd.read_parquet(processed / TRACE_SPLIT_FILE_NAME)
-    mask_table, _ = load_interpolation_mask(mask)
-    test_rows = splits.loc[splits["split"].eq(TEST_SPLIT), "array_row"]
-    candidates = stored_traces[stored_traces["array_row"].isin(test_rows)].merge(
-        mask_table, on="array_row", validate="one_to_one"
+    return PreparedC3VolumeArtifacts(
+        interim,
+        processed,
+        mask,
+        case,
+        VOLUME_SOURCE_LINE_RANGE,
+        VOLUME_SHOT_IN_LINE_RANGE,
     )
-    for (source_x, source_y), shot in candidates.groupby(["source_x_m", "source_y_m"]):
-        if shot["observation_role"].nunique() == 2:
-            source_x_values = np.sort(stored_traces["source_x_m"].unique())
-            source_line = int(np.searchsorted(source_x_values, source_x))
-            source_y_values = np.sort(
-                stored_traces.loc[stored_traces["source_x_m"].eq(source_x), "source_y_m"].unique()
-            )
-            shot_index = int(np.searchsorted(source_y_values, source_y))
-            return PreparedC3VolumeArtifacts(
-                interim,
-                processed,
-                mask,
-                case,
-                (source_line, source_line + 1),
-                (shot_index, shot_index + 1),
-            )
-    raise RuntimeError("synthetic test partition did not produce a mixed-role dense shot")

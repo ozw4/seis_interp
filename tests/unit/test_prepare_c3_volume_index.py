@@ -30,9 +30,9 @@ def test_prepares_dense_case_bound_volume_without_amplitude_copy(tmp_path: Path)
     case = load_bound_benchmark_case(loaded, case_dir=artifacts.case_dir)
 
     assert metadata == loaded
-    assert loaded["shape"] == [4, 1, 1, 8, 68]
-    assert loaded["trace_count"] == len(index) == 544
-    assert sum(loaded["role_counts"].values()) == 544
+    assert loaded["shape"] == [4, 2, 2, 8, 68]
+    assert loaded["trace_count"] == len(index) == 2_176
+    assert sum(loaded["role_counts"].values()) == 2_176
     assert case["case_id"] == "synthetic_case"
     assert set(path.name for path in output.iterdir()) == {
         "volume_index.parquet",
