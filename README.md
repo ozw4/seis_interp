@@ -126,19 +126,26 @@ dataset.json     dataset metadata, including the source SHA-256
 
 Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_row`. The coordinate rules are documented in [`docs/coordinate_conventions.md`](docs/coordinate_conventions.md).
 
-`data prepare-baseline` requires `--config` because the dataset partition is a study condition. It writes `trace_split.parquet`, train-only `normalization.json`, and `preparation.json`. Configuration values are resolved in this order: the file named by `extends`, the selected study config, then explicit CLI overrides. The preparation metadata records the resolved partition values, supported normalization methods, and repository-relative config source. Study-specific seed values belong at `project.random_seed`; `study.random_seed` is rejected.
+`data prepare-baseline` requires `--config` because the dataset partition is a study condition. It writes `trace_split.parquet`, train-only `normalization.json`, and `preparation.json`. Configuration values are resolved in this order: the file named by `extends`, the selected study config, then explicit CLI overrides. The preparation metadata records the resolved partition values, supported normalization methods, and repository-relative config source. `split_scope: c3_source_line_blocks` requires explicit zero-based half-open `source_line_ranges` for train, validation, and test, and assigns every shot and receiver trace on one source line to the same partition. Study-specific seed values belong at `project.random_seed`; `study.random_seed` is rejected.
 
-`data prepare-mask` separately assigns `observed` and `evaluation_target` roles within one `train`, `validation`, or `test` partition. Its model-independent artifact contains `observation_mask.parquet` and `interpolation_mask.json`, so multiple masks can share one unchanged dataset partition. The supported kinds are currently `random_trace` and `random_whole_ffid`; a whole-FFID mask requires a dataset partition prepared with whole-FFID splitting. Partition, kind, and missing fraction come from `interpolation_mask.*`, while the seed comes from `project.random_seed`; `prepare-mask` does not provide CLI overrides for these conditions.
+`data prepare-mask` separately assigns `observed` and `evaluation_target` roles within one `train`, `validation`, or `test` partition. Its model-independent artifact contains `observation_mask.parquet` and `interpolation_mask.json`, so multiple masks can share one unchanged dataset partition. The supported kinds are currently `random_trace` and `random_whole_ffid`; a whole-FFID mask requires `split_scope: whole_ffid` or the whole-shot assignment provided by `c3_source_line_blocks`. Partition, kind, and missing fraction come from `interpolation_mask.*`, while the seed comes from `project.random_seed`; `prepare-mask` does not provide CLI overrides for these conditions.
 
-Before selecting the requested partition, `prepare-mask` verifies that `preparation.json` split counts match `trace_split.parquet`. For `split_scope: whole_ffid`, it also verifies the FFID counts and that every non-excluded FFID belongs to exactly one effective split. It then canonicalizes duplicate physical trace cells across all non-excluded partitions by keeping the lowest `array_row`. Candidate counts therefore describe the canonicalized rows. `interpolation_mask.json` records this policy and the number of rows removed, while the existing partition artifact remains unchanged.
+Before selecting the requested partition, `prepare-mask` verifies that `preparation.json` split counts match `trace_split.parquet`. For whole-FFID assignment scopes, it also verifies the FFID counts and that every non-excluded FFID belongs to exactly one effective split. It then canonicalizes duplicate physical trace cells across all non-excluded partitions by keeping the lowest `array_row`. Candidate counts therefore describe the canonicalized rows. `interpolation_mask.json` records this policy and the number of rows removed, while the existing partition artifact remains unchanged.
 
 `data prepare-benchmark-case` validates an existing interim dataset, prepared partition, and mask artifact, then binds their nine files by exact SHA-256 in a model-independent `benchmark_case.json`. It does not regenerate or copy those artifacts. The case fixes the `canonical_present_traces` role domain and keeps evaluation-target amplitudes for scoring only.
 
-`data prepare-c3-volume-index` binds one benchmark case by file hash and records a dense 5D crop plus its trace-to-cell mapping. It writes only `volume_index.parquet` and `volume.json`; amplitudes remain in the interim `amplitudes.npy`. Selection ranges are zero-based and half-open. The output order is `(time, source_line, shot_in_line, relative_receiver_x, relative_receiver_y)`: source lines rank ascending `source_x_m`, shots rank ascending `source_y_m` within each source line, and receiver axes rank source-relative offsets. The current adapter requires exactly one canonical trace in every selected spatial cell and rejects incomplete shots. This repository contract does not claim to recover an unpublished exact paper crop. POCS, DRR, SIREN, CNN, and GNN runs should use the same case and volume directories; model-specific normalization and patching remain run concerns.
+`data prepare-c3-volume-index` binds one benchmark case by file hash and records a dense 5D crop plus its trace-to-cell mapping. It writes only `volume_index.parquet` and `volume.json`; amplitudes remain in the interim `amplitudes.npy`. Selection ranges are zero-based and half-open. The output order is `(time, source_line, shot_in_line, relative_receiver_x, relative_receiver_y)`: source lines rank ascending `source_x_m`, shots rank ascending `source_y_m` within each source line, and receiver axes rank source-relative offsets. The selected crop must lie within one dataset partition. The adapter requires exactly one canonical trace in every selected spatial cell and rejects incomplete shots or gaps in the physical C3 source and receiver grid. This repository contract does not claim to recover an unpublished exact paper crop. POCS, DRR, SIREN, CNN, and GNN runs should use the same case and volume directories; model-specific normalization and patching remain run concerns.
 
 ```yaml
 project:
   random_seed: 42
+
+sampling:
+  split_scope: c3_source_line_blocks
+  source_line_ranges:
+    train: [0, 25]
+    validation: [25, 35]
+    test: [35, 51]
 
 interpolation_mask:
   partition: test
@@ -149,10 +156,10 @@ benchmark_case:
   id: c3_na_test_random_trace_80_seed42
 
 benchmark_volume:
-  id: c3_na_test_t0_384_sl24_40_sh27_59_rx0_8_ry18_50
+  id: c3_na_test_t0_384_sl35_51_sh27_59_rx0_8_ry18_50
   selection:
     time: [0, 384]
-    source_line: [24, 40]
+    source_line: [35, 51]
     shot_in_line: [27, 59]
     relative_receiver_x: [0, 8]
     relative_receiver_y: [18, 50]

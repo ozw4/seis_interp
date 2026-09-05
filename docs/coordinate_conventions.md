@@ -112,6 +112,8 @@ relative_receiver_y
 
 `source_line`はascending unique `source_x_m`のrankである。`shot_in_line`は各source line内のascending unique `source_y_m`のrankであり、line間でstaggerしているsource yをglobal rankにはしない。receiver座標は絶対座標ではなく、`relative_receiver_x = receiver_x_m - source_x_m`および`relative_receiver_y = receiver_y_m - source_y_m`のascending unique rankである。selectionは全軸で0-based half-open range、保存tableのspatial indexはselection startを引いたlocal indexとする。
 
+rankは欠落座標を詰めるためのものではない。5D indexを作る前に、selected cropのsource lineが160 m間隔、各line内のshotが80 m間隔、隣接lineのsource yが40 m staggerであることを検証する。relative receiver gridはx方向`-140 ... 140 m`、y方向`-2680 ... 0 m`で、いずれも40 m間隔とする。したがって、lineまたはshotが丸ごと欠落していても、残ったunique座標を隣接rankとして扱わない。
+
 この対応は公開論文から未公開のexact reshapeやcropを推測したものではなく、このrepositoryで比較手法が共有する明示的なcontractである。
 
 ## Numerical model features

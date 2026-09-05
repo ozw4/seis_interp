@@ -23,11 +23,11 @@ data/processed/<dataset>/<partition-id>/
     volume.json
 ```
 
-`trace_split.parquet` assigns dataset partitions. Each mask directory independently assigns `observed` and `evaluation_target` roles within one partition; it does not replace or modify the split table.
+`trace_split.parquet` assigns dataset partitions. A `c3_source_line_blocks` partition keeps every shot and receiver trace from each configured source-line range together, so a multi-source dense crop can remain inside one partition. Each mask directory independently assigns `observed` and `evaluation_target` roles within one partition; it does not replace or modify the split table.
 
 A benchmark case does not copy its interim, partition, or mask artifacts. `benchmark_case.json` records their exact file hashes without absolute paths, and callers provide the current directories for hash verification before use. Generated case artifacts, like other processed data, must not be committed to Git.
 
-`volume_index.parquet` stores only the selected trace-to-5D-cell mapping and contains no amplitudes. `volume.json` stores the zero-based half-open crop contract and binds the volume to one `benchmark_case.json` hash. The current dense-only contract rejects a crop containing an incomplete shot or any other missing cell. Volume artifacts are generated data and must not be committed to Git.
+`volume_index.parquet` stores only the selected trace-to-5D-cell mapping and contains no amplitudes. `volume.json` stores the zero-based half-open crop contract and binds the volume to one `benchmark_case.json` hash. The crop must be contained by the mask's dataset partition; use a matching `c3_source_line_blocks` range for a dense multi-source crop. The dense-only contract rejects an incomplete shot, a missing spatial cell, or a gap in the physical C3 grid. Volume artifacts are generated data and must not be committed to Git.
 
 In the Dev Container, `SEIS_INTERP_DATA_ROOT` is `/workspace/data`. SEG C3 NA is therefore stored at `/workspace/data/external/seg_c3_na/`.
 
