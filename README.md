@@ -77,9 +77,10 @@ data prepare-c3-survey  write every manifest-declared FFID as one interim datase
 data prepare-baseline   create a dataset partition and train-only normalization metadata
 data prepare-mask       create interpolation visibility within one dataset partition
 data prepare-benchmark-case  bind an existing partition and mask by exact file hashes
+data prepare-c3-volume-index bind a dense 5D crop and trace-to-cell mapping to one case
 ```
 
-Run `python -m seis_interp.cli data <command> --help` for the full argument list. A survey-to-benchmark-case flow is:
+Run `python -m seis_interp.cli data <command> --help` for the full argument list. A survey-to-volume-index flow is:
 
 ```bash
 python -m pip install -e ".[dev,data,segy]"
@@ -104,6 +105,14 @@ python -m seis_interp.cli data prepare-benchmark-case \
   --processed data/processed/c3_na/<partition-id> \
   --mask data/processed/c3_na/<partition-id>/masks/<mask-id> \
   --output data/processed/c3_na/<partition-id>/cases/<case-id>
+
+python -m seis_interp.cli data prepare-c3-volume-index \
+  --config studies/<study>/config.yaml \
+  --input data/interim/c3_na/all_ffids \
+  --processed data/processed/c3_na/<partition-id> \
+  --mask data/processed/c3_na/<partition-id>/masks/<mask-id> \
+  --case data/processed/c3_na/<partition-id>/cases/<case-id> \
+  --output data/processed/c3_na/<partition-id>/volumes/<volume-id>
 ```
 
 Each interim dataset contains four files:
@@ -123,7 +132,9 @@ Row `i` of `traces.parquet` corresponds to `amplitudes.npy[i]` through `array_ro
 
 Before selecting the requested partition, `prepare-mask` verifies that `preparation.json` split counts match `trace_split.parquet`. For `split_scope: whole_ffid`, it also verifies the FFID counts and that every non-excluded FFID belongs to exactly one effective split. It then canonicalizes duplicate physical trace cells across all non-excluded partitions by keeping the lowest `array_row`. Candidate counts therefore describe the canonicalized rows. `interpolation_mask.json` records this policy and the number of rows removed, while the existing partition artifact remains unchanged.
 
-`data prepare-benchmark-case` validates an existing interim dataset, prepared partition, and mask artifact, then binds their nine files by exact SHA-256 in a model-independent `benchmark_case.json`. It does not regenerate or copy those artifacts. The case fixes the `canonical_present_traces` role domain and keeps evaluation-target amplitudes for scoring only. POCS, DRR, SIREN, CNN, and GNN method configuration and results are not part of the case; neither is a 5D crop, which belongs to the later volume-adapter contract.
+`data prepare-benchmark-case` validates an existing interim dataset, prepared partition, and mask artifact, then binds their nine files by exact SHA-256 in a model-independent `benchmark_case.json`. It does not regenerate or copy those artifacts. The case fixes the `canonical_present_traces` role domain and keeps evaluation-target amplitudes for scoring only.
+
+`data prepare-c3-volume-index` binds one benchmark case by file hash and records a dense 5D crop plus its trace-to-cell mapping. It writes only `volume_index.parquet` and `volume.json`; amplitudes remain in the interim `amplitudes.npy`. Selection ranges are zero-based and half-open. The output order is `(time, source_line, shot_in_line, relative_receiver_x, relative_receiver_y)`: source lines rank ascending `source_x_m`, shots rank ascending `source_y_m` within each source line, and receiver axes rank source-relative offsets. The current adapter requires exactly one canonical trace in every selected spatial cell and rejects incomplete shots. This repository contract does not claim to recover an unpublished exact paper crop. POCS, DRR, SIREN, CNN, and GNN runs should use the same case and volume directories; model-specific normalization and patching remain run concerns.
 
 ```yaml
 project:
@@ -136,6 +147,15 @@ interpolation_mask:
 
 benchmark_case:
   id: c3_na_test_random_trace_80_seed42
+
+benchmark_volume:
+  id: c3_na_test_t0_384_sl24_40_sh27_59_rx0_8_ry18_50
+  selection:
+    time: [0, 384]
+    source_line: [24, 40]
+    shot_in_line: [27, 59]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [18, 50]
 ```
 
 SEG-Y inputs and everything under `data/interim/` and `data/processed/` are generated or externally obtained data and must not be committed to Git.

@@ -98,6 +98,22 @@ interim datasetに保存する物理coordinateの順序と単位は、`dataset.j
 
 を表す保存契約である。
 
+## SEG C3 shot-receiver volume
+
+Dense shot-receiver処理では、論文で概ね`(t, sx, sy, rx, ry)`と表記される軸を、repository固有の再現可能な契約として次の順に配置する。
+
+```text
+time
+source_line
+shot_in_line
+relative_receiver_x
+relative_receiver_y
+```
+
+`source_line`はascending unique `source_x_m`のrankである。`shot_in_line`は各source line内のascending unique `source_y_m`のrankであり、line間でstaggerしているsource yをglobal rankにはしない。receiver座標は絶対座標ではなく、`relative_receiver_x = receiver_x_m - source_x_m`および`relative_receiver_y = receiver_y_m - source_y_m`のascending unique rankである。selectionは全軸で0-based half-open range、保存tableのspatial indexはselection startを引いたlocal indexとする。
+
+この対応は公開論文から未公開のexact reshapeやcropを推測したものではなく、このrepositoryで比較手法が共有する明示的なcontractである。
+
 ## Numerical model features
 
 modelと単純baselineへ渡すときだけ、物理azimuthから次をオンデマンドで導出する。

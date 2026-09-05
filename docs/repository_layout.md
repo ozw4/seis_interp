@@ -109,7 +109,7 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 
 | 場所 | 置くもの／置かないもの |
 |---|---|
-| `src/` | SEG-Y I/O、座標計算、mask、正規化、SIREN、学習、評価、可視化、pipelineを置く。Notebook専用コードやstudy固有条件は置かない。 |
+| `src/` | SEG-Y I/O、座標計算、mask、正規化、SIREN、学習、評価、可視化、pipelineを置く。5D mapping logicは`processing/`、artifact I/Oとobserved-volume adapterは`data/`へ置く。Notebook専用コードやstudy固有条件は置かない。 |
 | `src/seis_interp/cli.py` | parserの組み立てとdispatchだけを置く。command handlerやdata・training依存は置かない。 |
 | `src/seis_interp/commands/` | command別のargparse登録、出力・エラー処理、pipeline呼び出しを置く。training／preparation pipelineのimportはhandler内のlazy importとする。command registryやclass階層は作らない。 |
 | `src/seis_interp/pipelines/` | 実行orchestrationを置く。他pipelineのprivate実装をimportしない。 |
@@ -140,7 +140,9 @@ runs/<study>/<run-id>/config.resolved.yaml
 
 Dataset partition条件はstudy configの`sampling.*`、interpolation mask条件は`interpolation_mask.*`へ置く。partitionは`trace_split.parquet`の`split`、partition内のvisibilityは別artifactである`observation_mask.parquet`の`observation_role`として表し、同じ列や同じ意味として扱わない。mask生成logicは`src/seis_interp/`、具体的な条件はstudy config、生成物は`data/processed/`へ置く。mask artifactに`schema_version`は設けない。
 
-study configの`benchmark_case.id`はcase identityである。benchmark caseはinterim data、prepared partition、maskをexact hashで固定するmodel-independentなdata artifactであり、runではない。role domainは`canonical_present_traces`とし、絶対pathや`schema_version`は保存しない。model、training、prediction、metricは`runs/`側の責務とする。
+study configの`benchmark_case.id`はcase identityである。benchmark caseはinterim data、prepared partition、maskをexact hashで固定するmodel-independentなdata artifactであり、runではない。role domainは`canonical_present_traces`とし、絶対pathや`schema_version`は保存しない。
+
+`benchmark_volume.*`は、1つのbenchmark caseに適用する5D cropというstudy条件である。volume indexはcase file hashとtrace-to-cell mappingを固定するが、modelやrunではなく、振幅も複製しない。model固有のpatch、FFT、normalization、training、prediction、metricはvolume artifactに含めず、`runs/`側の責務とする。
 
 名前は小文字ASCIIの`snake_case`を基本とし、数値には可能な限り意味と単位を含める。
 
