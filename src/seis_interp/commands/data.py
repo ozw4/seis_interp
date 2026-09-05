@@ -438,6 +438,88 @@ def _prepare_benchmark_case(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_c3_volume_index(args: argparse.Namespace) -> int:
+    # Imported here so that unrelated commands keep working without the data extras.
+    from seis_interp.data.c3_volume_index_store import validated_volume_id
+    from seis_interp.pipelines.prepare_c3_volume_index import prepare_c3_volume_index
+
+    try:
+        config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
+        volume_id = validated_volume_id(get_required_config_value(config, "benchmark_volume.id"))
+        ranges = {
+            name: _required_index_range(
+                config,
+                f"benchmark_volume.selection.{name}",
+            )
+            for name in (
+                "time",
+                "source_line",
+                "shot_in_line",
+                "relative_receiver_x",
+                "relative_receiver_y",
+            )
+        }
+        config_source = repository_relative_config_source(
+            args.config,
+            repository_root=REPOSITORY_ROOT,
+        )
+    except (OSError, ValueError) as error:
+        print(f"data prepare-c3-volume-index failed: {error}", file=sys.stderr)
+        return 1
+
+    try:
+        summary = prepare_c3_volume_index(
+            interim_dir=args.input,
+            processed_dir=args.processed,
+            mask_dir=args.mask,
+            case_dir=args.case,
+            output_dir=args.output,
+            volume_id=volume_id,
+            time_range=ranges["time"],
+            source_line_range=ranges["source_line"],
+            shot_in_line_range=ranges["shot_in_line"],
+            relative_receiver_x_range=ranges["relative_receiver_x"],
+            relative_receiver_y_range=ranges["relative_receiver_y"],
+            config_source=config_source,
+            overwrite=args.overwrite,
+        )
+    except (OSError, ValueError) as error:
+        print(f"data prepare-c3-volume-index failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        binding = summary["benchmark_case"]
+        counts = summary["role_counts"]
+        print(f"Configuration: {summary['config_source']}")
+        print(f"Volume ID: {summary['volume_id']}")
+        print(f"Benchmark case ID: {binding['case_id']}")
+        print(f"Dataset ID: {summary['dataset_id']}")
+        print(f"Partition: {summary['partition']}")
+        print(f"Axis order: {', '.join(summary['axis_order'])}")
+        print(f"Selection: {summary['selection']}")
+        print(f"Shape: {' x '.join(str(value) for value in summary['shape'])}")
+        print(f"Traces: {summary['trace_count']}")
+        print(f"Observed traces: {counts['observed']}")
+        print(f"Evaluation target traces: {counts['evaluation_target']}")
+        print(f"Input dataset: {args.input}")
+        print(f"Prepared partition: {args.processed}")
+        print(f"Mask artifact: {args.mask}")
+        print(f"Benchmark case: {args.case}")
+        print(f"Output directory: {args.output}")
+    return 0
+
+
+def _required_index_range(config: Mapping[str, object], dotted_path: str) -> tuple[int, int]:
+    from seis_interp.processing.c3_volume_index import validated_index_range
+
+    return validated_index_range(
+        get_required_config_value(config, dotted_path),
+        name=dotted_path,
+    )
+
+
 def _config_value_or_override(
     override: object | None,
     config: Mapping[str, object],
@@ -734,3 +816,52 @@ def add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     )
     prepare_case.add_argument("--json", action="store_true", help="Print the summary as JSON.")
     prepare_case.set_defaults(handler=_prepare_benchmark_case)
+
+    prepare_volume = data_commands.add_parser(
+        "prepare-c3-volume-index",
+        help="Bind a dense C3 5D crop and trace-to-cell mapping to a benchmark case.",
+        description="Bind a dense C3 5D crop and trace-to-cell mapping to a benchmark case.",
+    )
+    prepare_volume.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Study configuration YAML containing benchmark_volume conditions.",
+    )
+    prepare_volume.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="Input interim trace dataset directory.",
+    )
+    prepare_volume.add_argument(
+        "--processed",
+        type=Path,
+        required=True,
+        help="Prepared dataset partition directory.",
+    )
+    prepare_volume.add_argument(
+        "--mask",
+        type=Path,
+        required=True,
+        help="Existing interpolation mask artifact directory.",
+    )
+    prepare_volume.add_argument(
+        "--case",
+        type=Path,
+        required=True,
+        help="Existing benchmark case directory.",
+    )
+    prepare_volume.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Output C3 volume index directory.",
+    )
+    prepare_volume.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace generated volume index files in an existing output directory.",
+    )
+    prepare_volume.add_argument("--json", action="store_true", help="Print the summary as JSON.")
+    prepare_volume.set_defaults(handler=_prepare_c3_volume_index)

@@ -70,7 +70,7 @@ def test_download_cli_reports_failures_with_the_existing_prefix(monkeypatch, cap
     assert "Download failed: manifest is unreadable" in capsys.readouterr().err
 
 
-def test_data_parser_exposes_the_eight_subcommands(capsys) -> None:
+def test_data_parser_exposes_the_nine_subcommands(capsys) -> None:
     with pytest.raises(SystemExit) as excinfo:
         build_parser().parse_args(["data", "--help"])
 
@@ -85,6 +85,7 @@ def test_data_parser_exposes_the_eight_subcommands(capsys) -> None:
         "prepare-baseline",
         "prepare-mask",
         "prepare-benchmark-case",
+        "prepare-c3-volume-index",
     ):
         assert name in help_text
 
@@ -100,6 +101,7 @@ def test_importing_data_commands_defers_preparation_pipelines() -> None:
         "        'seis_interp.pipelines.prepare_baseline',\n"
         "        'seis_interp.pipelines.prepare_interpolation_mask',\n"
         "        'seis_interp.pipelines.prepare_benchmark_case',\n"
+        "        'seis_interp.pipelines.prepare_c3_volume_index',\n"
         "        'seis_interp.processing.trace_amplitude_filter',\n"
         "        'torch',\n"
         "    )\n"
@@ -561,3 +563,141 @@ def test_prepare_benchmark_case_help_describes_exact_hash_binding(capsys) -> Non
 
     assert excinfo.value.code == 0
     assert "exact file hashes" in capsys.readouterr().out
+
+
+VOLUME_SUMMARY: dict[str, object] = {
+    "volume_id": "synthetic_volume",
+    "dataset_id": "synthetic",
+    "partition": "test",
+    "config_source": "studies/study/config.yaml",
+    "axis_order": [
+        "time",
+        "source_line",
+        "shot_in_line",
+        "relative_receiver_x",
+        "relative_receiver_y",
+    ],
+    "selection": {
+        "time": [0, 4],
+        "source_line": [0, 1],
+        "shot_in_line": [0, 1],
+        "relative_receiver_x": [0, 8],
+        "relative_receiver_y": [0, 68],
+    },
+    "shape": [4, 1, 1, 8, 68],
+    "trace_count": 544,
+    "role_counts": {"observed": 272, "evaluation_target": 272},
+    "benchmark_case": {"case_id": "synthetic_case"},
+}
+
+
+def _write_volume_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    repository = tmp_path / "repository"
+    config_path = repository / "studies" / "study" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    (repository / "pyproject.toml").write_text("[project]\nname = 'test'\n")
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "benchmark_volume": {
+                    "id": "synthetic_volume",
+                    "selection": VOLUME_SUMMARY["selection"],
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(data_commands, "REPOSITORY_ROOT", repository)
+    return config_path
+
+
+def _volume_arguments(tmp_path: Path, config_path: Path) -> list[str]:
+    return [
+        "data",
+        "prepare-c3-volume-index",
+        "--config",
+        str(config_path),
+        "--input",
+        str(tmp_path / "interim"),
+        "--processed",
+        str(tmp_path / "processed"),
+        "--mask",
+        str(tmp_path / "mask"),
+        "--case",
+        str(tmp_path / "case"),
+        "--output",
+        str(tmp_path / "volume"),
+    ]
+
+
+def test_prepare_c3_volume_index_passes_config_ranges_and_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _write_volume_config(tmp_path, monkeypatch)
+    received: dict[str, object] = {}
+
+    def fake_prepare(**kwargs: object) -> dict[str, object]:
+        received.update(kwargs)
+        return VOLUME_SUMMARY
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_c3_volume_index.prepare_c3_volume_index",
+        fake_prepare,
+    )
+
+    assert main([*_volume_arguments(tmp_path, config_path), "--overwrite", "--json"]) == 0
+    assert received == {
+        "interim_dir": tmp_path / "interim",
+        "processed_dir": tmp_path / "processed",
+        "mask_dir": tmp_path / "mask",
+        "case_dir": tmp_path / "case",
+        "output_dir": tmp_path / "volume",
+        "volume_id": "synthetic_volume",
+        "time_range": (0, 4),
+        "source_line_range": (0, 1),
+        "shot_in_line_range": (0, 1),
+        "relative_receiver_x_range": (0, 8),
+        "relative_receiver_y_range": (0, 68),
+        "config_source": "studies/study/config.yaml",
+        "overwrite": True,
+    }
+
+
+def test_prepare_c3_volume_index_rejects_missing_range(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_volume_config(tmp_path, monkeypatch)
+    config = yaml.safe_load(config_path.read_text())
+    del config["benchmark_volume"]["selection"]["time"]
+    config_path.write_text(yaml.safe_dump(config))
+
+    assert main(_volume_arguments(tmp_path, config_path)) == 1
+    error = capsys.readouterr().err
+    assert "data prepare-c3-volume-index failed:" in error
+    assert "benchmark_volume.selection.time" in error
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "--volume-id",
+        "--time-range",
+        "--source-line-range",
+        "--shot-range",
+        "--receiver-x-range",
+        "--receiver-y-range",
+    ],
+)
+def test_prepare_c3_volume_index_has_no_selection_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+) -> None:
+    config_path = _write_volume_config(tmp_path, monkeypatch)
+    with pytest.raises(SystemExit) as excinfo:
+        main([*_volume_arguments(tmp_path, config_path), option, "1"])
+    assert excinfo.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
