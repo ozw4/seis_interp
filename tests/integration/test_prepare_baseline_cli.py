@@ -49,6 +49,7 @@ def _write_study_config(
     holdout_fraction: float = 0.2,
     validation_fraction: float = 0.25,
     split_scope: str | None = None,
+    source_line_ranges: dict[str, list[int]] | None = None,
     trace_amplitude_filter: dict[str, object] | None = None,
     legacy_study_seed: bool = False,
 ) -> Path:
@@ -74,13 +75,18 @@ def _write_study_config(
     study: dict[str, object] = {"status": "draft"}
     if legacy_study_seed:
         study["random_seed"] = study_seed
-    sampling: dict[str, object] = {"validation_fraction_of_holdout": validation_fraction}
-    holdout_key = (
-        "random_ffid_holdout_fraction"
-        if split_scope == "whole_ffid"
-        else "random_trace_holdout_fraction"
-    )
-    sampling[holdout_key] = holdout_fraction
+    sampling: dict[str, object] = {}
+    if split_scope == "c3_source_line_blocks":
+        if source_line_ranges is not None:
+            sampling["source_line_ranges"] = source_line_ranges
+    else:
+        sampling["validation_fraction_of_holdout"] = validation_fraction
+        holdout_key = (
+            "random_ffid_holdout_fraction"
+            if split_scope == "whole_ffid"
+            else "random_trace_holdout_fraction"
+        )
+        sampling[holdout_key] = holdout_fraction
     if split_scope is not None:
         sampling["split_scope"] = split_scope
     if trace_amplitude_filter is not None:
@@ -138,6 +144,7 @@ def test_cli_passes_all_arguments_to_pipeline(
         "validation_fraction_of_holdout": 0.25,
         "random_seed": 42,
         "split_scope": "global",
+        "source_line_ranges": None,
         "coordinate_normalization": COORDINATE_NORMALIZATION_METHOD,
         "amplitude_normalization": "train_global_rms",
         "trace_amplitude_filter": None,
@@ -227,6 +234,98 @@ def test_cli_accepts_whole_ffid_split_scope_override(
     assert received == ["whole_ffid"]
 
 
+def test_cli_passes_c3_source_line_ranges_without_random_fractions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ranges = {
+        "train": [0, 25],
+        "validation": [25, 35],
+        "test": [35, 51],
+    }
+    config_path = _write_study_config(
+        tmp_path,
+        monkeypatch,
+        split_scope="c3_source_line_blocks",
+        source_line_ranges=ranges,
+    )
+    received: dict[str, object] = {}
+
+    def fake_prepare_baseline_dataset(**kwargs: Any) -> dict[str, object]:
+        received.update(kwargs)
+        return SUMMARY
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_baseline.prepare_baseline_dataset",
+        fake_prepare_baseline_dataset,
+    )
+
+    assert main(_arguments(tmp_path, config_path)) == 0
+    assert received["split_scope"] == "c3_source_line_blocks"
+    assert received["source_line_ranges"] == {
+        "train": (0, 25),
+        "validation": (25, 35),
+        "test": (35, 51),
+    }
+    assert received["holdout_fraction"] is None
+    assert received["validation_fraction_of_holdout"] is None
+
+
+def test_cli_requires_source_line_ranges_for_c3_block_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(
+        tmp_path,
+        monkeypatch,
+        split_scope="c3_source_line_blocks",
+    )
+
+    assert main(_arguments(tmp_path, config_path)) == 1
+    assert "sampling.source_line_ranges" in capsys.readouterr().err
+
+
+def test_cli_rejects_overlapping_c3_source_line_ranges(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(
+        tmp_path,
+        monkeypatch,
+        split_scope="c3_source_line_blocks",
+        source_line_ranges={
+            "train": [0, 25],
+            "validation": [20, 35],
+            "test": [35, 51],
+        },
+    )
+
+    assert main(_arguments(tmp_path, config_path)) == 1
+    assert "must not overlap" in capsys.readouterr().err
+
+
+def test_cli_rejects_holdout_overrides_for_c3_block_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(
+        tmp_path,
+        monkeypatch,
+        split_scope="c3_source_line_blocks",
+        source_line_ranges={
+            "train": [0, 25],
+            "validation": [25, 35],
+            "test": [35, 51],
+        },
+    )
+
+    assert main([*_arguments(tmp_path, config_path), "--holdout-fraction", "0.2"]) == 1
+    assert "not used" in capsys.readouterr().err
+
+
 def test_cli_requires_holdout_override_when_split_unit_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -235,6 +334,32 @@ def test_cli_requires_holdout_override_when_split_unit_changes(
     config_path = _write_study_config(tmp_path, monkeypatch, split_scope="per_ffid")
 
     exit_code = main([*_arguments(tmp_path, config_path), "--split-scope", "whole_ffid"])
+
+    assert exit_code == 1
+    assert "--holdout-fraction is required" in capsys.readouterr().err
+
+
+def test_cli_requires_holdout_when_overriding_source_blocks_with_random_split(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_study_config(
+        tmp_path,
+        monkeypatch,
+        split_scope="c3_source_line_blocks",
+        source_line_ranges={
+            "train": [0, 25],
+            "validation": [25, 35],
+            "test": [35, 51],
+        },
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["sampling"]["random_trace_holdout_fraction"] = 0.2
+    config["sampling"]["validation_fraction_of_holdout"] = 0.25
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    exit_code = main([*_arguments(tmp_path, config_path), "--split-scope", "global"])
 
     assert exit_code == 1
     assert "--holdout-fraction is required" in capsys.readouterr().err

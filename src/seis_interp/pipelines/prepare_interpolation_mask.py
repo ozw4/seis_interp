@@ -33,7 +33,7 @@ from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
-    WHOLE_FFID_SPLIT_SCOPE,
+    WHOLE_FFID_ASSIGNMENT_SPLIT_SCOPES,
     validate_prepared_split_assignments,
 )
 
@@ -311,8 +311,9 @@ def _candidate_ffid_count(candidate_table: pd.DataFrame) -> int:
 
 
 def _require_whole_ffid_split_scope(preparation: Mapping[str, object]) -> None:
-    if preparation.get("split_scope") != WHOLE_FFID_SPLIT_SCOPE:
+    if preparation.get("split_scope") not in WHOLE_FFID_ASSIGNMENT_SPLIT_SCOPES:
         raise ValueError(
             f"{RANDOM_WHOLE_FFID_MASK_KIND} requires "
-            f"{PREPARATION_FILE_NAME} split_scope={WHOLE_FFID_SPLIT_SCOPE!r}"
+            f"{PREPARATION_FILE_NAME} split_scope to be one of "
+            f"{sorted(WHOLE_FFID_ASSIGNMENT_SPLIT_SCOPES)}"
         )

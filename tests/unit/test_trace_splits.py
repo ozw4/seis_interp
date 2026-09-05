@@ -5,10 +5,12 @@ import pandas as pd
 import pytest
 
 from seis_interp.processing.trace_splits import (
+    C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE,
     SPLIT_COLUMN,
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
+    assign_c3_source_line_block_splits,
     assign_random_trace_splits,
     assign_random_trace_splits_by_ffid,
     assign_random_whole_ffid_splits,
@@ -64,6 +66,40 @@ def assign_whole_ffids(trace_table: pd.DataFrame, *, seed: int = 42) -> pd.DataF
         holdout_fraction=0.75,
         validation_fraction_of_holdout=0.25,
         random_seed=seed,
+    )
+
+
+def make_c3_source_table() -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    array_row = 0
+    for source_line, source_x in enumerate((0.0, 160.0, 320.0)):
+        source_y_origin = 40.0 if source_line % 2 else 0.0
+        for shot in range(2):
+            source_y = source_y_origin + 80.0 * shot
+            ffid = 100 + source_line * 2 + shot
+            for receiver_x_offset in (-140.0, -100.0):
+                rows.append(
+                    {
+                        "array_row": array_row,
+                        "ffid": ffid,
+                        "source_x_m": source_x,
+                        "source_y_m": source_y,
+                        "receiver_x_m": source_x + receiver_x_offset,
+                        "receiver_y_m": source_y - 2680.0,
+                    }
+                )
+                array_row += 1
+    return pd.DataFrame(rows)
+
+
+def assign_source_line_blocks(trace_table: pd.DataFrame) -> pd.DataFrame:
+    return assign_c3_source_line_block_splits(
+        trace_table,
+        source_line_ranges={
+            TRAIN_SPLIT: (0, 1),
+            VALIDATION_SPLIT: (1, 2),
+            TEST_SPLIT: (2, 3),
+        },
     )
 
 
@@ -364,3 +400,105 @@ def test_global_exact_membership_remains_unchanged() -> None:
         118: TRAIN_SPLIT,
         119: TRAIN_SPLIT,
     }
+
+
+def test_c3_source_line_blocks_assign_complete_lines_and_ffids() -> None:
+    result = assign_source_line_blocks(make_c3_source_table())
+
+    split_by_x = result.groupby("source_x_m")[SPLIT_COLUMN].unique().map(list).to_dict()
+
+    assert split_by_x == {
+        0.0: [TRAIN_SPLIT],
+        160.0: [VALIDATION_SPLIT],
+        320.0: [TEST_SPLIT],
+    }
+    assert result.groupby("ffid")[SPLIT_COLUMN].nunique().eq(1).all()
+
+
+def test_c3_source_line_block_membership_is_independent_of_row_order_and_index() -> None:
+    trace_table = make_c3_source_table().sample(frac=1.0, random_state=7)
+    reordered = trace_table.iloc[::-1].copy()
+    reordered.index = np.arange(1000, 1000 + len(reordered))
+
+    assert assignments_by_array_row(
+        assign_source_line_blocks(trace_table)
+    ) == assignments_by_array_row(assign_source_line_blocks(reordered))
+
+
+def test_c3_source_line_blocks_reject_an_ffid_crossing_a_block_boundary() -> None:
+    trace_table = make_c3_source_table()
+    crossing_shot = trace_table["source_x_m"].eq(320.0) & trace_table["source_y_m"].eq(0.0)
+    trace_table.loc[crossing_shot, "ffid"] = 100
+
+    with pytest.raises(ValueError, match="assign each FFID wholly"):
+        assign_source_line_blocks(trace_table)
+
+
+@pytest.mark.parametrize(
+    ("ranges", "message"),
+    [
+        ({TRAIN_SPLIT: (0, 1), VALIDATION_SPLIT: (1, 2)}, "exactly"),
+        (
+            {
+                TRAIN_SPLIT: (0, 1),
+                VALIDATION_SPLIT: (1, 2),
+                TEST_SPLIT: (2, 3),
+                "holdout": (3, 4),
+            },
+            "exactly",
+        ),
+        (
+            {
+                TRAIN_SPLIT: (0, 1),
+                VALIDATION_SPLIT: (1, 2),
+                TEST_SPLIT: (2, 2),
+            },
+            "less than stop",
+        ),
+        (
+            {
+                TRAIN_SPLIT: (0, 2),
+                VALIDATION_SPLIT: (1, 2),
+                TEST_SPLIT: (2, 3),
+            },
+            "overlap",
+        ),
+        (
+            {
+                TRAIN_SPLIT: (0, 1),
+                VALIDATION_SPLIT: (2, 3),
+                TEST_SPLIT: (3, 4),
+            },
+            "gaps",
+        ),
+        (
+            {
+                TRAIN_SPLIT: (1, 2),
+                VALIDATION_SPLIT: (2, 3),
+                TEST_SPLIT: (3, 4),
+            },
+            "start at source line 0",
+        ),
+        (
+            {
+                TRAIN_SPLIT: (0, 1),
+                VALIDATION_SPLIT: (1, 2),
+                TEST_SPLIT: (2, 4),
+            },
+            "cover every source line",
+        ),
+    ],
+)
+def test_c3_source_line_blocks_reject_invalid_ranges(
+    ranges: object,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        assign_c3_source_line_block_splits(
+            make_c3_source_table(),
+            source_line_ranges=ranges,  # type: ignore[arg-type]
+        )
+
+
+def test_c3_source_line_blocks_scope_is_public() -> None:
+    assert C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE == "c3_source_line_blocks"

@@ -9,6 +9,11 @@ from seis_interp.processing.c3_receiver_grid import (
     RECEIVER_Y_COUNT,
     receiver_grid_offsets,
 )
+from seis_interp.processing.neighbor_geometry import (
+    RECEIVER_SPACING_M,
+    RELATIVE_RECEIVER_X_MIN_M,
+    RELATIVE_RECEIVER_Y_MIN_M,
+)
 
 
 def _grid_table(
@@ -33,8 +38,10 @@ def _grid_table(
 
 def _full_offsets() -> tuple[np.ndarray, np.ndarray]:
     return (
-        np.arange(RECEIVER_X_COUNT, dtype=np.float64) * 12.5,
-        np.arange(RECEIVER_Y_COUNT, dtype=np.float64) * 6.25,
+        RELATIVE_RECEIVER_X_MIN_M
+        + np.arange(RECEIVER_X_COUNT, dtype=np.float64) * RECEIVER_SPACING_M,
+        RELATIVE_RECEIVER_Y_MIN_M
+        + np.arange(RECEIVER_Y_COUNT, dtype=np.float64) * RECEIVER_SPACING_M,
     )
 
 
@@ -90,3 +97,15 @@ def test_rejects_wrong_y_count() -> None:
 
     with pytest.raises(ValueError, match=r"fixed 8 x 68 relative-receiver grid; got 8 x 66"):
         receiver_grid_offsets(table)
+
+
+@pytest.mark.parametrize(("axis", "message"), [("x", "x offsets"), ("y", "y offsets")])
+def test_rejects_wrong_offsets_even_when_grid_shape_matches(axis: str, message: str) -> None:
+    x_offsets, y_offsets = _full_offsets()
+    if axis == "x":
+        x_offsets = x_offsets + 10.0
+    else:
+        y_offsets = y_offsets * 0.5
+
+    with pytest.raises(ValueError, match=message):
+        receiver_grid_offsets(_grid_table(x_offsets, y_offsets))

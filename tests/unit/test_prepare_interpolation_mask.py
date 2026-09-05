@@ -31,14 +31,18 @@ CONFIG_SOURCE = "studies/study_001/config.yaml"
 
 def _trace_table() -> pd.DataFrame:
     array_rows = np.arange(16, dtype=np.int64)
+    source_lines = array_rows // 2
+    source_x_m = source_lines.astype(np.float64) * 160.0
+    source_y_m = (source_lines % 2).astype(np.float64) * 40.0
+    relative_receiver_x_m = np.tile(np.asarray([-140.0, -100.0]), 8)
     return pd.DataFrame(
         {
             "array_row": array_rows,
             "ffid": np.repeat(np.arange(100, 108, dtype=np.int64), 2),
-            "source_x_m": array_rows.astype(np.float64),
-            "source_y_m": np.zeros(16, dtype=np.float64),
-            "receiver_x_m": array_rows.astype(np.float64) + 100.0,
-            "receiver_y_m": np.full(16, 200.0, dtype=np.float64),
+            "source_x_m": source_x_m,
+            "source_y_m": source_y_m,
+            "receiver_x_m": source_x_m + relative_receiver_x_m,
+            "receiver_y_m": source_y_m - 2680.0,
         }
     )
 
@@ -93,8 +97,14 @@ def _write_inputs(
             }
         },
     }
-    if split_scope == "whole_ffid":
+    if split_scope in {"whole_ffid", "c3_source_line_blocks"}:
         preparation["ffid_split_counts"] = {"train": 3, "validation": 2, "test": 3}
+    if split_scope == "c3_source_line_blocks":
+        preparation["source_line_ranges"] = {
+            "train": [0, 3],
+            "validation": [3, 5],
+            "test": [5, 8],
+        }
     _write_json(processed / "preparation.json", preparation)
     return interim, processed
 
@@ -342,6 +352,40 @@ def test_random_whole_ffid_assigns_one_role_to_each_ffid(tmp_path: Path) -> None
         OBSERVED_ROLE,
         EVALUATION_TARGET_ROLE,
     }
+
+
+def test_random_whole_ffid_accepts_c3_source_line_block_partition(tmp_path: Path) -> None:
+    interim, processed = _write_inputs(tmp_path, split_scope="c3_source_line_blocks")
+
+    _prepare(
+        interim,
+        processed,
+        tmp_path / "mask",
+        kind=RANDOM_WHOLE_FFID_MASK_KIND,
+    )
+    mask_table, _ = load_interpolation_mask(tmp_path / "mask")
+    trace_table = pd.read_parquet(interim / "traces.parquet")
+    joined = mask_table.merge(trace_table, on="array_row", validate="one_to_one")
+
+    assert joined.groupby("ffid")[OBSERVATION_ROLE_COLUMN].nunique().eq(1).all()
+    assert set(joined[OBSERVATION_ROLE_COLUMN]) == {
+        OBSERVED_ROLE,
+        EVALUATION_TARGET_ROLE,
+    }
+
+
+def test_c3_source_line_blocks_reject_split_labels_that_disagree_with_ranges(
+    tmp_path: Path,
+) -> None:
+    interim, processed = _write_inputs(tmp_path, split_scope="c3_source_line_blocks")
+    split_path = processed / "trace_split.parquet"
+    split_table = pd.read_parquet(split_path)
+    split_table.loc[split_table["array_row"].isin([0, 1]), "split"] = "test"
+    split_table.loc[split_table["array_row"].isin([10, 11]), "split"] = "train"
+    split_table.to_parquet(split_path, index=False)
+
+    with pytest.raises(ValueError, match="does not match.*source_line_ranges"):
+        _prepare(interim, processed, tmp_path / "mask")
 
 
 def test_random_whole_ffid_rejects_a_non_whole_ffid_split_scope(tmp_path: Path) -> None:

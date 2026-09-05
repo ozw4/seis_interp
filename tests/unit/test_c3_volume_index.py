@@ -7,6 +7,7 @@ import pytest
 from seis_interp.processing.c3_volume_index import (
     VOLUME_INDEX_COLUMNS,
     build_c3_volume_index,
+    c3_source_indices,
     selected_spatial_shape,
     validated_index_range,
 )
@@ -53,6 +54,62 @@ def test_mapping_is_independent_of_input_index_order_and_ffid_arithmetic() -> No
     second = _build(shuffled).set_index("array_row").iloc[:, 1:5]
 
     pd.testing.assert_frame_equal(first.sort_index(), second.sort_index())
+
+
+def test_source_indices_use_ascending_line_and_line_local_shot_ranks() -> None:
+    table = pd.DataFrame(
+        {
+            "source_x_m": [1160.0, 1000.0, 1160.0, 1000.0],
+            "source_y_m": [120.0, 80.0, 40.0, 0.0],
+        },
+        index=[20, 10, 40, 30],
+    )
+
+    source_lines, shots = c3_source_indices(table)
+
+    np.testing.assert_array_equal(source_lines, [1, 0, 1, 0])
+    np.testing.assert_array_equal(shots, [1, 1, 0, 0])
+    assert source_lines.dtype == np.int64
+    assert shots.dtype == np.int64
+
+
+def test_rejects_compressed_gap_between_selected_source_lines() -> None:
+    table = make_c3_trace_table()
+    source_x_values = np.sort(table["source_x_m"].unique())
+    second_line = table["source_x_m"].eq(source_x_values[1])
+    shift = source_x_values[0] + 320.0 - source_x_values[1]
+    table.loc[second_line, "source_x_m"] += shift
+    table.loc[second_line, "receiver_x_m"] += shift
+
+    with pytest.raises(ValueError, match=r"source lines.*160 m SEG C3 grid"):
+        _build(table)
+
+
+def test_rejects_compressed_gap_between_selected_shots() -> None:
+    table = make_c3_trace_table()
+    first_source_x = float(table["source_x_m"].min())
+    middle_shot = table["source_x_m"].eq(first_source_x) & table["source_y_m"].eq(80.0)
+    table = table.loc[~middle_shot]
+
+    with pytest.raises(ValueError, match=r"shots in source line 0.*80 m SEG C3 grid"):
+        build_c3_volume_index(
+            table,
+            table["array_row"].to_numpy(),
+            source_line_range=(0, 1),
+            shot_in_line_range=(0, 2),
+            relative_receiver_x_range=(0, 1),
+            relative_receiver_y_range=(0, 1),
+        )
+
+
+def test_rejects_wrong_stagger_between_adjacent_source_lines() -> None:
+    table = make_c3_trace_table()
+    second_line = table["source_x_m"].eq(table["source_x_m"].max())
+    table.loc[second_line, "source_y_m"] += 80.0
+    table.loc[second_line, "receiver_y_m"] += 80.0
+
+    with pytest.raises(ValueError, match=r"40 m source-y stagger"):
+        _build(table)
 
 
 def test_rejects_missing_and_duplicate_cells() -> None:

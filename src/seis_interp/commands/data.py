@@ -198,6 +198,10 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
         prepare_baseline_dataset,
     )
     from seis_interp.processing.trace_amplitude_filter import TraceAmplitudeFilterConfig
+    from seis_interp.processing.trace_splits import (
+        C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE,
+        validated_c3_source_line_ranges,
+    )
 
     try:
         config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
@@ -217,29 +221,49 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             "global",
         )
         split_scope = args.split_scope or configured_split_scope
-        split_unit_changes = (split_scope == "whole_ffid") != (
-            configured_split_scope == "whole_ffid"
-        )
-        if split_unit_changes and args.holdout_fraction is None:
-            raise ConfigurationError(
-                "--holdout-fraction is required when --split-scope changes the configured "
-                "split unit"
+        source_line_ranges: object | None = None
+        if split_scope == C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE:
+            if args.holdout_fraction is not None or args.validation_fraction_of_holdout is not None:
+                raise ConfigurationError(
+                    "holdout fraction overrides are not used with "
+                    f"sampling.split_scope={C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE!r}"
+                )
+            holdout_fraction = None
+            validation_fraction = None
+            source_line_ranges = validated_c3_source_line_ranges(
+                get_required_config_value(
+                    config,
+                    "sampling.source_line_ranges",
+                )
             )
-        holdout_config_path = (
-            "sampling.random_ffid_holdout_fraction"
-            if split_scope == "whole_ffid"
-            else "sampling.random_trace_holdout_fraction"
-        )
-        holdout_fraction = _config_value_or_override(
-            args.holdout_fraction,
-            config,
-            holdout_config_path,
-        )
-        validation_fraction = _config_value_or_override(
-            args.validation_fraction_of_holdout,
-            config,
-            "sampling.validation_fraction_of_holdout",
-        )
+        else:
+            configured_split_unit = "trace"
+            if configured_split_scope == "whole_ffid":
+                configured_split_unit = "ffid"
+            elif configured_split_scope == C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE:
+                configured_split_unit = "source_line"
+            selected_split_unit = "ffid" if split_scope == "whole_ffid" else "trace"
+            split_unit_changes = selected_split_unit != configured_split_unit
+            if split_unit_changes and args.holdout_fraction is None:
+                raise ConfigurationError(
+                    "--holdout-fraction is required when --split-scope changes the configured "
+                    "split unit"
+                )
+            holdout_config_path = (
+                "sampling.random_ffid_holdout_fraction"
+                if split_scope == "whole_ffid"
+                else "sampling.random_trace_holdout_fraction"
+            )
+            holdout_fraction = _config_value_or_override(
+                args.holdout_fraction,
+                config,
+                holdout_config_path,
+            )
+            validation_fraction = _config_value_or_override(
+                args.validation_fraction_of_holdout,
+                config,
+                "sampling.validation_fraction_of_holdout",
+            )
         coordinate_normalization = _required_supported_config_value(
             config,
             "normalization.coordinates",
@@ -280,6 +304,7 @@ def _prepare_baseline(args: argparse.Namespace) -> int:
             validation_fraction_of_holdout=validation_fraction,
             random_seed=random_seed,
             split_scope=split_scope,
+            source_line_ranges=source_line_ranges,
             coordinate_normalization=coordinate_normalization,
             amplitude_normalization=amplitude_normalization,
             trace_amplitude_filter=trace_amplitude_filter,
@@ -727,7 +752,7 @@ def add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     )
     prepare_baseline.add_argument(
         "--split-scope",
-        choices=("global", "per_ffid", "whole_ffid"),
+        choices=("global", "per_ffid", "whole_ffid", "c3_source_line_blocks"),
         help="Override sampling.split_scope (default: global).",
     )
     prepare_baseline.add_argument(

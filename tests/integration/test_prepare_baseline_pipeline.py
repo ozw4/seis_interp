@@ -139,6 +139,58 @@ def _write_multi_ffid_interim_dataset(tmp_path: Path, *, ffid_count: int = 2) ->
     return interim_dir
 
 
+def _write_c3_source_line_interim_dataset(tmp_path: Path) -> Path:
+    records: list[dict[str, float | int]] = []
+    trace_index = 0
+    for source_line, source_x_m in enumerate((0.0, 160.0, 320.0)):
+        source_y_origin_m = 40.0 if source_line % 2 else 0.0
+        for shot in range(2):
+            source_y_m = source_y_origin_m + shot * 80.0
+            ffid = 100 + source_line * 2 + shot
+            for relative_receiver_x_m in (-140.0, -100.0):
+                receiver_x_m = source_x_m + relative_receiver_x_m
+                receiver_y_m = source_y_m - 2680.0
+                records.append(
+                    {
+                        "trace_index": trace_index,
+                        "ffid": ffid,
+                        "source_x_m": source_x_m,
+                        "source_y_m": source_y_m,
+                        "receiver_x_m": receiver_x_m,
+                        "receiver_y_m": receiver_y_m,
+                        "cmp_x_m": (source_x_m + receiver_x_m) / 2.0,
+                        "cmp_y_m": (source_y_m + receiver_y_m) / 2.0,
+                        "offset_m": float(
+                            np.hypot(
+                                source_x_m - receiver_x_m,
+                                source_y_m - receiver_y_m,
+                            )
+                        ),
+                        "azimuth_deg": 0.0,
+                        "sample_interval_s": 0.008,
+                    }
+                )
+                trace_index += 1
+
+    source_path = tmp_path / "c3-source-lines.sgy"
+    source_path.write_bytes(b"synthetic C3 source-line SEG-Y placeholder")
+    interim_dir = tmp_path / "c3-source-line-interim"
+    trace_table = pd.DataFrame.from_records(records)
+    amplitudes = np.arange(1, len(trace_table) * SAMPLE_COUNT + 1, dtype=np.float32).reshape(
+        len(trace_table), SAMPLE_COUNT
+    )
+    write_interim_trace_dataset(
+        output_dir=interim_dir,
+        trace_table=trace_table,
+        amplitudes=amplitudes,
+        time_s=np.arange(SAMPLE_COUNT, dtype=np.float64) * 0.008,
+        source_path=source_path,
+        dataset_id="seg_c3_na",
+        selection={"ffid_scope": "all", "include_incomplete_ffids": True},
+    )
+    return interim_dir
+
+
 def test_writes_only_the_three_processed_dataset_files(tmp_path: Path) -> None:
     interim_dir = _write_interim_dataset(tmp_path)
     output_dir = tmp_path / "processed"
@@ -219,6 +271,126 @@ def test_whole_ffid_scope_assigns_each_ffid_to_one_split(tmp_path: Path) -> None
     assert summary["ffid_count"] == 20
     assert summary["ffid_split_counts"] == {"train": 16, "validation": 1, "test": 3}
     assert summary["split_counts"] == {"train": 320, "validation": 20, "test": 60}
+
+
+def test_c3_source_line_blocks_assign_each_complete_line_to_configured_split(
+    tmp_path: Path,
+) -> None:
+    interim_dir = _write_c3_source_line_interim_dataset(tmp_path)
+    output_dir = tmp_path / "processed"
+    source_line_ranges = {
+        "train": (0, 1),
+        "validation": (1, 2),
+        "test": (2, 3),
+    }
+
+    summary = prepare_baseline_dataset(
+        interim_dir,
+        output_dir,
+        holdout_fraction=None,
+        validation_fraction_of_holdout=None,
+        random_seed=RANDOM_SEED,
+        split_scope="c3_source_line_blocks",
+        source_line_ranges=source_line_ranges,
+        config_source=CONFIG_SOURCE,
+    )
+
+    split_table = pd.read_parquet(output_dir / "trace_split.parquet")
+    trace_table = pd.read_parquet(interim_dir / "traces.parquet")
+    joined = trace_table.merge(split_table, on="array_row", validate="one_to_one")
+    assert joined.groupby("source_x_m")["split"].unique().map(list).to_dict() == {
+        0.0: ["train"],
+        160.0: ["validation"],
+        320.0: ["test"],
+    }
+    assert joined.groupby("ffid")["split"].nunique().eq(1).all()
+    assert summary["source_line_ranges"] == {
+        "train": [0, 1],
+        "validation": [1, 2],
+        "test": [2, 3],
+    }
+    assert summary["ffid_split_counts"] == {"train": 2, "validation": 2, "test": 2}
+    assert summary["split_counts"] == {"train": 4, "validation": 4, "test": 4}
+    assert "holdout_fraction" not in summary
+    assert "validation_fraction_of_holdout" not in summary
+
+
+def test_c3_source_line_ranks_are_computed_before_amplitude_filtering(tmp_path: Path) -> None:
+    interim_dir = _write_c3_source_line_interim_dataset(tmp_path)
+    trace_table = pd.read_parquet(interim_dir / "traces.parquet")
+    amplitudes = np.load(interim_dir / "amplitudes.npy", allow_pickle=False)
+    middle_line_rows = trace_table.loc[trace_table["source_x_m"].eq(160.0), "array_row"].to_numpy(
+        dtype=np.int64
+    )
+    amplitudes[middle_line_rows] = 0.0
+    np.save(interim_dir / "amplitudes.npy", amplitudes)
+    output_dir = tmp_path / "processed"
+
+    summary = prepare_baseline_dataset(
+        interim_dir,
+        output_dir,
+        holdout_fraction=None,
+        validation_fraction_of_holdout=None,
+        random_seed=RANDOM_SEED,
+        split_scope="c3_source_line_blocks",
+        source_line_ranges={"train": (0, 1), "validation": (1, 2), "test": (2, 3)},
+        trace_amplitude_filter=TraceAmplitudeFilterConfig(
+            exclude_all_zero=True,
+            max_abs_amplitude=1_000.0,
+        ),
+        config_source=CONFIG_SOURCE,
+    )
+
+    split_table = pd.read_parquet(output_dir / "trace_split.parquet")
+    joined = trace_table.merge(split_table, on="array_row", validate="one_to_one")
+    assert set(joined.loc[joined["source_x_m"].eq(160.0), "split"]) == {EXCLUDED_SPLIT}
+    assert set(joined.loc[joined["source_x_m"].eq(320.0), "split"]) == {"test"}
+    assert summary["split_counts"] == {"train": 4, "validation": 0, "test": 4}
+    assert summary["ffid_split_counts"] == {"train": 2, "validation": 0, "test": 2}
+
+
+@pytest.mark.parametrize("random_seed", [True, 1.5, "42", -1])
+def test_c3_source_line_blocks_reject_invalid_random_seed(
+    tmp_path: Path,
+    random_seed: object,
+) -> None:
+    interim_dir = _write_c3_source_line_interim_dataset(tmp_path)
+
+    with pytest.raises(ValueError, match="random_seed"):
+        prepare_baseline_dataset(
+            interim_dir,
+            tmp_path / "processed",
+            holdout_fraction=None,
+            validation_fraction_of_holdout=None,
+            random_seed=random_seed,  # type: ignore[arg-type]
+            split_scope="c3_source_line_blocks",
+            source_line_ranges={"train": (0, 1), "validation": (1, 2), "test": (2, 3)},
+            config_source=CONFIG_SOURCE,
+        )
+
+
+@pytest.mark.parametrize(
+    ("holdout_fraction", "validation_fraction_of_holdout"),
+    [(0.2, None), (None, 0.25)],
+)
+def test_c3_source_line_blocks_reject_random_fraction_arguments(
+    tmp_path: Path,
+    holdout_fraction: float | None,
+    validation_fraction_of_holdout: float | None,
+) -> None:
+    interim_dir = _write_c3_source_line_interim_dataset(tmp_path)
+
+    with pytest.raises(ValueError, match="holdout fractions are not used"):
+        prepare_baseline_dataset(
+            interim_dir,
+            tmp_path / "processed",
+            holdout_fraction=holdout_fraction,
+            validation_fraction_of_holdout=validation_fraction_of_holdout,
+            random_seed=RANDOM_SEED,
+            split_scope="c3_source_line_blocks",
+            source_line_ranges={"train": (0, 1), "validation": (1, 2), "test": (2, 3)},
+            config_source=CONFIG_SOURCE,
+        )
 
 
 def test_amplitude_filter_excludes_invalid_traces_before_split_and_normalization(

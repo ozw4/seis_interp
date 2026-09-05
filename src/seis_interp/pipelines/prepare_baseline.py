@@ -29,6 +29,7 @@ from seis_interp.processing.trace_amplitude_filter import (
     filter_trace_amplitudes,
 )
 from seis_interp.processing.trace_splits import (
+    C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE,
     EXCLUDED_SPLIT,
     GLOBAL_SPLIT_SCOPE,
     PER_FFID_SPLIT_SCOPE,
@@ -37,10 +38,14 @@ from seis_interp.processing.trace_splits import (
     TEST_SPLIT,
     TRAIN_SPLIT,
     VALIDATION_SPLIT,
+    WHOLE_FFID_ASSIGNMENT_SPLIT_SCOPES,
     WHOLE_FFID_SPLIT_SCOPE,
+    assign_c3_source_line_block_splits,
     assign_random_trace_splits,
     assign_random_trace_splits_by_ffid,
     assign_random_whole_ffid_splits,
+    validated_c3_source_line_ranges,
+    validated_random_seed,
 )
 
 COORDINATE_NORMALIZATION_METHOD = "train_minmax_linear_plus_azimuth_sin_cos"
@@ -51,12 +56,13 @@ def prepare_baseline_dataset(
     interim_dir: Path,
     output_dir: Path,
     *,
-    holdout_fraction: float,
-    validation_fraction_of_holdout: float,
+    holdout_fraction: float | None,
+    validation_fraction_of_holdout: float | None,
     random_seed: int,
     coordinate_normalization: str = COORDINATE_NORMALIZATION_METHOD,
     amplitude_normalization: str = AMPLITUDE_NORMALIZATION_METHOD,
     split_scope: str = GLOBAL_SPLIT_SCOPE,
+    source_line_ranges: Mapping[str, object] | None = None,
     trace_amplitude_filter: TraceAmplitudeFilterConfig | None = None,
     config_source: str | None = None,
     overwrite: bool = False,
@@ -76,6 +82,7 @@ def prepare_baseline_dataset(
     )
     stored_config_source = _validated_config_source(config_source)
     stored_split_scope = _validated_split_scope(split_scope)
+    stored_random_seed = validated_random_seed(random_seed)
     stored_trace_filter = _validated_trace_amplitude_filter(trace_amplitude_filter)
 
     dataset = load_interim_trace_dataset(input_directory, memory_map_amplitudes=True)
@@ -84,27 +91,46 @@ def prepare_baseline_dataset(
         if stored_trace_filter is not None
         else None
     )
-    eligible_trace_table = _eligible_trace_table(dataset.trace_table, trace_filter_result)
+    stored_source_line_ranges: dict[str, tuple[int, int]] | None = None
+    if stored_split_scope == C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE:
+        if holdout_fraction is not None or validation_fraction_of_holdout is not None:
+            raise ValueError(
+                "holdout fractions are not used with split_scope "
+                f"{C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE!r}"
+            )
+        if source_line_ranges is None:
+            raise ValueError(
+                "source_line_ranges is required for split_scope "
+                f"{C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE!r}"
+            )
+        stored_source_line_ranges = validated_c3_source_line_ranges(source_line_ranges)
+        full_split_table = assign_c3_source_line_block_splits(
+            dataset.trace_table,
+            source_line_ranges=stored_source_line_ranges,
+        )
+        eligible_split_table = _eligible_trace_table(full_split_table, trace_filter_result)
+    else:
+        eligible_trace_table = _eligible_trace_table(dataset.trace_table, trace_filter_result)
     if stored_split_scope == GLOBAL_SPLIT_SCOPE:
         eligible_split_table = assign_random_trace_splits(
             eligible_trace_table,
             holdout_fraction=holdout_fraction,
             validation_fraction_of_holdout=validation_fraction_of_holdout,
-            random_seed=random_seed,
+            random_seed=stored_random_seed,
         )
     elif stored_split_scope == PER_FFID_SPLIT_SCOPE:
         eligible_split_table = assign_random_trace_splits_by_ffid(
             eligible_trace_table,
             holdout_fraction=holdout_fraction,
             validation_fraction_of_holdout=validation_fraction_of_holdout,
-            random_seed=random_seed,
+            random_seed=stored_random_seed,
         )
-    else:
+    elif stored_split_scope == WHOLE_FFID_SPLIT_SCOPE:
         eligible_split_table = assign_random_whole_ffid_splits(
             eligible_trace_table,
             holdout_fraction=holdout_fraction,
             validation_fraction_of_holdout=validation_fraction_of_holdout,
-            random_seed=random_seed,
+            random_seed=stored_random_seed,
         )
     normalization = fit_normalization_parameters(
         eligible_split_table,
@@ -133,18 +159,27 @@ def prepare_baseline_dataset(
             "coordinates": stored_coordinate_normalization,
             "amplitude": stored_amplitude_normalization,
         },
-        "random_seed": int(random_seed),
-        "holdout_fraction": float(holdout_fraction),
-        "validation_fraction_of_holdout": float(validation_fraction_of_holdout),
+        "random_seed": stored_random_seed,
         "split_scope": stored_split_scope,
-        "ffid_count": int(eligible_trace_table["ffid"].nunique()),
+        "ffid_count": int(eligible_split_table["ffid"].nunique()),
         "split_counts": split_counts,
         "files": {
             "trace_split": TRACE_SPLIT_FILE_NAME,
             "normalization": NORMALIZATION_FILE_NAME,
         },
     }
-    if stored_split_scope == WHOLE_FFID_SPLIT_SCOPE:
+    if stored_split_scope == C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE:
+        assert stored_source_line_ranges is not None
+        preparation["source_line_ranges"] = {
+            split: list(stored_source_line_ranges[split])
+            for split in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
+        }
+    else:
+        assert holdout_fraction is not None
+        assert validation_fraction_of_holdout is not None
+        preparation["holdout_fraction"] = float(holdout_fraction)
+        preparation["validation_fraction_of_holdout"] = float(validation_fraction_of_holdout)
+    if stored_split_scope in WHOLE_FFID_ASSIGNMENT_SPLIT_SCOPES:
         preparation["ffid_split_counts"] = {
             split: int(
                 eligible_split_table.loc[
