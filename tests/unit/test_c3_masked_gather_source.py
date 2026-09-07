@@ -382,7 +382,7 @@ def test_constructor_rejects_volume_index_row_misalignment() -> None:
         )
 
 
-def test_constructor_rejects_non_c3_receiver_shape_explicitly() -> None:
+def test_constructor_accepts_dense_receiver_crop_from_volume_metadata() -> None:
     volume, index_table, metadata = _volume_case()
     receiver_x_count = RECEIVER_X_COUNT - 1
     keep = index_table["relative_receiver_x_index"] < receiver_x_count
@@ -412,14 +412,32 @@ def test_constructor_rejects_non_c3_receiver_shape_explicitly() -> None:
         evaluation_target_trace_mask=cropped_target,
     )
 
-    with pytest.raises(ValueError, match="fixed 8 x 68 receiver grid"):
-        MaskedC3GatherSource(
-            cropped_volume,
-            cropped_index,
-            cropped_metadata,
-            context_gather_count=2,
-            device="cpu",
-        )
+    source = MaskedC3GatherSource(
+        cropped_volume,
+        cropped_index,
+        cropped_metadata,
+        context_gather_count=2,
+        device="cpu",
+    )
+    inputs = source.inputs(np.array([0, 2], dtype=np.int64))
+
+    assert source.target_array_rows.shape == (3, receiver_x_count, RECEIVER_Y_COUNT)
+    assert source.target_evaluation_mask.shape == (3, receiver_x_count, RECEIVER_Y_COUNT)
+    assert inputs.target_observed.shape == (2, receiver_x_count, RECEIVER_Y_COUNT, TIME_COUNT)
+    assert inputs.target_observation_mask.shape == (2, receiver_x_count, RECEIVER_Y_COUNT)
+    assert inputs.context_gathers.shape == (
+        2,
+        2,
+        receiver_x_count,
+        RECEIVER_Y_COUNT,
+        TIME_COUNT,
+    )
+    assert inputs.context_availability.shape == (
+        2,
+        2,
+        receiver_x_count,
+        RECEIVER_Y_COUNT,
+    )
 
 
 def test_constructor_rejects_time_axis_too_short_for_masked_input_contract() -> None:

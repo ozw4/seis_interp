@@ -41,7 +41,12 @@ _RECEIVER_SHAPE = (RECEIVER_X_COUNT, RECEIVER_Y_COUNT)
 _TIME_COUNT = 4
 
 
-def _prepare_volume_index(artifacts: PreparedC3VolumeArtifacts) -> Path:
+def _prepare_volume_index(
+    artifacts: PreparedC3VolumeArtifacts,
+    *,
+    relative_receiver_x_range: tuple[int, int] = (0, _RECEIVER_SHAPE[0]),
+    relative_receiver_y_range: tuple[int, int] = (0, _RECEIVER_SHAPE[1]),
+) -> Path:
     output = artifacts.processed_dir / "volumes" / "synthetic-volume"
     prepare_c3_volume_index(
         artifacts.interim_dir,
@@ -53,8 +58,8 @@ def _prepare_volume_index(artifacts: PreparedC3VolumeArtifacts) -> Path:
         time_range=(0, _TIME_COUNT),
         source_line_range=artifacts.source_line_range,
         shot_in_line_range=artifacts.shot_in_line_range,
-        relative_receiver_x_range=(0, _RECEIVER_SHAPE[0]),
-        relative_receiver_y_range=(0, _RECEIVER_SHAPE[1]),
+        relative_receiver_x_range=relative_receiver_x_range,
+        relative_receiver_y_range=relative_receiver_y_range,
         config_source="studies/synthetic/config.yaml",
     )
     return output
@@ -200,6 +205,31 @@ def test_random_trace_artifacts_load_partial_target_and_nearest_contexts(
         inputs.source_deltas_m.cpu().numpy(),
         coordinates_m[context_sources] - coordinates_m[target_sources, None],
     )
+
+
+def test_readme_receiver_crop_materializes_dynamic_masked_gathers(tmp_path: Path) -> None:
+    artifacts = prepare_c3_volume_artifacts(tmp_path)
+    volume_dir = _prepare_volume_index(
+        artifacts,
+        relative_receiver_x_range=(0, 8),
+        relative_receiver_y_range=(18, 50),
+    )
+    source, volume, _, metadata = _load_source_and_volume(artifacts, volume_dir)
+
+    inputs = source.inputs(np.arange(source.target_count, dtype=np.int64))
+
+    assert metadata["selection"]["relative_receiver_x"] == [0, 8]  # type: ignore[index]
+    assert metadata["selection"]["relative_receiver_y"] == [18, 50]  # type: ignore[index]
+    assert metadata["shape"] == [_TIME_COUNT, 2, 2, 8, 32]
+    assert volume.values.shape == (_TIME_COUNT, 2, 2, 8, 32)
+    assert source.target_count == 4
+    assert source.target_array_rows.shape == (4, 8, 32)
+    assert source.target_evaluation_mask.shape == (4, 8, 32)
+    assert inputs.target_observed.shape == (4, 8, 32, _TIME_COUNT)
+    assert inputs.target_observation_mask.shape == (4, 8, 32)
+    assert inputs.context_gathers.shape == (4, _CONTEXT_GATHER_COUNT, 8, 32, _TIME_COUNT)
+    assert inputs.context_availability.shape == (4, _CONTEXT_GATHER_COUNT, 8, 32)
+    assert validate_masked_gather_inputs(inputs) is inputs
 
 
 def test_whole_shot_artifacts_keep_missing_targets_out_of_context(

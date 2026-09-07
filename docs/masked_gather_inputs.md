@@ -7,21 +7,26 @@ target を同じ contract で表す。
 
 ## Fields
 
-`B` を batch size、`K` を context shot 数、`T` を time sample 数とすると、6 field
-の shape は次のとおりである。
+`B` を batch size、`K` を context shot 数、`R_x` / `R_y` を selected volume の
+receiver crop、`T` を time sample 数とすると、6 field の shape は次のとおりである。
 
 | Field | Shape | Meaning |
 |---|---:|---|
-| `target_observed` | `(B, 8, 68, T)` | target shot のうちモデルへ見せる観測値。非観測 cell は exact zero。 |
-| `target_observation_mask` | `(B, 8, 68)` | target observation が利用可能な cell。 |
-| `context_gathers` | `(B, K, 8, 68, T)` | 周辺 shot の観測値。利用不能 cell は exact zero。 |
-| `context_availability` | `(B, K, 8, 68)` | context gather ごとの利用可能 cell。 |
+| `target_observed` | `(B, R_x, R_y, T)` | target shot のうちモデルへ見せる観測値。非観測 cell は exact zero。 |
+| `target_observation_mask` | `(B, R_x, R_y)` | target observation が利用可能な cell。 |
+| `context_gathers` | `(B, K, R_x, R_y, T)` | 周辺 shot の観測値。利用不能 cell は exact zero。 |
+| `context_availability` | `(B, K, R_x, R_y)` | context gather ごとの利用可能 cell。 |
 | `source_deltas_m` | `(B, K, 2)` | `context source - target source` の x/y 差（m）。 |
 | `target_coordinates` | `(B, 2)` | selected volume 全体の source x/y 最小値・最大値で `[0, 1]` に正規化した target 座標。 |
 
 `random_trace` では、target observation に observed trace と exact-zero の
 evaluation target cell が混在する。`random_whole_ffid` では target observation mask
 がすべて `False` になり、`target_observed` 全体が zero になる。
+
+Receiver dimensions は volume metadata が示す任意の正の dense crop を引き継ぐ。
+たとえば full C3 grid の `8 x 68` に加え、benchmark例の `8 x 32` や `3 x 68`
+もこのmodel-independent input contractで扱う。固定receiver shapeが必要な既存model
+（`TraceGraphInterpolator`など）は、その制約をmodel boundaryで別途検証する。
 
 ## Target and context selection
 

@@ -22,7 +22,6 @@ from seis_interp.data.masked_gather_inputs import (
     MaskedGatherInputs,
     validate_masked_gather_inputs,
 )
-from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
 from seis_interp.processing.interpolation_masks import EVALUATION_TARGET_ROLE, OBSERVED_ROLE
 
 CONTEXT_SELECTION = "nearest_observed_source_positions"
@@ -52,7 +51,7 @@ class MaskedC3GatherSource:
 
         _validate_observed_volume(observed_volume, volume_metadata)
         spatial_shape = tuple(int(value) for value in volume_metadata["shape"][1:])  # type: ignore[index]
-        line_count, shot_count, _, _ = spatial_shape
+        line_count, shot_count, receiver_x_count, receiver_y_count = spatial_shape
         self._source_count = line_count * shot_count
 
         expected_rows = index_table["array_row"].to_numpy(dtype=np.int64)
@@ -61,13 +60,13 @@ class MaskedC3GatherSource:
 
         observed_flat = observed_volume.observed_trace_mask.reshape(
             self._source_count,
-            RECEIVER_X_COUNT,
-            RECEIVER_Y_COUNT,
+            receiver_x_count,
+            receiver_y_count,
         )
         target_flat = observed_volume.evaluation_target_trace_mask.reshape(
             self._source_count,
-            RECEIVER_X_COUNT,
-            RECEIVER_Y_COUNT,
+            receiver_x_count,
+            receiver_y_count,
         )
         if np.any(observed_flat & target_flat) or not np.all(observed_flat | target_flat):
             raise ValueError(
@@ -87,7 +86,7 @@ class MaskedC3GatherSource:
                 np.arange(self._source_count, dtype=np.int64), (line_count, shot_count)
             )
         ).astype(np.int64, copy=False)
-        receiver_cell_count = RECEIVER_X_COUNT * RECEIVER_Y_COUNT
+        receiver_cell_count = receiver_x_count * receiver_y_count
         ffids_by_receiver = (
             index_table["ffid"]
             .to_numpy(dtype=np.int64)
@@ -106,15 +105,15 @@ class MaskedC3GatherSource:
         self._source_coordinates_m = source_coordinates_by_receiver[:, 0, :].copy()
         self._array_rows = observed_volume.array_rows.reshape(
             self._source_count,
-            RECEIVER_X_COUNT,
-            RECEIVER_Y_COUNT,
+            receiver_x_count,
+            receiver_y_count,
         )
         self._observed_mask = observed_flat
         self._evaluation_target_mask = target_flat
         self._shot_major_values = observed_volume.values.transpose(1, 2, 3, 4, 0).reshape(
             self._source_count,
-            RECEIVER_X_COUNT,
-            RECEIVER_Y_COUNT,
+            receiver_x_count,
+            receiver_y_count,
             observed_volume.values.shape[0],
         )
 
@@ -160,7 +159,7 @@ class MaskedC3GatherSource:
 
     @property
     def target_array_rows(self) -> np.ndarray:
-        """Return source array rows on the fixed receiver grid."""
+        """Return source array rows on the selected receiver crop."""
         return self._array_rows[self._target_source_flat_indices].copy()
 
     @property
@@ -284,8 +283,9 @@ def _validate_observed_volume(
     spatial_shape = expected_shape[1:]
     if expected_shape[0] < 2:
         raise ValueError("observed volume time dimension must contain at least two samples")
-    if spatial_shape[2:] != (RECEIVER_X_COUNT, RECEIVER_Y_COUNT):
-        raise ValueError("observed volume must use the fixed 8 x 68 receiver grid")
+    receiver_x_count, receiver_y_count = spatial_shape[2:]
+    if receiver_x_count <= 0 or receiver_y_count <= 0:
+        raise ValueError("observed volume receiver dimensions must be positive")
     if observed_volume.values.shape != expected_shape:
         raise ValueError("observed volume values shape must match volume metadata shape")
     if observed_volume.time_s.shape != (expected_shape[0],):

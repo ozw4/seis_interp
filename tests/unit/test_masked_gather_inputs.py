@@ -15,14 +15,26 @@ CONTEXT_COUNT = 2
 TIME_COUNT = 3
 
 
-def _valid_inputs(*, dtype: torch.dtype = torch.float32) -> MaskedGatherInputs:
-    target_mask = torch.ones(BATCH_SIZE, 8, 68, dtype=torch.bool)
+def _valid_inputs(
+    *,
+    dtype: torch.dtype = torch.float32,
+    receiver_shape: tuple[int, int] = (8, 68),
+) -> MaskedGatherInputs:
+    receiver_x, receiver_y = receiver_shape
+    target_mask = torch.ones(BATCH_SIZE, receiver_x, receiver_y, dtype=torch.bool)
     target_mask[0, 0, 0] = False
     target_mask[1] = False
     target = target_mask[..., None].expand(-1, -1, -1, TIME_COUNT).to(dtype=dtype)
 
-    context_mask = torch.ones(BATCH_SIZE, CONTEXT_COUNT, 8, 68, dtype=torch.bool)
-    context_mask[0, 0, 0, 0] = False
+    context_mask = torch.ones(
+        BATCH_SIZE,
+        CONTEXT_COUNT,
+        receiver_x,
+        receiver_y,
+        dtype=torch.bool,
+    )
+    if receiver_x * receiver_y > 1:
+        context_mask[0, 0, 0, 0] = False
     contexts = context_mask[..., None].expand(-1, -1, -1, -1, TIME_COUNT).to(dtype=dtype)
     deltas = torch.tensor(
         [[[1.0, 0.0], [0.0, 2.0]], [[-1.0, 1.0], [3.0, -2.0]]],
@@ -59,6 +71,15 @@ def test_accepts_matching_floating_dtypes(dtype: torch.dtype) -> None:
     assert validate_masked_gather_inputs(inputs) is inputs
 
 
+@pytest.mark.parametrize("receiver_shape", [(8, 32), (3, 68), (1, 1)])
+def test_accepts_positive_dense_receiver_crops(receiver_shape: tuple[int, int]) -> None:
+    inputs = _valid_inputs(receiver_shape=receiver_shape)
+
+    assert validate_masked_gather_inputs(inputs) is inputs
+    assert inputs.target_observed.shape[1:3] == receiver_shape
+    assert inputs.context_gathers.shape[2:4] == receiver_shape
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
@@ -70,8 +91,13 @@ def test_accepts_matching_floating_dtypes(dtype: torch.dtype) -> None:
         ),
         (
             "target_observed",
-            torch.zeros(BATCH_SIZE, 7, 68, TIME_COUNT),
-            "fixed 8 x 68",
+            torch.zeros(BATCH_SIZE, 0, 68, TIME_COUNT),
+            "receiver dimensions must be positive",
+        ),
+        (
+            "target_observed",
+            torch.zeros(BATCH_SIZE, 8, 0, TIME_COUNT),
+            "receiver dimensions must be positive",
         ),
         (
             "target_observed",
@@ -101,7 +127,7 @@ def test_accepts_matching_floating_dtypes(dtype: torch.dtype) -> None:
         (
             "context_gathers",
             torch.zeros(BATCH_SIZE, CONTEXT_COUNT, 7, 68, TIME_COUNT),
-            "fixed 8 x 68",
+            "receiver dimensions must match target_observed",
         ),
         (
             "context_gathers",

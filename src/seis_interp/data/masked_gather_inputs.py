@@ -6,8 +6,6 @@ from dataclasses import dataclass
 
 import torch
 
-from seis_interp.processing.c3_receiver_grid import RECEIVER_X_COUNT, RECEIVER_Y_COUNT
-
 
 @dataclass(frozen=True)
 class MaskedGatherInputs:
@@ -40,37 +38,39 @@ def validate_masked_gather_inputs(inputs: MaskedGatherInputs) -> MaskedGatherInp
 
     target = inputs.target_observed
     if target.ndim != 4:
-        raise ValueError("target_observed must have shape (batch, 8, 68, time)")
+        raise ValueError("target_observed must have shape (batch, receiver_x, receiver_y, time)")
     batch_size, receiver_x, receiver_y, time_count = target.shape
     if batch_size <= 0:
         raise ValueError("target_observed batch dimension must be positive")
-    if (receiver_x, receiver_y) != (RECEIVER_X_COUNT, RECEIVER_Y_COUNT):
-        raise ValueError("target_observed must use the fixed 8 x 68 receiver grid")
+    if receiver_x <= 0 or receiver_y <= 0:
+        raise ValueError("target_observed receiver dimensions must be positive")
     if time_count < 2:
         raise ValueError("target_observed time dimension must contain at least two samples")
 
-    target_mask_shape = (batch_size, RECEIVER_X_COUNT, RECEIVER_Y_COUNT)
+    target_mask_shape = (batch_size, receiver_x, receiver_y)
     if inputs.target_observation_mask.shape != target_mask_shape:
         raise ValueError("target_observation_mask must match target batch and receiver dimensions")
 
     contexts = inputs.context_gathers
     if contexts.ndim != 5:
-        raise ValueError("context_gathers must have shape (batch, contexts, 8, 68, time)")
+        raise ValueError(
+            "context_gathers must have shape (batch, contexts, receiver_x, receiver_y, time)"
+        )
     context_batch, context_count, context_x, context_y, context_time = contexts.shape
     if context_batch != batch_size:
         raise ValueError("context_gathers batch dimension must match target_observed")
     if context_count <= 0:
         raise ValueError("context_gathers context dimension must be positive")
-    if (context_x, context_y) != (RECEIVER_X_COUNT, RECEIVER_Y_COUNT):
-        raise ValueError("context_gathers must use the fixed 8 x 68 receiver grid")
+    if (context_x, context_y) != (receiver_x, receiver_y):
+        raise ValueError("context_gathers receiver dimensions must match target_observed")
     if context_time != time_count:
         raise ValueError("context_gathers time dimension must match target_observed")
 
     context_mask_shape = (
         batch_size,
         context_count,
-        RECEIVER_X_COUNT,
-        RECEIVER_Y_COUNT,
+        receiver_x,
+        receiver_y,
     )
     if inputs.context_availability.shape != context_mask_shape:
         raise ValueError(
