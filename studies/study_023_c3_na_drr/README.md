@@ -33,6 +33,13 @@ and Chen et al. (2016), [“Simultaneous denoising and reconstruction of 5-D sei
 damped rank-reduction method”](https://doi.org/10.1093/gji/ggw230), *Geophysical Journal
 International*, 206(3), 1695–1717. No external GPL implementation was copied or adapted.
 
+This is the reconstruction-only, hard observed-data consistency variant with a fixed
+iteration count, not the paper's simultaneous denoising/reconstruction mode with relaxed
+observation weights and convergence stopping. `metrics.json` and `run.json` identify it as
+`method_variant: reconstruction_only_hard_consistency`; `run.json` also records
+`drr.mode: reconstruction_only`. Local spatial-window and acquisition-grid conditions are
+specified below and recorded separately.
+
 Axes are `(time, source_line, shot_in_line, relative_receiver_x, relative_receiver_y)`.
 An orthonormal time rFFT, padded to the smallest power of two at least as large as the time
 length, supplies complex 4D spatial slices. This uses the repository's regular dense grid,

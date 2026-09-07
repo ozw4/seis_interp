@@ -25,6 +25,7 @@ from seis_interp.processing.drr_windows import WindowedDrrResult, interpolate_dr
 from seis_interp.processing.level_four_hankel import level_four_hankel_matrix_shape
 
 METHOD = "damped_rank_reduction_5d"
+METHOD_VARIANT = "reconstruction_only_hard_consistency"
 PREDICTION_RELATIVE_PATH = Path("artifacts") / "prediction.npy"
 
 _DRR_KEYS = frozenset(
@@ -121,6 +122,7 @@ def interpolate_drr_run(
     metrics.update(
         {
             "method": METHOD,
+            "method_variant": METHOD_VARIANT,
             "case_id": inputs.case["case_id"],
             "volume_id": inputs.volume_metadata["volume_id"],
             "uncovered_trace_count": reconstructed.uncovered_trace_count,
@@ -223,6 +225,7 @@ def _run_metadata(
     assert isinstance(mask, Mapping)
     return {
         "method": METHOD,
+        "method_variant": METHOD_VARIANT,
         "case_id": inputs.case["case_id"],
         "volume_id": inputs.volume_metadata["volume_id"],
         **git_metadata,
@@ -235,6 +238,7 @@ def _run_metadata(
         "random_seed": mask["random_seed"],
         "input": _input_metadata(inputs),
         "drr": {
+            "mode": "reconstruction_only",
             "rank": settings.rank,
             "damping_power": settings.damping_power,
             "n_iterations": settings.n_iterations,

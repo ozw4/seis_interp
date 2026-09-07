@@ -140,6 +140,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     json.dumps(run, allow_nan=False)
     json.dumps(inputs_lock, allow_nan=False)
     assert metrics["method"] == METHOD
+    assert metrics["method_variant"] == "reconstruction_only_hard_consistency"
     assert metrics["evaluation_domain"] == "evaluation_target"
     assert metrics["amplitude_domain"] == "physical"
     assert metrics["evaluation_target"]["trace_count"] == int(
@@ -158,6 +159,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     )
 
     assert run["method"] == METHOD
+    assert run["method_variant"] == "reconstruction_only_hard_consistency"
     assert run["case_id"] == "synthetic_case"
     assert run["volume_id"] == "synthetic_volume"
     assert run["git_commit"] == git_metadata["git_commit"]
@@ -170,6 +172,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     assert run["input"]["mask"]["kind"] == RANDOM_TRACE_MASK_KIND
     assert run["input"]["selected_volume"]["selection"] == artifacts.volume_metadata["selection"]
     assert run["drr"] == {
+        "mode": "reconstruction_only",
         "rank": 1,
         "damping_power": 3,
         "n_iterations": 1,
