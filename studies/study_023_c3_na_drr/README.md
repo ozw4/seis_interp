@@ -136,5 +136,28 @@ current task.
 
 ## Current result
 
-Implementation complete; clean-commit C3 smoke not yet recorded.
-The formal candidate has not been run, and the study remains `draft`.
+Run `20260907T035913Z_ca7bc8b_smoke` completed from clean commit
+`ca7bc8bd7bcac694703093376fe274b23179b0af`, recording `git_worktree_dirty: false`.
+It used the smoke crop in the table above, the seed-42 validation `random_trace` mask with
+requested missing fraction 0.8, and the unchanged `config_smoke.yaml` condition: rank 4,
+damping power 3, 3 iterations, and nonoverlapping `[4, 4, 4, 8]` spatial windows.
+
+The run evaluated 3,275 target traces (209,600 samples). Physical-amplitude target-only global
+S/N was 2.9109 dB, RMSE 2.8662, and relative L2 0.7152. Zero-fill had S/N 0.0000 dB and
+RMSE 4.0074, so the smoke improved target S/N by 2.9109 dB. Observed maximum absolute error
+was exactly 0.0. No traces or samples were uncovered, and there were no warnings.
+
+The float32 prediction has shape `[64, 4, 8, 8, 16]`. All eight spatial blocks were nonempty;
+each used a `[135, 32]` Hankel matrix. The 64-point FFT processed 30 bins, from 5.8594 to
+62.5000 Hz. Loading and hash verification took 3.9607 s, reconstruction 0.5783 s, and
+evaluation 0.0051 s; process maximum RSS was 256.8164 MiB (whole-process scope).
+
+Saved records passed strict-JSON, configuration, input-lock, finite-prediction, exact
+observed-sample, and independently recomputed metric checks. The input lock is identical
+to the clean Study 022 smoke's lock. Generated run artifacts remain the authoritative
+full-precision record.
+
+This is a small execution-contract smoke, not a formal-volume result, tuned validation
+result, or a DRR-versus-POCS performance conclusion. The formal candidate and test partition
+have not been run, no parameters have been selected from this result, and the study remains
+`draft`.
