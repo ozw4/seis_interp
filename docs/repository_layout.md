@@ -122,6 +122,14 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 | `results/` | 採用判断後に追加する。全runのコピーではなく、正式採用した図表・モデル・評価結果だけを保持する。 |
 | `notebooks/` | 必要な場合だけstudy配下に置き、geometry QC、探索、結果レビューに限定する。主要ロジックは`src/`からimportする。 |
 
+### `models/` 内の責務
+
+`models/trace_codec.py`は、trace waveformとtime-downsampled latent sequenceを相互変換する共有encoder／decoderを持ち、temporal representationだけを担当する。graph topology、message passing、source geometryは`models/trace_graph_interpolator.py`、input assemblyは`data/`、optimizer、loss、checkpointは`training/`の責務とし、trace codecには置かない。
+
+### Runtime inputの責務
+
+Model-independentなinput assemblyは`data/`へ置く。`data/c3_masked_gather_source.py`は新しいartifactではなく、検証済みのobserved C3 volumeから要求されたbatchだけをmaterializeするruntime objectである。Training targetとloss logicは`training/`、model forwardは`models/`の責務とし、evaluation target amplitudeはevaluation boundaryの外へ出さない。
+
 ## 4. 設定・命名・再現性
 
 設定の優先順位は次とする。

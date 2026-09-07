@@ -136,6 +136,8 @@ Before selecting the requested partition, `prepare-mask` verifies that `preparat
 
 `data prepare-c3-volume-index` binds one benchmark case by file hash and records a dense 5D crop plus its trace-to-cell mapping. It writes only `volume_index.parquet` and `volume.json`; amplitudes remain in the interim `amplitudes.npy`. Selection ranges are zero-based and half-open. The output order is `(time, source_line, shot_in_line, relative_receiver_x, relative_receiver_y)`: source lines rank ascending `source_x_m`, shots rank ascending `source_y_m` within each source line, and receiver axes rank source-relative offsets. The selected crop must lie within one dataset partition. The adapter requires exactly one canonical trace in every selected spatial cell and rejects incomplete shots or gaps in the physical C3 source and receiver grid. This repository contract does not claim to recover an unpublished exact paper crop. POCS, DRR, SIREN, CNN, and GNN runs should use the same case and volume directories; model-specific normalization and patching remain run concerns.
 
+The model-independent runtime contract for assembling partial or whole-shot target observations and neighboring context gathers from these verified artifacts is documented in [`docs/masked_gather_inputs.md`](docs/masked_gather_inputs.md).
+
 ```yaml
 project:
   random_seed: 42
