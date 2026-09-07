@@ -27,6 +27,14 @@ def _model(output_activation: str = "linear") -> CCNet5D:
 
 
 def _provenance() -> dict[str, object]:
+    fit_selection = {
+        "time": [0, 2],
+        "source_line": [0, 2],
+        "shot_in_line": [0, 2],
+        "relative_receiver_x": [0, 2],
+        "relative_receiver_y": [0, 2],
+    }
+    held_out_selection = {**fit_selection, "shot_in_line": [2, 4]}
     return {
         "source_inputs_lock": {
             "dataset_id": "synthetic",
@@ -38,12 +46,12 @@ def _provenance() -> dict[str, object]:
             "array_rows_hash_rule": "sha256_shape_le_int64_then_c_order_le_int64",
             "regions": {
                 "fit": {
-                    "selection": {"time": [0, 2]},
+                    "selection": fit_selection,
                     "shape": [2, 2, 2, 2, 2],
                     "array_rows_sha256": "c" * 64,
                 },
                 "selection": {
-                    "selection": {"time": [2, 4]},
+                    "selection": held_out_selection,
                     "shape": [2, 2, 2, 2, 2],
                     "array_rows_sha256": "d" * 64,
                 },
@@ -228,6 +236,16 @@ def test_load_rejects_corrupt_metadata(
         (("training_random_seed",), "required fields"),
         (("source_inputs_lock", "partition"), "partition"),
         (("source_inputs_lock", "regions", "selection"), "fit and selection"),
+        (
+            (
+                "source_inputs_lock",
+                "regions",
+                "fit",
+                "selection",
+                "relative_receiver_y",
+            ),
+            "must contain exactly",
+        ),
     ],
 )
 def test_load_rejects_incomplete_training_provenance(

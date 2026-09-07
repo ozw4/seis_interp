@@ -41,6 +41,7 @@ from seis_interp.training.checkpoints import (
     VOLUME_SIREN_METHOD_VARIANT,
     save_fixed_step_siren_checkpoint,
 )
+from seis_interp.training.devices import resolve_device as _resolve_device
 from seis_interp.training.fixed_step_siren import FixedStepSirenResult, train_siren_fixed_steps
 from seis_interp.training.randomness import seed_global_model_initialization
 
@@ -291,19 +292,6 @@ def _training_settings(config: Mapping[str, object]) -> _TrainingSettings:
         ),
         device=device,
     )
-
-
-def _resolve_device(value: str) -> torch.device:
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigurationError("training.device must be a non-empty string")
-    device = torch.device(value)
-    if device.type == "cuda":
-        if not torch.cuda.is_available():
-            raise RuntimeError(f"CUDA device {value!r} was requested but CUDA is unavailable")
-        if device.index is not None and device.index >= torch.cuda.device_count():
-            raise RuntimeError(f"CUDA device {value!r} is unavailable")
-    # An empty allocation verifies availability and resolves aliases such as cpu:0/cuda.
-    return torch.empty(0, device=device).device
 
 
 def _run_metadata(

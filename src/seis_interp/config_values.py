@@ -12,6 +12,14 @@ from seis_interp.processing.trace_splits import TEST_SPLIT, TRAIN_SPLIT, VALIDAT
 _EFFECTIVE_SPLITS = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
 
 
+def exact_section(config: Mapping[str, object], name: str, keys: set[str]) -> Mapping[str, object]:
+    """Require all and only the consumed keys in an executable config section."""
+    section = config.get(name)
+    if not isinstance(section, Mapping) or set(section) != keys:
+        raise ConfigurationError(f"{name} configuration must contain exactly {sorted(keys)}")
+    return section
+
+
 def positive_integer(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
         raise ConfigurationError(f"{name} must be a positive integer")

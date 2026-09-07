@@ -12,7 +12,7 @@ from pathlib import Path
 import torch
 
 from seis_interp.models.ccnet5d import CCNet5D, ccnet5d_method_variant
-from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
+from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER, validated_index_range
 
 CCNET5D_MODEL_TYPE = "ccnet5d"
 FIT_REGION_GLOBAL_RMS = "fit_region_global_rms"
@@ -227,6 +227,17 @@ def _validated_training_provenance(value: object) -> dict[str, object]:
         }.issubset(region):
             raise ValueError(
                 f"training_provenance source {name} region must identify its selection"
+            )
+        selection = region["selection"]
+        if not isinstance(selection, Mapping) or set(selection) != set(VOLUME_AXIS_ORDER):
+            raise ValueError(
+                f"training_provenance source {name} region selection must contain "
+                f"exactly {list(VOLUME_AXIS_ORDER)!r}"
+            )
+        for axis in VOLUME_AXIS_ORDER:
+            validated_index_range(
+                selection[axis],
+                name=f"training_provenance.source_inputs_lock.regions.{name}.selection.{axis}",
             )
     patch_plan_sha256 = value["patch_plan_sha256"]
     if (
