@@ -239,7 +239,9 @@ def test_run_writes_only_final_artifacts_and_complete_matching_records(
         for key, value in original_config["model"].items()
         if key not in {"name", "coordinate_features"}
     }
-    assert run["model"] == payload["model_config"] == expected_model
+    assert payload["model_config"] == expected_model
+    assert run["model"] == {**expected_model, "parameter_dtype": "float32"}
+    assert {parameter.dtype for parameter in loaded.model.parameters()} == {torch.float32}
     for key, value in expected_model.items():
         assert getattr(loaded.model, key) == value
     assert loaded.normalization.amplitude_rms == pytest.approx(expected_rms)
@@ -301,6 +303,8 @@ def test_run_writes_only_final_artifacts_and_complete_matching_records(
         "random_seed": 42,
         "optimizer": "adam",
         "loss": "l2",
+        "input_dtype": "float32",
+        "target_dtype": "float32",
         "learning_rate": 1e-3,
         "batch_size": 8,
         "max_steps": 3,

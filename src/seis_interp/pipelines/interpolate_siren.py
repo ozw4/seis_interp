@@ -354,12 +354,18 @@ def _run_metadata(
             "scale_source": VOLUME_AMPLITUDE_SCALE_SOURCE,
             "amplitude_rms": data.normalization.amplitude_rms,
         },
-        "model": dict(model_config),
+        "model": {
+            **model_config,
+            "parameter_dtype": str(next(model.parameters()).dtype).removeprefix("torch."),
+        },
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "training": {
             "optimizer": "adam",
             "loss": "l2",
             **training,
+            # The shared to_model_tensors boundary converts both arrays to float32.
+            "input_dtype": "float32",
+            "target_dtype": "float32",
             "steps_completed": trained.steps_completed,
             "sampling": "uniform_observed_points_with_replacement",
             "stopping_rule": "fixed_optimizer_steps",

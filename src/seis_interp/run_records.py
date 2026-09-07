@@ -77,7 +77,7 @@ def file_hashes(
 
 
 def runtime_resource_metadata(device: object) -> dict[str, object]:
-    """Return process and CUDA resource usage for one training device."""
+    """Return resource usage and, on CUDA, device and numerical-mode metadata."""
     # Local import keeps run_records importable without the optional ml dependency.
     import torch
 
@@ -87,10 +87,19 @@ def runtime_resource_metadata(device: object) -> dict[str, object]:
         "cudnn_deterministic": device.type == "cuda" and torch.backends.cudnn.deterministic,
     }
     if device.type == "cuda":
+        properties = torch.cuda.get_device_properties(device)
         result.update(
             {
                 "cuda_max_memory_allocated_bytes": torch.cuda.max_memory_allocated(device),
                 "cuda_max_memory_reserved_bytes": torch.cuda.max_memory_reserved(device),
+                "cuda_device_name": properties.name,
+                "cuda_device_capability": [properties.major, properties.minor],
+                "cuda_total_memory_bytes": properties.total_memory,
+                "torch_cuda_version": torch.version.cuda,
+                "cudnn_version": torch.backends.cudnn.version(),
+                "float32_matmul_precision": torch.get_float32_matmul_precision(),
+                "cuda_matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+                "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
             }
         )
     return result

@@ -7,6 +7,8 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import yaml
@@ -207,3 +209,53 @@ def test_runtime_resource_metadata_on_cpu_has_no_cuda_keys() -> None:
     assert metadata["cudnn_deterministic"] is False
     assert isinstance(metadata["process_max_rss_kib"], int)
     assert metadata["process_max_rss_kib"] > 0
+
+
+def test_runtime_resource_metadata_on_cuda_records_device_and_numerical_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch
+
+    device = torch.device("cuda:2")
+    properties = Mock(
+        return_value=SimpleNamespace(name="Synthetic GPU", major=8, minor=6, total_memory=24 << 30)
+    )
+    allocated = Mock(return_value=1024)
+    reserved = Mock(return_value=4096)
+    monkeypatch.setattr(torch.cuda, "get_device_properties", properties)
+    monkeypatch.setattr(torch.cuda, "max_memory_allocated", allocated)
+    monkeypatch.setattr(torch.cuda, "max_memory_reserved", reserved)
+    monkeypatch.setattr(torch.version, "cuda", "12.4")
+    monkeypatch.setattr(torch, "get_float32_matmul_precision", lambda: "high")
+    monkeypatch.setattr(
+        torch.backends,
+        "cudnn",
+        SimpleNamespace(
+            benchmark=True, deterministic=False, version=lambda: 90100, allow_tf32=True
+        ),
+    )
+    monkeypatch.setattr(
+        torch.backends, "cuda", SimpleNamespace(matmul=SimpleNamespace(allow_tf32=False))
+    )
+
+    metadata = run_records.runtime_resource_metadata(device)
+
+    assert metadata == {
+        "process_max_rss_kib": metadata["process_max_rss_kib"],
+        "cudnn_benchmark": True,
+        "cudnn_deterministic": False,
+        "cuda_max_memory_allocated_bytes": 1024,
+        "cuda_max_memory_reserved_bytes": 4096,
+        "cuda_device_name": "Synthetic GPU",
+        "cuda_device_capability": [8, 6],
+        "cuda_total_memory_bytes": 24 << 30,
+        "torch_cuda_version": "12.4",
+        "cudnn_version": 90100,
+        "float32_matmul_precision": "high",
+        "cuda_matmul_allow_tf32": False,
+        "cudnn_allow_tf32": True,
+    }
+    properties.assert_called_once_with(device)
+    allocated.assert_called_once_with(device)
+    reserved.assert_called_once_with(device)
+    assert json.loads(json.dumps(metadata, allow_nan=False)) == metadata
