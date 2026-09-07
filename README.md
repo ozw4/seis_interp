@@ -11,6 +11,8 @@ The main target is the SEG C3 Narrow-Azimuth dataset: held-out traces of a marin
 - a whole-shot gather inpainter over the fixed receiver grid,
 - a trace-node graph gather interpolator.
 
+It also provides a CPU/NumPy Fourier POCS-5D baseline for verified dense C3 benchmark volumes.
+
 Research questions, conditions, and recorded outcomes live in numbered studies; see [Studies and reports](#studies-and-reports).
 
 ## Development environment
@@ -189,6 +191,28 @@ python -m seis_interp.cli train siren \
   --processed data/processed/c3_na/<split-name> \
   --output runs/<study>/<run-id>
 ```
+
+## Interpolation commands
+
+The `interpolate` command group runs non-training interpolation methods. Its `pocs` command is a
+CPU/NumPy implementation and requires an existing prepared partition, interpolation mask,
+benchmark case, and dense C3 volume index:
+
+```bash
+python -m seis_interp.cli interpolate pocs \
+  --config studies/<study>/config.yaml \
+  --interim data/interim/c3_na/all_ffids \
+  --processed data/processed/c3_na/<partition-id> \
+  --mask data/processed/c3_na/<partition-id>/masks/<mask-id> \
+  --case data/processed/c3_na/<partition-id>/cases/<case-id> \
+  --volume data/processed/c3_na/<partition-id>/volumes/<volume-id> \
+  --output runs/<study>/<run-id> \
+  --json
+```
+
+The immutable run contains the resolved configuration, verified input lock, target-only physical
+amplitude metrics, run metadata, and `artifacts/prediction.npy`. Study-specific POCS and window
+conditions belong in the study configuration.
 
 ## Run outputs
 

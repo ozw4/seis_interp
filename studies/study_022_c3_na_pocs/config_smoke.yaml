@@ -1,0 +1,17 @@
+extends: config.yaml
+
+benchmark_volume:
+  id: c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34
+  selection:
+    time: [64, 128]
+    source_line: [25, 29]
+    shot_in_line: [27, 35]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [18, 34]
+
+pocs:
+  n_iterations: 20
+  threshold_start: 1.0
+  threshold_end: 0.01
+  window_shape: null
+  overlap: null
