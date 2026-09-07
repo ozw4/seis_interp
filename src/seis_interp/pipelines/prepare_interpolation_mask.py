@@ -12,7 +12,11 @@ import pandas as pd
 
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.data.interpolation_mask_store import write_interpolation_mask
-from seis_interp.data.prepared_partition import PREPARATION_FILE_NAME, TRACE_SPLIT_FILE_NAME
+from seis_interp.data.prepared_partition import (
+    PREPARATION_FILE_NAME,
+    TRACE_SPLIT_FILE_NAME,
+)
+from seis_interp.data.prepared_partition_inputs import validated_prepared_split_rows
 from seis_interp.data.trace_store import METADATA_FILE_NAME, TRACES_FILE_NAME
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.processing.interpolation_masks import (
@@ -28,7 +32,6 @@ from seis_interp.processing.trace_canonicalization import (
     canonicalize_eligible_physical_coordinates,
 )
 from seis_interp.processing.trace_splits import (
-    EXCLUDED_SPLIT,
     SPLIT_COLUMN,
     TEST_SPLIT,
     TRAIN_SPLIT,
@@ -38,7 +41,6 @@ from seis_interp.processing.trace_splits import (
 )
 
 _MASK_PARTITIONS = (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT)
-_STORED_SPLITS = (*_MASK_PARTITIONS, EXCLUDED_SPLIT)
 
 
 def prepare_interpolation_mask(
@@ -85,7 +87,7 @@ def prepare_interpolation_mask(
     split_table = pd.read_parquet(input_paths["processed"][TRACE_SPLIT_FILE_NAME])
 
     source_rows = validated_array_rows(trace_table, require_contiguous=True)
-    split_rows = _validated_split_rows(split_table, expected_array_rows=source_rows)
+    split_rows = validated_prepared_split_rows(split_table, expected_array_rows=source_rows)
     _validate_input_metadata(
         dataset_metadata,
         preparation,
@@ -215,26 +217,6 @@ def _read_json_object(path: Path, *, description: str) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError(f"{description} must contain a JSON object")
     return payload
-
-
-def _validated_split_rows(
-    split_table: pd.DataFrame,
-    *,
-    expected_array_rows: np.ndarray,
-) -> np.ndarray:
-    if SPLIT_COLUMN not in split_table.columns:
-        raise ValueError(f"{TRACE_SPLIT_FILE_NAME} is missing required column: {SPLIT_COLUMN}")
-    split_rows = validated_array_rows(split_table)
-    if not np.array_equal(np.sort(split_rows), np.sort(expected_array_rows)):
-        raise ValueError(
-            f"{TRACE_SPLIT_FILE_NAME} array_row values do not exactly match {TRACES_FILE_NAME}"
-        )
-
-    known = split_table[SPLIT_COLUMN].isin(_STORED_SPLITS)
-    if not bool(known.all()):
-        unknown = sorted({repr(value) for value in split_table.loc[~known, SPLIT_COLUMN].tolist()})
-        raise ValueError(f"{TRACE_SPLIT_FILE_NAME} contains unknown split values: {unknown}")
-    return split_rows
 
 
 def _validate_input_metadata(
