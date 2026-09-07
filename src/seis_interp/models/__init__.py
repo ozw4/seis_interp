@@ -27,6 +27,7 @@ from seis_interp.models.shot_gather_inpainter import (
     ordered_raw_input_feature_names,
 )
 from seis_interp.models.siren import SineLayer, Siren
+from seis_interp.models.trace_codec import TraceNodeDecoder, TraceNodeEncoder
 from seis_interp.models.trace_graph_interpolator import (
     ATTENTION_TIME_RESOLUTIONS,
     GRAPH_MODES,
@@ -38,8 +39,6 @@ from seis_interp.models.trace_graph_interpolator import (
     TRACE_LATTICE_GRAPH_MODE,
     TraceGraphInterpolator,
     TraceGraphMessagePassingRound,
-    TraceNodeDecoder,
-    TraceNodeEncoder,
 )
 
 __all__ = [

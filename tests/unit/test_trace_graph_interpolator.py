@@ -6,12 +6,11 @@ import pytest
 import torch
 
 from seis_interp.models.shot_gather_inpainter import inverse_distance_reference
+from seis_interp.models.trace_codec import TraceNodeDecoder, TraceNodeEncoder
 from seis_interp.models.trace_graph_interpolator import (
     SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE,
     TRACE_LATTICE_GRAPH_MODE,
     TraceGraphInterpolator,
-    TraceNodeDecoder,
-    TraceNodeEncoder,
 )
 
 BATCH = 2
@@ -116,14 +115,18 @@ def test_training_step_updates_produce_nonreference_output(graph_mode: str) -> N
     assert not torch.allclose(output, reference)
 
 
-def test_encoder_and_decoder_are_exact_time_inverses_in_shape() -> None:
-    encoder = TraceNodeEncoder(8, stem_kernel_size=3, time_downsample_factor=5)
-    decoder = TraceNodeDecoder(8, time_downsample_factor=5)
-    waveforms = torch.randn(6, 1, TIME)
-    latents = encoder(waveforms)
-    assert latents.shape == (6, 8, TIME // 5)
-    residual = decoder(latents)
-    assert residual.shape == (6, TIME)
+def test_shared_codec_registration_and_same_seed_initialization_are_stable() -> None:
+    torch.manual_seed(17)
+    first = _small_model(TRACE_LATTICE_GRAPH_MODE)
+    torch.manual_seed(17)
+    second = _small_model(TRACE_LATTICE_GRAPH_MODE)
+
+    assert isinstance(first.encoder, TraceNodeEncoder)
+    assert isinstance(first.decoder, TraceNodeDecoder)
+    assert list(first._modules) == ["encoder", "static_embedding", "rounds", "decoder"]
+    assert list(first.state_dict()) == list(second.state_dict())
+    for name, first_tensor in first.state_dict().items():
+        assert torch.equal(first_tensor, second.state_dict()[name])
 
 
 def test_rejects_time_not_divisible_by_downsample_factor() -> None:

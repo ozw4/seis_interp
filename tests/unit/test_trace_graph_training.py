@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from seis_interp.models.trace_graph_interpolator import (
+    POOLED_ATTENTION_TIME_RESOLUTION,
     SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE,
     TRACE_LATTICE_GRAPH_MODE,
     TraceGraphInterpolator,
@@ -404,16 +405,96 @@ def test_checkpoint_round_trip_reproduces_outputs(tmp_path: Path, graph_mode: st
         best_step=2,
         best_validation_global_snr_db=1.25,
     )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    assert list(payload) == [
+        "model_type",
+        "model_config",
+        "model_state_dict",
+        "amplitude_scaling",
+        "validation_metric_domain",
+        "training",
+    ]
+    assert payload["model_config"] == {
+        "width": 8,
+        "graph_mode": graph_mode,
+        "message_passing_rounds": 2,
+        "time_downsample_factor": 5,
+        "stem_kernel_size": 3,
+        "temporal_kernel_size": 3,
+        "temporal_dilations": [1, 2],
+        "spatial_kernel_size": 3,
+        "attention_width": 4,
+        "attention_time_resolution": POOLED_ATTENTION_TIME_RESOLUTION,
+        "distance_epsilon": 1.0e-6,
+        "use_gradient_checkpointing": False,
+        "refinement_passes": 1,
+    }
+    assert list(payload["model_state_dict"]) == list(model.state_dict())
+    codec_keys = [
+        name for name in payload["model_state_dict"] if name.startswith(("encoder.", "decoder."))
+    ]
+    assert codec_keys == [
+        "encoder.stem.weight",
+        "encoder.stem.bias",
+        "encoder.norm.weight",
+        "encoder.norm.bias",
+        "encoder.downsample.weight",
+        "encoder.downsample.bias",
+        "decoder.upsample.weight",
+        "decoder.upsample.bias",
+        "decoder.head.0.weight",
+        "decoder.head.0.bias",
+        "decoder.head.2.weight",
+        "decoder.head.2.bias",
+        "decoder.head.4.weight",
+        "decoder.head.4.bias",
+    ]
+    for name, expected in model.state_dict().items():
+        assert torch.equal(payload["model_state_dict"][name], expected)
+
     loaded = load_trace_graph_checkpoint(checkpoint_path)
     assert loaded.best_step == 2
     assert loaded.best_validation_global_snr_db == 1.25
     assert loaded.graph_mode == graph_mode
     assert loaded.amplitude_scaling == "per_trace_rms"
     assert loaded.validation_metric_domain == "oracle_per_trace_unit_rms"
+    assert list(loaded.model.state_dict()) == list(model.state_dict())
+    for name, expected in model.state_dict().items():
+        assert torch.equal(loaded.model.state_dict()[name], expected)
+
     evaluator = _SyntheticEvaluator()
     model.eval()
     loaded.model.eval()
-    assert evaluator(loaded.model) == pytest.approx(evaluator(model))
+    with torch.no_grad():
+        expected = model(
+            evaluator.neighbors,
+            evaluator.availability,
+            evaluator.source_deltas,
+            evaluator.target_coordinates,
+        )
+        actual = loaded.model(
+            evaluator.neighbors,
+            evaluator.availability,
+            evaluator.source_deltas,
+            evaluator.target_coordinates,
+        )
+    torch.testing.assert_close(actual, expected, rtol=0.0, atol=0.0)
+
+
+def test_checkpoint_loads_model_state_strictly(tmp_path: Path) -> None:
+    checkpoint_path = tmp_path / "best.pt"
+    save_trace_graph_checkpoint(
+        checkpoint_path,
+        _small_model(),
+        best_step=0,
+        best_validation_global_snr_db=0.0,
+    )
+    payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    payload["model_state_dict"]["unexpected.weight"] = torch.ones(1)
+    torch.save(payload, checkpoint_path)
+
+    with pytest.raises(RuntimeError, match="Unexpected key"):
+        load_trace_graph_checkpoint(checkpoint_path)
 
 
 def test_checkpoint_rejects_foreign_model_type(tmp_path: Path) -> None:
