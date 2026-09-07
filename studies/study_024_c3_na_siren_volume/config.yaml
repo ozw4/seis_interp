@@ -53,6 +53,9 @@ model:
   skip_connections: null
 
 training:
+  # Model initialization and observed-point sampler seed; distinct from the
+  # project seed that binds the benchmark mask and case.
+  random_seed: 42
   optimizer: adam
   loss: l2
   learning_rate: 0.0001

@@ -169,6 +169,7 @@ def test_siren_volume_study_uses_shared_benchmark_and_fixed_step_contract() -> N
         "skip_connections": None,
     }
     assert formal["training"] == {
+        "random_seed": 42,
         "optimizer": "adam",
         "loss": "l2",
         "learning_rate": 1.0e-4,
@@ -190,7 +191,9 @@ def test_siren_volume_study_uses_shared_benchmark_and_fixed_step_contract() -> N
 
     assert set(smoke_document) == {"extends", "benchmark_volume", "training", "prediction"}
     assert smoke["model"] == formal["model"]
+    assert "random_seed" not in smoke_document["training"]
     assert smoke["training"] == {
+        "random_seed": 42,
         "optimizer": "adam",
         "loss": "l2",
         "learning_rate": 1.0e-4,

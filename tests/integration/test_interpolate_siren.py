@@ -41,6 +41,7 @@ def _write_config(
     artifacts: PreparedC3VolumeRunArtifacts,
     *,
     device: str = "cpu",
+    training_random_seed: int = 42,
 ) -> Path:
     case = json.loads((artifacts.case / "benchmark_case.json").read_text(encoding="utf-8"))
     config = {
@@ -68,6 +69,7 @@ def _write_config(
             "skip_connections": None,
         },
         "training": {
+            "random_seed": training_random_seed,
             "optimizer": "adam",
             "loss": "l2",
             "learning_rate": 1e-3,
@@ -296,6 +298,7 @@ def test_run_writes_only_final_artifacts_and_complete_matching_records(
     }
     assert run["parameter_count"] == 137
     assert run["training"] == {
+        "random_seed": 42,
         "optimizer": "adam",
         "loss": "l2",
         "learning_rate": 1e-3,
@@ -373,6 +376,9 @@ def test_target_truth_rebinding_does_not_change_training_and_cpu_runs_repeat(
         json.loads((output / "inputs.lock.json").read_text(encoding="utf-8")) for output in outputs
     ]
 
+    np.testing.assert_array_equal(predictions[1], predictions[0])
+    for name, expected in checkpoints[0].model.state_dict().items():
+        assert torch.equal(checkpoints[1].model.state_dict()[name], expected)
     for prediction, checkpoint, result in zip(
         predictions[1:], checkpoints[1:], metrics[1:], strict=True
     ):
@@ -398,11 +404,50 @@ def test_target_truth_rebinding_does_not_change_training_and_cpu_runs_repeat(
     assert locks[0]["benchmark_case"]["sha256"] != locks[2]["benchmark_case"]["sha256"]
 
 
+def test_changing_only_training_seed_changes_weights_not_benchmark_inputs(tmp_path: Path) -> None:
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
+    seeds = (42, 43)
+    configs = [
+        _write_config(tmp_path / f"seed-{seed}.yaml", artifacts, training_random_seed=seed)
+        for seed in seeds
+    ]
+    conditions = [yaml.safe_load(config.read_text(encoding="utf-8")) for config in configs]
+    assert [condition["training"].pop("random_seed") for condition in conditions] == list(seeds)
+    assert conditions[0] == conditions[1]
+    outputs = [tmp_path / f"seed-{seed}-run" for seed in seeds]
+    metrics = [
+        _run(artifacts, config, output) for config, output in zip(configs, outputs, strict=True)
+    ]
+    runs = [json.loads((output / "run.json").read_text(encoding="utf-8")) for output in outputs]
+    checkpoints = [
+        load_fixed_step_siren_checkpoint(output / CHECKPOINT_RELATIVE_PATH) for output in outputs
+    ]
+    first_state, changed_state = [checkpoint.model.state_dict() for checkpoint in checkpoints]
+
+    assert first_state.keys() == changed_state.keys()
+    assert any(not torch.equal(first_state[name], changed_state[name]) for name in first_state)
+    assert (outputs[0] / "inputs.lock.json").read_bytes() == (
+        outputs[1] / "inputs.lock.json"
+    ).read_bytes()
+    assert [run["random_seed"] for run in runs] == [42, 42]
+    assert [run["training"]["random_seed"] for run in runs] == list(seeds)
+    assert runs[0]["case_id"] == runs[1]["case_id"] == "synthetic_case"
+    assert runs[0]["volume_id"] == runs[1]["volume_id"] == "synthetic_volume"
+    assert runs[0]["input"] == runs[1]["input"]
+    assert runs[0]["input"]["mask"]["random_seed"] == 42
+    for key in ("trace_count", "sample_count", "reference_energy"):
+        assert metrics[0]["evaluation_target"][key] == metrics[1]["evaluation_target"][key]
+    assert checkpoints[0].normalization == checkpoints[1].normalization
+    assert checkpoints[0].model_coordinates == checkpoints[1].model_coordinates
+    assert runs[0]["amplitude"] == runs[1]["amplitude"]
+    assert runs[0]["amplitude"]["amplitude_rms"] == checkpoints[0].normalization.amplitude_rms
+
+
 def test_training_and_prediction_finish_before_target_evaluation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     artifacts = prepare_c3_volume_run_artifacts(tmp_path)
-    config = _write_config(tmp_path / "config.yaml", artifacts)
+    config = _write_config(tmp_path / "config.yaml", artifacts, training_random_seed=43)
     output = tmp_path / "run"
     events = []
     seeds = []
@@ -432,7 +477,7 @@ def test_training_and_prediction_finish_before_target_evaluation(
         reporter: Reporter | None = None,
     ) -> FixedStepSirenResult:
         assert events == []
-        assert seeds == [("model", 42), ("sampler", 42)]
+        assert seeds == [("model", 43), ("sampler", 43)]
         assert not output.exists()
         result = original_train(
             model,

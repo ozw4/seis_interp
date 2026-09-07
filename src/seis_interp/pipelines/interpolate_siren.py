@@ -53,6 +53,7 @@ ProgressReporter = Callable[[str], None]
 
 @dataclass(frozen=True)
 class _TrainingSettings:
+    random_seed: int
     learning_rate: float
     batch_size: int
     max_steps: int
@@ -83,7 +84,7 @@ def interpolate_siren_run(
         prediction_settings["batch_size"], "prediction.batch_size"
     )
     validate_c3_volume_evaluation_config(config)
-    random_seed = config_values.nonnegative_integer(
+    benchmark_seed = config_values.nonnegative_integer(
         get_required_config_value(config, "project.random_seed"), "project.random_seed"
     )
     device = _resolve_device(settings.device if device_override is None else device_override)
@@ -111,8 +112,8 @@ def interpolate_siren_run(
     started = time.perf_counter()
     data = build_c3_volume_siren_data(observed, inputs.index_table)
     timings["training_data_seconds"] = time.perf_counter() - started
-    seed_global_model_initialization(random_seed, device=device)
-    sampler = build_c3_volume_siren_sampler(data, random_seed=random_seed)
+    seed_global_model_initialization(settings.random_seed, device=device)
+    sampler = build_c3_volume_siren_sampler(data, random_seed=settings.random_seed)
     model = Siren(**model_config)
 
     _report(progress_reporter, "Training SIREN on observed benchmark samples.")
@@ -198,7 +199,7 @@ def interpolate_siren_run(
         predicted=predicted,
         prediction_batch_size=prediction_batch_size,
         device=device,
-        random_seed=random_seed,
+        benchmark_seed=benchmark_seed,
         timings=timings,
         git_metadata=git_metadata,
         started_at_utc=started_at_utc,
@@ -261,6 +262,7 @@ def _training_settings(config: Mapping[str, object]) -> _TrainingSettings:
         config,
         "training",
         {
+            "random_seed",
             "optimizer",
             "loss",
             "learning_rate",
@@ -276,6 +278,9 @@ def _training_settings(config: Mapping[str, object]) -> _TrainingSettings:
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
     return _TrainingSettings(
+        random_seed=config_values.nonnegative_integer(
+            section["random_seed"], "training.random_seed"
+        ),
         learning_rate=config_values.positive_float(
             section["learning_rate"], "training.learning_rate"
         ),
@@ -312,7 +317,7 @@ def _run_metadata(
     predicted: C3VolumeSirenPrediction,
     prediction_batch_size: int,
     device: torch.device,
-    random_seed: int,
+    benchmark_seed: int,
     timings: Mapping[str, float],
     git_metadata: Mapping[str, str | bool],
     started_at_utc: str,
@@ -333,7 +338,7 @@ def _run_metadata(
         "python_version": platform.python_version(),
         "numpy_version": np.__version__,
         "torch_version": str(torch.__version__),
-        "random_seed": random_seed,
+        "random_seed": benchmark_seed,
         "input": _input_metadata(inputs),
         "coordinates": {
             "features": data.model_coordinates.coordinate_features,
