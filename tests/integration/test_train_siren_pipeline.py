@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,16 +13,29 @@ import pytest
 import torch
 import yaml
 
-from seis_interp.configuration import REPOSITORY_ROOT
+from seis_interp import run_records
 from seis_interp.pipelines.train_siren import train_siren_run
 from seis_interp.processing.trace_splits import TRAIN_SPLIT, VALIDATION_SPLIT
 from seis_interp.training.checkpoints import load_siren_checkpoint
 from tests.fixtures.siren_training import prepare_siren_training_fixture
 
 
-def test_pipeline_trains_on_cpu_and_writes_minimal_run(tmp_path: Path) -> None:
+@pytest.mark.parametrize("worktree_dirty", [False, True])
+def test_pipeline_trains_on_cpu_and_writes_minimal_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, worktree_dirty: bool
+) -> None:
     config, interim, processed = prepare_siren_training_fixture(tmp_path)
     output = tmp_path / "run"
+    git_metadata = {"git_commit": "abc123", "git_worktree_dirty": worktree_dirty}
+    git_metadata_calls = 0
+
+    def record_git_metadata() -> dict[str, str | bool]:
+        nonlocal git_metadata_calls
+        git_metadata_calls += 1
+        assert not output.exists()
+        return git_metadata
+
+    monkeypatch.setattr(run_records, "current_git_metadata", record_git_metadata)
 
     metrics = train_siren_run(
         config_path=config,
@@ -104,14 +116,9 @@ def test_pipeline_trains_on_cpu_and_writes_minimal_run(tmp_path: Path) -> None:
     assert loaded.normalization.coordinate_min[-2:] == (-1.0, -1.0)
     assert loaded.normalization.coordinate_max[-2:] == (1.0, 1.0)
     run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert git_metadata_calls == 1
     assert run_metadata == {
-        "git_commit": subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=REPOSITORY_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip(),
+        **git_metadata,
         "started_at_utc": run_metadata["started_at_utc"],
         "finished_at_utc": run_metadata["finished_at_utc"],
         "status": "success",

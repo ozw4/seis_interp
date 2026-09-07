@@ -178,6 +178,8 @@ committed.
   and prediction saving without Torch.
 - A C3 smoke run, when its local generated inputs exist, verifies hashes, exact observed-sample
   preservation, finite saved predictions, target-only metrics, and uncovered sample reporting.
+- Promotion to a formal result requires `git_worktree_dirty: false` in `run.json`.
+  Development runs with uncommitted changes remain allowed and are recorded as dirty.
 
 No minimum C3 S/N or comparison with Studies 017-021 is asserted before a conforming validation
 run exists.

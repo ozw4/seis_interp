@@ -164,6 +164,7 @@ def test_pipeline_writes_reproducible_train_only_neighbor_run(tmp_path: Path) ->
         for name in ("traces.parquet", "amplitudes.npy", "time_s.npy", "dataset.json")
     }
     run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert isinstance(run["git_worktree_dirty"], bool)
     assert (
         run["git_commit"]
         == subprocess.run(

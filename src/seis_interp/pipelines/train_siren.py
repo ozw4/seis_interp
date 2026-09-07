@@ -136,7 +136,7 @@ def train_siren_run(
     output_directory = Path(output_dir)
     run_records.check_new_output_directory(output_directory)
     started_at_utc = run_records.utc_timestamp()
-    git_commit = run_records.current_git_commit()
+    git_metadata = run_records.current_git_metadata()
     config = load_resolved_config(Path(config_path))
     coordinate_features = _model_coordinate_features(config)
     coordinate_input_features = len(coordinate_order_for_features(coordinate_features))
@@ -326,7 +326,7 @@ def train_siren_run(
             metrics["training_global_snr_db_at_best_epoch"] = best_history["training_global_snr_db"]
         metrics = _encode_streaming_infinite_snr(metrics)
     run_metadata = {
-        "git_commit": git_commit,
+        **git_metadata,
         "started_at_utc": started_at_utc,
         "finished_at_utc": run_records.utc_timestamp(),
         "status": "success",

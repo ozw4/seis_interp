@@ -18,4 +18,6 @@ A runner that trains several conditions in one invocation writes one such direct
 
 Formal study run directories are immutable. Scratch workspaces labeled in [`studies/README.md`](../studies/README.md) instead maintain an overwriteable current output under their own `runs/` subdirectory.
 
+Shared run pipelines capture `git_commit` and `git_worktree_dirty` in `run.json` at run start. The dirty flag includes staged, unstaged, and untracked files, excluding ignored files. Dirty runs are allowed for development; promotion to formal results requires `git_worktree_dirty` to be `false`.
+
 Accepted figures, tables, or models are promoted separately to `results/` when that directory is needed.

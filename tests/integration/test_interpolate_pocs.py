@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 import yaml
 
+from seis_interp import run_records
 from seis_interp.cli import main
 from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
 from seis_interp.data.c3_volume_index_store import load_c3_volume_index
@@ -184,9 +185,12 @@ def _run(artifacts: _PocsArtifacts, config: Path, output: Path) -> dict[str, obj
 @pytest.mark.parametrize("time_sample_count", [3, 4])
 def test_run_writes_prediction_metrics_and_complete_records(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     windowed: bool,
     time_sample_count: int,
 ) -> None:
+    git_metadata = {"git_commit": "a" * 40, "git_worktree_dirty": windowed}
+    monkeypatch.setattr(run_records, "current_git_metadata", lambda: dict(git_metadata))
     artifacts = _prepare_pocs_artifacts(tmp_path, time_sample_count=time_sample_count)
     config = _write_config(tmp_path / "config.yaml", artifacts, windowed=windowed)
     output = tmp_path / "run"
@@ -239,6 +243,8 @@ def test_run_writes_prediction_metrics_and_complete_records(
     assert run["python_version"]
     assert run["numpy_version"] == np.__version__
     assert run["random_seed"] == 42
+    assert run["git_commit"] == git_metadata["git_commit"]
+    assert run["git_worktree_dirty"] is git_metadata["git_worktree_dirty"]
     assert run["pocs"]["frequency_bins"] == "all_rfft_bins"
     assert run["prediction"]["axis_order"] == list(artifacts.volume_metadata["axis_order"])
     assert run["window"]["block_count"] >= 1

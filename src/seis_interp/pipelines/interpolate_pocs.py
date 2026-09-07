@@ -72,7 +72,7 @@ def interpolate_pocs_run(
     _validate_evaluation_contract(config)
 
     started_at_utc = run_records.utc_timestamp()
-    git_commit = run_records.current_git_commit()
+    git_metadata = run_records.current_git_metadata()
     interim_directory = Path(interim_dir)
     processed_directory = Path(processed_dir)
     mask_directory = Path(mask_dir)
@@ -144,7 +144,7 @@ def interpolate_pocs_run(
         empty_block_count=reconstructed.empty_block_count,
         uncovered_sample_count=reconstructed.uncovered_sample_count,
         warnings=warnings,
-        git_commit=git_commit,
+        git_metadata=git_metadata,
         started_at_utc=started_at_utc,
         load_and_verification_seconds=load_and_verification_seconds,
         reconstruction_seconds=reconstruction_seconds,
@@ -383,7 +383,7 @@ def _run_metadata(
     empty_block_count: int,
     uncovered_sample_count: int,
     warnings: list[str],
-    git_commit: str,
+    git_metadata: Mapping[str, str | bool],
     started_at_utc: str,
     load_and_verification_seconds: float,
     reconstruction_seconds: float,
@@ -407,7 +407,7 @@ def _run_metadata(
         "method": METHOD,
         "case_id": case["case_id"],
         "volume_id": volume_metadata["volume_id"],
-        "git_commit": git_commit,
+        **git_metadata,
         "started_at_utc": started_at_utc,
         "finished_at_utc": run_records.utc_timestamp(),
         "status": "success",

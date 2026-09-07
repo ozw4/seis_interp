@@ -125,6 +125,8 @@ def test_cli_runs_leakage_safe_whole_shot_pipeline(
     assert metrics == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
     assert "shot_gather_inpainter 0/1" in captured.err
     assert "shot_gather_inpainter 1/1" in captured.err
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert isinstance(run_metadata["git_worktree_dirty"], bool)
     assert metrics["validation_metric_domain"] == "oracle_per_trace_unit_rms"
     assert metrics["training_audit_trace_count"] == 4
     assert metrics["formal_success_scope"]["checks"]["target_ffid_neighbor_entries_zero"]

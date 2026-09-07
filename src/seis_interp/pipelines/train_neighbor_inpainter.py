@@ -528,7 +528,7 @@ def train_neighbor_inpainter_run(
     output_directory = Path(output_dir)
     run_records.check_new_output_directory(output_directory)
     started_at_utc = run_records.utc_timestamp()
-    git_commit = run_records.current_git_commit()
+    git_metadata = run_records.current_git_metadata()
     config = load_resolved_config(Path(config_path))
     settings = _validated_settings(config, device_override=device_override)
     resolved_config = deepcopy(config)
@@ -891,7 +891,7 @@ def train_neighbor_inpainter_run(
         "checkpoint": checkpoint_contract,
     }
     run_metadata = {
-        "git_commit": git_commit,
+        **git_metadata,
         "started_at_utc": started_at_utc,
         "finished_at_utc": run_records.utc_timestamp(),
         "status": "success",

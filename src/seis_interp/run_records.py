@@ -1,4 +1,4 @@
-"""Write model-independent run records for training pipelines."""
+"""Write model-independent execution records for run pipelines."""
 
 from __future__ import annotations
 
@@ -44,6 +44,23 @@ def current_git_commit() -> str:
     if not commit:
         raise RuntimeError("git rev-parse HEAD returned an empty commit")
     return commit
+
+
+def current_git_metadata() -> dict[str, str | bool]:
+    """Capture HEAD and staged, unstaged, or untracked changes at run start."""
+    commit = current_git_commit()
+    try:
+        completed = subprocess.run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError("could not determine the current Git worktree status") from error
+    return {"git_commit": commit, "git_worktree_dirty": bool(completed.stdout.strip())}
 
 
 def utc_timestamp() -> str:

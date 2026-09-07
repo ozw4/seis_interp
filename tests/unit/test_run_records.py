@@ -41,7 +41,11 @@ def test_write_run_outputs_writes_exactly_four_round_trippable_files(tmp_path: P
     config = {"training": {"device": "cpu"}, "model": {"name": "siren"}}
     inputs_lock = {"seed": 42, "files": {"traces.npy": {"sha256": "abc"}}}
     metrics = {"validation_snr_db": 12.5}
-    run_metadata = {"git_commit": "deadbeef", "started_at_utc": "2026-01-01T00:00:00Z"}
+    run_metadata = {
+        "git_commit": "deadbeef",
+        "git_worktree_dirty": True,
+        "started_at_utc": "2026-01-01T00:00:00Z",
+    }
 
     run_records.write_run_outputs(output_directory, config, inputs_lock, metrics, run_metadata)
 
@@ -127,6 +131,62 @@ def test_current_git_commit_rejects_empty_stdout(monkeypatch: pytest.MonkeyPatch
 
     with pytest.raises(RuntimeError, match="git rev-parse HEAD returned an empty commit"):
         run_records.current_git_commit()
+
+
+@pytest.mark.parametrize("change", ["clean", "unstaged", "staged", "untracked", "ignored"])
+def test_current_git_metadata_reports_repository_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    def git(*arguments: str) -> str:
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    git("init")
+    (tmp_path / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+    tracked_path = tmp_path / "tracked.txt"
+    tracked_path.write_text("committed\n", encoding="utf-8")
+    git("add", ".gitignore", "tracked.txt")
+    git(
+        "-c",
+        "user.name=Run record test",
+        "-c",
+        "user.email=run-record-test@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-m",
+        "initial",
+    )
+    expected_commit = git("rev-parse", "HEAD")
+    if change in {"unstaged", "staged"}:
+        tracked_path.write_text("changed\n", encoding="utf-8")
+        if change == "staged":
+            git("add", "tracked.txt")
+    elif change in {"untracked", "ignored"}:
+        (tmp_path / f"{change}.txt").write_text("new\n", encoding="utf-8")
+    monkeypatch.setattr(run_records, "REPOSITORY_ROOT", tmp_path)
+
+    assert run_records.current_git_metadata() == {
+        "git_commit": expected_commit,
+        "git_worktree_dirty": change not in {"clean", "ignored"},
+    }
+
+
+def test_current_git_metadata_wraps_status_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(run_records, "current_git_commit", lambda: "abc123")
+
+    def failing_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.CalledProcessError(returncode=128, cmd=["git", "status"])
+
+    monkeypatch.setattr(run_records.subprocess, "run", failing_run)
+
+    with pytest.raises(RuntimeError, match="could not determine the current Git worktree status"):
+        run_records.current_git_metadata()
 
 
 def test_utc_timestamp_uses_second_precision_utc_z_format() -> None:

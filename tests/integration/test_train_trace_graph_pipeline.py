@@ -134,6 +134,8 @@ def test_cli_runs_leakage_safe_trace_graph_pipeline(
     assert metrics == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
     assert "trace_graph_interpolator 0/1" in captured.err
     assert "trace_graph_interpolator 1/1" in captured.err
+    run_metadata = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert isinstance(run_metadata["git_worktree_dirty"], bool)
 
     assert math.isfinite(metrics["oracle_per_trace_unit_rms_global_snr_db"])
     assert metrics["validation_metric_domain"] == "oracle_per_trace_unit_rms"
