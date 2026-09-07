@@ -137,12 +137,14 @@ python -m seis_interp.cli data prepare-c3-volume-index \
   --output data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34
 ```
 
-Run the smoke condition with a new immutable run ID:
+Run the smoke condition with a new immutable run ID. For a result eligible for promotion, use
+a clean checkout and point `PYTHONPATH` at that checkout's `src` directory so the recorded Git
+state describes the code actually imported:
 
 ```bash
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)_$(git rev-parse --short HEAD)_smoke"
 
-python -m seis_interp.cli interpolate pocs \
+PYTHONPATH="$PWD/src" python -m seis_interp.cli interpolate pocs \
   --config studies/study_022_c3_na_pocs/config_smoke.yaml \
   --interim data/interim/c3_na/all_ffids \
   --processed data/processed/c3_na/c3_source_line_blocks_seed42 \
@@ -195,16 +197,19 @@ metrics.
 
 ## Current result
 
-A local C3 smoke run completed on the `[64, 128)` validation crop using the unmodified starting
+A C3 smoke run completed on the `[64, 128)` validation crop using the unmodified starting
 condition in `config_smoke.yaml`; its generated run ID is
-`20260907T021659Z_56697de_smoke`. It evaluated 3,275 target traces (209,600 samples) and produced a
+`20260907T025323Z_df93b6b_smoke`. It evaluated 3,275 target traces (209,600 samples) and produced a
 physical-amplitude target-only global S/N of 22.8842 dB, RMSE 0.2875, and relative L2 0.0717. The
 zero-fill RMSE was 4.0074. The saved prediction had exact observed-sample consistency, zero
 uncovered samples, and no warnings.
 
+The run imported the implementation from a clean checkout of
+`df93b6b7b4c527d687ae9ebfb9556a1b20c1b556` and recorded `git_worktree_dirty: false`.
+Its resolved configuration contains no SIREN model, training settings, or unused evaluation
+metrics. The execution record states CPU, no POCS amplitude normalization, and `all_rfft_bins`.
+
 This smoke result checks the execution and evaluation contracts on a small initial crop; it is not
-a formal-volume result, a tuned validation result, or evidence for a general performance claim. It
-was generated from the development worktree before the POCS implementation was committed, so its
-recorded base Git SHA alone is not a reproducible implementation reference; it must be rerun with a
-new ID after commit before promotion. The formal candidate has not been run, and no threshold or
-window selection has been made from test data. The study therefore remains `draft`.
+a formal-volume result, a tuned validation result, or evidence for a general performance claim.
+The formal candidate has not been run, and no threshold or window selection has been made from
+test data. The study therefore remains `draft`.
