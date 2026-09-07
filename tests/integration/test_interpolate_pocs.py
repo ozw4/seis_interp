@@ -5,7 +5,6 @@ import json
 import subprocess
 import sys
 from copy import deepcopy
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -16,124 +15,21 @@ from seis_interp import run_records
 from seis_interp.cli import main
 from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
 from seis_interp.data.c3_volume_index_store import load_c3_volume_index
-from seis_interp.data.interpolation_mask_store import load_interpolation_mask
 from seis_interp.pipelines.interpolate_pocs import (
     METHOD,
     PREDICTION_RELATIVE_PATH,
     interpolate_pocs_run,
 )
-from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
-from seis_interp.pipelines.prepare_benchmark_case import prepare_benchmark_case
-from seis_interp.pipelines.prepare_c3_volume_index import prepare_c3_volume_index
-from seis_interp.pipelines.prepare_interpolation_mask import prepare_interpolation_mask
-from seis_interp.processing.interpolation_masks import (
-    EVALUATION_TARGET_ROLE,
-    OBSERVATION_ROLE_COLUMN,
-    RANDOM_TRACE_MASK_KIND,
-    RANDOM_WHOLE_FFID_MASK_KIND,
+from seis_interp.processing.interpolation_masks import RANDOM_WHOLE_FFID_MASK_KIND
+from tests.fixtures.c3_volume_run_artifacts import (
+    PreparedC3VolumeRunArtifacts,
+    prepare_c3_volume_run_artifacts,
 )
-from seis_interp.processing.trace_splits import C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE, TEST_SPLIT
-from tests.fixtures.c3_volume_artifacts import SOURCE_LINE_RANGES, prepare_c3_volume_artifacts
-
-
-@dataclass(frozen=True)
-class _PocsArtifacts:
-    interim: Path
-    processed: Path
-    mask: Path
-    case: Path
-    volume: Path
-    volume_metadata: dict[str, object]
-    mask_kind: str
-
-
-def _prepare_pocs_artifacts(
-    tmp_path: Path,
-    *,
-    mask_kind: str = RANDOM_TRACE_MASK_KIND,
-    target_offset: float = 0.0,
-    time_sample_count: int = 4,
-) -> _PocsArtifacts:
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    prepared = prepare_c3_volume_artifacts(
-        tmp_path,
-        mask_kind=mask_kind,
-        missing_fraction=0.5,
-        random_seed=42,
-    )
-    case_dir = prepared.case_dir
-    if target_offset:
-        mask_table, _ = load_interpolation_mask(prepared.mask_dir)
-        target_rows = mask_table.loc[
-            mask_table[OBSERVATION_ROLE_COLUMN].eq(EVALUATION_TARGET_ROLE),
-            "array_row",
-        ].to_numpy(dtype=np.int64)
-        amplitude_path = prepared.interim_dir / "amplitudes.npy"
-        amplitudes = np.load(amplitude_path, allow_pickle=False)
-        changed = np.array(amplitudes, copy=True)
-        changed[target_rows] += target_offset
-        np.save(amplitude_path, changed, allow_pickle=False)
-        prepare_baseline_dataset(
-            prepared.interim_dir,
-            prepared.processed_dir,
-            holdout_fraction=None,
-            validation_fraction_of_holdout=None,
-            random_seed=42,
-            split_scope=C3_SOURCE_LINE_BLOCKS_SPLIT_SCOPE,
-            source_line_ranges=SOURCE_LINE_RANGES,
-            config_source="studies/synthetic/config.yaml",
-            overwrite=True,
-        )
-        prepare_interpolation_mask(
-            prepared.interim_dir,
-            prepared.processed_dir,
-            prepared.mask_dir,
-            partition=TEST_SPLIT,
-            kind=mask_kind,
-            missing_fraction=0.5,
-            random_seed=42,
-            config_source="studies/synthetic/config.yaml",
-            overwrite=True,
-        )
-        case_dir = prepared.processed_dir / "cases" / "synthetic-case-adjusted"
-        prepare_benchmark_case(
-            prepared.interim_dir,
-            prepared.processed_dir,
-            prepared.mask_dir,
-            case_dir,
-            case_id="synthetic_case",
-            config_source="studies/synthetic/config.yaml",
-        )
-
-    volume_dir = prepared.processed_dir / "volumes" / "synthetic-volume"
-    volume_metadata = prepare_c3_volume_index(
-        prepared.interim_dir,
-        prepared.processed_dir,
-        prepared.mask_dir,
-        case_dir,
-        volume_dir,
-        volume_id="synthetic_volume",
-        time_range=(0, time_sample_count),
-        source_line_range=(2, 4),
-        shot_in_line_range=(0, 3),
-        relative_receiver_x_range=(0, 2),
-        relative_receiver_y_range=(0, 3),
-        config_source="studies/synthetic/config.yaml",
-    )
-    return _PocsArtifacts(
-        interim=prepared.interim_dir,
-        processed=prepared.processed_dir,
-        mask=prepared.mask_dir,
-        case=case_dir,
-        volume=volume_dir,
-        volume_metadata=volume_metadata,
-        mask_kind=mask_kind,
-    )
 
 
 def _write_config(
     path: Path,
-    artifacts: _PocsArtifacts,
+    artifacts: PreparedC3VolumeRunArtifacts,
     *,
     windowed: bool = False,
     changes: dict[str, object] | None = None,
@@ -170,7 +66,11 @@ def _write_config(
     return path
 
 
-def _run(artifacts: _PocsArtifacts, config: Path, output: Path) -> dict[str, object]:
+def _run(
+    artifacts: PreparedC3VolumeRunArtifacts,
+    config: Path,
+    output: Path,
+) -> dict[str, object]:
     return interpolate_pocs_run(
         config_path=config,
         interim_dir=artifacts.interim,
@@ -192,7 +92,7 @@ def test_run_writes_prediction_metrics_and_complete_records(
 ) -> None:
     git_metadata = {"git_commit": "a" * 40, "git_worktree_dirty": windowed}
     monkeypatch.setattr(run_records, "current_git_metadata", lambda: dict(git_metadata))
-    artifacts = _prepare_pocs_artifacts(tmp_path, time_sample_count=time_sample_count)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path, time_sample_count=time_sample_count)
     config = _write_config(tmp_path / "config.yaml", artifacts, windowed=windowed)
     output = tmp_path / "run"
     progress: list[str] = []
@@ -270,7 +170,7 @@ def test_run_writes_prediction_metrics_and_complete_records(
 
 
 def test_random_whole_ffid_mask_runs_and_preserves_observations(tmp_path: Path) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path, mask_kind=RANDOM_WHOLE_FFID_MASK_KIND)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path, mask_kind=RANDOM_WHOLE_FFID_MASK_KIND)
     config = _write_config(tmp_path / "config.yaml", artifacts)
 
     metrics = _run(artifacts, config, tmp_path / "run")
@@ -291,7 +191,7 @@ def test_random_whole_ffid_mask_runs_and_preserves_observations(tmp_path: Path) 
 
 
 def test_empty_windows_remain_zero_are_evaluated_and_report_a_warning(tmp_path: Path) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path, mask_kind=RANDOM_WHOLE_FFID_MASK_KIND)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path, mask_kind=RANDOM_WHOLE_FFID_MASK_KIND)
     config = _write_config(
         tmp_path / "config.yaml",
         artifacts,
@@ -344,7 +244,7 @@ def test_invalid_pocs_configuration_creates_no_output(
     changes: dict[str, object],
     match: str,
 ) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     config = _write_config(tmp_path / "config.yaml", artifacts, changes=changes)
     output = tmp_path / "run"
 
@@ -363,7 +263,7 @@ def test_invalid_evaluation_contract_creates_no_output(
     key: str,
     bad_value: str,
 ) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     config_path = _write_config(tmp_path / "config.yaml", artifacts)
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config["evaluation"][key] = bad_value
@@ -377,7 +277,7 @@ def test_invalid_evaluation_contract_creates_no_output(
 
 
 def test_declared_volume_mismatch_and_broken_binding_create_no_output(tmp_path: Path) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     config = _write_config(tmp_path / "config.yaml", artifacts)
     text = config.read_text(encoding="utf-8").replace("synthetic_volume", "wrong_volume", 1)
     config.write_text(text, encoding="utf-8")
@@ -418,7 +318,7 @@ def test_declared_input_contradictions_create_no_output(
     bad_value: object,
     match: str,
 ) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     base_config = _write_config(tmp_path / "base.yaml", artifacts)
     config = yaml.safe_load(base_config.read_text(encoding="utf-8"))
     changed = deepcopy(config)
@@ -437,7 +337,7 @@ def test_declared_input_contradictions_create_no_output(
 
 
 def test_existing_output_is_immutable(tmp_path: Path) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     config = _write_config(tmp_path / "config.yaml", artifacts)
     output = tmp_path / "run"
     output.mkdir()
@@ -451,8 +351,8 @@ def test_existing_output_is_immutable(tmp_path: Path) -> None:
 
 
 def test_prediction_is_reproducible_and_target_amplitudes_do_not_leak(tmp_path: Path) -> None:
-    first = _prepare_pocs_artifacts(tmp_path / "first")
-    changed_truth = _prepare_pocs_artifacts(tmp_path / "changed", target_offset=5000.0)
+    first = prepare_c3_volume_run_artifacts(tmp_path / "first")
+    changed_truth = prepare_c3_volume_run_artifacts(tmp_path / "changed", target_offset=5000.0)
     first_config = _write_config(tmp_path / "first.yaml", first)
     changed_config = _write_config(tmp_path / "changed.yaml", changed_truth)
 
@@ -497,7 +397,7 @@ def test_real_cli_runs_real_pipeline_end_to_end(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     config = _write_config(tmp_path / "config.yaml", artifacts)
     output = tmp_path / "cli-run"
 
@@ -532,7 +432,7 @@ def test_real_cli_runs_real_pipeline_end_to_end(
 
 
 def test_saved_volume_metadata_still_matches_loaded_artifact(tmp_path: Path) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
 
     _, loaded = load_c3_volume_index(artifacts.volume)
 

@@ -30,22 +30,53 @@ def _interpolate_pocs(args: argparse.Namespace) -> int:
         print(f"interpolate pocs failed: {error}", file=sys.stderr)
         return 1
 
+    _print_run_summary(summary, args.output, json_output=args.json)
+    return 0
+
+
+def _interpolate_drr(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.interpolate_drr import interpolate_drr_run
+
+    progress_reporter = _print_progress_to_stderr if args.json else None
+    try:
+        summary = interpolate_drr_run(
+            config_path=args.config,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            mask_dir=args.mask,
+            case_dir=args.case,
+            volume_dir=args.volume,
+            output_dir=args.output,
+            progress_reporter=progress_reporter,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"interpolate drr failed: {error}", file=sys.stderr)
+        return 1
+
+    _print_run_summary(summary, args.output, json_output=args.json)
+    return 0
+
+
+def _print_run_summary(
+    summary: Mapping[str, object], output_directory: Path, *, json_output: bool
+) -> None:
     _print_warnings_to_stderr(summary)
-    if args.json:
+    if json_output:
         print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
     else:
         target = summary["evaluation_target"]
         if not isinstance(target, Mapping):
             raise ValueError("evaluation_target summary must be a mapping")
-        print(f"Output directory: {args.output}")
+        print(f"Output directory: {output_directory}")
         print(f"Method: {summary['method']}")
         print(f"Benchmark case: {summary['case_id']}")
         print(f"Benchmark volume: {summary['volume_id']}")
         print(f"Target global S/N: {_format_snr(target)}")
         print(f"Target RMSE: {target['rmse']}")
         print(f"Observed maximum absolute error: {summary['observed_max_abs_error']}")
+        if "uncovered_trace_count" in summary:
+            print(f"Uncovered traces: {summary['uncovered_trace_count']}")
         print(f"Uncovered samples: {summary['uncovered_sample_count']}")
-    return 0
 
 
 def _format_snr(target: Mapping[str, object]) -> str:
@@ -74,6 +105,17 @@ def _print_warnings_to_stderr(summary: Mapping[str, object]) -> None:
         print(f"Warning: {warning}", file=sys.stderr)
 
 
+def _add_c3_volume_run_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
+    parser.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
+    parser.add_argument("--processed", type=Path, required=True, help="Prepared split dataset.")
+    parser.add_argument("--mask", type=Path, required=True, help="Interpolation mask artifact.")
+    parser.add_argument("--case", type=Path, required=True, help="Benchmark case artifact.")
+    parser.add_argument("--volume", type=Path, required=True, help="C3 volume-index artifact.")
+    parser.add_argument("--output", type=Path, required=True, help="Run output directory.")
+    parser.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+
+
 def add_interpolate_commands(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -90,12 +132,11 @@ def add_interpolate_commands(
         "pocs",
         help="Run CPU Fourier POCS-5D on a verified C3 volume.",
     )
-    pocs.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
-    pocs.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
-    pocs.add_argument("--processed", type=Path, required=True, help="Prepared split dataset.")
-    pocs.add_argument("--mask", type=Path, required=True, help="Interpolation mask artifact.")
-    pocs.add_argument("--case", type=Path, required=True, help="Benchmark case artifact.")
-    pocs.add_argument("--volume", type=Path, required=True, help="C3 volume-index artifact.")
-    pocs.add_argument("--output", type=Path, required=True, help="Run output directory.")
-    pocs.add_argument("--json", action="store_true", help="Print metrics as JSON.")
+    _add_c3_volume_run_arguments(pocs)
     pocs.set_defaults(handler=_interpolate_pocs)
+    drr = interpolate_commands.add_parser(
+        "drr",
+        help="Run CPU damped rank-reduction 5D on a verified C3 volume.",
+    )
+    _add_c3_volume_run_arguments(drr)
+    drr.set_defaults(handler=_interpolate_drr)

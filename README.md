@@ -194,6 +194,8 @@ python -m seis_interp.cli train siren \
 
 ## Interpolation commands
 
+`interpolate drr` runs CPU/NumPy damped rank-reduction with the same input-path arguments as `interpolate pocs`.
+
 The `interpolate` command group runs non-training interpolation methods. Its `pocs` command is a
 CPU/NumPy implementation and requires an existing prepared partition, interpolation mask,
 benchmark case, and dense C3 volume index:
