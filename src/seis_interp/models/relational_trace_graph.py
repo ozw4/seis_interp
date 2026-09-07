@@ -1,0 +1,310 @@
+"""Shared temporal messages on directed, typed trace dependency graphs."""
+
+from __future__ import annotations
+
+from numbers import Integral
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+from seis_interp.data.masked_trace_inputs import (
+    MaskedTraceGraphInputs,
+    validate_masked_trace_graph_inputs,
+)
+from seis_interp.models.trace_codec import TraceNodeDecoder, TraceNodeEncoder
+from seis_interp.processing.trace_graph_geometry import (
+    EDGE_FEATURE_NAMES,
+    NODE_FEATURE_NAMES,
+    RELATION_NAMES,
+)
+
+RELATION_FUSION_MODES = ("mean", "learned_gate")
+_RELATION_COUNT = len(RELATION_NAMES)
+
+
+class RelationalTraceGraphMessageBlock(nn.Module):
+    """One synchronous temporal and incoming-relation update of ``[N,C,F]``."""
+
+    def __init__(
+        self,
+        width: int,
+        *,
+        temporal_kernel_size: int = 5,
+        temporal_dilation: int = 1,
+        attention_width: int = 32,
+        relation_embedding_dim: int = 8,
+        relation_fusion: str = "mean",
+    ) -> None:
+        super().__init__()
+        self.width = _positive_integer(width, "width")
+        if self.width % 8:
+            raise ValueError("width must be divisible by 8")
+        kernel = _positive_integer(temporal_kernel_size, "temporal_kernel_size")
+        if kernel % 2 == 0:
+            raise ValueError("temporal_kernel_size must be odd")
+        dilation = _positive_integer(temporal_dilation, "temporal_dilation")
+        hidden = _positive_integer(attention_width, "attention_width")
+        embedding_dim = _positive_integer(relation_embedding_dim, "relation_embedding_dim")
+        if relation_fusion not in RELATION_FUSION_MODES:
+            raise ValueError(f"relation_fusion must be one of {RELATION_FUSION_MODES}")
+        self.relation_fusion = relation_fusion
+
+        # At least two channels per group keep one-frame, one-node inputs valid.
+        self.temporal_norm = nn.GroupNorm(min(8, self.width // 2), self.width)
+        self.temporal = nn.Conv1d(
+            self.width,
+            self.width,
+            kernel,
+            padding=(kernel // 2) * dilation,
+            dilation=dilation,
+            groups=self.width,
+        )
+        self.temporal_update = nn.Sequential(
+            nn.Conv1d(self.width, self.width, 1),
+            nn.SiLU(),
+            nn.Conv1d(self.width, self.width, 1),
+        )
+        self.relation_embedding = nn.Embedding(_RELATION_COUNT, embedding_dim)
+        edge_width = len(EDGE_FEATURE_NAMES) + embedding_dim
+        self.attention = _mlp(2 * self.width + edge_width, hidden, 1)
+        self.gamma = _mlp(edge_width, hidden, self.width)
+        self.value_projection = nn.Conv1d(self.width, self.width, 1)
+        self.message_update = nn.Sequential(
+            nn.Conv1d(self.width, self.width, 1),
+            nn.SiLU(),
+            nn.Conv1d(self.width, self.width, 1),
+        )
+        if relation_fusion == "learned_gate":
+            self.relation_gate = _mlp(2 * self.width + embedding_dim + 2, hidden, 1)
+            nn.init.zeros_(self.relation_gate[-1].weight)
+            nn.init.zeros_(self.relation_gate[-1].bias)
+
+    def forward(
+        self,
+        latents: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_type: torch.Tensor,
+        edge_features: torch.Tensor,
+        coverage: torch.Tensor | None = None,
+        *,
+        diagnostics: dict[str, torch.Tensor] | None = None,
+    ) -> torch.Tensor:
+        """Update from sender/destination edges without modifying input states.
+
+        ``coverage[N,4,2]`` contains selected degree/k and minimum distance,
+        with zero for empty relations. Diagnostics hold only detached four-value
+        summaries; gate weights describe the model, not causal importance.
+        """
+        _validate_graph_tensors(latents, self.width, edge_index, edge_type, edge_features)
+        updated = latents + self.temporal_update(self.temporal(F.silu(self.temporal_norm(latents))))
+        messages, valid = self._relation_messages(updated, edge_index, edge_type, edge_features)
+        weights = self._relation_weights(updated, messages, valid, coverage)
+        aggregate = (weights[:, :, None, None] * messages).sum(dim=1)
+        if diagnostics is not None:
+            diagnostics.update(
+                gate_mean=weights.detach().mean(dim=0),
+                available_count=valid.detach().sum(dim=0),
+            )
+        return updated + self.message_update(aggregate)
+
+    def _relation_messages(
+        self,
+        latents: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_type: torch.Tensor,
+        edge_features: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        node_count, channels, frames = latents.shape
+        sender, destination = edge_index
+        group = destination * _RELATION_COUNT + edge_type
+        group_count = node_count * _RELATION_COUNT
+        counts = torch.bincount(group, minlength=group_count)
+        valid = counts.reshape(node_count, _RELATION_COUNT) > 0
+        pooled = latents.mean(dim=-1)
+        edge_context = torch.cat((edge_features, self.relation_embedding(edge_type)), dim=1)
+        logits = self.attention(
+            torch.cat((pooled[destination], pooled[sender], edge_context), dim=1)
+        )[:, 0]
+        attention = _group_softmax(logits, group, group_count)
+        gamma = 2 * torch.sigmoid(self.gamma(edge_context))
+        values = self.value_projection(latents)[sender]
+        weighted = attention[:, None, None] * gamma[:, :, None] * values
+        messages = latents.new_zeros(group_count, channels, frames)
+        messages.index_add_(0, group, weighted)
+        return messages.reshape(node_count, _RELATION_COUNT, channels, frames), valid
+
+    def _relation_weights(
+        self,
+        latents: torch.Tensor,
+        messages: torch.Tensor,
+        valid: torch.Tensor,
+        coverage: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if self.relation_fusion == "mean":
+            return valid.to(latents.dtype) / valid.sum(dim=1, keepdim=True).clamp_min(1)
+        if coverage is None or coverage.shape != (*valid.shape, 2):
+            raise ValueError("learned_gate requires coverage with shape (nodes, 4, 2)")
+        pooled = latents.mean(dim=-1)[:, None].expand(-1, _RELATION_COUNT, -1)
+        relation = self.relation_embedding.weight[None].expand(latents.shape[0], -1, -1)
+        logits = self.relation_gate(
+            torch.cat((pooled, messages.mean(dim=-1), relation, coverage), dim=-1)
+        )[:, :, 0]
+        # Only valid entries enter softmax, including when an entire node is empty.
+        node, relation_id = valid.nonzero(as_tuple=True)
+        weights = torch.zeros_like(logits)
+        weights[node, relation_id] = _group_softmax(
+            logits[node, relation_id], node, latents.shape[0]
+        )
+        return weights
+
+
+class RelationalTraceGraphInterpolator(nn.Module):
+    """Direct normalized query-waveform prediction with shared temporal codecs."""
+
+    def __init__(
+        self,
+        *,
+        width: int = 64,
+        message_passing_rounds: int = 2,
+        time_downsample_factor: int = 2,
+        stem_kernel_size: int = 7,
+        temporal_kernel_size: int = 5,
+        temporal_dilations: tuple[int, ...] = (1, 2),
+        attention_width: int = 32,
+        relation_embedding_dim: int = 8,
+        relation_fusion: str = "mean",
+    ) -> None:
+        super().__init__()
+        rounds = _positive_integer(message_passing_rounds, "message_passing_rounds")
+        if len(temporal_dilations) != rounds:
+            raise ValueError("temporal_dilations must match message_passing_rounds")
+        self.encoder = TraceNodeEncoder(
+            width,
+            stem_kernel_size=stem_kernel_size,
+            time_downsample_factor=time_downsample_factor,
+        )
+        self.node_embedding = _mlp(len(NODE_FEATURE_NAMES), width, width)
+        self.rounds = nn.ModuleList(
+            RelationalTraceGraphMessageBlock(
+                width,
+                temporal_kernel_size=temporal_kernel_size,
+                temporal_dilation=dilation,
+                attention_width=attention_width,
+                relation_embedding_dim=relation_embedding_dim,
+                relation_fusion=relation_fusion,
+            )
+            for dilation in temporal_dilations
+        )
+        self.decoder = TraceNodeDecoder(width, time_downsample_factor=time_downsample_factor)
+        self._config = {
+            "width": int(width),
+            "message_passing_rounds": rounds,
+            "time_downsample_factor": int(time_downsample_factor),
+            "stem_kernel_size": int(stem_kernel_size),
+            "temporal_kernel_size": int(temporal_kernel_size),
+            "temporal_dilations": [int(value) for value in temporal_dilations],
+            "attention_width": int(attention_width),
+            "relation_embedding_dim": int(relation_embedding_dim),
+            "relation_fusion": relation_fusion,
+        }
+
+    def constructor_config(self) -> dict[str, object]:
+        """Return independent, JSON-compatible constructor values."""
+        return {**self._config, "temporal_dilations": list(self._config["temporal_dilations"])}
+
+    def forward(
+        self,
+        inputs: MaskedTraceGraphInputs,
+        *,
+        diagnostics: dict[str, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return ``([Q,T], [Q])`` in query order; no-context predictions are zero."""
+        validate_masked_trace_graph_inputs(inputs)
+        waveforms = inputs.waveforms
+        if waveforms.ndim != 2 or min(waveforms.shape) < 1:
+            raise ValueError("waveforms must have shape (positive nodes, positive time)")
+        time_count = waveforms.shape[1]
+        factor = self.encoder.time_downsample_factor
+        # The existing codec's eight-group norm also needs >=2 time samples
+        # for width=8, factor=1, T=1. Its implementation remains unchanged.
+        padded_time = ((max(time_count, 2) + factor - 1) // factor) * factor
+        visible = waveforms.masked_fill(~inputs.observed_mask[:, None], 0)
+        padded = F.pad(visible[:, None], (0, padded_time - time_count))
+        latents = self.encoder(padded) + self.node_embedding(inputs.node_features)[:, :, None]
+        gate_means = []
+        available_counts = []
+        for block in self.rounds:
+            summary = {} if diagnostics is not None else None
+            latents = block(
+                latents,
+                inputs.edge_index,
+                inputs.edge_type,
+                inputs.edge_features,
+                inputs.coverage,
+                diagnostics=summary,
+            )
+            if summary is not None:
+                gate_means.append(summary["gate_mean"])
+                available_counts.append(summary["available_count"])
+        context = torch.zeros_like(inputs.observed_mask)
+        context[inputs.edge_index[1]] = True
+        has_context = context[inputs.query_indices]
+        predictions = (
+            self.decoder(latents[inputs.query_indices])[:, :time_count]
+            if inputs.query_indices.numel()
+            else waveforms.new_empty((0, time_count))
+        )
+        predictions = predictions.masked_fill(~has_context[:, None], 0)
+        if diagnostics is not None:
+            diagnostics.update(
+                gate_mean=torch.stack(gate_means),
+                available_count=torch.stack(available_counts),
+            )
+        return predictions, has_context
+
+
+def _mlp(input_width: int, hidden_width: int, output_width: int) -> nn.Sequential:
+    return nn.Sequential(
+        nn.Linear(input_width, hidden_width),
+        nn.SiLU(),
+        nn.Linear(hidden_width, output_width),
+    )
+
+
+def _group_softmax(logits: torch.Tensor, group: torch.Tensor, group_count: int) -> torch.Tensor:
+    maxima = logits.new_full((group_count,), -torch.inf)
+    maxima.scatter_reduce_(0, group, logits, reduce="amax", include_self=True)
+    exponentials = torch.exp(logits - maxima[group])
+    totals = logits.new_zeros(group_count).index_add_(0, group, exponentials)
+    return exponentials / totals[group]
+
+
+def _positive_integer(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return int(value)
+
+
+def _validate_graph_tensors(
+    latents: torch.Tensor,
+    width: int,
+    edge_index: torch.Tensor,
+    edge_type: torch.Tensor,
+    edge_features: torch.Tensor,
+) -> None:
+    if latents.ndim != 3 or latents.shape[1] != width or min(latents.shape) < 1:
+        raise ValueError(f"latents must have shape (positive nodes, {width}, positive frames)")
+    if edge_index.ndim != 2 or edge_index.shape[0] != 2:
+        raise ValueError("edge_index must have shape (2, edges)")
+    edge_count = edge_index.shape[1]
+    if edge_type.shape != (edge_count,):
+        raise ValueError("edge_type must have shape (edges,)")
+    if edge_features.shape != (edge_count, len(EDGE_FEATURE_NAMES)):
+        raise ValueError("edge_features must have shape (edges, 15)")
+    if edge_index.dtype != torch.int64 or edge_type.dtype != torch.int64:
+        raise TypeError("edge_index and edge_type must have dtype torch.int64")
+    if torch.any((edge_index < 0) | (edge_index >= latents.shape[0])):
+        raise ValueError("edge_index contains an out-of-range node")
+    if torch.any((edge_type < 0) | (edge_type >= _RELATION_COUNT)):
+        raise ValueError("edge_type must contain relation IDs from 0 to 3")

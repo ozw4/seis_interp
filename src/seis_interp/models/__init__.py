@@ -5,6 +5,11 @@ from seis_interp.models.neighbor_trace_inpainter import (
     NeighborTraceInpainter,
     TemporalResidualBlock,
 )
+from seis_interp.models.relational_trace_graph import (
+    RELATION_FUSION_MODES,
+    RelationalTraceGraphInterpolator,
+    RelationalTraceGraphMessageBlock,
+)
 from seis_interp.models.shared_offset_attention_inpainter import (
     SharedOffsetAttentionInpainter,
 )
@@ -61,6 +66,9 @@ __all__ = [
     "POOLED_ATTENTION_TIME_RESOLUTION",
     "RECEIVER_POSITION_CONDITIONING_MODES",
     "ReceiverPositionFiLM",
+    "RELATION_FUSION_MODES",
+    "RelationalTraceGraphInterpolator",
+    "RelationalTraceGraphMessageBlock",
     "SHOT_GATHER_INPUT_FEATURE_NAMES",
     "SOURCE_RECEIVER_BIPARTITE_GRAPH_MODE",
     "SOURCE_WEIGHTING_MODES",

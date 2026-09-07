@@ -126,6 +126,11 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 
 `models/trace_codec.py`は、trace waveformとtime-downsampled latent sequenceを相互変換する共有encoder／decoderを持ち、temporal representationだけを担当する。graph topology、message passing、source geometryは`models/trace_graph_interpolator.py`、input assemblyは`data/`、optimizer、loss、checkpointは`training/`の責務とし、trace codecには置かない。
 
+Grid-freeな多関係trace graphでは、幾何・近傍探索・依存サブグラフと固定前処理のfitを
+`processing/trace_graph_*.py`、検証済みrow domainと観測入力の組み立てを`data/`、
+時間codecを接続したmessage passingとrelation融合を`models/relational_trace_graph.py`へ置く。
+公開APIと入力契約は[relational_trace_graph.md](relational_trace_graph.md)に記載する。
+
 ### Runtime inputの責務
 
 Model-independentなinput assemblyは`data/`へ置く。`data/c3_masked_gather_source.py`は新しいartifactではなく、検証済みのobserved C3 volumeから要求されたbatchだけをmaterializeするruntime objectである。Training targetとloss logicは`training/`、model forwardは`models/`の責務とし、evaluation target amplitudeはevaluation boundaryの外へ出さない。
