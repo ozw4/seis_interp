@@ -38,3 +38,12 @@ volume bounds. Individual convolutions provide boundary padding, preserving the 
 boundary behavior even with bias and ReLU. Pre-padding the whole volume would create artificial
 outside activations in later layers. Halo predictions are discarded, not blended. Observed
 physical traces are reinserted exactly only after prediction and inverse RMS scaling.
+
+## Real-C3 teacher crop feasibility
+
+The initial CPU teacher time `[64,80)` contained only zero amplitudes in both regions and
+was rejected before training. Adopt `[128,144)` for fit and internal selection while keeping
+their spatial ranges, patch shape/counts, and seeds fixed. A read-only diagnostic found finite
+values and at least one nonzero sample on every trace in both regions (RMS 0.0658/0.0277,
+rounded). This is an input-feasibility choice, not selection by model score. Zero patches are
+not removed and artificial masks are not redrawn.

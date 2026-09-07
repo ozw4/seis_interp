@@ -324,7 +324,7 @@ def test_ccnet5d_training_configs_keep_supervision_and_fixed_budgets_separate() 
             "relative_receiver_y": [18, 50],
         }
         assert smoke["supervision"][region] == {
-            "time": [64, 80],
+            "time": [128, 144],
             "source_line": [0, 2],
             "shot_in_line": smoke_shots,
             "relative_receiver_x": [0, 2],

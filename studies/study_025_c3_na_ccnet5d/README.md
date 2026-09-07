@@ -35,16 +35,16 @@ configs. Ranges are global, zero-based, half-open.
 |---|---|---|---|---|---|
 | Formal fit | `[0,384)` | `[0,25)` | `[27,59)` | `[0,8)` | `[18,50)` |
 | Formal internal selection | `[0,384)` | `[0,25)` | `[59,75)` | `[0,8)` | `[18,50)` |
-| Smoke fit | `[64,80)` | `[0,2)` | `[27,35)` | `[0,2)` | `[18,22)` |
-| Smoke internal selection | `[64,80)` | `[0,2)` | `[35,43)` | `[0,2)` | `[18,22)` |
+| Smoke fit | `[128,144)` | `[0,2)` | `[27,35)` | `[0,2)` | `[18,22)` |
+| Smoke internal selection | `[128,144)` | `[0,2)` | `[35,43)` | `[0,2)` | `[18,22)` |
 | Formal benchmark | `[0,384)` | `[25,35)` | `[27,59)` | `[0,8)` | `[18,50)` |
 | Smoke benchmark | `[64,128)` | `[25,29)` | `[27,35)` | `[0,8)` | `[18,34)` |
 
 Fit and internal selection are spatially disjoint, not merely separate time windows. Benchmark
 validation/test amplitudes are excluded from labels, fit RMS, and internal checkpoint selection.
-The source checks dense geometry and train membership at runtime. Real-C3 preflight found zero
-fit-label RMS in the specified CPU smoke and a discontinuous source grid in the calibration
-crop; these configurations are not yet usable for training. See Current result below. A hole or
+The source checks dense geometry and train membership at runtime. The CPU smoke uses a verified
+nonzero teacher time interval; formal/calibration spatial geometry still needs revision before
+training. See Current result below. A hole or
 unavailable range must fail, not be silently filled or replaced. Hashing whole source files is
 provenance verification, not model access to nontrain amplitudes.
 
@@ -180,8 +180,8 @@ Both requested real-data preflights were attempted from clean commit
 `f654f9f97a8a720229ac6d81b7805b5ad21cf615` with eight OMP/MKL/PyTorch CPU threads.
 The isolated checkout imported that commit's `src`; the supplied ZIP files and existing runs
 were preserved. Neither attempt reached model initialization, an optimizer update, or output
-directory creation. The configurations remain unchanged pending an explicit teacher-region
-decision.
+directory creation. The CPU teacher time is now `[128,144)` in both regions; a new clean run
+is pending. Formal/calibration geometry remains unresolved.
 
 | Attempted run ID | Requested condition | Preflight result |
 |---|---|---|
@@ -202,11 +202,11 @@ fit crop lacks local spatial cell `(3,26,0,31)` (global source line 3, shot-in-l
 receiver indices 0 and 49). This candidate was not adopted or trained.
 
 For the CPU smoke only, a read-only check within the already declared formal teacher time
-extent found a nearby candidate `time=[128,144)` with the same spatial rows. All values are
+extent established `time=[128,144)` with the same spatial rows. All values are
 finite, all 128 traces in each region contain a nonzero value, and fit/selection RMS are
-0.0658/0.0277 (rounded). This is an unadopted crop candidate, not a trained or scored result;
-fixed patch descriptors and artificial masks were not searched or changed.
+0.0658/0.0277 (rounded). This interval is adopted in both smoke teacher regions, not yet a
+trained or scored result; patch seeds, counts, shapes, and spatial ranges are unchanged.
 
-The next operational step is an explicitly approved revision of the teacher crops, followed by
-new immutable CPU smoke and GPU calibration attempts. No holes were filled, no zero-label
+The next operational steps are a new immutable CPU smoke and geometry-based selection of a
+dense formal/calibration teacher pair. No holes were filled, no zero-label
 patches were filtered, and no width, precision, or patch-size fallback was applied.
