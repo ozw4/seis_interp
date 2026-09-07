@@ -29,6 +29,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter](study_020_all_ffid_25pct_whole_ffid_neighbor_inpainter/README.md) | `blocked` — 25 dB not reached, no promotable candidate | whole-FFID split / neighbor trace inpainter | Leakage-safe inpainter > 25 dB at 25% whole FFIDs as train |
 | [study_021_all_ffid_50pct_whole_ffid_trace_graph](study_021_all_ffid_50pct_whole_ffid_trace_graph/README.md) | `running` | whole-FFID split / trace graph | Trace-node graph > 20 dB at 50% whole FFIDs, validation shots unobserved |
 | [study_022_c3_na_pocs](study_022_c3_na_pocs/README.md) | `draft` | validation C3 volume / Fourier POCS-5D | How well does fixed hard-threshold Fourier POCS-5D reconstruct missing traces? |
+| [study_023_c3_na_drr](study_023_c3_na_drr/README.md) | `draft` | validation C3 volume / damped rank-reduction 5D | How well does fixed damped rank-reduction reconstruct missing traces on the shared POCS benchmark? |
 
 ## Scratch workspaces
 

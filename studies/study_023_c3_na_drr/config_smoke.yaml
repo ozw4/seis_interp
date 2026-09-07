@@ -1,0 +1,19 @@
+extends: config.yaml
+
+benchmark_volume:
+  id: c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34
+  selection:
+    time: [64, 128]
+    source_line: [25, 29]
+    shot_in_line: [27, 35]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [18, 34]
+
+drr:
+  rank: 4
+  damping_power: 3
+  n_iterations: 3
+  frequency_min_hz: 5.0
+  frequency_max_hz: null
+  spatial_window_shape: [4, 4, 4, 8]
+  spatial_overlap: [0, 0, 0, 0]

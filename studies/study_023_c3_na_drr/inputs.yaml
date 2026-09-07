@@ -1,0 +1,43 @@
+datasets:
+  - dataset_id: seg_c3_na
+    manifest: ../../data/external/seg_c3_na/manifest.yaml
+    files:
+      - name: SEG_C3NA_ffid_2-1200.sgy
+        sha256: 8913f18606e21b116280755cf7367fee90fea05b06dc7c85d919ae17a1c9c4a9
+      - name: SEG_C3NA_ffid_1201-2400.sgy
+        sha256: 50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7
+      - name: SEG_C3NA_ffid_2401-3600.sgy
+        sha256: 8b14ab894bc78991aebb14d96f49f0ecd9dc492ca1c993e60ebcc1dfcb741aeb
+      - name: SEG_C3NA_ffid_3601-4781.sgy
+        sha256: 16a66c1e165da86d98186e4ff13510678291b484a64cdae549b5336932b9d1e9
+    subset:
+      ffid_min: 2
+      ffid_max: 4782
+      include_incomplete_ffids: true
+      expected_complete_trace_count: 544
+      sample_count: 625
+      source_line_count: 50
+      split:
+        scope: c3_source_line_blocks
+        source_line_ranges:
+          train: [0, 25]
+          validation: [25, 35]
+          test: [35, 50]
+      physical_coordinate_canonicalization:
+        key:
+          - source_x_m
+          - source_y_m
+          - receiver_x_m
+          - receiver_y_m
+        policy: keep_lowest_array_row
+        observed_duplicate_cell_count: 15
+        observed_duplicate_row_count: 30
+    interim: ../../data/interim/c3_na/all_ffids
+    processed: ../../data/processed/c3_na/c3_source_line_blocks_seed42
+    interpolation_mask: ../../data/processed/c3_na/c3_source_line_blocks_seed42/masks/validation-random-trace-80-seed42
+    benchmark_case: ../../data/processed/c3_na/c3_source_line_blocks_seed42/cases/c3_na_validation_random_trace_80_seed42
+    benchmark_volumes:
+      formal: ../../data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_t0_384_sl25_35_sh27_59_rx0_8_ry18_50
+      smoke: ../../data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34
+
+references: []

@@ -79,6 +79,42 @@ def test_pocs_study_resolves_without_siren_training_settings() -> None:
     assert get_required_config_value(smoke, "pocs.n_iterations") == 20
 
 
+def test_drr_study_resolves_only_its_method_and_shared_benchmark_conditions() -> None:
+    study_config = REPOSITORY_ROOT / "studies" / "study_023_c3_na_drr" / "config.yaml"
+    pocs_config = REPOSITORY_ROOT / "studies" / "study_022_c3_na_pocs" / "config.yaml"
+    for filename, iterations, window in (
+        ("config.yaml", 10, [5, 8, 4, 8]),
+        ("config_smoke.yaml", 3, [4, 4, 4, 8]),
+    ):
+        resolved = load_resolved_config(study_config.with_name(filename))
+        pocs = load_resolved_config(pocs_config.with_name(filename))
+        assert not {"model", "training", "pocs"}.intersection(resolved)
+        for section in (
+            "project",
+            "data",
+            "normalization",
+            "sampling",
+            "interpolation_mask",
+            "benchmark_case",
+            "benchmark_volume",
+            "evaluation",
+        ):
+            assert resolved[section] == pocs[section]
+        assert resolved["drr"] == {
+            "rank": 4,
+            "damping_power": 3,
+            "n_iterations": iterations,
+            "frequency_min_hz": 5.0,
+            "frequency_max_hz": None,
+            "spatial_window_shape": window,
+            "spatial_overlap": [0, 0, 0, 0],
+        }
+    assert (
+        study_config.with_name("inputs.yaml").read_bytes()
+        == pocs_config.with_name("inputs.yaml").read_bytes()
+    )
+
+
 def test_recursively_merges_mappings_and_replaces_other_values(tmp_path: Path) -> None:
     base = write_config(
         tmp_path / "base.yaml",
