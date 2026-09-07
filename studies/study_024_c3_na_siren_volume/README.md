@@ -181,4 +181,42 @@ smoke crop is execution evidence only and cannot support a formal performance co
 
 ## Current result
 
-Implementation complete; clean-commit C3 smoke not yet recorded.
+The clean CPU smoke run is
+[`20260907T054518Z_9c07ccf_smoke`](../../runs/study_024_c3_na_siren_volume/20260907T054518Z_9c07ccf_smoke/).
+It records implementation commit `9c07ccfa0236e7c40cb3412dd1348e803dd77a4f`,
+`git_worktree_dirty: false`, and `status: success`.
+
+The run uses the smoke crop above, shape `[64, 4, 8, 8, 16]` in `float32`, with the shared
+validation random-trace 80% mask and seed 42. The realized missing fraction is 0.7996.
+It fits the width-256, four-sine-layer model with both omega values 30, no layer schedule or
+skip connections, and 199,425 parameters. Adam/L2 performs exactly 100 updates at learning rate
+`1.0e-4`, with 4,096 sampled points per update. Prediction uses batches of at most 32,768 points.
+The effective Torch CPU thread count is 8.
+
+| Quantity | Smoke measurement |
+|---|---:|
+| Observed training traces / samples | 821 / 52,544 |
+| Observed-only amplitude RMS | 4.1126 |
+| Final batch loss (before the last update) | 0.5018 |
+| Evaluation-target traces / samples | 3,275 / 209,600 |
+| Physical-amplitude target global S/N | 1.2691 dB |
+| Target RMSE / relative L2 | 3.4626 / 0.8641 |
+| Zero-fill target S/N / RMSE | 0.0000 dB / 4.0074 |
+| Observed model RMSE before reinsertion | 3.1632 |
+| Observed model maximum absolute error before reinsertion | 69.4093 |
+| Observed maximum absolute error after reinsertion | exactly 0.0 |
+| Uncovered traces / samples | 0 / 0 |
+| Training / prediction time | 3.8628 s / 1.2181 s |
+| Whole-process peak CPU RSS | 765.5781 MiB |
+
+The run contains only the six expected files and has no warnings. Reloading the checkpoint and
+its volume-local transforms reproduces all 262,144 saved prediction points bitwise on the same
+CPU/thread setup. Predictions are finite and observed traces are bitwise preserved. Its input
+lock is identical to the clean POCS and DRR smoke input locks.
+Full-precision records in the run are authoritative; displayed measurements are rounded.
+
+This is smoke execution-contract evidence, not a formal-volume result, a tuned result, or a
+performance conclusion against POCS/DRR. No test-partition result has been inspected. Later
+validation screening may examine step budget, learning rate, omega values, exponential layer
+schedules, dense skip connections, or coordinate representation, without changing this immutable
+run or using target metrics for within-run checkpoint selection.
