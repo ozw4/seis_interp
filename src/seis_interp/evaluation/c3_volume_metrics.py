@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
+from seis_interp import config_values
 from seis_interp.data.c3_volume_adapter import (
     ObservedC3Volume,
     volume_to_trace_predictions,
@@ -16,6 +17,14 @@ from seis_interp.data.trace_store import AMPLITUDES_FILE_NAME
 from seis_interp.processing.c3_volume_index import validated_index_range
 
 _TARGET_TRACE_CHUNK_SIZE = 1024
+
+
+def validate_c3_volume_evaluation_config(config: Mapping[str, object]) -> None:
+    """Require target-only, physical-amplitude global SNR evaluation settings."""
+    config_values.require_exact(
+        config, "evaluation.primary_metric", "physical_amplitude_global_snr_db"
+    )
+    config_values.require_exact(config, "evaluation.domain", "evaluation_target")
 
 
 def evaluate_c3_volume_prediction(

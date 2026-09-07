@@ -10,10 +10,10 @@ from numbers import Integral
 import numpy as np
 
 from seis_interp.processing.drr import (
-    _validated_block_inputs,
-    _validated_drr_parameters,
     interpolate_drr_block,
     select_drr_frequencies,
+    validate_drr_block_inputs,
+    validate_drr_parameters,
 )
 
 
@@ -46,7 +46,7 @@ def interpolate_drr_volume(
     restore observations exactly. Empty blocks contribute no weight; traces
     covered only by empty blocks remain zero and are counted once each.
     """
-    values, mask = _validated_block_inputs(observed, observed_trace_mask, time_s)
+    values, mask = validate_drr_block_inputs(observed, observed_trace_mask, time_s)
     window, overlap = _validated_window_spec(spatial_window_shape, spatial_overlap)
     if window is None:
         window = values.shape[1:]
@@ -54,7 +54,7 @@ def interpolate_drr_volume(
     block_shape = tuple(
         min(length, requested) for length, requested in zip(values.shape[1:], window, strict=True)
     )
-    retained_rank, power, iterations = _validated_drr_parameters(
+    retained_rank, power, iterations = validate_drr_parameters(
         rank, damping_power, n_iterations, block_shape
     )
     select_drr_frequencies(

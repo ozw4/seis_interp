@@ -31,7 +31,7 @@ def interpolate_drr_frequency_slice(
     all-observed or all-missing inputs.
     """
     values, mask = _validated_frequency_inputs(observed, observed_trace_mask)
-    retained_rank, power, iterations = _validated_drr_parameters(
+    retained_rank, power, iterations = validate_drr_parameters(
         rank, damping_power, n_iterations, values.shape
     )
     zero_filled = np.zeros(values.shape, dtype=np.complex128)
@@ -113,8 +113,8 @@ def interpolate_drr_block(
     missing prediction has zero coefficients outside the selected range
     before truncation. Observed traces are reinserted exactly in time.
     """
-    values, mask = _validated_block_inputs(observed, observed_trace_mask, time_s)
-    retained_rank, power, iterations = _validated_drr_parameters(
+    values, mask = validate_drr_block_inputs(observed, observed_trace_mask, time_s)
+    retained_rank, power, iterations = validate_drr_parameters(
         rank, damping_power, n_iterations, values.shape[1:]
     )
     selection = select_drr_frequencies(
@@ -146,9 +146,16 @@ def interpolate_drr_block(
     return result
 
 
-def _validated_block_inputs(
+def validate_drr_block_inputs(
     observed: np.ndarray, observed_trace_mask: np.ndarray, time_s: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Validate a real 5D block and return its original values and spatial mask.
+
+    Require float32/float64 values, a matching boolean 4D mask, and a time
+    array matching the time axis. Only observed amplitudes must be finite;
+    missing amplitudes are ignored. Time sampling and frequency limits are
+    checked separately by ``select_drr_frequencies``. No inputs are modified.
+    """
     if not isinstance(observed, np.ndarray) or observed.ndim != 5:
         raise ValueError("observed must be a five-dimensional NumPy array")
     if observed.dtype not in (np.dtype(np.float32), np.dtype(np.float64)):
@@ -208,12 +215,18 @@ def _validated_mask(mask: np.ndarray, spatial_shape: tuple[int, ...]) -> np.ndar
     return mask
 
 
-def _validated_drr_parameters(
+def validate_drr_parameters(
     rank: int,
     damping_power: int,
     n_iterations: int,
     spatial_shape: tuple[int, int, int, int],
 ) -> tuple[int, int, int]:
+    """Validate DRR parameters for an actual 4D spatial block shape.
+
+    Return rank, damping power, and iteration count as built-in integers.
+    Each must be a positive non-boolean integer, and rank must be strictly
+    smaller than both dimensions of the block's level-four Hankel matrix.
+    """
     parameters = []
     for name, value in (
         ("rank", rank),

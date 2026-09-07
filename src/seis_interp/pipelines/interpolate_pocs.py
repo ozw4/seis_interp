@@ -15,7 +15,10 @@ import numpy as np
 from seis_interp import config_values, run_records
 from seis_interp.configuration import ConfigurationError, load_resolved_config
 from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
-from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
+from seis_interp.evaluation.c3_volume_metrics import (
+    evaluate_c3_volume_prediction,
+    validate_c3_volume_evaluation_config,
+)
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.processing.pocs_windows import interpolate_pocs_volume
 
@@ -60,7 +63,7 @@ def interpolate_pocs_run(
     run_records.check_new_output_directory(output_directory)
     config = load_resolved_config(Path(config_path))
     settings = _pocs_settings(config)
-    _validate_evaluation_contract(config)
+    validate_c3_volume_evaluation_config(config)
 
     started_at_utc = run_records.utc_timestamp()
     git_metadata = run_records.current_git_metadata()
@@ -150,15 +153,6 @@ def interpolate_pocs_run(
         run_metadata,
     )
     return metrics
-
-
-def _validate_evaluation_contract(config: Mapping[str, object]) -> None:
-    config_values.require_exact(
-        config,
-        "evaluation.primary_metric",
-        "physical_amplitude_global_snr_db",
-    )
-    config_values.require_exact(config, "evaluation.domain", "evaluation_target")
 
 
 def _pocs_settings(config: Mapping[str, object]) -> _PocsSettings:
