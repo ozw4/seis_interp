@@ -13,10 +13,10 @@ def _help_text(argv: list[str], capsys: pytest.CaptureFixture[str]) -> str:
     return capsys.readouterr().out
 
 
-def test_top_level_parser_routes_doctor_data_and_train(capsys) -> None:
+def test_top_level_parser_routes_doctor_data_train_and_interpolate(capsys) -> None:
     help_text = _help_text([], capsys)
 
-    for name in ("doctor", "data", "train"):
+    for name in ("doctor", "data", "train", "interpolate"):
         assert name in help_text
 
 
