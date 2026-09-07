@@ -192,7 +192,81 @@ plan has positive finite aggregate reference energy. These are input-feasibility
 formal training or model-performance results. See [decisions.md](decisions.md) for the reasons
 behind the ranges.
 
-The revised CPU smoke has completed four updates and frozen benchmark prediction from a clean
-checkout; checkpoint replay verification is in progress. Full-width GPU calibration is pending
-execution from the committed crop settings. No formal training or inference has been run. No
-holes were filled, zero-label patches filtered, seeds redrawn, or model/patch dimensions reduced.
+### Clean CPU training and frozen benchmark smoke
+
+Both runs completed successfully from clean commit
+`d7836692712fd6bf13b0d1d0178f15c77ac1c301`, importing its isolated checkout with eight
+OMP/MKL/PyTorch threads. Training and inference Git states are independently recorded; the
+checkpoint also preserves the clean training state. Both use variant
+`supervised_train_partition_linear_output` and regime `supervised_train_partition`.
+
+Run IDs and local generated paths:
+
+- Training: `20260907T140759Z_d783669_train_smoke` —
+  `runs/study_025_c3_na_ccnet5d/20260907T140759Z_d783669_train_smoke/`
+- Frozen inference: `20260907T140839Z_d783669_infer_smoke` —
+  `runs/study_025_c3_na_ccnet5d/20260907T140839Z_d783669_infer_smoke/`
+
+The four-module H/R=4 model has 7,829 parameters. Four fit descriptors and two fixed selection
+descriptors produced four optimizer updates, selection at steps 2 and 4, and best/final
+checkpoints at step 4. Both checkpoints reload on CPU with finite weights. Fit RMS is 0.0658;
+best internal selection S/N is -0.4997 dB. The source was independently reverified as train-only
+with disjoint fit/selection rows.
+
+Frozen inference uses the unchanged shared seed-42 validation case and smoke volume. Its input
+lock, excluding the added checkpoint binding, matches the POCS and SIREN smoke inputs exactly.
+Prediction shape is `(64,4,8,8,16)`, float32, entirely finite. All 821 observed traces are
+reinserted exactly, all 3,275 target traces are covered, and eight halo-8 tiles cover every
+sample once. A fresh checkpoint reload and identical-core CPU prediction reproduced all
+262,144 saved samples byte-for-byte in the same environment.
+
+| Benchmark diagnostic | Result |
+|---|---:|
+| Target-only physical global S/N | approximately 0 dB (rounded) |
+| Target RMSE / relative L2 | 4.0073 / 1.0000 |
+| Zero-fill S/N / RMSE | 0.0000 dB / 4.0074 |
+| Observed model RMSE / maximum absolute error before reinsertion | 4.1126 / 75.0110 |
+| Observed maximum absolute error after reinsertion | 0 |
+| Uncovered traces / samples | 0 / 0 |
+| Training plus selection / frozen prediction time | 0.8119 s / 0.1193 s |
+| Training / inference whole-process peak RSS | 3,513,176 / 589,504 KiB |
+
+Full-precision metrics and timings remain in the immutable run records. Source loading and
+verification are separate from the stage times above. This tiny four-update smoke establishes
+the execution contract, not full-width performance or a meaningful zero-fill improvement.
+
+An additional identical CPU training run is retained at
+`runs/study_025_c3_na_ccnet5d/20260907T085141Z_d783669_train_smoke/`. Its directory timestamp
+was mistyped; the authoritative `run.json` start is `2026-09-07T14:07:09Z`. It was not renamed
+or edited. Its patch-plan bytes, training/selection histories, and best/final weights exactly
+match the correctly time-named training run above.
+
+### Clean full-width GPU calibration
+
+Run ID: `20260907T141201Z_df66605_gpu_calibration`
+
+Local generated path:
+`runs/study_025_c3_na_ccnet5d/20260907T141201Z_df66605_gpu_calibration/`
+
+This run succeeded from clean commit `df666052bf76fa8324c175762a8c44815973bab3` on
+`cuda:0`, NVIDIA H100 NVL (compute capability 9.0), with eight CPU threads. The four-module,
+64/64-channel, kernel-5 linear-output model retains all 1,853,249 parameters and the original
+`(16,16,16,8,16)` patch, batch 1, float32 parameters/inputs/targets, and seed 42. One optimizer
+update and one selection pass completed; both best/final checkpoints reload on CPU with
+finite weights and clean training provenance. Fit RMS is 17.2473, training loss 1.2045, and
+internal selection S/N -0.0002 dB. This checkpoint was not benchmarked.
+
+Training plus selection took 15.0282 s. CUDA peak allocated/reserved memory was
+3,597.6099/3,878.0000 MiB; whole-process peak RSS was 3,640,456 KiB. Peaks include forward,
+backward, permutation copies, convolution workspaces, and selection. Timing is synchronized
+but includes first-update initialization/algorithm warmup, so multiplying it by 200,000 is not
+a reliable formal-training time estimate.
+
+The recorded runtime is PyTorch `2.5.0a0+b465a5843b.nv24.09`, CUDA build `12.6`, cuDNN `90400`,
+float32 matmul precision `high`, CUDA matmul/cuDNN TF32 enabled, cuDNN benchmark enabled,
+and cuDNN deterministic disabled. These are measured execution conditions, not a cross-device
+bitwise reproducibility guarantee. Formal inference core memory still requires its own check.
+
+No formal training or inference has been run. No holes were filled, zero-label patches filtered,
+seeds redrawn, or prescribed model/patch dimensions reduced. Full-width performance validation
+remains a separate, explicitly authorized experiment.
