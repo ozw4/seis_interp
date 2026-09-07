@@ -173,13 +173,14 @@ SEG-Y inputs and everything under `data/interim/` and `data/processed/` are gene
 
 ## Training commands
 
-The `train` command group trains the four model families:
+The `train` command group trains these model families:
 
 ```text
 train siren                  coordinate-only SIREN on prepared dataset partitions
 train neighbor-inpainter     physical-neighbor temporal trace inpainter
 train shot-gather-inpainter  joint whole-shot gather inpainter
 train trace-graph            trace-node graph gather interpolator
+train ccnet5d                supervised CCNet5D on complete train-partition labels
 ```
 
 Every train command takes required `--config`, `--interim`, `--processed`, and `--output` paths, plus optional `--device` and `--json`; run `python -m seis_interp.cli train <command> --help` for details. With `--json`, metrics go to stdout and training progress goes to stderr. For example:
@@ -197,12 +198,13 @@ python -m seis_interp.cli train siren \
 The `interpolate` command group runs methods on a verified benchmark volume:
 
 ```text
-interpolate pocs   CPU/NumPy Fourier POCS-5D
-interpolate drr    CPU/NumPy damped rank-reduction 5D
-interpolate siren  per-volume observed-only SIREN internal learning
+interpolate pocs     CPU/NumPy Fourier POCS-5D
+interpolate drr      CPU/NumPy damped rank-reduction 5D
+interpolate siren    per-volume observed-only SIREN internal learning
+interpolate ccnet5d  frozen pretrained CCNet5D inference
 ```
 
-All three commands require an existing prepared partition, interpolation mask, benchmark case,
+All four commands require an existing prepared partition, interpolation mask, benchmark case,
 and dense C3 volume index, with the same seven input/output path arguments:
 
 ```bash
@@ -223,9 +225,15 @@ belong in the study configuration.
 
 `interpolate siren` fits a fresh model for each selected volume using only observed samples and a
 fixed number of training steps. It also writes `artifacts/final.pt`; its final-step checkpoint
-contract is separate from the survey-wide `train siren` contract. Only `interpolate siren` accepts
+contract is separate from the survey-wide `train siren` contract. It accepts
 `--device` to override the configured training device. Its progress and warnings always go to
 stderr, while stdout contains only the final human-readable summary or strict JSON with `--json`.
+
+`train ccnet5d` performs supervised pretraining using additional complete train-partition labels.
+`interpolate ccnet5d` requires `--checkpoint` and uses that frozen model without retraining;
+it also accepts `--device`. Both CCNet5D commands keep progress on stderr and the final summary
+on stdout, with strict JSON when `--json` is supplied. Training summaries label the internal
+selection score separately from benchmark target S/N.
 
 ## Run outputs
 

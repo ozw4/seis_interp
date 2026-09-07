@@ -80,6 +80,30 @@ def _interpolate_siren(args: argparse.Namespace) -> int:
     return 0
 
 
+def _interpolate_ccnet5d(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.interpolate_ccnet5d import interpolate_ccnet5d_run
+
+    try:
+        summary = interpolate_ccnet5d_run(
+            config_path=args.config,
+            checkpoint_path=args.checkpoint,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            mask_dir=args.mask,
+            case_dir=args.case,
+            volume_dir=args.volume,
+            output_dir=args.output,
+            device_override=args.device,
+            progress_reporter=_print_progress_to_stderr,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"interpolate ccnet5d failed: {error}", file=sys.stderr)
+        return 1
+
+    _print_run_summary(summary, args.output, json_output=args.json)
+    return 0
+
+
 def _print_run_summary(
     summary: Mapping[str, object], output_directory: Path, *, json_output: bool
 ) -> None:
@@ -170,3 +194,12 @@ def add_interpolate_commands(
     _add_c3_volume_run_arguments(siren)
     siren.add_argument("--device", help="Override the configured training device for this run.")
     siren.set_defaults(handler=_interpolate_siren)
+    ccnet5d = interpolate_commands.add_parser(
+        "ccnet5d", help="Interpolate a verified C3 volume with a frozen CCNet5D checkpoint."
+    )
+    _add_c3_volume_run_arguments(ccnet5d)
+    ccnet5d.add_argument(
+        "--checkpoint", type=Path, required=True, help="Pretrained CCNet5D checkpoint."
+    )
+    ccnet5d.add_argument("--device", help="Override the configured inference device for this run.")
+    ccnet5d.set_defaults(handler=_interpolate_ccnet5d)

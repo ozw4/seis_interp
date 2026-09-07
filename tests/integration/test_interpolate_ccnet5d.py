@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from seis_interp import run_records
+from seis_interp.cli import main
 from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines.interpolate_ccnet5d import interpolate_ccnet5d_run
@@ -267,3 +268,29 @@ def test_existing_output_is_unchanged(tmp_path):
         )
     assert list(output.iterdir()) == [marker]
     assert marker.read_text() == "unchanged"
+
+
+def test_interpolate_cli_end_to_end(tmp_path, capsys):
+    source = prepare_ccnet5d_artifacts(tmp_path / "data")
+    artifacts = prepare_ccnet5d_benchmark(source)
+    training, _ = _training(tmp_path, source)
+    path = write_ccnet5d_config(tmp_path / "infer.yaml", ccnet5d_inference_config(artifacts))
+    output = tmp_path / "infer"
+    args = ["interpolate", "ccnet5d"]
+    for name, value in {
+        "config": path,
+        "checkpoint": training / "artifacts/best.pt",
+        "interim": artifacts.interim,
+        "processed": artifacts.processed,
+        "mask": artifacts.mask,
+        "case": artifacts.case,
+        "volume": artifacts.volume,
+        "output": output,
+    }.items():
+        args.extend([f"--{name}", str(value)])
+    result = main([*args, "--device", "cpu", "--json"])
+    captured = capsys.readouterr()
+    assert result == 0
+    summary = json.loads(captured.out)
+    assert summary["observed_max_abs_error"] == 0
+    assert captured.err

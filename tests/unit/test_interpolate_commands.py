@@ -530,6 +530,110 @@ def test_siren_requires_all_seven_paths(capsys) -> None:
         assert option in error
 
 
+def _install_ccnet5d_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: object) -> None:
+    name = "seis_interp.pipelines.interpolate_ccnet5d"
+    module = ModuleType(name)
+    module.interpolate_ccnet5d_run = function  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, name, module)
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("device_override", [None, "cpu"])
+def test_ccnet5d_dispatches_checkpoint_paths_and_keeps_progress_on_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    json_output: bool,
+    device_override: str | None,
+) -> None:
+    received = {}
+    expected = _summary(warnings=["check reconstruction"]) | {
+        "method": "ccnet5d",
+        "training_regime": "supervised_train_partition",
+        "uncovered_trace_count": 0,
+    }
+
+    def interpolate_ccnet5d_run(**kwargs):
+        received.update(kwargs)
+        kwargs["progress_reporter"]("Predicting with frozen CCNet5D")
+        return expected
+
+    _install_ccnet5d_pipeline_stub(monkeypatch, interpolate_ccnet5d_run)
+    arguments = [*_arguments(tmp_path, "ccnet5d"), "--checkpoint", str(tmp_path / "best.pt")]
+    if device_override is not None:
+        arguments.extend(["--device", device_override])
+    if json_output:
+        arguments.append("--json")
+
+    assert main(arguments) == 0
+
+    captured = capsys.readouterr()
+    if json_output:
+        assert (
+            json.loads(
+                captured.out,
+                parse_constant=lambda value: pytest.fail(f"non-finite JSON: {value}"),
+            )
+            == expected
+        )
+    else:
+        assert captured.out == (
+            f"Output directory: {tmp_path / 'run'}\n"
+            "Method: ccnet5d\n"
+            "Benchmark case: synthetic_case\n"
+            "Benchmark volume: synthetic_volume\n"
+            "Target global S/N: 12.5 dB\n"
+            "Target RMSE: 0.25\n"
+            "Observed maximum absolute error: 0.0\n"
+            "Uncovered traces: 0\n"
+            "Uncovered samples: 0\n"
+        )
+    assert captured.err == "Predicting with frozen CCNet5D\nWarning: check reconstruction\n"
+    assert received == {
+        "config_path": tmp_path / "config.yaml",
+        "checkpoint_path": tmp_path / "best.pt",
+        "interim_dir": tmp_path / "interim",
+        "processed_dir": tmp_path / "processed",
+        "mask_dir": tmp_path / "mask",
+        "case_dir": tmp_path / "case",
+        "volume_dir": tmp_path / "volume",
+        "output_dir": tmp_path / "run",
+        "device_override": device_override,
+        "progress_reporter": received["progress_reporter"],
+    }
+
+
+def test_ccnet5d_requires_checkpoint_in_addition_to_volume_paths(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        main(_arguments(tmp_path, "ccnet5d"))
+
+    assert error.value.code == 2
+    assert "--checkpoint" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "error", [FileNotFoundError("missing checkpoint"), ValueError("incompatible provenance")]
+)
+def test_ccnet5d_reports_expected_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+) -> None:
+    def interpolate_ccnet5d_run(**kwargs):
+        raise error
+
+    _install_ccnet5d_pipeline_stub(monkeypatch, interpolate_ccnet5d_run)
+
+    assert main([*_arguments(tmp_path, "ccnet5d"), "--checkpoint", str(tmp_path / "best.pt")]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"interpolate ccnet5d failed: {error}\n"
+
+
 def test_importing_interpolate_commands_defers_pipeline_and_heavy_dependencies() -> None:
     probe = (
         "import sys\n"
@@ -540,6 +644,7 @@ def test_importing_interpolate_commands_defers_pipeline_and_heavy_dependencies()
         "        'seis_interp.pipelines.interpolate_pocs',\n"
         "        'seis_interp.pipelines.interpolate_drr',\n"
         "        'seis_interp.pipelines.interpolate_siren',\n"
+        "        'seis_interp.pipelines.interpolate_ccnet5d',\n"
         "        'numpy',\n"
         "        'pandas',\n"
         "        'torch',\n"

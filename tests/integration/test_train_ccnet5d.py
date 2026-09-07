@@ -8,6 +8,7 @@ import torch
 import yaml
 
 from seis_interp import run_records
+from seis_interp.cli import main
 from seis_interp.data.c3_supervised_source import load_c3_supervised_source
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines.train_ccnet5d import train_ccnet5d_run
@@ -196,3 +197,32 @@ def test_existing_output_is_unchanged(tmp_path):
         )
     assert marker.read_text() == "unchanged"
     assert list(output.iterdir()) == [marker]
+
+
+def test_train_cli_end_to_end_json_and_progress(tmp_path, capsys):
+    artifacts = prepare_ccnet5d_artifacts(tmp_path / "data")
+    config = write_ccnet5d_config(tmp_path / "config.yaml", ccnet5d_training_config(artifacts))
+    output = tmp_path / "run"
+    result = main(
+        [
+            "train",
+            "ccnet5d",
+            "--config",
+            str(config),
+            "--interim",
+            str(artifacts.interim),
+            "--processed",
+            str(artifacts.processed),
+            "--output",
+            str(output),
+            "--device",
+            "cpu",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert result == 0
+    summary = json.loads(captured.out)
+    assert summary["steps_completed"] == 4
+    assert captured.err
+    assert (output / "artifacts/best.pt").is_file()
