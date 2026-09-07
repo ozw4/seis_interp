@@ -86,8 +86,11 @@ def prepare_c3_volume_artifacts(
     *,
     physical_source_line_indices: tuple[int, ...] = (0, 1, 2, 3),
     omitted_shots: frozenset[tuple[int, int]] = frozenset(),
+    mask_kind: str = RANDOM_TRACE_MASK_KIND,
+    missing_fraction: float = 0.5,
+    random_seed: int = 42,
 ) -> PreparedC3VolumeArtifacts:
-    """Create a source-block partition, random mask, and case for a C3 crop."""
+    """Create a source-block partition, interpolation mask, and case for a C3 crop."""
     geometry = make_c3_trace_table(
         physical_source_line_indices=physical_source_line_indices,
         omitted_shots=omitted_shots,
@@ -129,15 +132,20 @@ def prepare_c3_volume_artifacts(
         source_line_ranges=SOURCE_LINE_RANGES,
         config_source="studies/synthetic/config.yaml",
     )
-    mask = processed / "masks" / "test-random-trace"
+    mask_id = _mask_id(
+        kind=mask_kind,
+        missing_fraction=missing_fraction,
+        random_seed=random_seed,
+    )
+    mask = processed / "masks" / mask_id
     prepare_interpolation_mask(
         interim,
         processed,
         mask,
         partition=TEST_SPLIT,
-        kind=RANDOM_TRACE_MASK_KIND,
-        missing_fraction=0.5,
-        random_seed=42,
+        kind=mask_kind,
+        missing_fraction=missing_fraction,
+        random_seed=random_seed,
         config_source="studies/synthetic/config.yaml",
     )
     case = processed / "cases" / "synthetic-case"
@@ -158,3 +166,9 @@ def prepare_c3_volume_artifacts(
         VOLUME_SOURCE_LINE_RANGE,
         VOLUME_SHOT_IN_LINE_RANGE,
     )
+
+
+def _mask_id(*, kind: str, missing_fraction: float, random_seed: int) -> str:
+    if kind == RANDOM_TRACE_MASK_KIND and missing_fraction == 0.5 and random_seed == 42:
+        return "test-random-trace"
+    return f"test-{kind.replace('_', '-')}-seed-{random_seed}"
