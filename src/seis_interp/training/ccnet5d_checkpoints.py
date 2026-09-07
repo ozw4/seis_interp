@@ -26,6 +26,7 @@ _MODEL_CONFIG_FIELDS = {
     "output_activation",
 }
 _TRAINING_PROVENANCE_FIELDS = {
+    "training_run",
     "source_inputs_lock",
     "patch_plan_sha256",
     "patches_random_seed",
@@ -191,6 +192,19 @@ def _validated_training_provenance(value: object) -> dict[str, object]:
     missing_provenance = sorted(_TRAINING_PROVENANCE_FIELDS.difference(value))
     if missing_provenance:
         raise ValueError(f"training_provenance is missing required fields: {missing_provenance!r}")
+    training_run = value["training_run"]
+    if not isinstance(training_run, Mapping) or set(training_run) != {
+        "git_commit",
+        "git_worktree_dirty",
+    }:
+        raise ValueError(
+            "training_provenance.training_run must contain exactly git_commit and "
+            "git_worktree_dirty"
+        )
+    if not isinstance(training_run["git_commit"], str) or not training_run["git_commit"]:
+        raise ValueError("training_provenance.training_run.git_commit must be a non-empty string")
+    if not isinstance(training_run["git_worktree_dirty"], bool):
+        raise ValueError("training_provenance.training_run.git_worktree_dirty must be a boolean")
     source_lock = value["source_inputs_lock"]
     if not isinstance(source_lock, Mapping):
         raise ValueError("training_provenance source_inputs_lock is missing required fields")

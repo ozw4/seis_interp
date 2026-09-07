@@ -36,6 +36,7 @@ def _provenance() -> dict[str, object]:
     }
     held_out_selection = {**fit_selection, "shot_in_line": [2, 4]}
     return {
+        "training_run": {"git_commit": "f" * 40, "git_worktree_dirty": False},
         "source_inputs_lock": {
             "dataset_id": "synthetic",
             "partition": "train",
@@ -233,6 +234,7 @@ def test_load_rejects_corrupt_metadata(
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
+        (("training_run",), "required fields"),
         (("training_random_seed",), "required fields"),
         (("source_inputs_lock", "partition"), "partition"),
         (("source_inputs_lock", "regions", "selection"), "fit and selection"),
@@ -261,4 +263,33 @@ def test_load_rejects_incomplete_training_provenance(
     torch.save(payload, path)
 
     with pytest.raises(ValueError, match=message):
+        load_ccnet5d_checkpoint(path)
+
+
+@pytest.mark.parametrize(
+    "training_run",
+    [
+        None,
+        {"git_commit": "a" * 40},
+        {"git_worktree_dirty": False},
+        {"git_commit": "a" * 40, "git_worktree_dirty": False, "extra": True},
+        {"git_commit": "", "git_worktree_dirty": False},
+        {"git_commit": 42, "git_worktree_dirty": False},
+        {"git_commit": "a" * 40, "git_worktree_dirty": "false"},
+        {"git_commit": "a" * 40, "git_worktree_dirty": 0},
+    ],
+)
+def test_save_and_load_require_training_git_metadata(tmp_path, training_run):
+    path = tmp_path / "best.pt"
+    provenance = _provenance()
+    provenance["training_run"] = training_run
+    with pytest.raises(ValueError, match="training_provenance.training_run"):
+        _save(path, _model(), training_provenance=provenance)
+    assert not path.exists()
+
+    _save(path, _model())
+    payload = torch.load(path, weights_only=True)
+    payload["training_provenance"]["training_run"] = training_run
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="training_provenance.training_run"):
         load_ccnet5d_checkpoint(path)

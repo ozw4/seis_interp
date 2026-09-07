@@ -58,6 +58,11 @@ def _inference(artifacts, config, checkpoint, output, **kwargs):
 def test_frozen_checkpoint_inference_records_full_forward_and_truth_metric(
     tmp_path, monkeypatch, mask_kind, role, activation
 ):
+    monkeypatch.setattr(
+        run_records,
+        "current_git_metadata",
+        lambda: {"git_commit": "a" * 40, "git_worktree_dirty": False},
+    )
     source = prepare_ccnet5d_artifacts(tmp_path / "data")
     artifacts = prepare_ccnet5d_benchmark(source, mask_kind=mask_kind)
     training, _ = _training(tmp_path, source, activation=activation)
@@ -109,6 +114,7 @@ def test_frozen_checkpoint_inference_records_full_forward_and_truth_metric(
     assert records["metrics"] == metrics
     run = records["run"]
     assert run["device"] == "cpu" and run["status"] == "success"
+    assert run["warnings"] == metrics["warnings"] == []
     assert run["checkpoint"]["role"] == ("best_selection" if role == "best" else "final")
     assert run["amplitude"] == {
         "scale_source": "checkpoint_fit_region",
@@ -177,6 +183,57 @@ def test_frozen_checkpoint_inference_records_full_forward_and_truth_metric(
     reloaded = load_ccnet5d_checkpoint(checkpoint)
     for name, tensor in state.items():
         assert torch.equal(tensor, reloaded.model.state_dict()[name])
+
+
+def test_dirty_training_checkpoint_stays_nonformal_in_clean_inference(tmp_path, monkeypatch):
+    source = prepare_ccnet5d_artifacts(tmp_path / "data")
+    artifacts = prepare_ccnet5d_benchmark(source)
+    training_git = {"git_commit": "a" * 40, "git_worktree_dirty": True}
+    inference_git = {"git_commit": "b" * 40, "git_worktree_dirty": False}
+    git_snapshots = []
+
+    def git_metadata():
+        index = len(git_snapshots)
+        assert index < 2
+        assert not (tmp_path / ("train" if index == 0 else "infer")).exists()
+        snapshot = training_git if index == 0 else inference_git
+        git_snapshots.append(snapshot)
+        return snapshot.copy()
+
+    monkeypatch.setattr(run_records, "current_git_metadata", git_metadata)
+    training, _ = _training(tmp_path, source)
+    assert git_snapshots == [training_git]
+    training_run = json.loads((training / "run.json").read_text())
+    for key, value in training_git.items():
+        assert training_run[key] == value
+    for role in ("best", "final"):
+        loaded = load_ccnet5d_checkpoint(training / f"artifacts/{role}.pt")
+        assert loaded.training_provenance["training_run"] == training_git
+
+    checkpoint = training / "artifacts/best.pt"
+    original_hash = file_sha256(checkpoint)
+    config = write_ccnet5d_config(tmp_path / "infer.yaml", ccnet5d_inference_config(artifacts))
+    output = tmp_path / "infer"
+    metrics = _inference(artifacts, config, checkpoint, output)
+
+    assert git_snapshots == [training_git, inference_git]
+    run = json.loads((output / "run.json").read_text())
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text())
+    assert run["status"] == "success"
+    for key, value in inference_git.items():
+        assert run[key] == value
+    for record in (run, inputs_lock):
+        assert record["checkpoint"]["training_provenance"]["training_run"] == training_git
+    assert (
+        metrics["warnings"]
+        == run["warnings"]
+        == [
+            "Training checkpoint was created from a dirty Git worktree; "
+            "this inference run is nonformal."
+        ]
+    )
+    assert json.loads((output / "metrics.json").read_text()) == metrics
+    assert file_sha256(checkpoint) == original_hash
 
 
 def test_benchmark_target_change_cannot_affect_training_rms_weights_or_prediction(tmp_path):

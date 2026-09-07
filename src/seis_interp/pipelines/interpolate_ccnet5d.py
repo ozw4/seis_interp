@@ -83,6 +83,12 @@ def interpolate_ccnet5d_run(
     started = time.perf_counter()
     checkpoint_hash = file_sha256(Path(checkpoint_path))
     loaded = load_ccnet5d_checkpoint(Path(checkpoint_path), device=device)
+    warnings = []
+    if loaded.training_provenance["training_run"]["git_worktree_dirty"]:
+        warnings.append(
+            "Training checkpoint was created from a dirty Git worktree; "
+            "this inference run is nonformal."
+        )
     inputs = load_c3_volume_run_inputs(
         config=config,
         interim_dir=Path(interim_dir),
@@ -140,7 +146,7 @@ def interpolate_ccnet5d_run(
             ),
             "uncovered_trace_count": 0,
             "uncovered_sample_count": 0,
-            "warnings": [],
+            "warnings": warnings,
         }
     )
     checkpoint_record = {
@@ -222,7 +228,7 @@ def interpolate_ccnet5d_run(
             "process_max_rss_scope": "whole_process",
             "torch_num_threads": torch.get_num_threads(),
         },
-        "warnings": [],
+        "warnings": warnings,
     }
     run_records.write_run_outputs(output, config, inputs_lock, metrics, metadata)
     return metrics

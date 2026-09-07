@@ -163,7 +163,8 @@ channels or patch shape after an out-of-memory failure.
 Training writes resolved config, input lock, metrics, run metadata, and
 `artifacts/{patch_plan.json,best.pt,final.pt}`. Frozen inference writes the four records and
 `artifacts/prediction.npy`. Checkpoints preserve constructor, CPU weights, fit RMS, teacher scope,
-input hashes, plan hash, seeds, role, epoch, step, and selection metric. Inference records bind
+input hashes, plan hash, seeds, training-start Git commit/worktree state, role, epoch, step, and
+selection metric. Inference records bind
 the checkpoint SHA-256 and training provenance in addition to the shared benchmark lock.
 
 Report pretraining/selection cost separately from frozen inference cost. Runtime records include
@@ -174,8 +175,10 @@ full-width activation is 128 MiB; this is not a prediction of total training pea
 Acceptance covers independent cross-convolution values and gradients, signed output, supervised
 region isolation, fixed plans/masks, RMS boundaries, LR/cadence, checkpoint reload, halo/full
 forward equivalence, target-truth independence, strict records, and unchanged existing baselines.
-Formal promotion requires `git_worktree_dirty: false`. Generated data, runs, checkpoints, and
-the paper PDF are not committed.
+Formal promotion requires both the inference run's `git_worktree_dirty` and its checkpoint's
+`training_provenance.training_run.git_worktree_dirty` to be `false`. Dirty-checkpoint development
+inference is allowed with a recorded warning; a clean inference checkout does not make its
+training history clean. Generated data, runs, checkpoints, and the paper PDF are not committed.
 
 ## Current result
 

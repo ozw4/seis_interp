@@ -84,6 +84,7 @@ def train_ccnet5d_run(
         encoding="utf-8",
     )
     provenance = {
+        "training_run": dict(git_metadata),
         "source_inputs_lock": source.inputs_lock,
         "patch_plan_sha256": file_sha256(plan_path),
         "patches_random_seed": patches["random_seed"],
