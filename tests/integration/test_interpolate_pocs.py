@@ -96,6 +96,21 @@ def test_run_writes_prediction_metrics_and_complete_records(
     config = _write_config(tmp_path / "config.yaml", artifacts, windowed=windowed)
     output = tmp_path / "run"
     progress: list[str] = []
+    timestamps: list[str] = []
+
+    def recorded_timestamp() -> str:
+        if not timestamps:
+            assert not output.exists()
+            value = "2026-09-07T10:00:00Z"
+        else:
+            saved_prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
+            assert np.all(np.isfinite(saved_prediction))
+            assert not (output / "run.json").exists()
+            value = "2026-09-07T10:00:10Z"
+        timestamps.append(value)
+        return value
+
+    monkeypatch.setattr(run_records, "utc_timestamp", recorded_timestamp)
 
     metrics = interpolate_pocs_run(
         config_path=config,
@@ -146,6 +161,9 @@ def test_run_writes_prediction_metrics_and_complete_records(
     assert run["random_seed"] == 42
     assert run["git_commit"] == git_metadata["git_commit"]
     assert run["git_worktree_dirty"] is git_metadata["git_worktree_dirty"]
+    assert timestamps == ["2026-09-07T10:00:00Z", "2026-09-07T10:00:10Z"]
+    assert run["started_at_utc"] == timestamps[0]
+    assert run["finished_at_utc"] == timestamps[1]
     assert run["pocs"]["frequency_bins"] == "all_rfft_bins"
     assert run["prediction"]["axis_order"] == list(artifacts.volume_metadata["axis_order"])
     assert run["window"]["block_count"] >= 1

@@ -124,6 +124,12 @@ def interpolate_pocs_run(
         }
     )
 
+    _report(progress_reporter, "Writing prediction and immutable run records.")
+    output_directory.mkdir(parents=True, exist_ok=False)
+    prediction_path = output_directory / PREDICTION_RELATIVE_PATH
+    prediction_path.parent.mkdir(parents=True, exist_ok=False)
+    np.save(prediction_path, reconstructed.values, allow_pickle=False)
+    finished_at_utc = run_records.utc_timestamp()
     run_metadata = _run_metadata(
         settings=settings,
         case=case,
@@ -135,16 +141,12 @@ def interpolate_pocs_run(
         warnings=warnings,
         git_metadata=git_metadata,
         started_at_utc=started_at_utc,
+        finished_at_utc=finished_at_utc,
         load_and_verification_seconds=load_and_verification_seconds,
         reconstruction_seconds=reconstruction_seconds,
         evaluation_seconds=evaluation_seconds,
     )
 
-    _report(progress_reporter, "Writing prediction and immutable run records.")
-    output_directory.mkdir(parents=True, exist_ok=False)
-    prediction_path = output_directory / PREDICTION_RELATIVE_PATH
-    prediction_path.parent.mkdir(parents=True, exist_ok=False)
-    np.save(prediction_path, reconstructed.values, allow_pickle=False)
     run_records.write_run_outputs(
         output_directory,
         deepcopy(config),
@@ -233,6 +235,7 @@ def _run_metadata(
     warnings: list[str],
     git_metadata: Mapping[str, str | bool],
     started_at_utc: str,
+    finished_at_utc: str,
     load_and_verification_seconds: float,
     reconstruction_seconds: float,
     evaluation_seconds: float,
@@ -257,7 +260,7 @@ def _run_metadata(
         "volume_id": volume_metadata["volume_id"],
         **git_metadata,
         "started_at_utc": started_at_utc,
-        "finished_at_utc": run_records.utc_timestamp(),
+        "finished_at_utc": finished_at_utc,
         "status": "success",
         "device": "cpu",
         "python_version": platform.python_version(),
