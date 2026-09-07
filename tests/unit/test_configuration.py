@@ -318,10 +318,10 @@ def test_ccnet5d_training_configs_keep_supervision_and_fixed_budgets_separate() 
     ):
         assert formal["supervision"][region] == {
             "time": [0, 384],
-            "source_line": [0, 25],
+            "source_line": [0, 16],
             "shot_in_line": formal_shots,
             "relative_receiver_x": [0, 8],
-            "relative_receiver_y": [18, 50],
+            "relative_receiver_y": [18, 34],
         }
         assert smoke["supervision"][region] == {
             "time": [128, 144],
@@ -331,7 +331,7 @@ def test_ccnet5d_training_configs_keep_supervision_and_fixed_budgets_separate() 
             "relative_receiver_y": [18, 22],
         }
         assert calibration["supervision"][region] == formal["supervision"][region] | {
-            "time": [64, 128]
+            "time": [128, 192]
         }
     axes = ("time", "source_line", "shot_in_line", "relative_receiver_x", "relative_receiver_y")
     for config in (formal, smoke, calibration):

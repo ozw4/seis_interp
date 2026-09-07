@@ -47,3 +47,17 @@ their spatial ranges, patch shape/counts, and seeds fixed. A read-only diagnosti
 values and at least one nonzero sample on every trace in both regions (RMS 0.0658/0.0277,
 rounded). This is an input-feasibility choice, not selection by model score. Zero patches are
 not removed and artificial masks are not redrawn.
+
+For formal and full-width calibration teachers, restrict source lines to `[0,16)` and receiver y
+to `[18,34)`, preserving the original disjoint shot ranges `[27,59)` / `[59,75)` and receiver x
+`[0,8)`. This contains the original `(16,16,16,8,16)` patch. Source line 16 has discontinuous
+shot spacing; source-line restriction alone still leaves missing cells at global indices
+`(3,53,0,49)` and `(5,64,7,35)`. The narrower receiver-y subset excludes both without filling
+labels or relaxing density checks. Shifting shot ranges instead was rejected after an additional
+hole at `(5,76,0,21)` was found in the candidate selection range `[65,81)`.
+
+The dense calibration crop with time `[64,128)` still places the fixed seed-42 selection patch
+at `[67,83)`, where its artificial-missing reference energy is zero. Use `[128,192)` for both
+calibration teacher regions, retaining the 64-sample extent, original patch size, seeds, and
+region-local descriptors. These are geometry and label-energy feasibility checks, not searches
+over model scores. Formal time remains `[0,384)`; calibration inherits its spatial crop.

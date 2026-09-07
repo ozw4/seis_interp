@@ -1,9 +1,9 @@
 extends: config_train.yaml
 supervision:
   fit_region:
-    time: [64, 128]
+    time: [128, 192]
   selection_region:
-    time: [64, 128]
+    time: [128, 192]
 patches:
   fit_count: 1
   selection_count: 1

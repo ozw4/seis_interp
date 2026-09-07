@@ -33,8 +33,10 @@ configs. Ranges are global, zero-based, half-open.
 
 | Region | Time | Source line | Shot in line | Receiver x | Receiver y |
 |---|---|---|---|---|---|
-| Formal fit | `[0,384)` | `[0,25)` | `[27,59)` | `[0,8)` | `[18,50)` |
-| Formal internal selection | `[0,384)` | `[0,25)` | `[59,75)` | `[0,8)` | `[18,50)` |
+| Formal fit | `[0,384)` | `[0,16)` | `[27,59)` | `[0,8)` | `[18,34)` |
+| Formal internal selection | `[0,384)` | `[0,16)` | `[59,75)` | `[0,8)` | `[18,34)` |
+| Calibration fit | `[128,192)` | `[0,16)` | `[27,59)` | `[0,8)` | `[18,34)` |
+| Calibration internal selection | `[128,192)` | `[0,16)` | `[59,75)` | `[0,8)` | `[18,34)` |
 | Smoke fit | `[128,144)` | `[0,2)` | `[27,35)` | `[0,2)` | `[18,22)` |
 | Smoke internal selection | `[128,144)` | `[0,2)` | `[35,43)` | `[0,2)` | `[18,22)` |
 | Formal benchmark | `[0,384)` | `[25,35)` | `[27,59)` | `[0,8)` | `[18,50)` |
@@ -42,9 +44,9 @@ configs. Ranges are global, zero-based, half-open.
 
 Fit and internal selection are spatially disjoint, not merely separate time windows. Benchmark
 validation/test amplitudes are excluded from labels, fit RMS, and internal checkpoint selection.
-The source checks dense geometry and train membership at runtime. The CPU smoke uses a verified
-nonzero teacher time interval; formal/calibration spatial geometry still needs revision before
-training. See Current result below. A hole or
+The source checks dense geometry and train membership at runtime. Formal/calibration teachers
+use the first 16 train source lines and a dense 16-receiver-y subset; the original patch shape
+is unchanged. The CPU smoke uses a verified nonzero teacher time interval. A hole or
 unavailable range must fail, not be silently filled or replaced. Hashing whole source files is
 provenance verification, not model access to nontrain amplitudes.
 
@@ -98,7 +100,7 @@ patches are retained; there is no mask redraw, initial-model evaluation, or step
 `config_train_smoke.yaml` retains four modules, kernel 5, and linear output but uses H/R=4,
 patch `(8,2,4,2,4)`, four fit descriptors, two selection descriptors, and one CPU epoch.
 Its score is not evidence of full-width model performance. `config_train_calibration.yaml`
-retains 64/64 channels and the original patch, restricts teacher time to `[64,128)`, and performs
+retains 64/64 channels and the original patch, restricts teacher time to `[128,192)`, and performs
 one GPU update plus one selection pass. It is resource calibration, not a performance run.
 
 Inference uses only the observed volume and checkpoint RMS. Nonoverlapping output cores acquire
@@ -182,37 +184,15 @@ training history clean. Generated data, runs, checkpoints, and the paper PDF are
 
 ## Current result
 
-Both requested real-data preflights were attempted from clean commit
-`f654f9f97a8a720229ac6d81b7805b5ad21cf615` with eight OMP/MKL/PyTorch CPU threads.
-The isolated checkout imported that commit's `src`; the supplied ZIP files and existing runs
-were preserved. Neither attempt reached model initialization, an optimizer update, or output
-directory creation. The CPU teacher time is now `[128,144)` in both regions; a new clean run
-is pending. Formal/calibration geometry remains unresolved.
+The current teacher crops pass real-C3 source verification and fixed-selection target preflight.
+Formal and calibration fit/selection each contain 65,536/32,768 spatial traces with no shared
+rows; all selected values are finite. Formal fit/selection RMS are 7.8755/8.2312, calibration
+17.2473/16.9012, and CPU smoke 0.0658/0.0277 (rounded). The formal 1,000-descriptor selection
+plan has positive finite aggregate reference energy. These are input-feasibility checks, not
+formal training or model-performance results. See [decisions.md](decisions.md) for the reasons
+behind the ranges.
 
-| Attempted run ID | Requested condition | Preflight result |
-|---|---|---|
-| `20260907T073648Z_f654f9f_train_smoke` | CPU, H/R=4, four modules, kernel 5, four fit/two selection patches, four updates | Rejected: fit amplitude RMS is zero |
-| `20260907T073756Z_f654f9f_gpu_calibration` | `cuda:0`, H/R=64, original patch `(16,16,16,8,16)`, one update plus selection | Rejected: selected shots in source line 16 contain a 160 m gap instead of the required contiguous 80 m grid |
-
-These are attempted IDs, not generated run directories: no `run.json`, checkpoint, prediction,
-loss, benchmark S/N, or CUDA peak-memory measurement was produced. CUDA availability was checked
-on an NVIDIA H100 NVL, but no CCNet GPU forward/backward occurred. CPU checkpoint-to-benchmark
-smoke and full-width resource calibration remain incomplete; no formal training or inference
-has been run.
-
-A bounded read-only amplitude diagnostic on the same smoke spatial rows confirmed that both
-fit and internal selection contain 128 traces and 2,048 finite, exactly zero samples in
-`time=[64,80)`. A separate single geometry candidate narrowed calibration source lines to
-`[0,16)` while preserving other ranges and the original patch size; it also failed because the
-fit crop lacks local spatial cell `(3,26,0,31)` (global source line 3, shot-in-line index 53,
-receiver indices 0 and 49). This candidate was not adopted or trained.
-
-For the CPU smoke only, a read-only check within the already declared formal teacher time
-extent established `time=[128,144)` with the same spatial rows. All values are
-finite, all 128 traces in each region contain a nonzero value, and fit/selection RMS are
-0.0658/0.0277 (rounded). This interval is adopted in both smoke teacher regions, not yet a
-trained or scored result; patch seeds, counts, shapes, and spatial ranges are unchanged.
-
-The next operational steps are a new immutable CPU smoke and geometry-based selection of a
-dense formal/calibration teacher pair. No holes were filled, no zero-label
-patches were filtered, and no width, precision, or patch-size fallback was applied.
+The revised CPU smoke has completed four updates and frozen benchmark prediction from a clean
+checkout; checkpoint replay verification is in progress. Full-width GPU calibration is pending
+execution from the committed crop settings. No formal training or inference has been run. No
+holes were filled, zero-label patches filtered, seeds redrawn, or model/patch dimensions reduced.
