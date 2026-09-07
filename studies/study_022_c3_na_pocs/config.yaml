@@ -1,10 +1,18 @@
-extends: ../../configs/default.yaml
-
 study:
   status: draft
 
 project:
   random_seed: 42
+
+data:
+  dataset_id: seg_c3_na
+  data_root_env: SEIS_INTERP_DATA_ROOT
+
+# Required only to generate the prepare-baseline artifact; POCS does not apply
+# coordinate or amplitude normalization and uses physical amplitudes unchanged.
+normalization:
+  coordinates: train_minmax_linear_plus_azimuth_sin_cos
+  amplitude: train_global_rms
 
 sampling:
   split_scope: c3_source_line_blocks

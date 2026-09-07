@@ -64,6 +64,11 @@ normalization, NMO, AGC, demeaning, padding, a frequency cutoff, early stopping,
 amplitude correction. The preparation artifact's train-only normalization metadata remains part of
 the verified case binding but is not applied to POCS amplitudes.
 
+The study configuration is independent of the SIREN training defaults. Its `normalization`
+section declares only the settings required to generate the prepared baseline artifact;
+POCS does not apply either coordinate or amplitude normalization. `run.json` records the
+POCS amplitude normalization as `none`.
+
 ## Evaluation and comparison protocol
 
 The primary metric is physical-amplitude global S/N over every sample of only the
@@ -71,6 +76,10 @@ The primary metric is physical-amplitude global S/N over every sample of only th
 maximum observed-sample error are supporting diagnostics. Zero-fill is evaluated on exactly the
 same target domain. Observed traces are never mixed into target S/N, and per-trace dB averages or
 oracle-scaled values are not substitutes for the primary metric.
+
+The run requires `evaluation.primary_metric: physical_amplitude_global_snr_db` and
+`evaluation.domain: evaluation_target`; a contradictory declaration is rejected before
+creating the output directory.
 
 Hyperparameters are selected using validation cases. Once selected, iteration count, thresholds,
 and window settings are fixed before evaluating a test case. A test target amplitude must not

@@ -50,6 +50,7 @@ def _prepare_pocs_artifacts(
     *,
     mask_kind: str = RANDOM_TRACE_MASK_KIND,
     target_offset: float = 0.0,
+    time_sample_count: int = 4,
 ) -> _PocsArtifacts:
     tmp_path.mkdir(parents=True, exist_ok=True)
     prepared = prepare_c3_volume_artifacts(
@@ -110,7 +111,7 @@ def _prepare_pocs_artifacts(
         case_dir,
         volume_dir,
         volume_id="synthetic_volume",
-        time_range=(0, 4),
+        time_range=(0, time_sample_count),
         source_line_range=(2, 4),
         shot_in_line_range=(0, 3),
         relative_receiver_x_range=(0, 2),
@@ -158,6 +159,10 @@ def _write_config(
             "selection": artifacts.volume_metadata["selection"],
         },
         "pocs": pocs,
+        "evaluation": {
+            "primary_metric": "physical_amplitude_global_snr_db",
+            "domain": "evaluation_target",
+        },
     }
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return path
@@ -176,11 +181,13 @@ def _run(artifacts: _PocsArtifacts, config: Path, output: Path) -> dict[str, obj
 
 
 @pytest.mark.parametrize("windowed", [False, True])
+@pytest.mark.parametrize("time_sample_count", [3, 4])
 def test_run_writes_prediction_metrics_and_complete_records(
     tmp_path: Path,
     windowed: bool,
+    time_sample_count: int,
 ) -> None:
-    artifacts = _prepare_pocs_artifacts(tmp_path)
+    artifacts = _prepare_pocs_artifacts(tmp_path, time_sample_count=time_sample_count)
     config = _write_config(tmp_path / "config.yaml", artifacts, windowed=windowed)
     output = tmp_path / "run"
     progress: list[str] = []
@@ -232,6 +239,7 @@ def test_run_writes_prediction_metrics_and_complete_records(
     assert run["python_version"]
     assert run["numpy_version"] == np.__version__
     assert run["random_seed"] == 42
+    assert run["pocs"]["frequency_bins"] == "all_rfft_bins"
     assert run["prediction"]["axis_order"] == list(artifacts.volume_metadata["axis_order"])
     assert run["window"]["block_count"] >= 1
     assert run["window"]["requested_shape"] == ([3, 1, 2, 2, 2] if windowed else None)
@@ -324,6 +332,28 @@ def test_invalid_pocs_configuration_creates_no_output(
 
     with pytest.raises(ValueError, match=match):
         _run(artifacts, config, output)
+
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("key", "bad_value"),
+    [("domain", "all_traces"), ("primary_metric", "correlation")],
+)
+def test_invalid_evaluation_contract_creates_no_output(
+    tmp_path: Path,
+    key: str,
+    bad_value: str,
+) -> None:
+    artifacts = _prepare_pocs_artifacts(tmp_path)
+    config_path = _write_config(tmp_path / "config.yaml", artifacts)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["evaluation"][key] = bad_value
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "run"
+
+    with pytest.raises(ValueError, match=f"evaluation.{key}"):
+        _run(artifacts, config_path, output)
 
     assert not output.exists()
 

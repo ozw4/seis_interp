@@ -69,6 +69,7 @@ def interpolate_pocs_run(
     run_records.check_new_output_directory(output_directory)
     config = load_resolved_config(Path(config_path))
     settings = _pocs_settings(config)
+    _validate_evaluation_contract(config)
 
     started_at_utc = run_records.utc_timestamp()
     git_commit = run_records.current_git_commit()
@@ -163,6 +164,15 @@ def interpolate_pocs_run(
         run_metadata,
     )
     return metrics
+
+
+def _validate_evaluation_contract(config: Mapping[str, object]) -> None:
+    config_values.require_exact(
+        config,
+        "evaluation.primary_metric",
+        "physical_amplitude_global_snr_db",
+    )
+    config_values.require_exact(config, "evaluation.domain", "evaluation_target")
 
 
 def _pocs_settings(config: Mapping[str, object]) -> _PocsSettings:
@@ -431,7 +441,7 @@ def _run_metadata(
             "threshold_mode": "hard",
             "threshold_reference": "initial_observed_spectrum_max_per_frequency_and_block",
             "fft_norm": "ortho",
-            "frequency_bins": "all_dc_to_nyquist",
+            "frequency_bins": "all_rfft_bins",
             "amplitude_normalization": "none",
             "fft_internal_dtype": "float64_and_complex128",
         },

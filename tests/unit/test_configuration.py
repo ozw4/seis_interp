@@ -56,6 +56,29 @@ def test_tracked_study_resolves_default_and_study_values() -> None:
     ) == ("studies/study_001_c3_na_baseline/config.yaml")
 
 
+def test_pocs_study_resolves_without_siren_training_settings() -> None:
+    study_config = REPOSITORY_ROOT / "studies" / "study_022_c3_na_pocs" / "config.yaml"
+
+    resolved = load_resolved_config(study_config, repository_root=REPOSITORY_ROOT)
+
+    assert "model" not in resolved
+    assert "training" not in resolved
+    assert "metrics" not in resolved["evaluation"]
+    assert get_required_config_value(resolved, "pocs.n_iterations") == 100
+    assert resolved["normalization"] == {
+        "coordinates": "train_minmax_linear_plus_azimuth_sin_cos",
+        "amplitude": "train_global_rms",
+    }
+
+    smoke = load_resolved_config(study_config.with_name("config_smoke.yaml"))
+
+    assert "model" not in smoke
+    assert "training" not in smoke
+    assert smoke["evaluation"] == resolved["evaluation"]
+    assert smoke["normalization"] == resolved["normalization"]
+    assert get_required_config_value(smoke, "pocs.n_iterations") == 20
+
+
 def test_recursively_merges_mappings_and_replaces_other_values(tmp_path: Path) -> None:
     base = write_config(
         tmp_path / "base.yaml",
