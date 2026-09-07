@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -249,10 +250,21 @@ def test_run_writes_prediction_metrics_and_complete_records(
     assert run["prediction"]["axis_order"] == list(artifacts.volume_metadata["axis_order"])
     assert run["window"]["block_count"] >= 1
     assert run["window"]["requested_shape"] == ([3, 1, 2, 2, 2] if windowed else None)
-    assert inputs_lock["benchmark_case"]["input_files"]
-    assert set(inputs_lock["benchmark_volume"]["files"]) == {
-        "volume_index.parquet",
-        "volume.json",
+    case_path = artifacts.case / "benchmark_case.json"
+    assert inputs_lock == {
+        "benchmark_case": {
+            "case_id": "synthetic_case",
+            "file": "benchmark_case.json",
+            "sha256": hashlib.sha256(case_path.read_bytes()).hexdigest(),
+            "input_files": json.loads(case_path.read_text(encoding="utf-8"))["input_files"],
+        },
+        "benchmark_volume": {
+            "volume_id": "synthetic_volume",
+            "files": {
+                name: {"sha256": hashlib.sha256((artifacts.volume / name).read_bytes()).hexdigest()}
+                for name in ("volume_index.parquet", "volume.json")
+            },
+        },
     }
     assert len(progress) == 4
 
