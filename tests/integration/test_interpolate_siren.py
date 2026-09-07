@@ -11,6 +11,7 @@ import torch
 import yaml
 
 from seis_interp import run_records
+from seis_interp.cli import main
 from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.models.siren import Siren
@@ -606,3 +607,40 @@ def test_unavailable_cuda_fails_before_input_loading_or_output_creation(
     with pytest.raises(RuntimeError, match="CUDA.*unavailable"):
         _run(artifacts, config, output, device_override=device_override)
     assert not output.exists()
+
+
+def test_real_siren_cli_runs_pipeline_with_strict_json_stdout(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
+    config = _write_config(tmp_path / "config.yaml", artifacts, device="cuda:0")
+    output = tmp_path / "cli-run"
+    arguments = ["interpolate", "siren"]
+    for option, path in (
+        ("config", config),
+        ("interim", artifacts.interim),
+        ("processed", artifacts.processed),
+        ("mask", artifacts.mask),
+        ("case", artifacts.case),
+        ("volume", artifacts.volume),
+        ("output", output),
+    ):
+        arguments.extend([f"--{option}", str(path)])
+
+    assert main([*arguments, "--device", "cpu", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    metrics = json.loads(
+        captured.out,
+        parse_constant=lambda value: pytest.fail(f"non-finite JSON constant: {value}"),
+    )
+    assert metrics == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["method"] == "siren_5d"
+    assert metrics["training"]["steps_completed"] == 3
+    assert metrics["observed_max_abs_error"] == 0.0
+    assert "Loading and verifying C3 inputs." in captured.err
+    assert "siren_volume step 3/3:" in captured.err
+    assert "Writing final checkpoint, prediction, and immutable run records." in captured.err
+    assert load_fixed_step_siren_checkpoint(output / CHECKPOINT_RELATIVE_PATH).global_step == 3
+    assert np.isfinite(np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)).all()
+    assert json.loads((output / "run.json").read_text(encoding="utf-8"))["device"] == "cpu"

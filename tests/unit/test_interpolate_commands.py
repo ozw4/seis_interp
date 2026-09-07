@@ -80,6 +80,13 @@ def _install_drr_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: object
     monkeypatch.setitem(sys.modules, module_name, module)
 
 
+def _install_siren_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: object) -> None:
+    module_name = "seis_interp.pipelines.interpolate_siren"
+    module = ModuleType(module_name)
+    module.interpolate_siren_run = function  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module_name, module)
+
+
 def _drr_summary(**kwargs: object) -> dict[str, object]:
     return _summary(**kwargs) | {  # type: ignore[arg-type]
         "method": "damped_rank_reduction_5d",
@@ -391,6 +398,138 @@ def test_drr_requires_all_seven_paths(capsys) -> None:
         assert option in error
 
 
+def test_siren_help_exposes_shared_paths_and_only_device_override(capsys) -> None:
+    assert "siren" in _help_text(["interpolate"], capsys)
+    help_text = _help_text(["interpolate", "siren"], capsys)
+    for option in (
+        "--config",
+        "--interim",
+        "--processed",
+        "--mask",
+        "--case",
+        "--volume",
+        "--output",
+        "--device",
+        "--json",
+    ):
+        assert option in help_text
+    for unsupported in ("--max-steps", "--learning-rate", "--model", "--seed", "--overwrite"):
+        assert unsupported not in help_text
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+@pytest.mark.parametrize("device_override", [None, "cpu"])
+def test_siren_dispatches_paths_and_device_with_progress_always_on_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    json_output: bool,
+    device_override: str | None,
+) -> None:
+    received: dict[str, object] = {}
+    expected = _summary(warnings=["check reconstruction"]) | {
+        "method": "siren_5d",
+        "method_variant": "per_volume_internal_learning_fixed_steps",
+        "uncovered_trace_count": 0,
+    }
+
+    def interpolate_siren_run(**kwargs: object) -> dict[str, object]:
+        received.update(kwargs)
+        reporter = kwargs["progress_reporter"]
+        assert callable(reporter)
+        reporter("Training SIREN step 2/2")
+        return expected
+
+    _install_siren_pipeline_stub(monkeypatch, interpolate_siren_run)
+    arguments = _arguments(tmp_path, "siren")
+    if device_override is not None:
+        arguments.extend(["--device", device_override])
+    if json_output:
+        arguments.append("--json")
+
+    assert main(arguments) == 0
+
+    captured = capsys.readouterr()
+    if json_output:
+        assert (
+            json.loads(
+                captured.out,
+                parse_constant=lambda constant: pytest.fail(f"non-finite constant: {constant}"),
+            )
+            == expected
+        )
+    else:
+        assert captured.out == (
+            f"Output directory: {tmp_path / 'run'}\n"
+            "Method: siren_5d\n"
+            "Benchmark case: synthetic_case\n"
+            "Benchmark volume: synthetic_volume\n"
+            "Target global S/N: 12.5 dB\n"
+            "Target RMSE: 0.25\n"
+            "Observed maximum absolute error: 0.0\n"
+            "Uncovered traces: 0\n"
+            "Uncovered samples: 0\n"
+        )
+    assert "Training SIREN step 2/2" not in captured.out
+    assert captured.err == "Training SIREN step 2/2\nWarning: check reconstruction\n"
+    assert received == {
+        "config_path": tmp_path / "config.yaml",
+        "interim_dir": tmp_path / "interim",
+        "processed_dir": tmp_path / "processed",
+        "mask_dir": tmp_path / "mask",
+        "case_dir": tmp_path / "case",
+        "volume_dir": tmp_path / "volume",
+        "output_dir": tmp_path / "run",
+        "device_override": device_override,
+        "progress_reporter": received["progress_reporter"],
+    }
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FileNotFoundError("missing input"),
+        FileExistsError("run already exists"),
+        OSError("unreadable input"),
+        RuntimeError("CUDA is unavailable"),
+        ValueError("invalid training steps"),
+    ],
+)
+def test_siren_reports_expected_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+) -> None:
+    def interpolate_siren_run(**kwargs: object) -> dict[str, object]:
+        raise error
+
+    _install_siren_pipeline_stub(monkeypatch, interpolate_siren_run)
+
+    assert main(_arguments(tmp_path, "siren")) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"interpolate siren failed: {error}\n"
+
+
+def test_siren_requires_all_seven_paths(capsys) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["interpolate", "siren"])
+
+    assert excinfo.value.code == 2
+    error = capsys.readouterr().err
+    for option in (
+        "--config",
+        "--interim",
+        "--processed",
+        "--mask",
+        "--case",
+        "--volume",
+        "--output",
+    ):
+        assert option in error
+
+
 def test_importing_interpolate_commands_defers_pipeline_and_heavy_dependencies() -> None:
     probe = (
         "import sys\n"
@@ -400,6 +539,7 @@ def test_importing_interpolate_commands_defers_pipeline_and_heavy_dependencies()
         "    for name in (\n"
         "        'seis_interp.pipelines.interpolate_pocs',\n"
         "        'seis_interp.pipelines.interpolate_drr',\n"
+        "        'seis_interp.pipelines.interpolate_siren',\n"
         "        'numpy',\n"
         "        'pandas',\n"
         "        'torch',\n"

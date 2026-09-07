@@ -1,4 +1,4 @@
-"""The ``interpolate`` commands for non-training interpolation methods."""
+"""The ``interpolate`` commands for benchmark-volume interpolation methods."""
 
 from __future__ import annotations
 
@@ -51,6 +51,29 @@ def _interpolate_drr(args: argparse.Namespace) -> int:
         )
     except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
         print(f"interpolate drr failed: {error}", file=sys.stderr)
+        return 1
+
+    _print_run_summary(summary, args.output, json_output=args.json)
+    return 0
+
+
+def _interpolate_siren(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.interpolate_siren import interpolate_siren_run
+
+    try:
+        summary = interpolate_siren_run(
+            config_path=args.config,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            mask_dir=args.mask,
+            case_dir=args.case,
+            volume_dir=args.volume,
+            output_dir=args.output,
+            device_override=args.device,
+            progress_reporter=_print_progress_to_stderr,
+        )
+    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
+        print(f"interpolate siren failed: {error}", file=sys.stderr)
         return 1
 
     _print_run_summary(summary, args.output, json_output=args.json)
@@ -122,7 +145,7 @@ def add_interpolate_commands(
     """Register interpolation command parsers."""
     interpolate = subparsers.add_parser(
         "interpolate",
-        help="Run non-training interpolation methods.",
+        help="Run interpolation methods on verified benchmark volumes.",
     )
     interpolate_commands = interpolate.add_subparsers(
         dest="interpolate_command",
@@ -140,3 +163,10 @@ def add_interpolate_commands(
     )
     _add_c3_volume_run_arguments(drr)
     drr.set_defaults(handler=_interpolate_drr)
+    siren = interpolate_commands.add_parser(
+        "siren",
+        help="Fit a per-volume SIREN on observed C3 samples and interpolate missing traces.",
+    )
+    _add_c3_volume_run_arguments(siren)
+    siren.add_argument("--device", help="Override the configured training device for this run.")
+    siren.set_defaults(handler=_interpolate_siren)

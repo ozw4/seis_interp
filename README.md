@@ -194,11 +194,16 @@ python -m seis_interp.cli train siren \
 
 ## Interpolation commands
 
-`interpolate drr` runs CPU/NumPy damped rank-reduction with the same input-path arguments as `interpolate pocs`.
+The `interpolate` command group runs methods on a verified benchmark volume:
 
-The `interpolate` command group runs non-training interpolation methods. Its `pocs` command is a
-CPU/NumPy implementation and requires an existing prepared partition, interpolation mask,
-benchmark case, and dense C3 volume index:
+```text
+interpolate pocs   CPU/NumPy Fourier POCS-5D
+interpolate drr    CPU/NumPy damped rank-reduction 5D
+interpolate siren  per-volume observed-only SIREN internal learning
+```
+
+All three commands require an existing prepared partition, interpolation mask, benchmark case,
+and dense C3 volume index, with the same seven input/output path arguments:
 
 ```bash
 python -m seis_interp.cli interpolate pocs \
@@ -213,8 +218,14 @@ python -m seis_interp.cli interpolate pocs \
 ```
 
 The immutable run contains the resolved configuration, verified input lock, target-only physical
-amplitude metrics, run metadata, and `artifacts/prediction.npy`. Study-specific POCS and window
-conditions belong in the study configuration.
+amplitude metrics, run metadata, and `artifacts/prediction.npy`. Method-specific conditions
+belong in the study configuration.
+
+`interpolate siren` fits a fresh model for each selected volume using only observed samples and a
+fixed number of training steps. It also writes `artifacts/final.pt`; its final-step checkpoint
+contract is separate from the survey-wide `train siren` contract. Only `interpolate siren` accepts
+`--device` to override the configured training device. Its progress and warnings always go to
+stderr, while stdout contains only the final human-readable summary or strict JSON with `--json`.
 
 ## Run outputs
 

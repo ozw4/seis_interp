@@ -27,6 +27,18 @@ def test_train_parser_exposes_the_four_commands(capsys) -> None:
         assert name in help_text
 
 
+def test_train_and_interpolate_siren_keep_distinct_input_contracts(capsys) -> None:
+    train_help = _help_text(["train", "siren"], capsys)
+    interpolate_help = _help_text(["interpolate", "siren"], capsys)
+
+    for option in ("--config", "--interim", "--processed", "--output", "--device", "--json"):
+        assert option in train_help
+        assert option in interpolate_help
+    for option in ("--mask", "--case", "--volume"):
+        assert option not in train_help
+        assert option in interpolate_help
+
+
 @pytest.mark.parametrize(
     "command",
     ["siren", "neighbor-inpainter", "shot-gather-inpainter", "trace-graph"],
