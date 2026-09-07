@@ -152,6 +152,30 @@ Siren.forward()はdtype変換を行わない。
 
 この変換は`to_model_tensors()`（`src/seis_interp/training/model_inputs.py`）を唯一の実装とする。
 
+## Grid-free trace graph features
+
+Trace graph用の幾何特徴は`src/seis_interp/processing/trace_graph_geometry.py`で別に組み立てる。
+`compute_trace_graph_geometry()`は絶対source/receiver座標`[N,2]`から、既存の
+`compute_trace_geometry()`を用いてCMPとfull offset長を計算する。offset vectorは
+`source - receiver`、方位のsin/cosはそのvectorをoffset長で割った値である。
+`offset_m <= azimuth_min_offset_m`ではsin/cosを0、`azimuth_valid`をFalseとし、
+offset vector自体は保持する。保存済みの物理座標やSIREN特徴の規約は上記のとおりである。
+
+`build_trace_graph_node_features()`には固定のCMP原点、位置・offset尺度、booleanの観測maskを
+明示的に渡す。9次元の順序は、中心化CMPのx/y、offset vectorのx/y、offset長、
+方位sin/cos、方位valid、observedである。CMPには位置尺度、offsetにはoffset尺度を適用する。
+
+`build_trace_graph_edge_features()`にはsender/destination indexと計算済みの無次元relation距離を渡す。
+15次元の順序は、source差のx/y、receiver差のx/y、CMP差のx/y、offset vector差のx/y、
+destinationのoffset長、senderのoffset長、offset長の差、方位差のcos/sin、両端の方位valid、
+relation距離である。差はすべてsender−destinationであり、北向きdestinationに対する
+東向きsenderの方位差sinは+1となる。片端でも方位が無効ならcos/sinと両端validを0にする。
+
+特徴の順序は`NODE_FEATURE_NAMES`と`EDGE_FEATURE_NAMES`、relationのID順は
+`RELATION_NAMES`と`RELATION_IDS`（`source=0, receiver=1, cmp=2, offset_azimuth=3`）で固定する。
+幾何・差分・中心化はfloat64で保持し、この二つのfeature builderの最終出力だけをfloat32へ変換する。
+原点・尺度のfit、近傍選択、振幅の読み込みはこれらの関数の責務に含めない。
+
 ## Regeneration boundary
 
 interim datasetは物理値の`azimuth_deg`だけを保存し、正規化契約を持たない。正規化はprocessed dataset側の契約であり、`normalization.json`、`trace_split.parquet`、`preparation.json`は`prepare-baseline`が一体で生成する。この3ファイルは手編集せず、座標規約または正規化契約を変えたときはprocessed datasetごと再生成する。
