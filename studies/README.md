@@ -31,6 +31,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_022_c3_na_pocs](study_022_c3_na_pocs/README.md) | `draft` | validation C3 volume / Fourier POCS-5D | How well does fixed hard-threshold Fourier POCS-5D reconstruct missing traces? |
 | [study_023_c3_na_drr](study_023_c3_na_drr/README.md) | `draft` | validation C3 volume / damped rank-reduction 5D | How well does fixed damped rank-reduction reconstruct missing traces on the shared POCS benchmark? |
 | [study_024_c3_na_siren_volume](study_024_c3_na_siren_volume/README.md) | `draft` | validation C3 volume / per-volume SIREN | How well does fixed-step observed-only SIREN internal learning reconstruct missing traces on the shared benchmark? |
+| [study_025_c3_na_ccnet5d](study_025_c3_na_ccnet5d/README.md) | `draft` | supervised train-partition CCNet5D / frozen validation inference | How well does pretrained CCNet5D reconstruct the shared benchmark when additional complete train labels are used? |
 
 ## Scratch workspaces
 

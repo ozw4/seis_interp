@@ -1,0 +1,13 @@
+extends: config_train.yaml
+supervision:
+  fit_region:
+    time: [64, 128]
+  selection_region:
+    time: [64, 128]
+patches:
+  fit_count: 1
+  selection_count: 1
+training:
+  max_epochs: 1
+  validate_every_steps: 1
+  report_every_steps: 1

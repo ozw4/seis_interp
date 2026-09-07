@@ -244,6 +244,184 @@ def test_siren_volume_study_uses_shared_benchmark_and_fixed_step_contract() -> N
         assert "schema_version" not in path.read_text(encoding="utf-8")
 
 
+def test_ccnet5d_training_configs_keep_supervision_and_fixed_budgets_separate() -> None:
+    directory = REPOSITORY_ROOT / "studies" / "study_025_c3_na_ccnet5d"
+    path = directory / "config_train.yaml"
+    assert "extends" not in yaml.safe_load(path.read_text(encoding="utf-8"))
+    formal = load_resolved_config(path)
+    smoke = load_resolved_config(directory / "config_train_smoke.yaml")
+    calibration = load_resolved_config(directory / "config_train_calibration.yaml")
+    assert set(formal) == {
+        "study",
+        "project",
+        "data",
+        "model",
+        "supervision",
+        "patches",
+        "training",
+        "selection",
+    }
+    assert formal["model"] == {
+        "name": "ccnet5d",
+        "hidden_channels": 64,
+        "intermediate_channels": 64,
+        "kernel_size": 5,
+        "output_activation": "linear",
+    }
+    assert formal["patches"] == {
+        "shape": [16, 16, 16, 8, 16],
+        "fit_count": 10000,
+        "selection_count": 1000,
+        "missing_fraction": 0.8,
+        "mask_kind": "random_trace",
+        "random_seed": 42,
+    }
+    assert formal["training"] == {
+        "optimizer": "adam",
+        "loss": "mse_complete_patch",
+        "random_seed": 42,
+        "batch_size": 1,
+        "max_epochs": 20,
+        "learning_rate": 1e-4,
+        "decay_after_epochs": 15,
+        "decay_factor": 0.1,
+        "validate_every_steps": 2000,
+        "report_every_steps": 200,
+        "device": "cuda:0",
+    }
+    assert formal["selection"] == {
+        "metric": "missing_global_snr_db",
+        "domain": "held_out_train_partition_patch_instances",
+    }
+    assert smoke["model"] == formal["model"] | {"hidden_channels": 4, "intermediate_channels": 4}
+    assert smoke["patches"] == formal["patches"] | {
+        "shape": [8, 2, 4, 2, 4],
+        "fit_count": 4,
+        "selection_count": 2,
+    }
+    assert smoke["training"] == formal["training"] | {
+        "max_epochs": 1,
+        "validate_every_steps": 2,
+        "report_every_steps": 1,
+        "device": "cpu",
+    }
+    assert calibration["model"] == formal["model"]
+    assert calibration["patches"] == formal["patches"] | {"fit_count": 1, "selection_count": 1}
+    assert calibration["training"] == formal["training"] | {
+        "max_epochs": 1,
+        "validate_every_steps": 1,
+        "report_every_steps": 1,
+    }
+    for region, formal_shots, smoke_shots in (
+        ("fit_region", [27, 59], [27, 35]),
+        ("selection_region", [59, 75], [35, 43]),
+    ):
+        assert formal["supervision"][region] == {
+            "time": [0, 384],
+            "source_line": [0, 25],
+            "shot_in_line": formal_shots,
+            "relative_receiver_x": [0, 8],
+            "relative_receiver_y": [18, 50],
+        }
+        assert smoke["supervision"][region] == {
+            "time": [64, 80],
+            "source_line": [0, 2],
+            "shot_in_line": smoke_shots,
+            "relative_receiver_x": [0, 2],
+            "relative_receiver_y": [18, 22],
+        }
+        assert calibration["supervision"][region] == formal["supervision"][region] | {
+            "time": [64, 128]
+        }
+    axes = ("time", "source_line", "shot_in_line", "relative_receiver_x", "relative_receiver_y")
+    for config in (formal, smoke, calibration):
+        assert config["study"]["status"] == "draft"
+        assert config["data"] == {"dataset_id": "seg_c3_na"}
+        assert config["project"]["random_seed"] == 42
+        assert config["training"]["random_seed"] == config["patches"]["random_seed"] == 42
+        assert config["selection"] == formal["selection"]
+        supervision = config["supervision"]
+        assert supervision["partition"] == "train"
+        assert supervision["amplitude_normalization"] == "fit_region_global_rms"
+        fit, selection = supervision["fit_region"], supervision["selection_region"]
+        assert any(fit[axis][1] <= selection[axis][0] for axis in axes[1:])
+        for region in (fit, selection):
+            assert 0 <= region["source_line"][0] < region["source_line"][1] <= 25
+            assert all(
+                0 < width <= region[axis][1] - region[axis][0]
+                for axis, width in zip(axes, config["patches"]["shape"], strict=True)
+            )
+
+
+def test_ccnet5d_inference_configs_reuse_benchmark_without_training_or_model_settings() -> None:
+    directory = REPOSITORY_ROOT / "studies" / "study_025_c3_na_ccnet5d"
+    assert "extends" not in yaml.safe_load((directory / "config.yaml").read_text(encoding="utf-8"))
+    for filename, device, core_shape in (
+        ("config.yaml", "cuda:0", [32, 8, 16, 8, 16]),
+        ("config_smoke.yaml", "cpu", [16, 4, 8, 8, 8]),
+    ):
+        resolved = load_resolved_config(directory / filename)
+        assert set(resolved) == {
+            "study",
+            "project",
+            "data",
+            "interpolation_mask",
+            "benchmark_case",
+            "benchmark_volume",
+            "prediction",
+            "evaluation",
+        }
+        assert not {"model", "training", "normalization", "pocs", "drr"}.intersection(resolved)
+        assert resolved["data"] == {"dataset_id": "seg_c3_na"}
+        assert resolved["prediction"] == {"device": device, "core_shape": core_shape}
+        for baseline in (
+            "study_022_c3_na_pocs",
+            "study_023_c3_na_drr",
+            "study_024_c3_na_siren_volume",
+        ):
+            expected = load_resolved_config(REPOSITORY_ROOT / "studies" / baseline / filename)
+            for section in (
+                "project",
+                "interpolation_mask",
+                "benchmark_case",
+                "benchmark_volume",
+                "evaluation",
+            ):
+                assert resolved[section] == expected[section]
+        for training_filename in (
+            "config_train.yaml",
+            "config_train_smoke.yaml",
+            "config_train_calibration.yaml",
+        ):
+            teacher = load_resolved_config(directory / training_filename)["supervision"]
+            for region in ("fit_region", "selection_region"):
+                assert (
+                    teacher[region]["source_line"][1]
+                    <= (resolved["benchmark_volume"]["selection"]["source_line"][0])
+                )
+
+
+def test_ccnet5d_inputs_reuse_all_shared_data_and_record_the_paper_reference() -> None:
+    directory = REPOSITORY_ROOT / "studies" / "study_025_c3_na_ccnet5d"
+    inputs = yaml.safe_load((directory / "inputs.yaml").read_text(encoding="utf-8"))
+
+    assert set(inputs) == {"datasets", "references"}
+    for baseline in ("study_022_c3_na_pocs", "study_023_c3_na_drr", "study_024_c3_na_siren_volume"):
+        baseline_path = REPOSITORY_ROOT / "studies" / baseline / "inputs.yaml"
+        assert (
+            inputs["datasets"]
+            == yaml.safe_load(baseline_path.read_text(encoding="utf-8"))["datasets"]
+        )
+    assert inputs["references"] == [
+        {
+            "id": "fang_et_al_2023_ccnet5d",
+            "title": "CCNet-5D: 5D convolutional neural network for seismic data interpolation",
+            "year": 2023,
+            "doi": "10.1190/GEO2022-0420.1",
+        }
+    ]
+
+
 def test_recursively_merges_mappings_and_replaces_other_values(tmp_path: Path) -> None:
     base = write_config(
         tmp_path / "base.yaml",

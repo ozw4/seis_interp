@@ -1,0 +1,26 @@
+extends: config_train.yaml
+model:
+  hidden_channels: 4
+  intermediate_channels: 4
+supervision:
+  fit_region:
+    time: [64, 80]
+    source_line: [0, 2]
+    shot_in_line: [27, 35]
+    relative_receiver_x: [0, 2]
+    relative_receiver_y: [18, 22]
+  selection_region:
+    time: [64, 80]
+    source_line: [0, 2]
+    shot_in_line: [35, 43]
+    relative_receiver_x: [0, 2]
+    relative_receiver_y: [18, 22]
+patches:
+  shape: [8, 2, 4, 2, 4]
+  fit_count: 4
+  selection_count: 2
+training:
+  max_epochs: 1
+  validate_every_steps: 2
+  report_every_steps: 1
+  device: cpu
