@@ -4,9 +4,10 @@ from itertools import product
 
 import pytest
 import torch
+from torch import nn
 from torch.nn import functional as F
 
-from seis_interp.models.ccnet5d import CC3D2D
+from seis_interp.models.ccnet5d import CC3D2D, CCNet5D, ccnet5d_method_variant
 
 
 def _loop_reference(
@@ -159,3 +160,116 @@ def test_cc3d2d_rejects_wrong_input_rank_or_channels(shape: tuple[int, ...]) -> 
 
     with pytest.raises(ValueError, match="shape|channels"):
         module(torch.zeros(shape))
+
+
+def test_ccnet5d_has_exactly_four_modules_and_the_full_width_parameter_count() -> None:
+    model = CCNet5D()
+    channels = [(1, 64, 64), (64, 64, 64), (64, 64, 64), (64, 64, 1)]
+
+    assert list(dict(model.named_children())) == ["network"]
+    assert len(model.network) == 4
+    assert [
+        (module.conv3d.in_channels, module.conv3d.out_channels, module.conv2d.out_channels)
+        for module in model.network
+    ] == channels
+    assert [module.output_activation for module in model.network] == [
+        "relu",
+        "relu",
+        "relu",
+        "linear",
+    ]
+    assert all(
+        type(module) in {CCNet5D, nn.Sequential, CC3D2D, nn.Conv3d, nn.Conv2d}
+        for module in model.modules()
+    )
+    expected_count = sum(
+        intermediate * incoming * 5**3 + intermediate + outgoing * intermediate * 5**2 + outgoing
+        for incoming, intermediate, outgoing in channels
+    )
+    assert expected_count == 1_853_249
+    assert sum(parameter.numel() for parameter in model.parameters()) == expected_count
+
+
+def test_ccnet5d_tiny_forward_preserves_shape_and_gradients() -> None:
+    model = CCNet5D(hidden_channels=3, intermediate_channels=2, kernel_size=3)
+    values = torch.randn(2, 1, 2, 3, 4, 2, 3, requires_grad=True)
+
+    output = model(values)
+    output.square().mean().backward()
+
+    assert output.shape == values.shape
+    assert output.dtype == values.dtype == torch.float32
+    assert values.grad is not None and torch.isfinite(values.grad).all()
+    assert all(
+        parameter.grad is not None and torch.isfinite(parameter.grad).all()
+        for parameter in model.parameters()
+    )
+
+
+def test_ccnet5d_only_final_output_activation_controls_signed_amplitudes() -> None:
+    linear = CCNet5D(hidden_channels=3, intermediate_channels=2, kernel_size=1)
+    relu = CCNet5D(
+        hidden_channels=3, intermediate_channels=2, kernel_size=1, output_activation="relu"
+    )
+    with torch.no_grad():
+        linear.network[-1].conv2d.weight.zero_()
+        linear.network[-1].conv2d.bias.fill_(-1.0)
+    relu.load_state_dict(linear.state_dict(), strict=True)
+    values = torch.randn(2, 1, 2, 3, 1, 2, 4)
+
+    torch.testing.assert_close(linear(values), -torch.ones_like(values), rtol=0.0, atol=0.0)
+    torch.testing.assert_close(relu(values), torch.zeros_like(values), rtol=0.0, atol=0.0)
+    assert [module.output_activation for module in relu.network] == ["relu"] * 4
+
+
+@pytest.mark.parametrize("output_activation", ["linear", "relu"])
+def test_ccnet5d_constructor_and_state_round_trip(output_activation: str) -> None:
+    model = CCNet5D(
+        hidden_channels=3,
+        intermediate_channels=2,
+        kernel_size=3,
+        output_activation=output_activation,
+    )
+    config = model.constructor_config()
+    assert config == {
+        "hidden_channels": 3,
+        "intermediate_channels": 2,
+        "kernel_size": 3,
+        "output_activation": output_activation,
+    }
+    restored = CCNet5D(**config)
+    restored.load_state_dict(model.state_dict(), strict=True)
+    values = torch.randn(1, 1, 2, 3, 1, 2, 4)
+
+    torch.testing.assert_close(restored(values), model(values), rtol=0.0, atol=0.0)
+
+
+@pytest.mark.parametrize(("kernel_size", "radius"), [(5, 8), (3, 4)])
+def test_ccnet5d_halo_radius(kernel_size: int, radius: int) -> None:
+    model = CCNet5D(hidden_channels=2, intermediate_channels=2, kernel_size=kernel_size)
+
+    assert model.halo_radius == radius
+
+
+@pytest.mark.parametrize(
+    ("activation", "expected"),
+    [
+        ("linear", "supervised_train_partition_linear_output"),
+        ("relu", "supervised_train_partition_paper_relu_output"),
+    ],
+)
+def test_ccnet5d_method_variant_matches_final_activation(activation: str, expected: str) -> None:
+    assert ccnet5d_method_variant(activation) == expected
+
+
+@pytest.mark.parametrize(
+    ("changed", "match"),
+    [
+        ({"hidden_channels": 0}, "hidden_channels"),
+        ({"intermediate_channels": False}, "intermediate_channels"),
+        ({"output_activation": "tanh"}, "output_activation"),
+    ],
+)
+def test_ccnet5d_rejects_invalid_constructor_values(changed: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        CCNet5D(**changed)
