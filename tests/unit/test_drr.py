@@ -179,6 +179,62 @@ def test_block_matches_explicit_padded_fft_reference(time_count, fft_length, dty
     np.testing.assert_array_equal(times, original_times)
 
 
+def test_block_matches_independent_complete_drr_reference() -> None:
+    values = np.random.default_rng(53).normal(size=(5, 3, 3, 2, 3))
+    mask = (np.arange(54).reshape(3, 3, 2, 3) * 5) % 7 < 4
+    values[:, ~mask] = np.nan
+    times = 0.5 + np.arange(5) * 0.125
+
+    # Explicit offsets and starts define the 16-by-8 Hankel embedding.
+    offsets = list(np.ndindex(2, 2, 2, 2))
+    starts = list(np.ndindex(2, 2, 1, 2))
+    zero_filled = np.zeros(values.shape, dtype=np.float64)
+    zero_filled[:, mask] = values[:, mask]
+    observed_spectrum = np.fft.rfft(zero_filled, n=8, axis=0, norm="ortho")
+    predicted_spectrum = np.zeros_like(observed_spectrum)
+    for frequency_index in (2, 3, 4):  # Inclusive 2–4 Hz; other bins remain zero.
+        current = observed_spectrum[frequency_index].copy()
+        for _ in range(2):
+            hankel = np.empty((16, 8), dtype=np.complex128)
+            for row, offset in enumerate(offsets):
+                for column, start in enumerate(starts):
+                    position = tuple(start[axis] + offset[axis] for axis in range(4))
+                    hankel[row, column] = current[position]
+            left, singular_values, right_adjoint = np.linalg.svd(hankel, full_matrices=False)
+            leading, discarded = singular_values[:2]
+            damped = leading * (1 - (discarded / leading) ** 3) if leading > 0 else 0.0
+            reduced = damped * np.outer(left[:, 0], right_adjoint[0])
+            total = np.zeros(values.shape[1:], dtype=np.complex128)
+            count = np.zeros(values.shape[1:], dtype=np.int64)
+            for row, offset in enumerate(offsets):
+                for column, start in enumerate(starts):
+                    position = tuple(start[axis] + offset[axis] for axis in range(4))
+                    total[position] += reduced[row, column]
+                    count[position] += 1
+            current = total / count
+            current[mask] = observed_spectrum[frequency_index][mask]
+        predicted_spectrum[frequency_index] = current.real if frequency_index == 4 else current
+    expected = np.fft.irfft(predicted_spectrum, n=8, axis=0, norm="ortho")[:5]
+    expected[:, mask] = values[:, mask]
+
+    actual = interpolate_drr_block(
+        values,
+        mask,
+        times,
+        rank=1,
+        damping_power=3,
+        n_iterations=2,
+        frequency_min_hz=2.0,
+        frequency_max_hz=4.0,
+    )
+
+    assert actual.shape == (5, 3, 3, 2, 3)
+    assert actual.dtype == np.float64
+    assert np.linalg.norm(expected[:, ~mask]) > 0.1
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+    np.testing.assert_array_equal(actual[:, mask], values[:, mask])
+
+
 def test_block_clears_dc_and_nyquist_imaginary_parts_before_inverse(monkeypatch) -> None:
     values, mask, times = _block_fixture()
     real_irfft = np.fft.irfft
