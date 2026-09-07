@@ -42,10 +42,11 @@ configs. Ranges are global, zero-based, half-open.
 
 Fit and internal selection are spatially disjoint, not merely separate time windows. Benchmark
 validation/test amplitudes are excluded from labels, fit RMS, and internal checkpoint selection.
-The source checks dense geometry and train membership at runtime. These new teacher crops have
-not yet been checked on real C3; a hole or unavailable range must fail, not be silently filled or
-replaced. Hashing whole source files is provenance verification, not model access to nontrain
-amplitudes.
+The source checks dense geometry and train membership at runtime. Real-C3 preflight found zero
+fit-label RMS in the specified CPU smoke and a discontinuous source grid in the calibration
+crop; these configurations are not yet usable for training. See Current result below. A hole or
+unavailable range must fail, not be silently filled or replaced. Hashing whole source files is
+provenance verification, not model access to nontrain amplitudes.
 
 The benchmark mask is seed-42 `random_trace` with requested missing fraction 0.8, bound to case
 `c3_na_validation_random_trace_80_seed42`. The formal and smoke volumes have shapes
@@ -175,5 +176,37 @@ the paper PDF are not committed.
 
 ## Current result
 
-Clean smoke and full-width GPU calibration have not yet been run. Teacher-region density on
-real C3 is unverified. No formal training, inference, or performance comparison is reported.
+Both requested real-data preflights were attempted from clean commit
+`f654f9f97a8a720229ac6d81b7805b5ad21cf615` with eight OMP/MKL/PyTorch CPU threads.
+The isolated checkout imported that commit's `src`; the supplied ZIP files and existing runs
+were preserved. Neither attempt reached model initialization, an optimizer update, or output
+directory creation. The configurations remain unchanged pending an explicit teacher-region
+decision.
+
+| Attempted run ID | Requested condition | Preflight result |
+|---|---|---|
+| `20260907T073648Z_f654f9f_train_smoke` | CPU, H/R=4, four modules, kernel 5, four fit/two selection patches, four updates | Rejected: fit amplitude RMS is zero |
+| `20260907T073756Z_f654f9f_gpu_calibration` | `cuda:0`, H/R=64, original patch `(16,16,16,8,16)`, one update plus selection | Rejected: selected shots in source line 16 contain a 160 m gap instead of the required contiguous 80 m grid |
+
+These are attempted IDs, not generated run directories: no `run.json`, checkpoint, prediction,
+loss, benchmark S/N, or CUDA peak-memory measurement was produced. CUDA availability was checked
+on an NVIDIA H100 NVL, but no CCNet GPU forward/backward occurred. CPU checkpoint-to-benchmark
+smoke and full-width resource calibration remain incomplete; no formal training or inference
+has been run.
+
+A bounded read-only amplitude diagnostic on the same smoke spatial rows confirmed that both
+fit and internal selection contain 128 traces and 2,048 finite, exactly zero samples in
+`time=[64,80)`. A separate single geometry candidate narrowed calibration source lines to
+`[0,16)` while preserving other ranges and the original patch size; it also failed because the
+fit crop lacks local spatial cell `(3,26,0,31)` (global source line 3, shot-in-line index 53,
+receiver indices 0 and 49). This candidate was not adopted or trained.
+
+For the CPU smoke only, a read-only check within the already declared formal teacher time
+extent found a nearby candidate `time=[128,144)` with the same spatial rows. All values are
+finite, all 128 traces in each region contain a nonzero value, and fit/selection RMS are
+0.0658/0.0277 (rounded). This is an unadopted crop candidate, not a trained or scored result;
+fixed patch descriptors and artificial masks were not searched or changed.
+
+The next operational step is an explicitly approved revision of the teacher crops, followed by
+new immutable CPU smoke and GPU calibration attempts. No holes were filled, no zero-label
+patches were filtered, and no width, precision, or patch-size fallback was applied.
