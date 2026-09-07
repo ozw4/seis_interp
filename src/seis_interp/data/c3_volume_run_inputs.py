@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from seis_interp import config_values, run_records
 from seis_interp.configuration import ConfigurationError
@@ -29,6 +30,7 @@ class C3VolumeRunInputs:
     """Observed values, verified artifacts, and input hashes for one volume run."""
 
     observed_volume: ObservedC3Volume
+    index_table: pd.DataFrame
     case: dict[str, object]
     volume_metadata: dict[str, object]
     inputs_lock: dict[str, object]
@@ -52,9 +54,14 @@ def load_c3_volume_run_inputs(
         volume_dir=volume_dir,
     )
     case = load_benchmark_case(case_dir)
-    _, volume_metadata = load_c3_volume_index(volume_dir)
+    index_table, volume_metadata = load_c3_volume_index(volume_dir)
     _validate_declared_inputs(config, case=case, volume_metadata=volume_metadata)
     _validate_selected_roles(observed_volume.observed_trace_mask, volume_metadata)
+    if not np.array_equal(
+        index_table["array_row"].to_numpy(dtype=np.int64),
+        observed_volume.array_rows.reshape(-1),
+    ):
+        raise ValueError("volume index array_row order must match the observed volume flat order")
     inputs_lock = _inputs_lock(
         case=case,
         case_directory=case_dir,
@@ -63,6 +70,7 @@ def load_c3_volume_run_inputs(
     )
     return C3VolumeRunInputs(
         observed_volume=observed_volume,
+        index_table=index_table,
         case=case,
         volume_metadata=volume_metadata,
         inputs_lock=inputs_lock,
