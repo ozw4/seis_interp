@@ -226,6 +226,27 @@ def build_trace_points(
     return coordinates, targets
 
 
+def build_trace_coordinate_points(
+    normalized_time: np.ndarray,
+    normalized_spatial_by_row: np.ndarray,
+    rows: np.ndarray,
+) -> np.ndarray:
+    """Expand selected traces in trace-major/time-minor order without targets."""
+    time = np.asarray(normalized_time)
+    spatial = np.asarray(normalized_spatial_by_row)
+    if time.ndim != 1 or not time.size:
+        raise ValueError("normalized_time must be a nonempty one-dimensional array")
+    if spatial.ndim != 2 or not spatial.shape[1]:
+        raise ValueError("normalized_spatial_by_row must be two-dimensional with spatial features")
+    if time.dtype != np.float64 or spatial.dtype != np.float64:
+        raise ValueError("normalized time and spatial coordinates must have dtype float64")
+    selected_rows = _validated_array_rows(rows, spatial.shape[0], "rows")
+    coordinates = np.empty((len(selected_rows) * len(time), spatial.shape[1] + 1), dtype=np.float64)
+    coordinates[:, 0] = np.tile(time, len(selected_rows))
+    coordinates[:, 1:] = np.repeat(spatial[selected_rows], len(time), axis=0)
+    return coordinates
+
+
 def _validated_point_arrays(
     normalized_time: np.ndarray,
     normalized_spatial_by_array_row: np.ndarray,

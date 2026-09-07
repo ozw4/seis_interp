@@ -6,6 +6,7 @@ import pytest
 from seis_interp.training.point_sampler import (
     RandomPointSampler,
     RandomTraceBatchSampler,
+    build_trace_coordinate_points,
     build_trace_points,
 )
 
@@ -18,6 +19,32 @@ def _arrays() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         dtype=np.float32,
     )
     return time, spatial, amplitudes
+
+
+def test_coordinate_only_points_follow_requested_trace_and_time_order() -> None:
+    time = np.array([-1.0, 0.0, 1.0], dtype=np.float64)
+    spatial = np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]], dtype=np.float64)
+    rows = np.array([2, 0], dtype=np.int64)
+    original_time, original_spatial, original_rows = time.copy(), spatial.copy(), rows.copy()
+
+    points = build_trace_coordinate_points(time, spatial, rows)
+
+    np.testing.assert_array_equal(
+        points,
+        [
+            [-1.0, 50.0, 60.0],
+            [0.0, 50.0, 60.0],
+            [1.0, 50.0, 60.0],
+            [-1.0, 10.0, 20.0],
+            [0.0, 10.0, 20.0],
+            [1.0, 10.0, 20.0],
+        ],
+    )
+    assert points.dtype == np.float64
+    assert points.flags.c_contiguous
+    np.testing.assert_array_equal(time, original_time)
+    np.testing.assert_array_equal(spatial, original_spatial)
+    np.testing.assert_array_equal(rows, original_rows)
 
 
 def test_same_seed_produces_same_first_batch_without_changing_global_rng() -> None:
