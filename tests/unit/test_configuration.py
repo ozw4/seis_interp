@@ -128,6 +128,119 @@ def test_drr_study_resolves_only_its_method_and_shared_benchmark_conditions() ->
     ]
 
 
+def test_siren_volume_study_uses_shared_benchmark_and_fixed_step_contract() -> None:
+    study_directory = REPOSITORY_ROOT / "studies" / "study_024_c3_na_siren_volume"
+    config_path = study_directory / "config.yaml"
+    smoke_path = study_directory / "config_smoke.yaml"
+    pocs_directory = REPOSITORY_ROOT / "studies" / "study_022_c3_na_pocs"
+    drr_directory = REPOSITORY_ROOT / "studies" / "study_023_c3_na_drr"
+
+    formal_document = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    smoke_document = yaml.safe_load(smoke_path.read_text(encoding="utf-8"))
+    formal = load_resolved_config(config_path, repository_root=REPOSITORY_ROOT)
+    smoke = load_resolved_config(smoke_path, repository_root=REPOSITORY_ROOT)
+
+    assert "extends" not in formal_document
+    assert set(formal) == {
+        "study",
+        "project",
+        "data",
+        "normalization",
+        "sampling",
+        "interpolation_mask",
+        "benchmark_case",
+        "benchmark_volume",
+        "model",
+        "training",
+        "prediction",
+        "evaluation",
+    }
+    assert not {"pocs", "drr"}.intersection(formal)
+    assert formal["model"] == {
+        "name": "siren",
+        "coordinate_features": "cmp_offset_azimuth",
+        "input_features": 6,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 30.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": None,
+        "skip_connections": None,
+    }
+    assert formal["training"] == {
+        "optimizer": "adam",
+        "loss": "l2",
+        "learning_rate": 1.0e-4,
+        "batch_size": 65536,
+        "max_steps": 20000,
+        "report_interval": 500,
+        "device": "cuda:0",
+    }
+    assert formal["prediction"] == {"batch_size": 262144}
+    assert formal["evaluation"] == {
+        "primary_metric": "physical_amplitude_global_snr_db",
+        "domain": "evaluation_target",
+    }
+    assert set(formal["sampling"]) == {
+        "split_scope",
+        "source_line_ranges",
+        "duplicate_physical_coordinate_policy",
+    }
+
+    assert set(smoke_document) == {"extends", "benchmark_volume", "training", "prediction"}
+    assert smoke["model"] == formal["model"]
+    assert smoke["training"] == {
+        "optimizer": "adam",
+        "loss": "l2",
+        "learning_rate": 1.0e-4,
+        "batch_size": 4096,
+        "max_steps": 100,
+        "report_interval": 20,
+        "device": "cpu",
+    }
+    assert smoke["prediction"] == {"batch_size": 32768}
+
+    shared_sections = (
+        "project",
+        "data",
+        "normalization",
+        "sampling",
+        "interpolation_mask",
+        "benchmark_case",
+        "benchmark_volume",
+        "evaluation",
+    )
+    for filename, siren in (("config.yaml", formal), ("config_smoke.yaml", smoke)):
+        pocs = load_resolved_config(pocs_directory / filename)
+        drr = load_resolved_config(drr_directory / filename)
+        for section in shared_sections:
+            assert siren[section] == pocs[section] == drr[section]
+
+    siren_inputs_path = study_directory / "inputs.yaml"
+    siren_inputs = yaml.safe_load(siren_inputs_path.read_text(encoding="utf-8"))
+    pocs_inputs = yaml.safe_load((pocs_directory / "inputs.yaml").read_text(encoding="utf-8"))
+    drr_inputs = yaml.safe_load((drr_directory / "inputs.yaml").read_text(encoding="utf-8"))
+    assert set(siren_inputs) == {"datasets", "references"}
+    assert siren_inputs["datasets"] == pocs_inputs["datasets"] == drr_inputs["datasets"]
+    assert siren_inputs["references"] == [
+        {
+            "id": "sitzmann_et_al_2020_siren",
+            "title": "Implicit Neural Representations with Periodic Activation Functions",
+            "year": 2020,
+            "arxiv": "2006.09661",
+        },
+        {
+            "id": "liu_et_al_2024_isr",
+            "title": "5-D Seismic Data Interpolation by Continuous Representation",
+            "year": 2024,
+            "doi": "10.1109/TGRS.2024.3431439",
+        },
+    ]
+    for path in (config_path, smoke_path, siren_inputs_path):
+        assert "schema_version" not in path.read_text(encoding="utf-8")
+
+
 def test_recursively_merges_mappings_and_replaces_other_values(tmp_path: Path) -> None:
     base = write_config(
         tmp_path / "base.yaml",

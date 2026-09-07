@@ -1,0 +1,184 @@
+# study_024_c3_na_siren_volume
+
+## Status
+
+`draft`
+
+## Research question
+
+On the same SEG C3 Narrow-Azimuth validation volume and seed-42 `random_trace` 80% benchmark
+used by Studies 022 and 023, how well does a SIREN fitted only to observed coordinate-amplitude
+samples reconstruct the `evaluation_target` traces after a fixed optimizer-step budget?
+
+## Inputs and common benchmark
+
+`inputs.yaml` binds the same four SEG-Y checksums, all-FFID interim dataset, source-line split,
+mask, case, and formal/smoke volume paths as
+[POCS Study 022](../study_022_c3_na_pocs/README.md) and
+[DRR Study 023](../study_023_c3_na_drr/README.md). The physical source-line split is train
+`[0, 25)`, validation `[25, 35)`, and test `[35, 50)`. Duplicate physical trace cells retain
+the lowest `array_row`.
+
+The study uses the validation `random_trace` mask with requested missing fraction 0.8 and seed 42.
+Both volumes bind benchmark case `c3_na_validation_random_trace_80_seed42`:
+
+| Use | Time | Source line | Shot in line | Receiver x | Receiver y |
+|---|---:|---:|---:|---:|---:|
+| Formal candidate | `[0, 384)` | `[25, 35)` | `[27, 59)` | `[0, 8)` | `[18, 50)` |
+| Smoke | `[64, 128)` | `[25, 29)` | `[27, 35)` | `[0, 8)` | `[18, 34)` |
+
+The formal candidate contains 81,920 spatial traces. The smoke crop contains 4,096 spatial
+traces, keeps every spatial axis non-singleton, and uses the same nonzero-signal interval as the
+other common-benchmark studies. These are explicit repository crops, not published reference
+crops. Requested and realized missing fractions remain separate recorded quantities.
+
+## Method and positioning
+
+The method is `siren_5d` with
+`method_variant: per_volume_internal_learning_fixed_steps`. One new coordinate network is fitted
+for each selected volume. Its six features are:
+
+```text
+time_s
+cmp_x_m
+cmp_y_m
+offset_m
+azimuth_sin
+azimuth_cos
+```
+
+Time and geometry bounds are fitted over the known time axis and all known selected-volume
+coordinates. Amplitude scale is one global RMS fitted only from samples on observed traces.
+Training divides observed amplitudes by that RMS; prediction multiplies by it to return to the
+physical-amplitude domain.
+
+The formal candidate uses a width-256 SIREN with four sine layers, one output, and both
+`omega_0` and `hidden_omega` equal to 30. Adam minimizes point-wise L2 at learning rate
+`1.0e-4`. Each update samples 65,536 observed points uniformly with replacement, and training
+stops after exactly 20,000 optimizer steps. There is no scheduler, early stopping, target
+validation, best-checkpoint selection, mixed precision, or gradient accumulation. The saved
+`artifacts/final.pt` is the final fixed-step model, not a selected `best.pt`.
+
+The smoke condition retains the same model, omega values, and learning rate while reducing the
+training batch to 4,096 points, the budget to 100 steps, the reporting interval to 20, and the
+prediction batch to 32,768 points on CPU. It checks the execution contract and is not a
+performance-comparison condition.
+
+This internal-learning setup follows the observed-coordinate fitting and missing-coordinate query
+problem framing of [Liu et al. (2024)](https://doi.org/10.1109/TGRS.2024.3431439), while using the
+repository's existing [SIREN](https://arxiv.org/abs/2006.09661) implementation. It is a SIREN
+baseline, not a complete reproduction of ISR. It also differs from
+[Study 016](../study_016_all_ffid_siren/README.md), which trains one survey-wide model with
+within-FFID holdouts. This study trains one model per benchmark volume with the same input
+visibility available to POCS and DRR.
+
+## Leakage contract
+
+- Only `observed_trace_mask == true` coordinate-amplitude samples enter the sampler and loss.
+- The amplitude RMS is fitted only from observed trace samples.
+- All selected coordinates may fit geometry bounds because acquisition geometry is known.
+- Evaluation-target amplitudes are first materialized at the common evaluation boundary after
+  training and full-volume prediction.
+- Target metrics do not select a checkpoint, stop training, or alter an individual run.
+- Model and training conditions must be fixed on validation before any future test-case result is
+  inspected.
+
+The full volume is queried in bounded coordinate chunks, converted back to physical amplitude,
+and then given hard observed-data consistency by reinserting the input observed traces exactly.
+The model's observed fit error before reinsertion remains a diagnostic.
+
+## Evaluation and selection protocol
+
+The primary metric is physical-amplitude global S/N over all samples of only the
+`evaluation_target` traces. Target-only RMSE, relative L2, and zero-fill metrics support that
+score. Observed model RMSE and maximum absolute error before reinsertion diagnose the learned
+function; the shared evaluator verifies zero observed error after reinsertion.
+
+The run requires `evaluation.primary_metric: physical_amplitude_global_snr_db` and
+`evaluation.domain: evaluation_target`. A contradictory declaration is rejected before output
+creation. Validation results may inform a later study-level choice, but no target metric may
+change the model within the run. No minimum S/N is an implementation acceptance criterion.
+
+## Reproduction
+
+Reuse the existing Study 022 benchmark artifacts; do not regenerate or overwrite valid shared
+inputs. If they are absent, follow Study 022's prepare-baseline, mask, benchmark-case, and volume
+index commands.
+
+For a reproducible smoke, use a clean checkout whose `src` is the imported package. From the
+repository root, with the shared local artifacts available:
+
+```bash
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)_$(git rev-parse --short HEAD)_smoke"
+
+OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 PYTHONPATH="$PWD/src" \
+  python -m seis_interp.cli interpolate siren \
+  --config studies/study_024_c3_na_siren_volume/config_smoke.yaml \
+  --interim data/interim/c3_na/all_ffids \
+  --processed data/processed/c3_na/c3_source_line_blocks_seed42 \
+  --mask data/processed/c3_na/c3_source_line_blocks_seed42/masks/validation-random-trace-80-seed42 \
+  --case data/processed/c3_na/c3_source_line_blocks_seed42/cases/c3_na_validation_random_trace_80_seed42 \
+  --volume data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34 \
+  --output "runs/study_024_c3_na_siren_volume/$RUN_ID" \
+  --device cpu \
+  --json
+```
+
+The two thread environment variables bound CPU parallelism for this smoke invocation without
+changing the study's numerical configuration. `run.json` records the effective Torch thread
+count as `resources.torch_num_threads` so the intended limit can be checked.
+
+Do not launch the formal candidate or a parameter sweep as part of implementation or smoke
+preparation.
+
+## Expected generated outputs
+
+Each successful run creates exactly:
+
+```text
+config.resolved.yaml
+inputs.lock.json
+metrics.json
+run.json
+artifacts/final.pt
+artifacts/prediction.npy
+```
+
+The fixed-final checkpoint stores CPU weights, all SIREN constructor values, volume-local
+normalization, coordinate metadata, completed steps, and final batch loss. The prediction is a
+finite physical-amplitude array with the selected five-dimensional shape and exact observed-trace
+reinsertion. Generated data, checkpoints, predictions, and run directories are not committed.
+
+## Compute reporting
+
+`run.json` records parameter count, optimizer steps, point batch size, prediction batch size,
+training and prediction seconds, process maximum RSS, and effective Torch threads. CUDA runs also
+record peak allocated and reserved memory. It also binds the Git commit and worktree state,
+verified inputs, device, versions, coordinate and amplitude scale sources, and artifact paths.
+
+## Acceptance criteria
+
+- Training and normalization depend on observed amplitudes only.
+- Changing only correctly rebound target truth can change metrics but not checkpoint weights or
+  prediction.
+- Both common mask kinds work in synthetic integration tests, and a same-seed CPU rerun is
+  numerically repeatable.
+- Chunked prediction remains finite, restores physical amplitude, and preserves observed traces
+  exactly.
+- The final checkpoint reloads the same model constructor and scaling contract.
+- Strict run records contain the actual model, training, prediction, resource, and provenance
+  conditions.
+- Promotion to a formal result requires a clean worktree; dirty development runs remain allowed
+  and are explicitly recorded.
+
+## Limitations
+
+This initial one-seed, one-architecture condition does not sweep capacity, frequencies, learning
+rate, batch size, or optimizer budget. It uses physical coordinates only, trains one model per
+volume, and has no scheduler, early stopping, AMP, distributed training, pretrained model, or
+survey-wide training. Large target gaps may be difficult for a physical-coordinate SIREN. The
+smoke crop is execution evidence only and cannot support a formal performance conclusion.
+
+## Current result
+
+Implementation complete; clean-commit C3 smoke not yet recorded.
