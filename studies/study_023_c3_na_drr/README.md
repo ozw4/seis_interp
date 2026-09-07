@@ -35,10 +35,10 @@ International*, 206(3), 1695–1717. No external GPL implementation was copied o
 
 This is the reconstruction-only, hard observed-data consistency variant with a fixed
 iteration count, not the paper's simultaneous denoising/reconstruction mode with relaxed
-observation weights and convergence stopping. `metrics.json` and `run.json` identify it as
-`method_variant: reconstruction_only_hard_consistency`; `run.json` also records
-`drr.mode: reconstruction_only`. Local spatial-window and acquisition-grid conditions are
-specified below and recorded separately.
+observation weights and convergence stopping. The pipeline records
+`method_variant: reconstruction_only_hard_consistency` in `metrics.json` and `run.json`,
+and `drr.mode: reconstruction_only` in `run.json`. Local spatial-window and acquisition-grid
+conditions are specified below and recorded separately.
 
 Axes are `(time, source_line, shot_in_line, relative_receiver_x, relative_receiver_y)`.
 An orthonormal time rFFT, padded to the smallest power of two at least as large as the time

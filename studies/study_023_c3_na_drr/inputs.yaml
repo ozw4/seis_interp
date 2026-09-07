@@ -40,4 +40,10 @@ datasets:
       formal: ../../data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_t0_384_sl25_35_sh27_59_rx0_8_ry18_50
       smoke: ../../data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34
 
-references: []
+references:
+  - id: chen_et_al_2016_damped_rank_reduction
+    title: >-
+      Simultaneous denoising and reconstruction of 5-D seismic data via damped
+      rank-reduction method
+    year: 2016
+    doi: 10.1093/gji/ggw230

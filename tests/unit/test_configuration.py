@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from seis_interp.configuration import (
     DEFAULT_CONFIG_PATH,
@@ -109,10 +110,22 @@ def test_drr_study_resolves_only_its_method_and_shared_benchmark_conditions() ->
             "spatial_window_shape": window,
             "spatial_overlap": [0, 0, 0, 0],
         }
-    assert (
-        study_config.with_name("inputs.yaml").read_bytes()
-        == pocs_config.with_name("inputs.yaml").read_bytes()
-    )
+    drr_inputs = yaml.safe_load(study_config.with_name("inputs.yaml").read_text(encoding="utf-8"))
+    pocs_inputs = yaml.safe_load(pocs_config.with_name("inputs.yaml").read_text(encoding="utf-8"))
+    drr_references = drr_inputs.pop("references")
+    pocs_inputs.pop("references")
+    assert drr_inputs == pocs_inputs
+    assert drr_references == [
+        {
+            "id": "chen_et_al_2016_damped_rank_reduction",
+            "title": (
+                "Simultaneous denoising and reconstruction of 5-D seismic data via "
+                "damped rank-reduction method"
+            ),
+            "year": 2016,
+            "doi": "10.1093/gji/ggw230",
+        }
+    ]
 
 
 def test_recursively_merges_mappings_and_replaces_other_values(tmp_path: Path) -> None:
