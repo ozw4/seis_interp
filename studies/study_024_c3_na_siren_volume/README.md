@@ -32,6 +32,11 @@ traces, keeps every spatial axis non-singleton, and uses the same nonzero-signal
 other common-benchmark studies. These are explicit repository crops, not published reference
 crops. Requested and realized missing fractions remain separate recorded quantities.
 
+`project.random_seed: 42` belongs to this benchmark identity: it must agree with the seed used to
+construct the bound mask and case. The separate `training.random_seed: 42` fixes SIREN parameter
+initialization and observed-point sampler draws. They deliberately begin with the same value, but
+their data-binding and optimization roles are independent.
+
 ## Method and positioning
 
 The method is `siren_5d` with
@@ -105,7 +110,7 @@ Reuse the existing Study 022 benchmark artifacts; do not regenerate or overwrite
 inputs. If they are absent, follow Study 022's prepare-baseline, mask, benchmark-case, and volume
 index commands.
 
-For a reproducible smoke, use a clean checkout whose `src` is the imported package. From the
+For a reproducible CPU smoke, use a clean checkout whose `src` is the imported package. From the
 repository root, with the shared local artifacts available:
 
 ```bash
@@ -127,6 +132,28 @@ OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 PYTHONPATH="$PWD/src" \
 The two thread environment variables bound CPU parallelism for this smoke invocation without
 changing the study's numerical configuration. `run.json` records the effective Torch thread
 count as `resources.torch_num_threads` so the intended limit can be checked.
+
+To run the same smoke condition on the first CUDA device, keep `config_smoke.yaml` unchanged and
+override only its effective device:
+
+```bash
+GPU_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)_$(git rev-parse --short HEAD)_gpu_smoke"
+
+OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 PYTHONPATH="$PWD/src" \
+  python -m seis_interp.cli interpolate siren \
+  --config studies/study_024_c3_na_siren_volume/config_smoke.yaml \
+  --interim data/interim/c3_na/all_ffids \
+  --processed data/processed/c3_na/c3_source_line_blocks_seed42 \
+  --mask data/processed/c3_na/c3_source_line_blocks_seed42/masks/validation-random-trace-80-seed42 \
+  --case data/processed/c3_na/c3_source_line_blocks_seed42/cases/c3_na_validation_random_trace_80_seed42 \
+  --volume data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34 \
+  --output "runs/study_024_c3_na_siren_volume/$GPU_RUN_ID" \
+  --device cuda:0 \
+  --json
+```
+
+The resolved run configuration records `cuda:0`; model, optimizer, budget, prediction batch, and
+the inherited `training.random_seed` remain the smoke condition above.
 
 Do not launch the formal candidate or a parameter sweep as part of implementation or smoke
 preparation.
@@ -153,8 +180,16 @@ reinsertion. Generated data, checkpoints, predictions, and run directories are n
 
 `run.json` records parameter count, optimizer steps, point batch size, prediction batch size,
 training and prediction seconds, process maximum RSS, and effective Torch threads. CUDA runs also
-record peak allocated and reserved memory. It also binds the Git commit and worktree state,
-verified inputs, device, versions, coordinate and amplitude scale sources, and artifact paths.
+record peak allocated and reserved memory, GPU name, compute capability, total device memory,
+PyTorch CUDA build, cuDNN version, float32 matmul precision, and CUDA matmul/cuDNN TF32 flags.
+The model parameter dtype and training input/target tensor dtypes are recorded separately from
+the stored data dtype. These fields describe the effective numerical conditions; they do not
+promise bitwise agreement between different GPU models or software builds.
+
+The record also binds the Git commit and worktree state, verified inputs, device, versions,
+coordinate and amplitude scale sources, and artifact paths. Top-level `random_seed` and
+`input.mask.random_seed` denote the benchmark seed; `training.random_seed` denotes the independent
+model-initialization and point-sampling seed.
 
 ## Acceptance criteria
 
@@ -163,6 +198,8 @@ verified inputs, device, versions, coordinate and amplitude scale sources, and a
   prediction.
 - Both common mask kinds work in synthetic integration tests, and a same-seed CPU rerun is
   numerically repeatable.
+- Changing only the training seed can change model weights while preserving the input lock,
+  case, mask, evaluation-target counts, and observed-only amplitude RMS.
 - Chunked prediction remains finite, restores physical amplitude, and preserves observed traces
   exactly.
 - The final checkpoint reloads the same model constructor and scaling contract.
@@ -181,10 +218,15 @@ smoke crop is execution evidence only and cannot support a formal performance co
 
 ## Current result
 
-The clean CPU smoke run is
-[`20260907T054518Z_9c07ccf_smoke`](../../runs/study_024_c3_na_siren_volume/20260907T054518Z_9c07ccf_smoke/).
-It records implementation commit `9c07ccfa0236e7c40cb3412dd1348e803dd77a4f`,
+The clean CPU smoke run ID is `20260907T054518Z_9c07ccf_smoke`; its immutable local directory is
+`runs/study_024_c3_na_siren_volume/20260907T054518Z_9c07ccf_smoke/`. It records implementation
+commit `9c07ccfa0236e7c40cb3412dd1348e803dd77a4f`,
 `git_worktree_dirty: false`, and `status: success`.
+
+This historical run predates the separate `training.random_seed` field. At its recorded commit,
+`project.random_seed: 42` supplied both model initialization and sampler draws. Its six generated
+files remain unchanged; the current study configuration makes the same training seed explicit for
+subsequent runs without rewriting this immutable evidence.
 
 The run uses the smoke crop above, shape `[64, 4, 8, 8, 16]` in `float32`, with the shared
 validation random-trace 80% mask and seed 42. The realized missing fraction is 0.7996.

@@ -11,8 +11,15 @@ runs/<study-id>/<YYYYMMDDThhmmssZ_gitsha[_condition]>/
 ├── metrics.json
 ├── run.json
 └── artifacts/
-    └── best.pt
+    ├── best.pt
+    ├── final.pt
+    └── prediction.npy
 ```
+
+The artifact entries are method-dependent alternatives, not three files required in every run.
+Model-selection training pipelines write `best.pt`; fixed-step per-volume SIREN writes `final.pt`
+and `prediction.npy`; POCS and DRR interpolation write `prediction.npy` without a checkpoint.
+Each run contains only the artifacts produced by its method.
 
 A runner that trains several conditions in one invocation writes one such directory per condition plus a sibling summary JSON sharing the timestamp and Git SHA prefix; the training-fit diagnostics record metrics only and write no `artifacts/`.
 
