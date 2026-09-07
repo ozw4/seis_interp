@@ -147,7 +147,7 @@ sampling:
   source_line_ranges:
     train: [0, 25]
     validation: [25, 35]
-    test: [35, 51]
+    test: [35, 50]
 
 interpolation_mask:
   partition: test
@@ -158,10 +158,10 @@ benchmark_case:
   id: c3_na_test_random_trace_80_seed42
 
 benchmark_volume:
-  id: c3_na_test_t0_384_sl35_51_sh27_59_rx0_8_ry18_50
+  id: c3_na_test_t0_384_sl35_50_sh27_59_rx0_8_ry18_50
   selection:
     time: [0, 384]
-    source_line: [35, 51]
+    source_line: [35, 50]
     shot_in_line: [27, 59]
     relative_receiver_x: [0, 8]
     relative_receiver_y: [18, 50]
