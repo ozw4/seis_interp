@@ -9,7 +9,10 @@ import pytest
 import torch
 
 from seis_interp.evaluation import ccnet5d_selection
-from seis_interp.evaluation.ccnet5d_selection import evaluate_ccnet5d_selection
+from seis_interp.evaluation.ccnet5d_selection import (
+    evaluate_ccnet5d_selection,
+    validate_ccnet5d_selection_targets,
+)
 
 PATCH_SHAPE = (1, 2, 1, 1, 1)
 OBSERVED_MASK = np.array([True, False], dtype=np.bool_).reshape(PATCH_SHAPE[1:])
@@ -39,6 +42,52 @@ def _patch(observed_value: float, missing_label: float) -> tuple[np.ndarray, ...
     labels = np.array([observed_value, missing_label], dtype=np.float32).reshape(PATCH_SHAPE)
     inputs = np.where(OBSERVED_MASK[None], labels, 0.0).astype(np.float32)
     return inputs, labels, OBSERVED_MASK.copy()
+
+
+def test_target_preflight_reads_every_fixed_descriptor_and_keeps_zero_patches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patches = (_patch(5.0, 0.0), _patch(0.0, 3.0))
+    requested = []
+
+    def load(source: object, plan: object, *, region: str, index: int) -> tuple[np.ndarray, ...]:
+        requested.append((region, index))
+        return patches[index]
+
+    monkeypatch.setattr(ccnet5d_selection, "load_ccnet_patch", load)
+
+    assert validate_ccnet5d_selection_targets(_source(), _plan()) is None
+    assert requested == [("selection", 0), ("selection", 1)]
+
+
+def test_target_preflight_rejects_zero_aggregate_missing_reference_energy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested = []
+
+    def load(source: object, plan: object, *, region: str, index: int) -> tuple[np.ndarray, ...]:
+        requested.append((region, index))
+        return _patch(99.0, 0.0)
+
+    monkeypatch.setattr(ccnet5d_selection, "load_ccnet_patch", load)
+
+    with pytest.raises(ValueError, match="selection target reference energy"):
+        validate_ccnet5d_selection_targets(_source(), _plan())
+
+    assert requested == [("selection", 0), ("selection", 1)]
+
+
+def test_target_preflight_rejects_nonfinite_physical_reference_energy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ccnet5d_selection,
+        "load_ccnet_patch",
+        lambda *args, **kwargs: _patch(0.0, 1.0),
+    )
+
+    with pytest.raises(ValueError, match="selection target reference energy"):
+        validate_ccnet5d_selection_targets(_source(rms=1e308), _plan(count=1))
 
 
 def test_selection_accumulates_physical_energies_over_patch_instances(

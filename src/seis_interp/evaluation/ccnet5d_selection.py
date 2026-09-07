@@ -14,6 +14,46 @@ from seis_interp.training.ccnet5d_patches import CCNetPatchPlan, load_ccnet_patc
 SELECTION_METRIC_SCOPE = "selection_patch_instances_missing_only"
 
 
+def validate_ccnet5d_selection_targets(
+    source: C3SupervisedSource,
+    plan: CCNetPatchPlan,
+) -> None:
+    """Require positive finite energy across the fixed artificial-missing targets.
+
+    Every selection descriptor is retained and read exactly once. In particular,
+    an individual all-zero patch is valid when the aggregate selection reference
+    energy remains positive.
+    """
+    amplitude_rms = _positive_finite_float(source.amplitude_rms, "source.amplitude_rms")
+    patch_count = len(plan.selection)
+    if patch_count == 0:
+        raise ValueError("selection patch plan must not be empty")
+
+    reference_energy = 0.0
+    for index in range(patch_count):
+        inputs, labels, observed_mask = load_ccnet_patch(
+            source,
+            plan,
+            region="selection",
+            index=index,
+        )
+        _, labels, observed_mask = _validated_patch(
+            inputs,
+            labels,
+            observed_mask,
+            patch_shape=plan.patch_shape,
+        )
+        reference = _missing_physical_reference(
+            labels,
+            observed_mask,
+            amplitude_rms=amplitude_rms,
+        )
+        with np.errstate(over="ignore", invalid="ignore"):
+            reference_energy += float(np.sum(np.square(reference), dtype=np.float64))
+    if not math.isfinite(reference_energy) or reference_energy <= 0.0:
+        raise ValueError("selection target reference energy must be positive and finite")
+
+
 def evaluate_ccnet5d_selection(
     model: torch.nn.Module,
     source: C3SupervisedSource,
@@ -125,7 +165,11 @@ def _missing_physical_energies(
     if predictions.shape != labels.shape:
         raise ValueError("CCNet-5D selection prediction shape must match labels")
     missing_mask = np.broadcast_to(~observed_mask, labels.shape)
-    reference = labels[missing_mask].astype(np.float64, copy=False) * amplitude_rms
+    reference = _missing_physical_reference(
+        labels,
+        observed_mask,
+        amplitude_rms=amplitude_rms,
+    )
     prediction = np.asarray(predictions)[missing_mask].astype(np.float64, copy=False)
     prediction *= amplitude_rms
     if not np.all(np.isfinite(reference)) or not np.all(np.isfinite(prediction)):
@@ -137,6 +181,16 @@ def _missing_physical_energies(
     if not math.isfinite(reference_energy) or not math.isfinite(error_energy):
         raise ValueError("CCNet-5D selection energies must be finite")
     return reference_energy, error_energy, int(reference.size)
+
+
+def _missing_physical_reference(
+    labels: np.ndarray,
+    observed_mask: np.ndarray,
+    *,
+    amplitude_rms: float,
+) -> np.ndarray:
+    missing_mask = np.broadcast_to(~observed_mask, labels.shape)
+    return labels[missing_mask].astype(np.float64, copy=False) * amplitude_rms
 
 
 def _positive_finite_float(value: object, name: str) -> float:

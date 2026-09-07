@@ -11,6 +11,7 @@ from seis_interp import run_records
 from seis_interp.cli import main
 from seis_interp.data.c3_supervised_source import load_c3_supervised_source
 from seis_interp.data.file_checksums import file_sha256
+from seis_interp.pipelines import train_ccnet5d as train_ccnet5d_pipeline
 from seis_interp.pipelines.train_ccnet5d import train_ccnet5d_run
 from seis_interp.training.ccnet5d_checkpoints import load_ccnet5d_checkpoint
 from tests.fixtures.ccnet5d_artifacts import prepare_ccnet5d_artifacts
@@ -180,6 +181,26 @@ def test_preflight_rejects_without_output(tmp_path, problem):
     output = tmp_path / "run"
     with pytest.raises(ValueError):
         _run(artifacts, path, output)
+    assert not output.exists()
+
+
+def test_zero_energy_selection_targets_fail_before_model_optimizer_or_output(tmp_path, monkeypatch):
+    artifacts = prepare_ccnet5d_artifacts(tmp_path / "data", nonfit_value=0.0)
+    config = write_ccnet5d_config(tmp_path / "config.yaml", ccnet5d_training_config(artifacts))
+    output = tmp_path / "run"
+
+    def unexpected_model(*args, **kwargs):
+        pytest.fail("model must not be initialized before selection target preflight")
+
+    def unexpected_optimizer(*args, **kwargs):
+        pytest.fail("optimizer must not be initialized before selection target preflight")
+
+    monkeypatch.setattr(train_ccnet5d_pipeline, "CCNet5D", unexpected_model)
+    monkeypatch.setattr(torch.optim, "Adam", unexpected_optimizer)
+
+    with pytest.raises(ValueError, match="selection target reference energy"):
+        _run(artifacts, config, output)
+
     assert not output.exists()
 
 

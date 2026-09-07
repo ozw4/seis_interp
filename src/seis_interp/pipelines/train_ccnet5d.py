@@ -15,6 +15,7 @@ from seis_interp import config_values, run_records
 from seis_interp.configuration import ConfigurationError, load_resolved_config
 from seis_interp.data.c3_supervised_source import load_c3_supervised_source
 from seis_interp.data.file_checksums import file_sha256
+from seis_interp.evaluation.ccnet5d_selection import validate_ccnet5d_selection_targets
 from seis_interp.models.ccnet5d import CCNet5D, ccnet5d_method_variant
 from seis_interp.training.ccnet5d_checkpoints import save_ccnet5d_checkpoint
 from seis_interp.training.ccnet5d_patches import make_ccnet_patch_plan
@@ -70,6 +71,7 @@ def train_ccnet5d_run(
         missing_fraction=patches["missing_fraction"],
         random_seed=patches["random_seed"],
     )
+    validate_ccnet5d_selection_targets(source, plan)
     seed_global_model_initialization(trainer_options["random_seed"], device=device)
     model = CCNet5D(**model_config).float()
     variant = ccnet5d_method_variant(model.output_activation)

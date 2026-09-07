@@ -91,6 +91,9 @@ and internal selection divide by this fixed scalar. Mean removal, shift, clippin
 benchmark-target-fitted normalization are absent. Descriptors and whole-trace artificial masks
 remain fixed across epochs; only their visitation order is shuffled. `best.pt` retains the earliest smallest
 internal relative squared error; `final.pt` retains the last update. There is no early stopping.
+Before model initialization or output creation, all fixed selection descriptors must have
+positive finite aggregate reference energy on their artificial missing samples. Individual zero
+patches are retained; there is no mask redraw, initial-model evaluation, or step-0 selection.
 
 `config_train_smoke.yaml` retains four modules, kernel 5, and linear output but uses H/R=4,
 patch `(8,2,4,2,4)`, four fit descriptors, two selection descriptors, and one CPU epoch.
