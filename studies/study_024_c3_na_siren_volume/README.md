@@ -218,6 +218,45 @@ smoke crop is execution evidence only and cannot support a formal performance co
 
 ## Current result
 
+### GPU execution smoke
+
+Run ID: `20260907T062042Z_a7c4986_gpu_smoke`
+
+Local generated path:
+`runs/study_024_c3_na_siren_volume/20260907T062042Z_a7c4986_gpu_smoke/`
+
+This run records commit `a7c4986b98325f16cc426cc6d3173408edf32de8`,
+`git_worktree_dirty: false`, `status: success`, and `device: cuda:0`. It completed the configured
+100 steps on the same smoke volume and mask, with benchmark seed 42 and independent training
+seed 42. Model, training input, and training target tensors are all `float32`; CPU threads are 8.
+Observed and target counts and the observed-only RMS are unchanged from the CPU smoke below.
+
+The device is an NVIDIA H100 NVL, compute capability `[9, 0]`, with 99,951,706,112 bytes total
+memory. PyTorch is `2.5.0a0+b465a5843b.nv24.09`, its CUDA build is `12.6`, and the cuDNN version
+is `90400`. Float32 matmul precision is `high`; CUDA matmul TF32 and cuDNN TF32 are both enabled.
+The recorded cuDNN benchmark flag is true and deterministic flag is false. These are recorded
+execution conditions, not a cross-device determinism guarantee.
+
+| Quantity | GPU smoke measurement |
+|---|---:|
+| Final batch loss (before the last update) | 0.4991 |
+| Physical-amplitude target global S/N | 1.2455 dB |
+| Target RMSE / relative L2 | 3.4720 / 0.8664 |
+| Observed model RMSE / maximum absolute error before reinsertion | 3.1720 / 69.1605 |
+| Observed maximum absolute error after reinsertion | exactly 0.0 |
+| Peak CUDA allocated / reserved memory | 162.2725 MiB / 186.0000 MiB |
+| Training / prediction time | 1.1673 s / 0.0677 s |
+| Whole-process peak CPU RSS | 1082.6992 MiB |
+
+The run contains the six expected files, finite predictions, no uncovered samples or traces,
+and no warnings. Reloading `final.pt` onto the same GPU and replaying the recorded numerical
+settings reproduces all 262,144 saved prediction points bitwise, including exact observed-trace
+reinsertion and both pre-reinsertion diagnostics. This check did not retrain the model or modify
+the generated run files. The input lock is identical to the CPU SIREN, POCS, and DRR smoke locks.
+Full-precision generated records are authoritative; displayed measurements are rounded.
+
+### CPU execution smoke
+
 The clean CPU smoke run ID is `20260907T054518Z_9c07ccf_smoke`; its immutable local directory is
 `runs/study_024_c3_na_siren_volume/20260907T054518Z_9c07ccf_smoke/`. It records implementation
 commit `9c07ccfa0236e7c40cb3412dd1348e803dd77a4f`,
@@ -257,8 +296,8 @@ CPU/thread setup. Predictions are finite and observed traces are bitwise preserv
 lock is identical to the clean POCS and DRR smoke input locks.
 Full-precision records in the run are authoritative; displayed measurements are rounded.
 
-This is smoke execution-contract evidence, not a formal-volume result, a tuned result, or a
+Both runs are smoke execution-contract evidence, not formal-volume results, tuned results, or a
 performance conclusion against POCS/DRR. No test-partition result has been inspected. Later
 validation screening may examine step budget, learning rate, omega values, exponential layer
-schedules, dense skip connections, or coordinate representation, without changing this immutable
-run or using target metrics for within-run checkpoint selection.
+schedules, dense skip connections, or coordinate representation, without changing these immutable
+runs or using target metrics for within-run checkpoint selection.
