@@ -14,6 +14,11 @@ from seis_interp.data.c3_volume_adapter import (
     volume_to_trace_predictions,
 )
 from seis_interp.data.trace_store import AMPLITUDES_FILE_NAME
+from seis_interp.evaluation.physical_amplitude_metrics import (
+    physical_amplitude_energies,
+    physical_amplitude_snr,
+    physical_amplitude_target_metrics,
+)
 from seis_interp.processing.c3_volume_index import validated_index_range
 
 _TARGET_TRACE_CHUNK_SIZE = 1024
@@ -77,7 +82,9 @@ def evaluate_c3_volume_prediction(
             trace_predictions[positions],
             name="evaluation target predictions",
         )
-        chunk_reference_energy, chunk_error_energy = _energies(reference, prediction)
+        chunk_reference_energy, chunk_error_energy = physical_amplitude_energies(
+            reference, prediction
+        )
         reference_energy += chunk_reference_energy
         error_energy += chunk_error_energy
         if not math.isfinite(reference_energy) or not math.isfinite(error_energy):
@@ -85,7 +92,7 @@ def evaluate_c3_volume_prediction(
 
     trace_count = int(len(target_positions))
     sample_count = trace_count * (time_stop - time_start)
-    target_metrics = _target_metrics(
+    target_metrics = physical_amplitude_target_metrics(
         trace_count=trace_count,
         sample_count=sample_count,
         reference_energy=reference_energy,
@@ -201,49 +208,12 @@ def _finite_float64(values: np.ndarray, *, name: str) -> np.ndarray:
     return converted
 
 
-def _energies(reference: np.ndarray, prediction: np.ndarray) -> tuple[float, float]:
-    with np.errstate(over="ignore", invalid="ignore"):
-        reference_energy = float(np.sum(np.square(reference), dtype=np.float64))
-        difference = reference - prediction
-        error_energy = float(np.sum(np.square(difference), dtype=np.float64))
-    if not math.isfinite(reference_energy) or not math.isfinite(error_energy):
-        raise ValueError("evaluation energies must be finite")
-    return reference_energy, error_energy
-
-
-def _target_metrics(
-    *,
-    trace_count: int,
-    sample_count: int,
-    reference_energy: float,
-    error_energy: float,
-) -> dict[str, object]:
-    snr_db, snr_status = _snr(reference_energy, error_energy)
-    rmse = float(math.sqrt(error_energy / sample_count))
-    relative_l2 = (
-        None if reference_energy == 0.0 else float(math.sqrt(error_energy / reference_energy))
-    )
-    _require_finite_metric(rmse, "RMSE")
-    if relative_l2 is not None:
-        _require_finite_metric(relative_l2, "relative L2")
-    return {
-        "trace_count": trace_count,
-        "sample_count": sample_count,
-        "reference_energy": reference_energy,
-        "error_energy": error_energy,
-        "snr_db": snr_db,
-        "snr_status": snr_status,
-        "rmse": rmse,
-        "relative_l2": relative_l2,
-    }
-
-
 def _zero_fill_metrics(
     *,
     sample_count: int,
     reference_energy: float,
 ) -> dict[str, object]:
-    snr_db, snr_status = _snr(reference_energy, reference_energy)
+    snr_db, snr_status = physical_amplitude_snr(reference_energy, reference_energy)
     rmse = float(math.sqrt(reference_energy / sample_count))
     _require_finite_metric(rmse, "zero-fill RMSE")
     return {
@@ -251,16 +221,6 @@ def _zero_fill_metrics(
         "snr_status": snr_status,
         "rmse": rmse,
     }
-
-
-def _snr(reference_energy: float, error_energy: float) -> tuple[float | None, str]:
-    if reference_energy == 0.0:
-        return None, "undefined_zero_reference"
-    if error_energy == 0.0:
-        return None, "perfect_reconstruction"
-    snr_db = float(10.0 * (math.log10(reference_energy) - math.log10(error_energy)))
-    _require_finite_metric(snr_db, "SNR")
-    return snr_db, "finite"
 
 
 def _observed_max_abs_error(
