@@ -138,7 +138,7 @@ python -m seis_interp.cli data verify-c3-benchmark --input data/processed/c3_na/
 raw検証はSEG-Y 4ファイルすべてサイズとSHA-256が一致、終了コード0。
 新しいdataset download、既存artifactの上書き、旧Studyの利用履歴調査は実施していない。
 
-最終チェックの正確なコマンドは以下。ruff checkは成功、format checkは422ファイル変更不要、
+準備完了時のチェックの正確なコマンドは以下。ruff checkは成功、format checkは422ファイル変更不要、
 pytestは176 passed（12.62秒）、diff checkは成功。full suiteは実行していない。
 
 ```bash
@@ -154,3 +154,31 @@ partition、mask、採点、全入口の観測/target対応、targetだけを変
 入力・予測がtarget振幅に依存しない一方で採点energyは変わることを確認した。
 hash改変・missing file・別caseのvolume・誤った指標・crop外context・部分成功によるlockも拒否した。
 これらは入力隔離と準備の検証結果であり、各モデルの補間精度を示すものではない。
+
+## 準備後の設定・入力ロード修正
+
+mask条件とseedの正本を `inputs.yaml:cases` に一本化し、現在のstudy configから
+重複した `c3_benchmark.mask_recipes` 宣言を削除した。case一覧の欠損率・seedの変更が
+生成するmask設定へ反映され、partition seedと学習設定は変わらないことを確認した。
+
+通常のsuite readerは共通入力と対象caseのhash・契約・bindingを確認する。
+QCや全caseのmask再生成は完全verifyの責務とし、
+`VerifiedC3BenchmarkSuite` で同一実行内の検証済みmanifestを明示的に共有できる。
+複数caseと4種類のreaderを使う回帰テストでは、完全検証は最初の1回だけで、
+その後の入力ロード中のQC・mask再生成は0回。共通入力や対象caseのhash検証と
+既存の下位readerの検証は各ロード時に残す。実行時間の短縮率は計測していない。
+
+変更された必要ファイル・manifest・異なるdirectory/dimensionsの再利用を拒否する。
+無関係なcaseのファイル欠落は対象caseの入力ロードを妨げず、独立した完全verifyでは検出する。
+既存の20ケースと生成時設定snapshotは変更せず、完全verifyは同じmanifest SHA-256で成功した。
+
+修正後のチェックはruff check成功、format checkは424ファイル変更不要、
+関連pytestは133 passed（17.46秒）、diff check成功。full suiteは実行していない。
+
+```bash
+ruff check .
+ruff format --check .
+pytest tests/unit/test_c3_benchmark_contract.py tests/unit/test_c3_benchmark_masks.py tests/unit/test_c3_benchmark_cli.py tests/unit/test_data_cli.py tests/integration/test_c3_benchmark_suite.py tests/integration/test_c3_benchmark_inputs.py tests/integration/test_c3_benchmark_conformance.py tests/integration/test_c3_volume_run_inputs.py tests/unit/test_trace_graph_domain.py tests/unit/test_c3_supervised_source.py
+git diff --check
+python -m seis_interp.cli data verify-c3-benchmark --input data/processed/c3_na/study_027_c3_na_benchmark --json
+```

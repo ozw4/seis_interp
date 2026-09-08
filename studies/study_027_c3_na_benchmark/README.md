@@ -55,6 +55,8 @@ testはrandom trace欠損50/80/90%、whole-FFID欠損50/80%、各seed42/43/44の
 validationは同じ5条件をseed142で作った。maskはcanonical partition全体を母集団とし、
 同一partition内ではcropを共有する。実現率を合わせるseedの引き直しはしていない。
 学習seed `[20260908]` はmask seedと分離した設定値であり、学習は未実行。
+今後のsuiteのmask条件・seedは `inputs.yaml:cases` だけを編集する。
+`config.yaml` の重複する `c3_benchmark.mask_recipes` 宣言は削除した。
 
 主指標は `evaluation_target` の `physical_amplitude_global_snr_db`。
 物理振幅単位のtarget全体で信号energyと誤差energyをそれぞれ合計してから
@@ -67,6 +69,8 @@ SHA-256は `6447a35cc7d4de43532ee8e2e0de3245ac0e93d855efa7ff59c98a85e1631cab`。
 `config.yaml` と `inputs.yaml` は確定値・参照を記録する現在の設定であり、
 生成時の設定はmanifestが束ねる `sources/` とresolved設定へ保存してある。
 生成時のHEADとdirty状態を後からの文書更新で書き換えない。
+通常のreaderは共通入力と対象caseを検証し、全caseのQC・mask再生成は完全verifyで行う。
+同じ実行内では `VerifiedC3BenchmarkSuite` を4種類のsuite readerへ明示的に共有できる。
 
 [準備報告](../../reports/c3_benchmark_preparation_20260908.md)に各caseの実現欠損率、
 QC、生成時の記録、実行・検証コマンドを記載した。

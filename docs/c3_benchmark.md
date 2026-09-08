@@ -51,7 +51,10 @@ nonempty, every source line must be covered, and FFIDs and canonical physical
 pairs must not cross roles. Validation uses at most 16 available lines, the same
 time range and shot/receiver lengths, and the same start-selection rule.
 
-The finite case list is in `inputs.yaml`. Each mask is sampled from its entire
+The finite `inputs.yaml:cases` list is the sole source of suite mask conditions
+and seeds. `config.yaml` contains the crop and training contract; it has no
+`c3_benchmark.mask_recipes` copy. Each case config is generated from its entry.
+Each mask is sampled from its entire
 canonical partition with the existing RNG, sorting and rounding rules. The
 same premask crop is reused for all cases of a partition. Both nominal and
 realized crop missing fractions are recorded, including fully missing FFIDs.
@@ -66,8 +69,12 @@ CCNet's existing scale is fitted on its chosen fit-region subset of the allowed
 train pool, and the graph scale is fitted on its allowed unmasked training pool.
 The suite readers check the selected training time explicitly.
 
-The public functions in `data/c3_benchmark_inputs.py` connect verified artifacts
-to the existing model readers:
+The public functions in `data/c3_benchmark_inputs.py` check the common input
+hashes, partition/time contract, and files needed by the requested reader.
+A case read also checks its recipe, config, binding, and fixed crop mapping.
+They do not recompute signal QC or regenerate any masks. The existing lower-level
+readers retain their own hash, binding, row, geometry and observation checks.
+Only preparation and full verification inspect all cases.
 
 | Function | Consumer and boundary |
 |---|---|
@@ -75,6 +82,31 @@ to the existing model readers:
 | `load_c3_benchmark_graph_domain` | GNN support and queries; the matching `volume_dir` is required. |
 | `load_c3_benchmark_training_graph_domain` | Exact canonical train rows and training time, before episode masking. |
 | `load_c3_benchmark_supervised_source` | CCNet teacher regions and RMS, constrained to allowed train rows/time. |
+
+For an explicit full verification before multiple reads in one process, construct
+`VerifiedC3BenchmarkSuite` once and pass it to any of these four functions:
+
+```python
+from pathlib import Path
+from seis_interp.data.c3_benchmark_suite import VerifiedC3BenchmarkSuite
+from seis_interp.data.c3_benchmark_inputs import load_c3_benchmark_volume_inputs
+
+suite_dir = Path("data/processed/c3_na/study_027_c3_na_benchmark")
+verified = VerifiedC3BenchmarkSuite(suite_dir)  # One complete verification.
+for case_id in (
+    "c3_benchmark_test_random_trace_50_seed42",
+    "c3_benchmark_test_random_trace_50_seed43",
+):
+    inputs = load_c3_benchmark_volume_inputs(suite_dir, case_id, verified_suite=verified)
+```
+
+This object pins the manifest, directory and expected dimensions for the run;
+it is not a persistent cache. A changed manifest or required file is rejected.
+Common/selected file hashes and lower-level reader checks still run on each
+read, including hashing the amplitudes. Unrelated case files are inspected by
+full verification, not by an individual case or train-pool read. Omitting
+`verified_suite` checks the current manifest and requested inputs directly,
+without declaring that the unrelated cases have been reverified.
 
 Case configs translate mask seeds into the existing data CLI's
 `project.random_seed`; they are data-preparation configs, not training configs.
@@ -110,3 +142,5 @@ are separate checks. The manifest is written only after validation succeeds.
 Source configuration snapshots carry their original paths and exact hashes;
 generation records capture the commit and dirty-worktree state at execution.
 Later document edits do not rewrite the generation record or its snapshots.
+The already frozen suite retains its original configuration snapshots; removing
+the duplicate recipe declaration from the current study does not rewrite it.

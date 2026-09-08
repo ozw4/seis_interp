@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -60,6 +62,28 @@ INFERENCE_CONTRACT = {
 }
 
 
+@dataclass(frozen=True)
+class VerifiedC3BenchmarkSuite:
+    """Fully verify once and pin the manifest for explicit reuse within one run.
+
+    Input readers still check their required files and existing case bindings.
+    This object is not a persistent cache or permission to use changed inputs.
+    """
+
+    directory: Path
+    dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS
+    _manifest: dict = field(init=False, repr=False, compare=False)
+    _manifest_sha256: str = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        directory = Path(self.directory).resolve()
+        object.__setattr__(self, "directory", directory)
+        object.__setattr__(
+            self, "_manifest", verify_c3_benchmark_suite(directory, dimensions=self.dimensions)
+        )
+        object.__setattr__(self, "_manifest_sha256", file_sha256(directory / SUITE_FILE_NAME))
+
+
 def suite_path(directory: Path, reference: object) -> Path:
     """Resolve one portable reference against the manifest's declared directory."""
     if (
@@ -74,34 +98,18 @@ def suite_path(directory: Path, reference: object) -> Path:
 
 def benchmark_suite_files(directory: Path, suite: Mapping) -> list[Path]:
     """Enumerate required artifacts explicitly, including both mask and volume files."""
-    paths = [
-        directory / name
-        for name in (
-            "config.resolved.yaml",
-            "inputs.resolved.yaml",
-            "partition_summary.json",
-            "train_pool.npy",
-        )
-    ]
-    for group, names in (
-        ("interim", INTERIM_FILES),
-        ("processed", PARTITION_FILES),
-        ("geometry", ("geometry.json", "sail_line_mapping.parquet")),
-    ):
-        paths.extend(suite_path(directory, suite[group]) / name for name in names)
+    paths = _input_suite_files(directory, suite, None)
+    paths.extend(
+        suite_path(directory, suite["geometry"]) / name
+        for name in ("geometry.json", "sail_line_mapping.parquet")
+    )
     for reference in suite["crops"].values():
         crop = suite_path(directory, reference)
         paths.extend(crop / name for name in ("crop.json", "crop_index.parquet"))
         if (crop / "crop_qc.png").is_file():
             paths.append(crop / "crop_qc.png")
     for entry in suite["cases"]:
-        for key, names in (
-            ("mask_dir", ("observation_mask.parquet", "interpolation_mask.json")),
-            ("case_dir", ("benchmark_case.json",)),
-            ("volume_dir", ("volume.json", "volume_index.parquet")),
-        ):
-            paths.extend(suite_path(directory, entry[key]) / name for name in names)
-        paths.append(suite_path(directory, entry["config_file"]))
+        paths.extend(_case_suite_files(directory, entry))
     for source in suite["source_records"]:
         paths.append(suite_path(directory, source["file"]))
     return sorted(set(path.resolve() for path in paths))
@@ -135,25 +143,9 @@ def verify_c3_benchmark_suite(
     """Recompute hashes and semantic relationships read-only, without a repair mode."""
     directory = Path(directory).resolve()
     suite = read_benchmark_json(directory / SUITE_FILE_NAME) if candidate is None else candidate
-    if suite.get("path_base") != "manifest_directory" or suite.get("status") != "locked":
-        raise ValueError("suite must declare a locked manifest_directory contract")
-    if suite.get("inference") != INFERENCE_CONTRACT:
-        raise ValueError("suite inference must restrict amplitudes to same-crop observed traces")
-    validate_c3_volume_evaluation_config({"evaluation": suite.get("evaluation")})
+    _validate_suite_header(suite)
     hashes = _verified_suite_hashes(directory, suite)
-    config = yaml.safe_load((directory / "config.resolved.yaml").read_text())
-    inputs = yaml.safe_load((directory / "inputs.resolved.yaml").read_text())
-    dimensions.validate(config)
-    if suite["contract"] != config["c3_benchmark"]:
-        raise ValueError("suite contract does not match its resolved configuration")
-    if (
-        config["c3_benchmark"]["inference"] != suite["inference"]
-        or config["evaluation"] != suite["evaluation"]
-    ):
-        raise ValueError("resolved inference/evaluation contract differs from suite")
-    recipes = validated_benchmark_cases(inputs["cases"])
-    if [{key: entry[key] for key in recipes[0]} for entry in suite["cases"]] != recipes:
-        raise ValueError("suite does not contain the complete configured case list in order")
+    config = _load_suite_configuration(directory, suite, dimensions)
     for source in suite["source_records"]:
         if hashes[suite_path(directory, source["file"])]["sha256"] != source["sha256"]:
             raise ValueError("configuration source snapshot hash mismatch")
@@ -236,6 +228,147 @@ def verify_c3_benchmark_suite(
     return suite
 
 
+def load_c3_benchmark_input_manifest(
+    directory: Path,
+    *,
+    case_id: str | None = None,
+    dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
+    verified_suite: VerifiedC3BenchmarkSuite | None = None,
+) -> dict:
+    """Check common inputs and an optional case without rerunning suite-wide QC.
+
+    Preparation and standalone verification establish geometry, QC and mask RNG
+    conformance. Here hashes bind only the files needed by the requested reader;
+    its existing lower-level validation remains responsible for actual inputs.
+    """
+    directory = Path(directory).resolve()
+    if verified_suite is None:
+        suite = read_benchmark_json(directory / SUITE_FILE_NAME)
+    else:
+        if verified_suite.directory != directory or verified_suite.dimensions != dimensions:
+            raise ValueError("verified suite directory/dimensions do not match requested inputs")
+        if file_sha256(directory / SUITE_FILE_NAME) != verified_suite._manifest_sha256:
+            raise ValueError("suite manifest changed after complete verification")
+        suite = deepcopy(verified_suite._manifest)
+    _validate_suite_header(suite)
+    entry = None if case_id is None else c3_suite_case(suite, case_id)
+    _verified_suite_hashes(
+        directory, suite, required_paths=_input_suite_files(directory, suite, entry)
+    )
+    config = _load_suite_configuration(directory, suite, dimensions)
+    _validate_input_partition(directory, suite, config, dimensions)
+    if entry is not None:
+        _validate_input_case(directory, suite, entry, config, dimensions)
+    return suite
+
+
+def _validate_suite_header(suite: dict) -> None:
+    if suite.get("path_base") != "manifest_directory" or suite.get("status") != "locked":
+        raise ValueError("suite must declare a locked manifest_directory contract")
+    if suite.get("inference") != INFERENCE_CONTRACT:
+        raise ValueError("suite inference must restrict amplitudes to same-crop observed traces")
+    validate_c3_volume_evaluation_config({"evaluation": suite.get("evaluation")})
+
+
+def _load_suite_configuration(directory: Path, suite: dict, dimensions: C3BenchmarkDimensions):
+    config = yaml.safe_load((directory / "config.resolved.yaml").read_text())
+    inputs = yaml.safe_load((directory / "inputs.resolved.yaml").read_text())
+    dimensions.validate(config)
+    if suite["contract"] != config["c3_benchmark"]:
+        raise ValueError("suite contract does not match its resolved configuration")
+    if (
+        config["c3_benchmark"]["inference"] != suite["inference"]
+        or config["evaluation"] != suite["evaluation"]
+    ):
+        raise ValueError("resolved inference/evaluation contract differs from suite")
+    recipes = validated_benchmark_cases(inputs["cases"])
+    if [{key: entry[key] for key in recipes[0]} for entry in suite["cases"]] != recipes:
+        raise ValueError("suite does not contain the complete configured case list in order")
+    return config
+
+
+def _input_suite_files(directory: Path, suite: dict, entry: dict | None) -> list[Path]:
+    paths = [
+        directory / name
+        for name in (
+            "config.resolved.yaml",
+            "inputs.resolved.yaml",
+            "partition_summary.json",
+            "train_pool.npy",
+        )
+    ]
+    for group, names in (("interim", INTERIM_FILES), ("processed", PARTITION_FILES)):
+        paths.extend(suite_path(directory, suite[group]) / name for name in names)
+    if entry is not None:
+        paths.extend(_case_suite_files(directory, entry))
+        crop_dir = suite_path(directory, suite["crops"][entry["partition"]])
+        paths.extend(crop_dir / name for name in ("crop.json", "crop_index.parquet"))
+    return [path.resolve() for path in paths]
+
+
+def _case_suite_files(directory: Path, entry: dict) -> list[Path]:
+    paths = [suite_path(directory, entry["config_file"])]
+    for key, names in (
+        ("mask_dir", ("observation_mask.parquet", "interpolation_mask.json")),
+        ("case_dir", ("benchmark_case.json",)),
+        ("volume_dir", ("volume.json", "volume_index.parquet")),
+    ):
+        paths.extend(suite_path(directory, entry[key]) / name for name in names)
+    return paths
+
+
+def _validate_input_partition(directory, suite, config, dimensions):
+    summary = read_benchmark_json(directory / "partition_summary.json")
+    if summary != suite["partition_summary"]:
+        raise ValueError("partition summary differs from the suite")
+    lines = config["c3_benchmark"]["sail_lines"]
+    ranges = c3_benchmark_partition_ranges(tuple(lines["index_range"]), lines["source_line_count"])
+    expected = {key: list(value) for key, value in ranges.items()}
+    preparation = read_benchmark_json(
+        suite_path(directory, suite["processed"]) / "preparation.json"
+    )
+    if any(
+        value != expected
+        for value in (
+            summary["source_line_ranges"],
+            config["sampling"]["source_line_ranges"],
+            preparation["source_line_ranges"],
+        )
+    ):
+        raise ValueError("input partition ranges differ from the fixed suite contract")
+    dataset = read_benchmark_json(suite_path(directory, suite["interim"]) / "dataset.json")
+    if dataset["dataset_id"] != config["data"]["dataset_id"]:
+        raise ValueError("configured dataset differs from suite input")
+    if suite["train_pool"] != {
+        "file": "train_pool.npy",
+        "trace_count": summary["canonical_trace_counts"]["train"],
+        "time_samples": list(dimensions.time_range),
+    } or summary["training_time_samples"] != list(dimensions.time_range):
+        raise ValueError("authorized training pool/time contract mismatch")
+
+
+def _validate_input_case(directory, suite, entry, config, dimensions):
+    partition = entry["partition"]
+    crop_dir = suite_path(directory, suite["crops"][partition])
+    crop = read_benchmark_json(crop_dir / "crop.json")
+    selection = _validated_crop_selection(crop, partition, config, dimensions)
+    index, volume = load_c3_volume_index(suite_path(directory, entry["volume_dir"]))
+    if volume["selection"] != selection or not index.equals(
+        pd.read_parquet(crop_dir / "crop_index.parquet")
+    ):
+        raise ValueError("case volume differs semantically from the fixed premask crop")
+    case = load_bound_benchmark_case(volume, case_dir=suite_path(directory, entry["case_dir"]))
+    if (
+        case["case_id"] != entry["case_id"]
+        or case["partition"] != partition
+        or any(
+            case["mask"][key] != entry[key] for key in ("kind", "missing_fraction", "random_seed")
+        )
+    ):
+        raise ValueError("case does not match its configured recipe")
+    _validate_case_configuration(directory, entry, case, volume)
+
+
 def _verify_case(
     directory,
     entry,
@@ -305,6 +438,10 @@ def _verify_case(
         "evaluation_target": effective["target_trace_count"],
     }:
         raise ValueError("volume role counts differ from mask")
+    _validate_case_configuration(directory, entry, case, volume)
+
+
+def _validate_case_configuration(directory, entry, case, volume):
     config = yaml.safe_load(suite_path(directory, entry["config_file"]).read_text())
     if (
         config["benchmark_case"]["id"] != case["case_id"]
@@ -331,22 +468,7 @@ def _verify_crop_artifacts(
     crop_metadata = {}
     for partition, index in crops.items():
         crop = read_benchmark_json(suite_path(directory, suite["crops"][partition]) / "crop.json")
-        selection = crop["selection"]
-        selected_ranges = [
-            validated_index_range(selection[axis], name=f"selection.{axis}")
-            for axis in VOLUME_AXIS_ORDER
-        ]
-        shape = [stop - start for start, stop in selected_ranges]
-        if crop["shape"] != shape or selection["time"] != list(dimensions.time_range):
-            raise ValueError("crop shape/time contract mismatch")
-        if partition == "test" and (
-            shape != list(dimensions.shape) or selection != config["benchmark_volume"]["selection"]
-        ):
-            raise ValueError("main test crop differs from fixed dimensions/selection")
-        if partition == "validation" and (
-            shape[0] != dimensions.shape[0] or shape[2:] != list(dimensions.shape[2:])
-        ):
-            raise ValueError("validation crop must retain the fixed time/shot/receiver lengths")
+        selection = _validated_crop_selection(crop, partition, config, dimensions)
         candidates = canonical.loc[canonical["split"].eq(partition), "array_row"].to_numpy(
             dtype=np.int64
         )
@@ -366,17 +488,43 @@ def _verify_crop_artifacts(
     return crop_metadata
 
 
-def _verified_suite_hashes(directory: Path, suite: dict) -> dict:
-    """Read each distinct file once and require the complete artifact inventory."""
+def _validated_crop_selection(crop, partition, config, dimensions):
+    selection = crop["selection"]
+    selected_ranges = [
+        validated_index_range(selection[axis], name=f"selection.{axis}")
+        for axis in VOLUME_AXIS_ORDER
+    ]
+    shape = [stop - start for start, stop in selected_ranges]
+    if crop["shape"] != shape or selection["time"] != list(dimensions.time_range):
+        raise ValueError("crop shape/time contract mismatch")
+    if partition == "test" and (
+        shape != list(dimensions.shape) or selection != config["benchmark_volume"]["selection"]
+    ):
+        raise ValueError("main test crop differs from fixed dimensions/selection")
+    if partition == "validation" and (
+        shape[0] != dimensions.shape[0] or shape[2:] != list(dimensions.shape[2:])
+    ):
+        raise ValueError("validation crop must retain the fixed time/shot/receiver lengths")
+    return selection
+
+
+def _verified_suite_hashes(
+    directory: Path, suite: dict, *, required_paths: list[Path] | None = None
+) -> dict:
+    """Hash required input files, or the complete inventory for full verification."""
     hashes = {}
+    required = None if required_paths is None else set(required_paths)
     for record in suite["files"]:
         path = suite_path(directory, record["path"])
+        if required is not None and path not in required:
+            continue
         if path in hashes:
             raise ValueError("duplicate suite file reference")
         digest = file_sha256(path)
         if digest != record["sha256"]:
             raise ValueError(f"suite SHA-256 mismatch: {record['path']}")
         hashes[path] = {"sha256": digest}
-    if set(hashes) != set(benchmark_suite_files(directory, suite)):
+    expected = set(benchmark_suite_files(directory, suite)) if required is None else required
+    if set(hashes) != expected:
         raise ValueError("suite file inventory does not match the required artifacts")
     return hashes

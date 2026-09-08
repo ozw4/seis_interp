@@ -7,7 +7,12 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from seis_interp.data.c3_benchmark_suite import c3_suite_case, suite_path, verify_c3_benchmark_suite
+from seis_interp.data.c3_benchmark_suite import (
+    VerifiedC3BenchmarkSuite,
+    c3_suite_case,
+    load_c3_benchmark_input_manifest,
+    suite_path,
+)
 from seis_interp.data.c3_supervised_source import C3SupervisedSource, load_c3_supervised_source
 from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs, load_c3_volume_run_inputs
 from seis_interp.data.trace_graph_domain import (
@@ -23,9 +28,12 @@ def load_c3_benchmark_volume_inputs(
     case_id: str,
     *,
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
+    verified_suite: VerifiedC3BenchmarkSuite | None = None,
 ) -> C3VolumeRunInputs:
     """The shared POCS, DRR, SIREN-5D, and CCNet-5D observed-volume input contract."""
-    suite = verify_c3_benchmark_suite(suite_dir, dimensions=dimensions)
+    suite = load_c3_benchmark_input_manifest(
+        suite_dir, case_id=case_id, dimensions=dimensions, verified_suite=verified_suite
+    )
     entry = c3_suite_case(suite, case_id)
     config = yaml.safe_load(suite_path(suite_dir, entry["config_file"]).read_text())
     return load_c3_volume_run_inputs(config=config, **_case_paths(suite_dir, suite, entry))
@@ -37,12 +45,15 @@ def load_c3_benchmark_graph_domain(
     *,
     volume_dir: Path,
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
+    verified_suite: VerifiedC3BenchmarkSuite | None = None,
 ) -> TraceGraphDomain:
     """Require the suite's volume and restrict graph support and queries to that crop.
 
     The general arbitrary-coordinate graph API remains independent of this entry.
     """
-    suite = verify_c3_benchmark_suite(suite_dir, dimensions=dimensions)
+    suite = load_c3_benchmark_input_manifest(
+        suite_dir, case_id=case_id, dimensions=dimensions, verified_suite=verified_suite
+    )
     entry = c3_suite_case(suite, case_id)
     paths = _case_paths(suite_dir, suite, entry)
     if volume_dir is None or Path(volume_dir).resolve() != paths["volume_dir"]:
@@ -54,9 +65,12 @@ def load_c3_benchmark_training_graph_domain(
     suite_dir: Path,
     *,
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
+    verified_suite: VerifiedC3BenchmarkSuite | None = None,
 ) -> TraceGraphDomain:
     """Load the exact canonical train pool and selected training time grid."""
-    suite = verify_c3_benchmark_suite(suite_dir, dimensions=dimensions)
+    suite = load_c3_benchmark_input_manifest(
+        suite_dir, dimensions=dimensions, verified_suite=verified_suite
+    )
     domain = load_training_trace_graph_domain(
         interim_dir=suite_path(suite_dir, suite["interim"]),
         processed_dir=suite_path(suite_dir, suite["processed"]),
@@ -75,6 +89,7 @@ def load_c3_benchmark_supervised_source(
     fit_region: dict,
     selection_region: dict,
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
+    verified_suite: VerifiedC3BenchmarkSuite | None = None,
 ) -> C3SupervisedSource:
     """Constrain CCNet teacher regions and fitted RMS to the allowed train rows/time.
 
@@ -82,7 +97,9 @@ def load_c3_benchmark_supervised_source(
     the graph reader fits on its unmasked training pool. Neither uses the generic
     prepared normalization (which may include other time samples).
     """
-    suite = verify_c3_benchmark_suite(suite_dir, dimensions=dimensions)
+    suite = load_c3_benchmark_input_manifest(
+        suite_dir, dimensions=dimensions, verified_suite=verified_suite
+    )
     for name, region in (("fit", fit_region), ("selection", selection_region)):
         if (
             region.get("time") != list(dimensions.time_range)
