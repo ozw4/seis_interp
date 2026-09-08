@@ -35,6 +35,7 @@ _MODEL_FIELDS = {
     "relation_embedding_dim",
     "relation_fusion",
 }
+_MODEL_OPTIONS = {"method_variant", "explicit_azimuth_features"}
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,9 @@ def save_relational_trace_graph_checkpoint(
         "model_type": RELATIONAL_TRACE_GRAPH_MODEL_TYPE,
         "model_config": config,
         "state_dict": snapshot,
-        "relation_names": list(RELATION_NAMES),
+        "relation_names": ["untyped"]
+        if graph_settings.topology == "single_4d"
+        else list(RELATION_NAMES),
         "node_feature_names": list(NODE_FEATURE_NAMES),
         "edge_feature_names": list(EDGE_FEATURE_NAMES),
         "graph_settings": graph_settings.constructor_config(),
@@ -135,7 +138,6 @@ def _load_payload(
     if payload.get("model_type") != RELATIONAL_TRACE_GRAPH_MODEL_TYPE:
         raise ValueError("checkpoint model_type must be 'relational_trace_graph'")
     for name, expected in (
-        ("relation_names", RELATION_NAMES),
         ("node_feature_names", NODE_FEATURE_NAMES),
         ("edge_feature_names", EDGE_FEATURE_NAMES),
     ):
@@ -144,14 +146,27 @@ def _load_payload(
     try:
         config = _model_config(payload["model_config"])
         graph_config = _json_mapping(payload["graph_settings"], "graph_settings")
-        if set(graph_config) != {
+        graph_required = {
             "relation_scales_m",
             "neighbors_per_relation",
             "radius",
             "candidate_chunk_size",
-        }:
+        }
+        graph_optional = {
+            "topology",
+            "excluded_relation",
+            "common_distance_scales_m",
+            "single_4d_neighbors",
+        }
+        if not graph_required <= set(graph_config) or set(graph_config) - (
+            graph_required | graph_optional
+        ):
             raise ValueError("checkpoint graph_settings must contain all fixed neighbor settings")
         graph_settings = TraceGraphSettings(**graph_config)
+        graph_settings.validate_model_config(config)
+        relations = ["untyped"] if graph_settings.topology == "single_4d" else list(RELATION_NAMES)
+        if payload.get("relation_names") != relations:
+            raise ValueError("checkpoint relation_names does not match the required order")
         preprocessing = _preprocessing(payload["preprocessing"])
         _time_metadata(payload["time"], preprocessing, config)
         mask = _training_mask(payload["training_mask"])
@@ -192,7 +207,7 @@ def _load_payload(
 
 def _model_config(value: object) -> dict[str, object]:
     config = _json_mapping(value, "model_config")
-    if set(config) != _MODEL_FIELDS:
+    if not set(config) >= _MODEL_FIELDS or set(config) - (_MODEL_FIELDS | _MODEL_OPTIONS):
         raise ValueError("checkpoint model_config must contain exactly all constructor fields")
     for name in _MODEL_FIELDS - {"temporal_dilations", "relation_fusion"}:
         _integer(config[name], f"model_config.{name}", minimum=1)

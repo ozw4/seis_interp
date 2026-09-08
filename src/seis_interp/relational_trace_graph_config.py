@@ -35,7 +35,7 @@ def validate_relational_trace_graph_training_config(
     )
     _project_and_data(config)
     model = dict(
-        config_values.exact_section(
+        _section_with_options(
             config,
             "model",
             {
@@ -50,6 +50,7 @@ def validate_relational_trace_graph_training_config(
                 "relation_embedding_dim",
                 "relation_fusion",
             },
+            {"method_variant", "explicit_azimuth_features"},
         )
     )
     if model.pop("name") != METHOD:
@@ -73,7 +74,15 @@ def validate_relational_trace_graph_training_config(
         raise ConfigurationError("model.temporal_dilations must match message_passing_rounds")
     if model["relation_fusion"] not in ("mean", "learned_gate"):
         raise ConfigurationError("model.relation_fusion must be mean or learned_gate")
+    variant = model.get("method_variant", "relational")
+    if variant not in ("relational", "plain_gcn_row_normalized", "untyped_edge_conditioned"):
+        raise ConfigurationError("unsupported model.method_variant")
+    if variant != "relational" and model["relation_fusion"] != "mean":
+        raise ConfigurationError("comparison models require relation_fusion=mean")
+    if not isinstance(model.get("explicit_azimuth_features", True), bool):
+        raise ConfigurationError("model.explicit_azimuth_features must be boolean")
     graph = _graph_settings(config)
+    graph.validate_model_config(model)
     geometry = config_values.exact_section(
         config, "geometry_features", {"position_scale_m", "offset_scale_m", "azimuth_min_offset_m"}
     )
@@ -192,10 +201,11 @@ def validate_relational_trace_graph_prediction_config(config: Mapping[str, objec
 
 
 def _graph_settings(config: Mapping[str, object]) -> TraceGraphSettings:
-    graph = config_values.exact_section(
+    graph = _section_with_options(
         config,
         "graph",
         {"neighbors_per_relation", "max_normalized_distance", "candidate_chunk_size", "relations"},
+        {"topology", "excluded_relation", "common_distance_scales_m", "single_4d_neighbors"},
     )
     relations = config_values.exact_section(graph, "relations", set(RELATION_NAMES))
     scales = []
@@ -223,7 +233,36 @@ def _graph_settings(config: Mapping[str, object]) -> TraceGraphSettings:
         candidate_chunk_size=config_values.positive_integer(
             graph["candidate_chunk_size"], "graph.candidate_chunk_size"
         ),
+        **{
+            name: graph[name]
+            for name in (
+                "topology",
+                "excluded_relation",
+                "common_distance_scales_m",
+                "single_4d_neighbors",
+            )
+            if name in graph
+        },
     )
+
+
+def trace_graph_method_variant(model_config: Mapping[str, object]) -> str:
+    """Name relation fusion for the proposed model and the actual control otherwise."""
+    variant = model_config.get("method_variant", "relational")
+    return str(model_config["relation_fusion"] if variant == "relational" else variant)
+
+
+def _section_with_options(config, name, required, optional):
+    section = config.get(name)
+    if (
+        not isinstance(section, Mapping)
+        or not required <= set(section)
+        or set(section) - (required | optional)
+    ):
+        raise ConfigurationError(
+            f"{name} configuration requires {sorted(required)} with optional {sorted(optional)}"
+        )
+    return section
 
 
 def _project_and_data(config: Mapping[str, object]) -> None:

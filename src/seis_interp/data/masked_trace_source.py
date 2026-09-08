@@ -193,6 +193,12 @@ def assemble_masked_trace_graph_inputs(
         query_indices=torch.tensor(plan.query_indices, dtype=torch.int64),
         coverage=torch.tensor(plan.coverage, dtype=torch.float32),
         dependency_rounds=plan.dependency_rounds,
+        relation_names=plan.relation_names,
+        common_edge_distances=(
+            None
+            if plan.common_edge_distances is None
+            else torch.tensor(plan.common_edge_distances, dtype=torch.float32)
+        ),
     )
     return validate_masked_trace_graph_inputs(inputs.to(device))
 

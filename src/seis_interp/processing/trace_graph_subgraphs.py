@@ -7,7 +7,7 @@ from numbers import Integral
 
 import numpy as np
 
-from seis_interp.processing.trace_graph_geometry import TraceGraphGeometry
+from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, TraceGraphGeometry
 from seis_interp.processing.trace_graph_neighbors import (
     TraceGraphNeighbors,
     select_trace_graph_neighbors,
@@ -40,6 +40,8 @@ class TraceGraphPlan:
     diagnostics: dict[str, int]
     neighbors_per_relation: int
     dependency_rounds: int
+    relation_names: tuple[str, ...] = RELATION_NAMES
+    common_edge_distances: np.ndarray | None = None
 
     @property
     def coverage(self) -> np.ndarray:
@@ -62,6 +64,10 @@ def build_trace_graph_subgraph(
     neighbors_per_relation: int = 8,
     radius: float = 1.0,
     candidate_chunk_size: int = 4096,
+    topology: str = "multi_relation",
+    excluded_relation: str | None = None,
+    common_distance_scales_m: tuple[float, float] | None = None,
+    single_4d_neighbors: int = 32,
 ) -> TraceGraphPlan:
     """Collect exactly the incoming dependencies for ``rounds`` updates.
 
@@ -79,6 +85,10 @@ def build_trace_graph_subgraph(
         "neighbors_per_relation": neighbors_per_relation,
         "radius": radius,
         "candidate_chunk_size": candidate_chunk_size,
+        "topology": topology,
+        "excluded_relation": excluded_relation,
+        "common_distance_scales_m": common_distance_scales_m,
+        "single_4d_neighbors": single_4d_neighbors,
     }
     initial_edges = select_trace_graph_neighbors(
         query_geometry,
@@ -157,6 +167,18 @@ def build_trace_graph_subgraph(
         "unique_pair_count": np.unique(edge_index, axis=1).shape[1],
         "max_depth": int(depths.max(initial=0)),
     }
+    common_distances = None
+    if common_distance_scales_m is not None:
+        scales = np.asarray(common_distance_scales_m, dtype=np.float64)
+        if scales.shape != (2,) or not np.all(np.isfinite(scales)) or np.any(scales <= 0):
+            raise ValueError("common_distance_scales_m must have two positive finite scales")
+        sender, destination = edge_index
+        midpoint_delta = geometry.midpoint_xy_m[sender] - geometry.midpoint_xy_m[destination]
+        offset_delta = geometry.offset_xy_m[sender] - geometry.offset_xy_m[destination]
+        common_distances = np.sqrt(
+            np.sum(midpoint_delta**2, axis=1) / scales[0] ** 2
+            + np.sum(offset_delta**2, axis=1) / scales[1] ** 2
+        )
     return TraceGraphPlan(
         trace_ids=node_ids,
         geometry=geometry,
@@ -169,8 +191,12 @@ def build_trace_graph_subgraph(
         min_distance=minimum,
         depth=depths,
         diagnostics=diagnostics,
-        neighbors_per_relation=int(neighbors_per_relation),
+        neighbors_per_relation=int(
+            single_4d_neighbors if topology == "single_4d" else neighbors_per_relation
+        ),
         dependency_rounds=int(rounds),
+        relation_names=("untyped",) if topology == "single_4d" else RELATION_NAMES,
+        common_edge_distances=common_distances,
     )
 
 

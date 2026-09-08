@@ -90,10 +90,10 @@ def test_fixed_input_tensors_do_not_depend_on_hidden_labels_or_unused_observatio
     after = source.inputs(plan)
 
     for field in fields(MaskedTraceGraphInputs):
-        if field.name == "dependency_rounds":
-            assert before.dependency_rounds == after.dependency_rounds
-        else:
+        if isinstance(getattr(before, field.name), torch.Tensor):
             assert torch.equal(getattr(before, field.name), getattr(after, field.name))
+        else:
+            assert getattr(before, field.name) == getattr(after, field.name)
 
 
 def test_query_splitting_keeps_fixed_features_and_normalized_observations() -> None:

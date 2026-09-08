@@ -13,6 +13,7 @@ from seis_interp.data.masked_trace_inputs import (
     validate_masked_trace_graph_inputs,
 )
 from seis_interp.models.trace_codec import TraceNodeDecoder, TraceNodeEncoder
+from seis_interp.models.trace_graph_comparison import TraceGraphComparisonBlock
 from seis_interp.processing.trace_graph_geometry import (
     EDGE_FEATURE_NAMES,
     NODE_FEATURE_NAMES,
@@ -20,6 +21,7 @@ from seis_interp.processing.trace_graph_geometry import (
 )
 
 RELATION_FUSION_MODES = ("mean", "learned_gate")
+TRACE_GRAPH_METHOD_VARIANTS = ("relational", "plain_gcn_row_normalized", "untyped_edge_conditioned")
 _RELATION_COUNT = len(RELATION_NAMES)
 
 
@@ -184,8 +186,18 @@ class RelationalTraceGraphInterpolator(nn.Module):
         attention_width: int = 32,
         relation_embedding_dim: int = 8,
         relation_fusion: str = "mean",
+        method_variant: str = "relational",
+        explicit_azimuth_features: bool = True,
     ) -> None:
         super().__init__()
+        if method_variant not in TRACE_GRAPH_METHOD_VARIANTS:
+            raise ValueError(f"method_variant must be one of {TRACE_GRAPH_METHOD_VARIANTS}")
+        if not isinstance(explicit_azimuth_features, bool):
+            raise ValueError("explicit_azimuth_features must be a boolean")
+        if method_variant != "relational" and relation_fusion != "mean":
+            raise ValueError("comparison models require relation_fusion=mean")
+        self.method_variant = method_variant
+        self.explicit_azimuth_features = explicit_azimuth_features
         rounds = _positive_integer(message_passing_rounds, "message_passing_rounds")
         if len(temporal_dilations) != rounds:
             raise ValueError("temporal_dilations must match message_passing_rounds")
@@ -196,13 +208,23 @@ class RelationalTraceGraphInterpolator(nn.Module):
         )
         self.node_embedding = _mlp(len(NODE_FEATURE_NAMES), width, width)
         self.rounds = nn.ModuleList(
-            RelationalTraceGraphMessageBlock(
-                width,
-                temporal_kernel_size=temporal_kernel_size,
-                temporal_dilation=dilation,
-                attention_width=attention_width,
-                relation_embedding_dim=relation_embedding_dim,
-                relation_fusion=relation_fusion,
+            (
+                RelationalTraceGraphMessageBlock(
+                    width,
+                    temporal_kernel_size=temporal_kernel_size,
+                    temporal_dilation=dilation,
+                    attention_width=attention_width,
+                    relation_embedding_dim=relation_embedding_dim,
+                    relation_fusion=relation_fusion,
+                )
+                if method_variant == "relational"
+                else TraceGraphComparisonBlock(
+                    width,
+                    method_variant=method_variant,
+                    temporal_kernel_size=temporal_kernel_size,
+                    temporal_dilation=dilation,
+                    attention_width=attention_width,
+                )
             )
             for dilation in temporal_dilations
         )
@@ -218,6 +240,10 @@ class RelationalTraceGraphInterpolator(nn.Module):
             "relation_embedding_dim": int(relation_embedding_dim),
             "relation_fusion": relation_fusion,
         }
+        if method_variant != "relational":
+            self._config["method_variant"] = method_variant
+        if not explicit_azimuth_features:
+            self._config["explicit_azimuth_features"] = False
 
     def constructor_config(self) -> dict[str, object]:
         """Return independent, JSON-compatible constructor values."""
@@ -236,6 +262,16 @@ class RelationalTraceGraphInterpolator(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``([Q,T], [Q])`` in query order; no-context predictions are zero."""
         validate_masked_trace_graph_inputs(inputs)
+        if (
+            inputs.relation_names == ("untyped",)
+            and self.method_variant != "untyped_edge_conditioned"
+        ):
+            raise ValueError("single_4d untyped input requires untyped_edge_conditioned model")
+        if (
+            self.method_variant == "untyped_edge_conditioned"
+            and inputs.common_edge_distances is None
+        ):
+            raise ValueError("untyped_edge_conditioned requires common_edge_distances for D0")
         if inputs.dependency_rounds < self.message_passing_rounds:
             raise ValueError(
                 f"dependency_rounds ({inputs.dependency_rounds}) must be at least "
@@ -251,7 +287,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
         padded_time = ((max(time_count, 2) + factor - 1) // factor) * factor
         visible = waveforms.masked_fill(~inputs.observed_mask[:, None], 0)
         padded = F.pad(visible[:, None], (0, padded_time - time_count))
-        latents = self.encoder(padded) + self.node_embedding(inputs.node_features)[:, :, None]
+        node_features, edge_features = self.input_features(inputs)
+        latents = self.encoder(padded) + self.node_embedding(node_features)[:, :, None]
         round_summaries = []
         for block in self.rounds:
             summary = {} if diagnostics is not None else None
@@ -259,7 +296,7 @@ class RelationalTraceGraphInterpolator(nn.Module):
                 latents,
                 inputs.edge_index,
                 inputs.edge_type,
-                inputs.edge_features,
+                edge_features,
                 inputs.coverage,
                 diagnostics=summary,
                 diagnostic_query_indices=inputs.query_indices,
@@ -283,6 +320,26 @@ class RelationalTraceGraphInterpolator(nn.Module):
                 }
             )
         return predictions, has_context
+
+    def input_features(self, inputs: MaskedTraceGraphInputs) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the actual node/edge features for this fixed model ablation.
+
+        Untyped messages replace relation-specific distance with the common
+        midpoint/offset D0. Explicit azimuth removal retains all vector and
+        length columns and never changes input tensors or graph connectivity.
+        """
+        nodes, edges = inputs.node_features, inputs.edge_features
+        if self.method_variant == "untyped_edge_conditioned":
+            if inputs.common_edge_distances is None:
+                raise ValueError("untyped_edge_conditioned requires common_edge_distances for D0")
+            edges = edges.clone()
+            edges[:, -1] = inputs.common_edge_distances
+        if not self.explicit_azimuth_features:
+            nodes = nodes.clone()
+            edges = edges.clone()
+            nodes[:, 5:8] = 0
+            edges[:, 11:14] = 0
+        return nodes, edges
 
 
 def _mlp(input_width: int, hidden_width: int, output_width: int) -> nn.Sequential:

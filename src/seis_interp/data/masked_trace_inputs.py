@@ -7,6 +7,8 @@ from numbers import Integral
 
 import torch
 
+from seis_interp.processing.trace_graph_geometry import RELATION_NAMES
+
 
 @dataclass(frozen=True)
 class MaskedTraceGraphInputs:
@@ -28,6 +30,8 @@ class MaskedTraceGraphInputs:
     query_indices: torch.Tensor
     coverage: torch.Tensor
     dependency_rounds: int
+    common_edge_distances: torch.Tensor | None = None
+    relation_names: tuple[str, ...] = RELATION_NAMES
 
     def to(self, device: torch.device | str) -> MaskedTraceGraphInputs:
         """Move this batch's tensors together without changing their dtypes."""
@@ -35,9 +39,10 @@ class MaskedTraceGraphInputs:
             **{
                 field.name: getattr(self, field.name).to(device)
                 for field in fields(self)
-                if field.name != "dependency_rounds"
+                if isinstance(getattr(self, field.name), torch.Tensor)
             },
             dependency_rounds=self.dependency_rounds,
+            relation_names=self.relation_names,
         )
 
 
@@ -54,7 +59,8 @@ def validate_masked_trace_graph_inputs(inputs: MaskedTraceGraphInputs) -> Masked
     tensors = {
         field.name: getattr(inputs, field.name)
         for field in fields(inputs)
-        if field.name != "dependency_rounds"
+        if field.name not in ("dependency_rounds", "relation_names")
+        and not (field.name == "common_edge_distances" and inputs.common_edge_distances is None)
     }
     for name, tensor in tensors.items():
         if not isinstance(tensor, torch.Tensor):
@@ -67,6 +73,14 @@ def validate_masked_trace_graph_inputs(inputs: MaskedTraceGraphInputs) -> Masked
     if inputs.edge_index.ndim != 2 or inputs.edge_index.shape[0] != 2:
         raise ValueError("edge_index must have shape [2, E]")
     edge_count = inputs.edge_index.shape[1]
+    if inputs.relation_names not in (RELATION_NAMES, ("untyped",)):
+        raise ValueError("relation_names must be the four seismic relations or untyped")
+    if inputs.common_edge_distances is not None:
+        common = inputs.common_edge_distances
+        if common.shape != (edge_count,) or common.dtype != inputs.waveforms.dtype:
+            raise ValueError("common_edge_distances must have shape [E] and waveform dtype")
+        if not torch.isfinite(common).all() or torch.any(common < 0):
+            raise ValueError("common_edge_distances must be finite and nonnegative")
     for name, shape in (
         ("node_features", (node_count, 9)),
         ("edge_features", (edge_count, 15)),
@@ -95,6 +109,8 @@ def validate_masked_trace_graph_inputs(inputs: MaskedTraceGraphInputs) -> Masked
             raise ValueError(f"{name} contains an out-of-range node index")
     if bool(((inputs.edge_type < 0) | (inputs.edge_type >= 4)).any()):
         raise ValueError("edge_type must be in [0, 4)")
+    if inputs.relation_names == ("untyped",) and bool((inputs.edge_type != 0).any()):
+        raise ValueError("untyped edges must have internal edge_type zero")
     if len(torch.unique(inputs.query_indices)) != len(inputs.query_indices):
         raise ValueError("query_indices must be unique")
     if bool(inputs.observed_mask[inputs.query_indices].any()):

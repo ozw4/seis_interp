@@ -29,6 +29,7 @@ from seis_interp.processing.trace_graph_geometry import (
 from seis_interp.relational_trace_graph_config import (
     METHOD,
     TRAINING_REGIME,
+    trace_graph_method_variant,
     validate_relational_trace_graph_prediction_config,
 )
 from seis_interp.training.devices import resolve_device
@@ -108,7 +109,7 @@ def interpolate_relational_trace_graph_run(
     )
     identity = {
         "method": METHOD,
-        "method_variant": loaded.model.constructor_config()["relation_fusion"],
+        "method_variant": trace_graph_method_variant(loaded.model.constructor_config()),
         "training_regime": TRAINING_REGIME,
     }
     metrics.update({**identity, "case_id": input_metadata["case_id"]})
@@ -148,9 +149,12 @@ def interpolate_relational_trace_graph_run(
         "input": input_metadata,
         "checkpoint": checkpoint_record,
         "model": loaded.model.constructor_config(),
+        "parameter_count": sum(parameter.numel() for parameter in loaded.model.parameters()),
         "graph": {
             **loaded.graph_settings.constructor_config(),
-            "relation_names": list(RELATION_NAMES),
+            "relation_names": ["untyped"]
+            if loaded.graph_settings.topology == "single_4d"
+            else list(RELATION_NAMES),
         },
         "amplitude": {
             "scale_source": "checkpoint_fixed_training_pool",

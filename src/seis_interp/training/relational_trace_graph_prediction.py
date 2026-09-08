@@ -14,7 +14,7 @@ from seis_interp.data.masked_trace_source import (
 )
 from seis_interp.data.trace_graph_domain import TraceGraphDomain
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
-from seis_interp.processing.trace_graph_geometry import compute_trace_graph_geometry
+from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, compute_trace_graph_geometry
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
 from seis_interp.processing.trace_graph_subgraphs import build_trace_graph_subgraph
@@ -62,6 +62,7 @@ def predict_relational_trace_graph(
         raise TypeError("model must be a RelationalTraceGraphInterpolator")
     if not isinstance(graph_settings, TraceGraphSettings):
         raise TypeError("graph_settings must be TraceGraphSettings")
+    graph_settings.validate_model_config(model.constructor_config())
     if (
         isinstance(query_batch_size, bool)
         or not isinstance(query_batch_size, Integral)
@@ -93,9 +94,10 @@ def predict_relational_trace_graph(
     prediction = np.empty((len(query_ids), len(domain.time_s)), dtype=np.float32)
     context = np.empty(len(query_ids), dtype=bool)
     rounds = model.message_passing_rounds
+    relation_count = 4 if model.method_variant == "relational" else 1
     totals = {
-        "gate_sum": np.zeros((rounds, 4), dtype=np.float64),
-        "available_query_count": np.zeros((rounds, 4), dtype=np.int64),
+        "gate_sum": np.zeros((rounds, relation_count), dtype=np.float64),
+        "available_query_count": np.zeros((rounds, relation_count), dtype=np.int64),
         "context_query_count": np.zeros(rounds, dtype=np.int64),
         "no_context_query_count": np.zeros(rounds, dtype=np.int64),
     }
@@ -105,7 +107,9 @@ def predict_relational_trace_graph(
         "processed_support_node_count": 0,
         "processed_typed_edge_count": 0,
         "processed_unique_pair_count": 0,
+        "processed_message_edge_count": 0,
         "max_support_node_count": 0,
+        "gate_relation_names": list(RELATION_NAMES) if relation_count == 4 else ["untyped"],
     }
     was_training = model.training
     model.to(device)
@@ -151,6 +155,9 @@ def predict_relational_trace_graph(
                 diagnostics["query_batch_count"] += 1
                 for name in ("support_node_count", "typed_edge_count", "unique_pair_count"):
                     diagnostics[f"processed_{name}"] += plan.diagnostics[name]
+                diagnostics["processed_message_edge_count"] += plan.diagnostics[
+                    "typed_edge_count" if relation_count == 4 else "unique_pair_count"
+                ]
                 diagnostics["max_support_node_count"] = max(
                     diagnostics["max_support_node_count"], plan.diagnostics["support_node_count"]
                 )

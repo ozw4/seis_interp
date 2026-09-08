@@ -30,6 +30,7 @@ from seis_interp.processing.trace_graph_preprocessing import fit_trace_graph_pre
 from seis_interp.relational_trace_graph_config import (
     METHOD,
     TRAINING_REGIME,
+    trace_graph_method_variant,
     validate_relational_trace_graph_training_config,
 )
 from seis_interp.training.devices import resolve_device
@@ -139,7 +140,7 @@ def train_relational_trace_graph_run(
     }
     identity = {
         "method": METHOD,
-        "method_variant": model_config["relation_fusion"],
+        "method_variant": trace_graph_method_variant(model_config),
         "training_regime": TRAINING_REGIME,
     }
     metadata = {
@@ -158,7 +159,12 @@ def train_relational_trace_graph_run(
         "training_data": provenance["training_data"],
         "training": {**config["training"], "steps_completed": 0},
         "training_mask": config["training_mask"],
-        "graph": {**graph_settings.constructor_config(), "relation_names": list(RELATION_NAMES)},
+        "graph": {
+            **graph_settings.constructor_config(),
+            "relation_names": ["untyped"]
+            if graph_settings.topology == "single_4d"
+            else list(RELATION_NAMES),
+        },
         "model": model.constructor_config(),
         "geometry_features": {
             **config["geometry_features"],

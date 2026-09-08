@@ -7,7 +7,7 @@ from numbers import Integral, Real
 
 import numpy as np
 
-from seis_interp.processing.trace_graph_geometry import TraceGraphGeometry
+from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, TraceGraphGeometry
 
 
 @dataclass(frozen=True)
@@ -36,6 +36,10 @@ def select_trace_graph_neighbors(
     neighbors_per_relation: int = 8,
     radius: float = 1.0,
     candidate_chunk_size: int = 4096,
+    topology: str = "multi_relation",
+    excluded_relation: str | None = None,
+    common_distance_scales_m: tuple[float, float] | None = None,
+    single_4d_neighbors: int = 32,
 ) -> TraceGraphNeighbors:
     """Select directed radius-limited top-k from the original observed domain.
 
@@ -63,6 +67,22 @@ def select_trace_graph_neighbors(
         raise ValueError("relation_scales_m must be finite, positive and have shape [4, 2]")
     k = _positive_integer(neighbors_per_relation, "neighbors_per_relation")
     chunk_size = _positive_integer(candidate_chunk_size, "candidate_chunk_size")
+    if topology not in ("multi_relation", "single_4d"):
+        raise ValueError("topology must be multi_relation or single_4d")
+    if excluded_relation is not None and excluded_relation not in RELATION_NAMES:
+        raise ValueError("excluded_relation must name one of the four seismic relations")
+    if topology == "single_4d":
+        common = np.asarray(common_distance_scales_m, dtype=np.float64)
+        if common.shape != (2,) or not np.all(np.isfinite(common)) or np.any(common <= 0):
+            raise ValueError("single_4d requires two positive common_distance_scales_m")
+        if excluded_relation is not None:
+            raise ValueError("single_4d cannot exclude a seismic relation")
+        k = _positive_integer(single_4d_neighbors, "single_4d_neighbors")
+        relations = (0,)
+    else:
+        relations = tuple(
+            index for index, name in enumerate(RELATION_NAMES) if name != excluded_relation
+        )
     if (
         isinstance(radius, (bool, np.bool_))
         or not isinstance(radius, Real)
@@ -81,14 +101,27 @@ def select_trace_graph_neighbors(
             distances = _relation_distances(
                 destination_geometry, destination_row, candidate_geometry, rows, scales
             )
-            for relation in range(4):
+            if topology == "single_4d":
+                delta_midpoint = (
+                    candidate_geometry.midpoint_xy_m[rows]
+                    - destination_geometry.midpoint_xy_m[destination_row]
+                )
+                delta_offset = (
+                    candidate_geometry.offset_xy_m[rows]
+                    - destination_geometry.offset_xy_m[destination_row]
+                )
+                distances[:, 0] = np.sqrt(
+                    np.sum(delta_midpoint**2, axis=1) / common[0] ** 2
+                    + np.sum(delta_offset**2, axis=1) / common[1] ** 2
+                )
+            for relation in relations:
                 inside = distances[:, relation] <= radius
                 ids = np.concatenate((selected_ids[relation], candidate_ids[rows[inside]]))
                 values = np.concatenate((selected_distances[relation], distances[inside, relation]))
                 order = np.lexsort((ids, values))[:k]
                 selected_ids[relation] = ids[order]
                 selected_distances[relation] = values[order]
-        for relation in range(4):
+        for relation in relations:
             count = len(selected_ids[relation])
             sender_blocks.append(selected_ids[relation])
             destination_blocks.append(np.full(count, destination_id, dtype=np.int64))

@@ -83,3 +83,35 @@ def test_frozen_config_rejects_checkpoint_setting_overrides(override):
 
 def test_frozen_config_accepts_runtime_batch_and_target_case_only():
     validate_relational_trace_graph_prediction_config(trace_graph_prediction_config())
+
+
+@pytest.mark.parametrize("variant", ["plain_gcn_row_normalized", "untyped_edge_conditioned"])
+def test_comparison_config_records_model_topology_and_fixed_geometry(variant):
+    config = trace_graph_training_config()
+    config["model"].update(
+        method_variant=variant, relation_fusion="mean", explicit_azimuth_features=False
+    )
+    config["graph"]["common_distance_scales_m"] = [1000.0, 1000.0]
+    model, graph, _ = validate_relational_trace_graph_training_config(config)
+    assert model["method_variant"] == variant
+    assert model["explicit_azimuth_features"] is False
+    assert graph.common_distance_scales_m == (1000.0, 1000.0)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"model": {"method_variant": "untyped_edge_conditioned"}},
+        {"model": {"method_variant": "unsupported"}},
+        {"model": {"explicit_azimuth_features": 0}},
+        {"graph": {"topology": "single_4d", "common_distance_scales_m": [1000, 1000]}},
+        {"graph": {"excluded_relation": "missing"}},
+        {"model": {"method_variant": "untyped_edge_conditioned", "relation_fusion": "mean"}},
+    ],
+)
+def test_impossible_variant_combinations_are_rejected(changes):
+    config = trace_graph_training_config()
+    for section, values in changes.items():
+        config[section].update(values)
+    with pytest.raises(ValueError):
+        validate_relational_trace_graph_training_config(config)

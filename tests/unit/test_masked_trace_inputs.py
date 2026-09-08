@@ -30,12 +30,14 @@ def test_validation_and_device_transfer_preserve_inputs() -> None:
     originals = {
         field.name: getattr(inputs, field.name).clone()
         for field in fields(inputs)
-        if field.name != "dependency_rounds"
+        if isinstance(getattr(inputs, field.name), torch.Tensor)
     }
     assert validate_masked_trace_graph_inputs(inputs) is inputs
     moved = inputs.to("cpu")
 
     assert inputs.dependency_rounds == moved.dependency_rounds == 2
+    assert inputs.relation_names == moved.relation_names
+    assert inputs.common_edge_distances is moved.common_edge_distances is None
     for name, original in originals.items():
         assert torch.equal(getattr(inputs, name), original)
         assert torch.equal(getattr(moved, name), original)

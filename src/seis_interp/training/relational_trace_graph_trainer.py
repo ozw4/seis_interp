@@ -91,6 +91,7 @@ def train_relational_trace_graph(
     """
     if not isinstance(model, RelationalTraceGraphInterpolator):
         raise TypeError("model must be a RelationalTraceGraphInterpolator")
+    graph_settings.validate_model_config(model.constructor_config())
     steps = _positive_integer(max_steps, "max_steps")
     batch_size = _positive_integer(query_batch_size, "query_batch_size")
     interval = _positive_integer(validation_interval, "validation_interval")
