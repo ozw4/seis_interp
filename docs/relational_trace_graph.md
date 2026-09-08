@@ -102,6 +102,31 @@ batchごとに各合計・件数を足し、`gate_sum / context_query_count[:, N
 message block単体で診断する場合は`diagnostic_query_indices`に検証済みのquery indexを明示する。
 gate値だけから物理的重要度や因果関係を判断しない。
 
+## 比較モデルとablation
+
+同じ`RelationalTraceGraphInterpolator`、codec、trainer、checkpointで以下を指定できる。
+
+| 設定 | 集約・接続 |
+|---|---|
+| `model.method_variant: relational`（既定） | 四relationを保持し、`relation_fusion: mean`または`learned_gate`で融合 |
+| `model.method_variant: plain_gcn_row_normalized` | unique incoming観測とlocal selfの和を`1 + in_degree`で割り、共有linear変換と残差更新 |
+| `model.method_variant: untyped_edge_conditioned` | unique incoming pairへ一組のgeometry attention/gammaを適用。relation embedding/gateは使わない |
+| `graph.topology: single_4d` | midpoint/full-offsetの単一距離によるexact top-k。untypedモデルとの組合せに限定 |
+| `graph.excluded_relation: source / receiver / cmp / offset_azimuth` | multi_relationの一種類だけを除外し、残るrelation IDは保持 |
+| `model.explicit_azimuth_features: false` | nodeのsin/cos/valid、edgeのcos差/sin差/validを0にする |
+
+比較モデルの`relation_fusion`は`mean`を指定する。GCNはこのmasked directed graphのrow-normalized適用であり、
+対称GCNの完全再現ではない。local selfはqueryから他ノードへの送信を追加しない。
+azimuth列を消す場合もoffset vector/長さとtopologyは保たれるため、「方位情報なし」という比較ではない。
+比較モデルのquery診断は`gate_relation_names: [untyped]`の1列で、関係選択を学習するgateではない。
+
+untypedモデルは`graph.common_distance_scales_m: [midpoint_scale_m, offset_vector_scale_m]`を必須とし、
+距離列を`D0 = sqrt(||dm||² / lg² + ||do||² / lo²)`へ統一する。relation別距離や重複回数を特徴にしない。
+`single_4d_neighbors`の既定は32であり、multi_relationの既定4×8と比較できる。
+radiusやrelation重複によって実際のunique pair数は変わる。runにはparameter数、typed/unique edge数と実測時間を記録し、
+同情報量・同計算量を仮定しない。single_4dの内部edge typeは0で、名称は`untyped`である。
+これらのgraph/model/特徴設定はcheckpointに固定し、凍結推論で変更しない。
+
 ## 学習episodeと固定validation
 
 `training/trace_graph_episodes.py`の`TraceGraphEpisodeGenerator`は、固定O0からepisode全体の
@@ -346,4 +371,37 @@ trainer正常終了後、`final.pt`と全学習指標を先に保存し、`phase
 
 モデルはこの出力layoutを認識しない。予測・行対応保存は`data/trace_graph_prediction_store.py`、
 labelを使う採点は`evaluation/trace_graph_metrics.py`、runの接続は二つの専用pipelineが担当する。
-追加診断・IDW、比較モデルとablation、study preflightや本実験を扱うTask14以降は未実装である。
+
+## 診断・独立baseline・preflight
+
+`processing/trace_graph_diagnostics.py`の`summarize_trace_graph_queries(plan)`は完全に展開したqueryだけの
+relation degree、空率、最小距離、source/receiver/CMPのx/y幅、relation間Jaccard、typed/unique edge数を返す。
+未展開葉を空近傍へ数えず、両集合が空のJaccardは未定義と件数で記録する。
+
+`processing/trace_graph_idw.py`の`predict_trace_graph_idw()`はqueryの直接観測近傍をunique pairへまとめ、
+`1 / max(D0, 1e-6)²`を正規化して元の物理波形を加重平均する。contextなしは0である。
+`evaluation/trace_graph_diagnostic_metrics.py`の`evaluate_trace_graph_baselines()`はzeroとIDWを、
+学習モデルと同じquery/domain/timeの物理targetだけで採点する。IDWは直接予測モデルのskip connectionには入らない。
+IDWのD0尺度は明示引数、または固定前処理のposition/offset尺度を使い、結果へ記録する。
+
+train/frozen設定には次の任意sectionを追加できる。境界は実行前に固定し、test性能で調整しない。
+
+```yaml
+diagnostics:
+  time_s: [0.5, 1.0, 1.5]
+  offset_m: [1000.0, 2000.0, 3000.0]
+  azimuth_deg: [90.0, 180.0, 270.0]
+```
+
+`TraceGraphDiagnosticBands`はこの切断点を保持する。各軸の範囲外も端の帯へ含め、azimuth未定義は別集計する。
+帯ごとにsample数とreference/error energy、offset/azimuth帯にはquery数も記録し、主指標の評価対象は変更しない。
+trainerの`diagnostic_bands`指定時は学習batchとvalidationに帯別集計を残し、runの保存時にzero/IDW採点も加える。
+runのfrozen predictionは`measure_resources=True`でgraph構築・観測入力読み込み・forwardの時間、
+処理したsupport/edge数、利用可能なmemory計測値を記録する。Python APIでは計測を省略できる。
+GPU未使用時のCUDA memoryは未測定であり、0の実測値として扱わない。
+
+`training/trace_graph_preflight.py`の`run_trace_graph_preflight()`は明示した少数queryを元の観測domain上で調べる。
+実測時間やmemoryが指定上限を超えた場合はblockerとして返す。radius拡張、近似探索、support切り捨てや本学習開始は行わない。
+artifact検証を含む実行例と固定比較条件は[study_026](../studies/study_026_grid_free_multi_relation_gnn/README.md)を参照する。
+CPUの解析的toyは任意座標で波形を再評価する入出力・学習試験であり、数値伝播やfield dataではない。
+実C3の学習、複数seed本実験、wide-azimuth/fieldへの汎化は未検証である。

@@ -1,0 +1,7 @@
+extends: config.yaml
+training_data:
+  time_samples: [64, 128]
+training:
+  device: cpu
+  max_steps: 2
+  validation_interval: 1

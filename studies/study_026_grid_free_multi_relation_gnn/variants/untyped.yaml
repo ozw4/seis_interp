@@ -1,0 +1,3 @@
+extends: mean.yaml
+model:
+  method_variant: untyped_edge_conditioned

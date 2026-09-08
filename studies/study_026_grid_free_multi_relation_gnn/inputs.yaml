@@ -1,0 +1,65 @@
+datasets:
+  - dataset_id: seg_c3_na
+    manifest: ../../data/external/seg_c3_na/manifest.yaml
+    shared_source_binding: ../study_022_c3_na_pocs/inputs.yaml
+    interim: ../../data/interim/c3_na/all_ffids
+    processed: ../../data/processed/c3_na/c3_source_line_blocks_seed42
+    partition_random_seed: 42
+    prepared_partition_sha256: bc984df0cbb3f72ea7598d6f781ef3ed6316218315511c738d5348ccf3f48372
+    canonical_trace_split_sha256: 2dfbe18d71fa11522144dfc6df75e9822c81d54c7d09635928ae79180626f11c
+    training_pool: all_train_traces
+    training_spatial_selection: canonical_train_partition
+    benchmark_cases:
+      validation_random_trace:
+        status: existing_binding_not_reverified_for_this_study
+        case_id: c3_na_validation_random_trace_80_seed42
+        partition: validation
+        mask_kind: random_trace
+        missing_fraction: 0.8
+        mask_seed: 42
+        mask: ../../data/processed/c3_na/c3_source_line_blocks_seed42/masks/validation-random-trace-80-seed42
+        case: ../../data/processed/c3_na/c3_source_line_blocks_seed42/cases/c3_na_validation_random_trace_80_seed42
+        case_sha256: 271bc3aa083f51c066f44f5ad094a6fe1892d8b3db95bc7d2d8cfcefa8d991b4
+        mask_metadata_sha256: cf6c6fa1d19683c8b1caedc8f2eb59005d882fad6c91bf755c023c231b140e90
+        observation_mask_sha256: 26926fadc0f9ddf940c9db1f62abb94096118b74442082506816e34e04ae945a
+        smoke_volume: ../../data/processed/c3_na/c3_source_line_blocks_seed42/volumes/c3_na_validation_smoke_t64_128_sl25_29_sh27_35_rx0_8_ry18_34
+      validation_random_whole_ffid:
+        status: not_prepared
+        case_id: c3_na_validation_random_whole_ffid_80_seed42
+        partition: validation
+        mask_kind: random_whole_ffid
+        missing_fraction: 0.8
+        mask_seed: 42
+        mask: ../../data/processed/c3_na/c3_source_line_blocks_seed42/masks/validation-random-whole-ffid-80-seed42
+        case: ../../data/processed/c3_na/c3_source_line_blocks_seed42/cases/c3_na_validation_random_whole_ffid_80_seed42
+        case_sha256: null
+        mask_metadata_sha256: null
+        observation_mask_sha256: null
+      test_random_trace:
+        status: not_prepared
+        case_id: c3_na_test_random_trace_80_seed42
+        partition: test
+        mask_kind: random_trace
+        missing_fraction: 0.8
+        mask_seed: 42
+        mask: ../../data/processed/c3_na/c3_source_line_blocks_seed42/masks/test-random-trace-80-seed42
+        case: ../../data/processed/c3_na/c3_source_line_blocks_seed42/cases/c3_na_test_random_trace_80_seed42
+        case_sha256: null
+        mask_metadata_sha256: null
+        observation_mask_sha256: null
+      test_random_whole_ffid:
+        status: not_prepared
+        case_id: c3_na_test_random_whole_ffid_80_seed42
+        partition: test
+        mask_kind: random_whole_ffid
+        missing_fraction: 0.8
+        mask_seed: 42
+        mask: ../../data/processed/c3_na/c3_source_line_blocks_seed42/masks/test-random-whole-ffid-80-seed42
+        case: ../../data/processed/c3_na/c3_source_line_blocks_seed42/cases/c3_na_test_random_whole_ffid_80_seed42
+        case_sha256: null
+        mask_metadata_sha256: null
+        observation_mask_sha256: null
+references:
+  - id: analytic_coordinate_smoke
+    implementation: ../../tests/fixtures/analytic_trace_field.py
+    meaning: two_analytic_ricker_arrivals_not_numerical_propagation_or_field_data

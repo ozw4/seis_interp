@@ -4,12 +4,14 @@
 
 ## Project scope
 
-The main target is the SEG C3 Narrow-Azimuth dataset: held-out traces of a marine 3-D survey are reconstructed from their physical coordinates and from neighboring traces. The repository currently trains and evaluates four model families:
+The main target is the SEG C3 Narrow-Azimuth dataset: held-out traces of a marine 3-D survey are reconstructed from their physical coordinates and from neighboring traces. The repository trains and evaluates these model families:
 
 - a coordinate-only SIREN,
 - a train-only physical-neighbor temporal trace inpainter,
 - a whole-shot gather inpainter over the fixed receiver grid,
 - a trace-node graph gather interpolator.
+
+The [grid-free relational trace graph](docs/relational_trace_graph.md) additionally supports arbitrary source/receiver queries, masked training, frozen checkpoints, and GCN/untyped controls. Its [draft study](studies/study_026_grid_free_multi_relation_gnn/README.md) provides variant configs and a limited-query preflight runner. CPU tests cover analytic off-grid waveforms; C3 training and generalization performance have not been established for this model.
 
 It also provides a CPU/NumPy Fourier POCS-5D baseline for verified dense C3 benchmark volumes.
 

@@ -134,6 +134,9 @@ Grid-freeな多関係trace graphでは、幾何・近傍探索・依存サブグ
 native/dense出力対応は`data/trace_graph_prediction_store.py`、CLIの設定検証とrun接続は
 `relational_trace_graph_config.py`および専用pipelineへ分ける。
 公開APIと入力契約は[relational_trace_graph.md](relational_trace_graph.md)に記載する。
+query幾何診断と独立IDWは`processing/trace_graph_diagnostics.py`・`trace_graph_idw.py`、
+帯別の物理energy集計は`evaluation/trace_graph_diagnostic_metrics.py`、モデルを使う少数queryの計測は
+`training/trace_graph_preflight.py`へ置く。studyのpreflight scriptは専用pipelineを呼ぶ薄い入口とする。
 
 ### Runtime inputの責務
 

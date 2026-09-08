@@ -32,6 +32,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_023_c3_na_drr](study_023_c3_na_drr/README.md) | `draft` | validation C3 volume / damped rank-reduction 5D | How well does fixed damped rank-reduction reconstruct missing traces on the shared POCS benchmark? |
 | [study_024_c3_na_siren_volume](study_024_c3_na_siren_volume/README.md) | `draft` | validation C3 volume / per-volume SIREN | How well does fixed-step observed-only SIREN internal learning reconstruct missing traces on the shared benchmark? |
 | [study_025_c3_na_ccnet5d](study_025_c3_na_ccnet5d/README.md) | `draft` | supervised train-partition CCNet5D / frozen validation inference | How well does pretrained CCNet5D reconstruct the shared benchmark when additional complete train labels are used? |
+| [study_026_grid_free_multi_relation_gnn](study_026_grid_free_multi_relation_gnn/README.md) | `draft` | masked train-partition trace GNN / arbitrary-coordinate queries | Do separate source, receiver, CMP and offset relations improve physical target reconstruction over matched graph controls? |
 
 ## Scratch workspaces
 

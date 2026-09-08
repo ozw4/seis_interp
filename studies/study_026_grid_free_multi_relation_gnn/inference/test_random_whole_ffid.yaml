@@ -1,0 +1,3 @@
+extends: test_random_trace.yaml
+benchmark_case: {id: c3_na_test_random_whole_ffid_80_seed42}
+interpolation_mask: {kind: random_whole_ffid}

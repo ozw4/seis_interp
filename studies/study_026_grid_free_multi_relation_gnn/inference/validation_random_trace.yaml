@@ -1,0 +1,12 @@
+project: {random_seed: 42}
+data: {dataset_id: seg_c3_na}
+benchmark_case: {id: c3_na_validation_random_trace_80_seed42}
+interpolation_mask: {partition: validation, kind: random_trace, missing_fraction: 0.8}
+prediction: {device: cpu, query_batch_size: 8}
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target
+diagnostics:
+  time_s: [0.0, 0.5, 1.0, 1.6]
+  offset_m: [0.0, 500.0, 1000.0, 2000.0, 5000.0]
+  azimuth_deg: [0.0, 90.0, 180.0, 270.0, 360.0]

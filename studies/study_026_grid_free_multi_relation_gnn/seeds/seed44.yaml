@@ -1,0 +1,3 @@
+extends: ../config.yaml
+training:
+  random_seed: 44

@@ -1,0 +1,3 @@
+extends: ../config.yaml
+model:
+  explicit_azimuth_features: false
