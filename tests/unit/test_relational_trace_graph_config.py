@@ -115,3 +115,20 @@ def test_impossible_variant_combinations_are_rejected(changes):
         config[section].update(values)
     with pytest.raises(ValueError):
         validate_relational_trace_graph_training_config(config)
+
+
+def test_diagnostic_bands_are_explicit_fixed_config_and_optional():
+    config = trace_graph_training_config()
+    config["diagnostics"] = {
+        "time_s": [0.1, 0.2],
+        "offset_m": [100, 200],
+        "azimuth_deg": [90, 180, 270],
+    }
+    _, _, options = validate_relational_trace_graph_training_config(config)
+    assert tuple(options["diagnostic_bands"].time_s) == (0.1, 0.2)
+    frozen = trace_graph_prediction_config()
+    frozen["diagnostics"] = config["diagnostics"]
+    validate_relational_trace_graph_prediction_config(frozen)
+    config["diagnostics"]["offset_m"] = [200, 100]
+    with pytest.raises(ValueError):
+        validate_relational_trace_graph_training_config(config)

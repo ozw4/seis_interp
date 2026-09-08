@@ -60,6 +60,65 @@ def _records(output):
     }
 
 
+@pytest.mark.parametrize("variant", ["plain_gcn_row_normalized", "untyped_edge_conditioned"])
+def test_control_pipeline_records_variant_and_physical_diagnostics(variant, tmp_path):
+    data = prepare_trace_graph_run_artifacts(tmp_path / "data", dense=True)
+    config = trace_graph_training_config()
+    config["model"].update(method_variant=variant, relation_fusion="mean")
+    config["graph"]["common_distance_scales_m"] = [2000.0, 5000.0]
+    if variant == "untyped_edge_conditioned":
+        config["graph"]["topology"] = "single_4d"
+    config["diagnostics"] = {
+        "time_s": [0.002],
+        "offset_m": [1000.0],
+        "azimuth_deg": [90.0, 180.0, 270.0],
+    }
+    config_path = write_trace_graph_config(tmp_path / "train.yaml", config)
+    output = tmp_path / "train"
+    trained = _train(
+        data,
+        config_path,
+        output,
+        validation_volume_dir=data.volumes["validation"],
+        train_mask_dir=data.masks["train"],
+        train_case_dir=data.cases["train"],
+        train_volume_dir=data.volumes["train"],
+    )
+    run = _records(output)["run"]
+    assert run["method_variant"] == trained["method_variant"] == variant
+    assert run["parameter_count"] > 0
+    if variant == "untyped_edge_conditioned":
+        assert run["graph"]["relation_names"] == ["untyped"]
+    best = trained["best_validation_metrics"]["evaluation_target"]
+    bands = trained["best_validation_metrics"]["diagnostic_bands"]
+    assert bands["query_count"] == best["trace_count"]
+    for name in ("sample_count", "reference_energy", "error_energy"):
+        assert bands[name] == pytest.approx(best[name], rel=1e-12, abs=1e-12)
+    for baseline in ("zero", "idw"):
+        metrics = trained["baselines"][baseline]["evaluation_target"]
+        for name in ("trace_count", "sample_count", "reference_energy"):
+            assert metrics[name] == best[name]
+    assert "timings" in run["prediction"]["diagnostics"]
+    frozen = trace_graph_prediction_config()
+    frozen["diagnostics"] = config["diagnostics"]
+    frozen_path = write_trace_graph_config(tmp_path / "predict.yaml", frozen)
+    inferred = _infer(
+        data,
+        frozen_path,
+        output / "artifacts/best.pt",
+        tmp_path / "infer",
+        volume_dir=data.volumes["test"],
+    )
+    assert inferred["method_variant"] == variant
+    assert (
+        inferred["diagnostic_bands"]["query_count"] == inferred["evaluation_target"]["trace_count"]
+    )
+    for name in ("sample_count", "reference_energy", "error_energy"):
+        assert inferred["diagnostic_bands"][name] == pytest.approx(
+            inferred["evaluation_target"][name], rel=1e-12, abs=1e-12
+        )
+
+
 @pytest.mark.parametrize("dense", [False, True])
 def test_train_best_checkpoint_frozen_prediction_and_metrics(dense, tmp_path, capsys):
     data = prepare_trace_graph_run_artifacts(tmp_path / "data", dense=dense)

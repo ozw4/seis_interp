@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from numbers import Integral
+from time import perf_counter
 
 import numpy as np
 import torch
@@ -14,6 +15,7 @@ from seis_interp.data.masked_trace_source import (
 )
 from seis_interp.data.trace_graph_domain import TraceGraphDomain
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
+from seis_interp.processing.trace_graph_diagnostics import trace_graph_resource_measurements
 from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, compute_trace_graph_geometry
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
@@ -45,6 +47,7 @@ def predict_relational_trace_graph(
     amplitudes: np.ndarray | None = None,
     observed_waveforms: np.ndarray | None = None,
     device: torch.device | str = "cpu",
+    measure_resources: bool = True,
 ) -> TraceGraphPrediction:
     """Predict selected or arbitrary queries without reading their waveforms.
 
@@ -86,11 +89,26 @@ def predict_relational_trace_graph(
         if observed_waveforms.dtype != np.float32:
             raise ValueError("observed_waveforms must have dtype float32")
 
+    if not isinstance(measure_resources, bool):
+        raise ValueError("measure_resources must be boolean")
+    requested_device = torch.device(device)
+    timings = {
+        name: 0.0
+        for name in (
+            "graph_build_seconds",
+            "observed_read_seconds",
+            "input_assembly_seconds",
+            "forward_seconds",
+        )
+    }
+    geometry_started = perf_counter() if measure_resources else None
     candidate_geometry = compute_trace_graph_geometry(
         domain.source_xy_m,
         domain.receiver_xy_m,
         azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
     )
+    if measure_resources:
+        timings["graph_build_seconds"] += perf_counter() - geometry_started
     prediction = np.empty((len(query_ids), len(domain.time_s)), dtype=np.float32)
     context = np.empty(len(query_ids), dtype=bool)
     rounds = model.message_passing_rounds
@@ -118,6 +136,7 @@ def predict_relational_trace_graph(
         with torch.inference_mode():
             for start in range(0, len(query_ids), query_batch_size):
                 stop = min(start + query_batch_size, len(query_ids))
+                started = perf_counter() if measure_resources else None
                 geometry = compute_trace_graph_geometry(
                     source_xy[start:stop],
                     receiver_xy[start:stop],
@@ -132,19 +151,34 @@ def predict_relational_trace_graph(
                     rounds=rounds,
                     **graph_settings.subgraph_kwargs(),
                 )
+                if measure_resources:
+                    timings["graph_build_seconds"] += perf_counter() - started
                 if source is not None:
-                    inputs = source.inputs(plan)
+                    support_ids = plan.trace_ids[plan.observed_mask]
+                    started = perf_counter() if measure_resources else None
+                    support_waveforms = source.read_observed_rows(support_ids)
+                    if measure_resources:
+                        timings["observed_read_seconds"] += perf_counter() - started
                 else:
-                    inputs = assemble_masked_trace_graph_inputs(
-                        plan,
-                        observed_trace_ids=observed_ids,
-                        observed_waveforms=observed_waveforms,
-                        time_s=domain.time_s,
-                        preprocessing=preprocessing,
-                        device=device,
-                    )
+                    support_ids, support_waveforms = observed_ids, observed_waveforms
+                started = perf_counter() if measure_resources else None
+                inputs = assemble_masked_trace_graph_inputs(
+                    plan,
+                    observed_trace_ids=support_ids,
+                    observed_waveforms=support_waveforms,
+                    time_s=domain.time_s,
+                    preprocessing=preprocessing,
+                    device=device,
+                )
+                if measure_resources:
+                    _synchronize(requested_device)
+                    timings["input_assembly_seconds"] += perf_counter() - started
                 batch_diagnostics = {}
+                started = perf_counter() if measure_resources else None
                 normalized, flags = model(inputs, diagnostics=batch_diagnostics)
+                if measure_resources:
+                    _synchronize(requested_device)
+                    timings["forward_seconds"] += perf_counter() - started
                 values = normalized.cpu().numpy().astype(np.float64) * preprocessing.amplitude_scale
                 if not np.all(np.isfinite(values)):
                     raise ValueError("model predictions must be finite")
@@ -164,6 +198,12 @@ def predict_relational_trace_graph(
     finally:
         model.train(was_training)
     diagnostics.update({name: values.tolist() for name, values in totals.items()})
+    if measure_resources:
+        if source is None:
+            timings["observed_read_seconds"] = None
+        diagnostics["timings"] = timings
+        diagnostics["resources"] = trace_graph_resource_measurements(requested_device)
+    diagnostics["gate_interpretation"] = "model_weights_not_causal_importance"
     return TraceGraphPrediction(
         query_trace_ids=query_ids,
         source_xy_m=source_xy,
@@ -223,3 +263,8 @@ def _query_geometry(
     if any(tuple(pair) in observed_pairs for pair in pairs):
         raise ValueError("query duplicates an observed physical source/receiver pair")
     return ids, source, receiver
+
+
+def _synchronize(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import torch
 
+from seis_interp.evaluation.trace_graph_diagnostic_metrics import TraceGraphDiagnosticBands
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
 from seis_interp.processing.trace_graph_preprocessing import fit_trace_graph_preprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
@@ -59,6 +60,38 @@ def _train(model, *, kind="random_trace", **overrides):
     }
     arguments.update(overrides)
     return train_relational_trace_graph(model, train, validation, preprocessing, **arguments)
+
+
+def test_fixed_band_and_gate_logging_preserves_training_results_and_rng():
+    plain_model = _model()
+    plain = _train(plain_model, max_steps=3)
+    plain_rng = torch.get_rng_state().clone()
+    logged_model = _model()
+    logged = _train(
+        logged_model,
+        max_steps=3,
+        diagnostic_bands=TraceGraphDiagnosticBands(
+            time_s=(0.01,), offset_m=(1.0,), azimuth_deg=(180.0,)
+        ),
+    )
+    torch.testing.assert_close(torch.get_rng_state(), plain_rng, rtol=0, atol=0)
+    for name, value in plain.final_state_dict.items():
+        torch.testing.assert_close(logged.final_state_dict[name], value, rtol=0, atol=0)
+    assert logged.best_step == plain.best_step
+    assert (
+        logged.best_validation_metrics["evaluation_target"]
+        == plain.best_validation_metrics["evaluation_target"]
+    )
+    for row, original in zip(logged.training_history, plain.training_history, strict=True):
+        assert {name: value for name, value in row.items() if name != "diagnostics"} == original
+        diagnostic = row["diagnostics"]
+        bands = diagnostic["bands"]
+        assert bands["sample_count"] == row["sample_count"]
+        assert bands["error_energy"] > 0
+        for axis in ("time_s", "offset_m", "azimuth_deg"):
+            assert sum(part["sample_count"] for part in bands[axis]) == row["sample_count"]
+        assert diagnostic["gate"]["context_query_count"] == [row["query_count"]] * 2
+        assert all(value >= 0 for value in diagnostic["timing_seconds"].values())
 
 
 @pytest.mark.parametrize("kind", ["random_trace", "random_whole_ffid"])

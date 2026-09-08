@@ -19,6 +19,10 @@ from seis_interp.data.relational_trace_graph_run_inputs import (
 )
 from seis_interp.data.trace_graph_domain import load_benchmark_trace_graph_domain
 from seis_interp.data.trace_graph_prediction_store import save_trace_graph_prediction
+from seis_interp.evaluation.trace_graph_diagnostic_metrics import (
+    evaluate_trace_graph_baselines,
+    evaluate_trace_graph_diagnostic_bands,
+)
 from seis_interp.evaluation.trace_graph_metrics import evaluate_trace_graph_prediction
 from seis_interp.processing.c3_volume_index import validated_index_range
 from seis_interp.processing.trace_graph_geometry import (
@@ -29,6 +33,7 @@ from seis_interp.processing.trace_graph_geometry import (
 from seis_interp.relational_trace_graph_config import (
     METHOD,
     TRAINING_REGIME,
+    trace_graph_diagnostic_bands,
     trace_graph_method_variant,
     validate_relational_trace_graph_prediction_config,
 )
@@ -98,6 +103,7 @@ def interpolate_relational_trace_graph_run(
         graph_settings=loaded.graph_settings,
         query_batch_size=config["prediction"]["query_batch_size"],
         device=device,
+        measure_resources=True,
     )
     if progress_reporter:
         progress_reporter("Evaluating target-only physical amplitudes.")
@@ -107,6 +113,22 @@ def interpolate_relational_trace_graph_run(
         query_trace_ids=predicted.query_trace_ids,
         has_observed_context=predicted.has_observed_context,
     )
+    bands = trace_graph_diagnostic_bands(config)
+    if bands is not None:
+        metrics["diagnostic_bands"] = evaluate_trace_graph_diagnostic_bands(
+            predicted.prediction,
+            domain,
+            query_trace_ids=predicted.query_trace_ids,
+            bands=bands,
+            azimuth_min_offset_m=loaded.preprocessing.azimuth_min_offset_m,
+        )
+        metrics["baselines"] = evaluate_trace_graph_baselines(
+            domain,
+            loaded.preprocessing,
+            graph_settings=loaded.graph_settings,
+            query_trace_ids=predicted.query_trace_ids,
+            query_batch_size=config["prediction"]["query_batch_size"],
+        )
     identity = {
         "method": METHOD,
         "method_variant": trace_graph_method_variant(loaded.model.constructor_config()),

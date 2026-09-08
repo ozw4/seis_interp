@@ -20,6 +20,7 @@ from seis_interp.data.trace_graph_domain import (
     load_training_trace_graph_domain,
 )
 from seis_interp.data.trace_graph_prediction_store import save_trace_graph_prediction
+from seis_interp.evaluation.trace_graph_diagnostic_metrics import evaluate_trace_graph_baselines
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
 from seis_interp.processing.trace_graph_geometry import (
     EDGE_FEATURE_NAMES,
@@ -276,7 +277,16 @@ def train_relational_trace_graph_run(
             graph_settings=best.graph_settings,
             query_batch_size=trainer_options["validation_query_batch_size"],
             device=device,
+            measure_resources=True,
         )
+        if "diagnostics" in config:
+            metrics["baselines"] = evaluate_trace_graph_baselines(
+                validation,
+                best.preprocessing,
+                graph_settings=best.graph_settings,
+                query_trace_ids=predicted.query_trace_ids,
+                query_batch_size=trainer_options["validation_query_batch_size"],
+            )
         prediction_metadata = save_trace_graph_prediction(
             artifacts,
             predicted.prediction,
@@ -289,6 +299,7 @@ def train_relational_trace_graph_run(
             **prediction_metadata,
             "partition": "validation",
             "checkpoint_role": "best_validation",
+            "diagnostics": predicted.diagnostics,
         }
         metadata.update(
             status="success", phase="complete", finished_at_utc=run_records.utc_timestamp()

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
 from seis_interp.evaluation.c3_volume_metrics import validate_c3_volume_evaluation_config
+from seis_interp.evaluation.trace_graph_diagnostic_metrics import TraceGraphDiagnosticBands
 from seis_interp.processing.c3_volume_index import validated_index_range
 from seis_interp.processing.trace_graph_geometry import RELATION_NAMES
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
@@ -31,6 +32,7 @@ def validate_relational_trace_graph_training_config(
             "training_mask",
             "training",
             "evaluation",
+            "diagnostics",
         },
     )
     _project_and_data(config)
@@ -166,6 +168,9 @@ def validate_relational_trace_graph_training_config(
     )
     training["episode_kind_probabilities"] = dict(zip(kinds, probabilities, strict=True))
     training["missing_fractions"] = tuple(fractions)
+    bands = trace_graph_diagnostic_bands(config)
+    if bands is not None:
+        training["diagnostic_bands"] = bands
     return model, graph, training
 
 
@@ -181,6 +186,7 @@ def validate_relational_trace_graph_prediction_config(config: Mapping[str, objec
             "benchmark_case",
             "interpolation_mask",
             "benchmark_volume",
+            "diagnostics",
         },
     )
     _project_and_data(config)
@@ -189,6 +195,7 @@ def validate_relational_trace_graph_prediction_config(config: Mapping[str, objec
     config_values.positive_integer(prediction["query_batch_size"], "prediction.query_batch_size")
     config_values.exact_section(config, "evaluation", {"primary_metric", "domain"})
     validate_c3_volume_evaluation_config(config)
+    trace_graph_diagnostic_bands(config)
     case = config_values.exact_section(config, "benchmark_case", {"id"})
     if not isinstance(case["id"], str) or not case["id"]:
         raise ConfigurationError("benchmark_case.id must be a nonempty string")
@@ -244,6 +251,16 @@ def _graph_settings(config: Mapping[str, object]) -> TraceGraphSettings:
             if name in graph
         },
     )
+
+
+def trace_graph_diagnostic_bands(config: Mapping[str, object]) -> TraceGraphDiagnosticBands | None:
+    """Read fixed diagnostic cuts; absent diagnostics leave existing runs unchanged."""
+    if "diagnostics" not in config:
+        return None
+    values = config_values.exact_section(
+        config, "diagnostics", {"time_s", "offset_m", "azimuth_deg"}
+    )
+    return TraceGraphDiagnosticBands(**values)
 
 
 def trace_graph_method_variant(model_config: Mapping[str, object]) -> str:

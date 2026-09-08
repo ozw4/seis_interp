@@ -6,12 +6,18 @@ from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from numbers import Integral, Real
+from time import perf_counter
 
 import numpy as np
 import torch
 
 from seis_interp.data.masked_trace_source import MaskedTraceSource
 from seis_interp.data.trace_graph_domain import TraceGraphDomain
+from seis_interp.evaluation.trace_graph_diagnostic_metrics import (
+    TraceGraphDiagnosticBands,
+    evaluate_trace_graph_diagnostic_bands,
+    summarize_trace_graph_prediction_bands,
+)
 from seis_interp.evaluation.trace_graph_metrics import evaluate_trace_graph_prediction
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
 from seis_interp.processing.trace_graph_geometry import compute_trace_graph_geometry
@@ -76,6 +82,7 @@ def train_relational_trace_graph(
     validation_amplitudes: np.ndarray | None = None,
     reporter: Callable[[str], None] | None = None,
     on_best_update: Callable[[dict[str, torch.Tensor], int, dict[str, object]], None] | None = None,
+    diagnostic_bands: TraceGraphDiagnosticBands | None = None,
 ) -> RelationalTraceGraphTrainingResult:
     """Train an already initialized model, selecting by target-only physical SSE.
 
@@ -147,6 +154,7 @@ def train_relational_trace_graph(
         episode = episodes.next_episode()
         episode_queries = 0
         for query_ids in episode.query_batches(batch_size):
+            graph_started = perf_counter()
             indices = np.array([positions[int(trace_id)] for trace_id in query_ids], dtype=np.int64)
             query_geometry = compute_trace_graph_geometry(
                 training_domain.source_xy_m[indices],
@@ -162,7 +170,12 @@ def train_relational_trace_graph(
                 rounds=model.message_passing_rounds,
                 **graph_settings.subgraph_kwargs(),
             )
+            graph_seconds = perf_counter() - graph_started
+            read_started = perf_counter()
             inputs = source.inputs(plan)
+            if diagnostic_bands is not None and device_value.type == "cuda":
+                torch.cuda.synchronize(device_value)
+            read_seconds = perf_counter() - read_started
             labels = read_trace_graph_training_labels(
                 training_domain,
                 episode,
@@ -173,7 +186,14 @@ def train_relational_trace_graph(
             )
             model.train()
             optimizer.zero_grad(set_to_none=True)
-            prediction, context = model(inputs)
+            gate_diagnostics = None if diagnostic_bands is None else {}
+            if diagnostic_bands is not None and device_value.type == "cuda":
+                torch.cuda.synchronize(device_value)
+            forward_started = perf_counter()
+            prediction, context = model(inputs, diagnostics=gate_diagnostics)
+            if diagnostic_bands is not None and device_value.type == "cuda":
+                torch.cuda.synchronize(device_value)
+            forward_seconds = perf_counter() - forward_started
             if prediction.shape != labels.shape:
                 raise ValueError("training prediction must match unpadded query labels [Q, T]")
             errors = (prediction - labels).square()
@@ -204,6 +224,29 @@ def train_relational_trace_graph(
                     "no_context_query_count": batch_no_context,
                 }
             )
+            if diagnostic_bands is not None:
+                scale = preprocessing.amplitude_scale
+                training_history[-1]["diagnostics"] = {
+                    "bands": summarize_trace_graph_prediction_bands(
+                        prediction.detach().cpu().numpy().astype(np.float64) * scale,
+                        labels.detach().cpu().numpy().astype(np.float64) * scale,
+                        time_s=training_domain.time_s,
+                        source_xy_m=training_domain.source_xy_m[indices],
+                        receiver_xy_m=training_domain.receiver_xy_m[indices],
+                        bands=diagnostic_bands,
+                        azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
+                    ),
+                    "gate": {
+                        name: value.cpu().tolist() for name, value in gate_diagnostics.items()
+                    },
+                    "gate_interpretation": "query aggregation weights, not causal importance",
+                    "graph": dict(plan.diagnostics),
+                    "timing_seconds": {
+                        "graph_construction": graph_seconds,
+                        "observed_input_loading": read_seconds,
+                        "forward": forward_seconds,
+                    },
+                }
             if reporter is not None:
                 reporter(
                     f"relational-trace-graph step {step}/{steps} episode {episode.episode_id}: "
@@ -219,6 +262,7 @@ def train_relational_trace_graph(
                     query_batch_size=validation_batch_size,
                     amplitudes=validation_amplitudes,
                     device=device_value,
+                    diagnostic_bands=diagnostic_bands,
                 )
                 error = float(metrics["evaluation_target"]["error_energy"])
                 if not np.isfinite(error):
@@ -280,6 +324,7 @@ def _evaluate_validation(
     query_batch_size: int,
     amplitudes: np.ndarray | None,
     device: torch.device,
+    diagnostic_bands: TraceGraphDiagnosticBands | None = None,
 ) -> dict[str, object]:
     prediction = predict_relational_trace_graph(
         model,
@@ -290,13 +335,23 @@ def _evaluate_validation(
         amplitudes=amplitudes,
         device=device,
     )
-    return evaluate_trace_graph_prediction(
+    metrics = evaluate_trace_graph_prediction(
         prediction.prediction,
         domain,
         query_trace_ids=prediction.query_trace_ids,
         has_observed_context=prediction.has_observed_context,
         amplitudes=amplitudes,
     )
+    if diagnostic_bands is not None:
+        metrics["diagnostic_bands"] = evaluate_trace_graph_diagnostic_bands(
+            prediction.prediction,
+            domain,
+            query_trace_ids=prediction.query_trace_ids,
+            bands=diagnostic_bands,
+            azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
+            amplitudes=amplitudes,
+        )
+    return metrics
 
 
 def _cpu_state(model: RelationalTraceGraphInterpolator) -> dict[str, torch.Tensor]:
