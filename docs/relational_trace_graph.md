@@ -1,6 +1,6 @@
 # Grid-free relational trace graph
 
-一トレースを一ノードとして、任意の絶対source/receiver座標から欠損波形を直接予測するPython API。
+一トレースを一ノードとして、任意の絶対source/receiver座標から欠損波形を直接予測するPython APIとCLI。
 時間系列は共有codecで潜在系列へ変換し、有向の観測依存グラフ上で同期的に更新する。
 固定receiver格子やFFIDの等間隔性は要求しない。物理座標・特徴順序は
 [座標規約](coordinate_conventions.md#grid-free-trace-graph-features)に従う。
@@ -102,18 +102,67 @@ batchごとに各合計・件数を足し、`gate_sum / context_query_count[:, N
 message block単体で診断する場合は`diagnostic_query_indices`に検証済みのquery indexを明示する。
 gate値だけから物理的重要度や因果関係を判断しない。
 
+## 学習episodeと固定validation
+
+`training/trace_graph_episodes.py`の`TraceGraphEpisodeGenerator`は、固定O0からepisode全体の
+hidden集合Hと可視集合Oを決め、その後でHをquery minibatchへ分ける。
+`random_trace`はトレースを、`random_whole_ffid`はFFIDを選び、そのFFIDのO0内の全行を隠す。
+欠損数は`round(unit_count * missing_fraction)`で決まり、観測・hiddenの両方が残らない設定は拒否する。
+kindは指定確率、missing fractionは指定リストから等確率で選ぶ。
+hidden IDを昇順に並べてからlocal RNGでshuffleし、一巡するまでOを変更しない。
+`read_trace_graph_training_labels()`だけが、そのbatchのHに属する訓練ラベルを読み、固定RMSで正規化する。
+
+`training/relational_trace_graph_trainer.py`の`train_relational_trace_graph()`は、初期化済みモデル、
+train/validation domain、固定前処理、`TraceGraphSettings`、episode/optimizer設定を受け取る。
+AdamWでhidden queryのMSEを最適化し、paddingを分母へ入れない。
+historyはerror energyとsample数から集計し、最後の小batchとcontextなしqueryも含める。
+graphのroundsは常にモデルから導出する。
+
+validationは固定caseの観測だけで予測を完了してから物理振幅のtarget SSEを採点する。
+SSE最小のstepをbestとし、同値では早いstepを保持する。最終stepでもvalidationを行う。
+戻り値は独立したCPUのbest/final state、選択指標、加重history、query/context件数、episode完了情報を持つ。
+`max_steps`でepisodeの途中に停止した場合は`final_episode_interrupted`へ記録する。
+trainerはtest domainを受け入れない。
+
+## checkpointと凍結予測
+
+`training/relational_trace_graph_checkpoints.py`の`save_relational_trace_graph_checkpoint()`は、
+constructor configとstate dictを別々に受け取り、best状態を後続の更新から独立したCPU snapshotとして保存する。
+graph尺度/k/radius、relation・node/edge特徴の順序、固定前処理とfit domain、time_s/T/factor、
+人工mask設定、訓練provenance・seed、`best_validation`または`final`のrole、stepと選択指標も保存する。
+module objectやoptimizer/resume状態は保存しない。
+`load_relational_trace_graph_checkpoint()`は保存構成からモデルを再構築し、stateをstrict loadする。
+異なるモデル名、特徴順序、無効な尺度、time gridや構成の不整合はエラーとなる。
+
+`training/relational_trace_graph_prediction.py`の`predict_relational_trace_graph(model, domain,
+preprocessing, *, graph_settings, ...)`は、通常はdomainのquery全件を予測する。
+`query_trace_ids`で対象と順序を指定でき、任意座標にはさらに`query_source_xy_m`と
+`query_receiver_xy_m`を渡す。`observed_waveforms`をdomainのobserved順で渡せば、観測側のarray_rowも不要になる。
+ファイル入力では各batchのsupportだけを読み、元の観測domain・前処理・探索条件を固定する。
+`model.eval()`と`inference_mode`内で実行し、終了時に呼出前のtraining/evalモードへ戻す。
+
+戻り値`TraceGraphPrediction`は、物理振幅`prediction[Q,T]`、query ID・source/receiver座標、
+`has_observed_context`、軽量な診断を持つ。gateの合計・query件数はbatch間で累積する。
+`processed_support_node_count`等のグラフ件数はbatch処理の延べ数であり、query診断とは区別する。
+異なるtime gridへのresamplingは行わない。
+
+`evaluation/trace_graph_metrics.py`の`evaluate_trace_graph_prediction()`は、完成した物理予測を受けて
+mapped evaluation targetだけを読む。float64のreference/error energyからglobal S/N、RMSE、relative L2を
+計算する。contextあり・なしの指標と件数も返し、contextなしqueryを主指標から除外しない。
+S/Nが非有限になる場合はraw energy、`snr_status`、nullableな`snr_db`でstrict JSONへ記録する。
+
 ## 任意座標queryの例
 
 ```python
-import numpy as np
-import torch
+from dataclasses import replace
 
-from seis_interp.data.masked_trace_source import MaskedTraceSource
+import numpy as np
+
 from seis_interp.data.trace_graph_domain import build_trace_graph_domain
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
-from seis_interp.processing.trace_graph_geometry import compute_trace_graph_geometry
 from seis_interp.processing.trace_graph_preprocessing import fit_trace_graph_preprocessing
-from seis_interp.processing.trace_graph_subgraphs import build_trace_graph_subgraph
+from seis_interp.processing.trace_graph_settings import TraceGraphSettings
+from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
 
 time_s = np.arange(7, dtype=np.float64) * 0.01
 waveforms = np.sin(2 * np.pi * 10 * time_s[None, :] + [[0.0], [0.4]]).astype(np.float32)
@@ -137,27 +186,148 @@ fixed = fit_trace_graph_preprocessing(
     offset_scale_m=2.0,
     azimuth_min_offset_m=0.1,
 )
-observed_geometry = compute_trace_graph_geometry(source, receiver, azimuth_min_offset_m=0.1)
-query_geometry = compute_trace_graph_geometry(
-    np.array([[0.5, 0.2]]),
-    np.array([[0.5, -1.8]]),
-    azimuth_min_offset_m=0.1,
+model = RelationalTraceGraphInterpolator(width=8, relation_fusion="learned_gate")
+settings = TraceGraphSettings(
+    relation_scales_m=((1.0, 4.0), (4.0, 1.0), (1.0, 4.0), (4.0, 1.0)),
 )
-model = RelationalTraceGraphInterpolator(relation_fusion="learned_gate").eval()
-plan = build_trace_graph_subgraph(
-    query_geometry,
-    np.array([-1]),
-    observed_geometry,
-    training.trace_ids,
-    training.observed_mask,
-    rounds=model.message_passing_rounds,
-    relation_scales_m=np.array([[1.0, 4.0], [4.0, 1.0], [1.0, 4.0], [4.0, 1.0]]),
+result = predict_relational_trace_graph(
+    model,
+    replace(training, array_rows=None),
+    fixed,
+    graph_settings=settings,
+    observed_waveforms=waveforms,
+    query_trace_ids=np.array([-1]),
+    query_source_xy_m=np.array([[0.5, 0.2]]),
+    query_receiver_xy_m=np.array([[0.5, -1.8]]),
+    query_batch_size=1,
 )
-inputs = MaskedTraceSource(training, fixed, waveforms).inputs(plan)
-with torch.no_grad():
-    normalized_prediction, has_observed_context = model(inputs)
-physical_prediction = normalized_prediction * fixed.amplitude_scale
+physical_prediction = result.prediction  # float32 [1, 7]
+has_observed_context = result.has_observed_context  # [True]
 ```
 
 この例は任意座標への入出力を示す。未学習モデルの精度を実証するものではない。
-学習episode、checkpoint保存、学習・推論CLI、benchmark出力保存はこのAPIの範囲に含めていない。
+保存モデルでは`load_relational_trace_graph_checkpoint()`の戻り値にある
+`model`・`preprocessing`・`graph_settings`を、そのままこの予測関数へ渡す。
+
+## CLIの最小設定と実行
+
+以下は小規模synthetic artifact向けのtoy例で、研究上の推奨パラメータではない。
+`train.yaml`へ保存し、dataset ID・partition seed・時間範囲を既存artifactへ合わせる。
+訓練とvalidationは同じinterim/partition artifact内のdisjointな行を使う。
+独立した設定ファイルとして使い、別手法の未使用sectionを継承しない。
+
+```yaml
+project: {random_seed: 42}
+data: {dataset_id: synthetic_c3_ccnet5d}
+model:
+  name: relational_trace_graph
+  width: 8
+  message_passing_rounds: 2
+  time_downsample_factor: 2
+  stem_kernel_size: 3
+  temporal_kernel_size: 3
+  temporal_dilations: [1, 2]
+  attention_width: 4
+  relation_embedding_dim: 3
+  relation_fusion: learned_gate
+graph:
+  neighbors_per_relation: 2
+  max_normalized_distance: 1.0
+  candidate_chunk_size: 16
+  relations:
+    source: {source_scale_m: 2000.0, receiver_scale_m: 5000.0}
+    receiver: {source_scale_m: 5000.0, receiver_scale_m: 2000.0}
+    cmp: {midpoint_scale_m: 2000.0, offset_vector_scale_m: 5000.0}
+    offset_azimuth: {midpoint_scale_m: 5000.0, offset_vector_scale_m: 2000.0}
+geometry_features:
+  position_scale_m: 1000.0
+  offset_scale_m: 1000.0
+  azimuth_min_offset_m: 0.1
+training_data: {pool: all_train_traces, time_samples: [1, 4]}
+training_mask:
+  kinds: [random_trace, random_whole_ffid]
+  kind_probabilities: [0.5, 0.5]
+  missing_fractions: [0.5]
+training:
+  device: cpu
+  random_seed: 7
+  loss: masked_mse
+  max_steps: 2
+  query_batch_size: 4
+  validation_interval: 2
+  learning_rate: 0.01
+  weight_decay: 0.0
+  gradient_clip_norm: 1.0
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target
+  query_batch_size: 4
+```
+
+`project.random_seed`は既存partitionの条件、`training.random_seed`はモデル初期化と人工episodeの条件である。
+episodeのlocal RNGはモデル初期化やvalidation頻度から独立する。
+validation/test maskのseedは各caseから取得し、訓練seedとの一致は要求しない。
+`time_samples: [1, 4]`は元配列のサンプル1・2・3を意味し、選択した実際のtime_sをcheckpointへ保存する。
+volume指定時も時間範囲の一致を要求する。
+
+既存artifactの場所を以下のpathへ置き換えて実行する。
+
+```bash
+rtg_run_id="$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)"
+seis-interp train relational-trace-graph \
+  --config train.yaml \
+  --interim data/interim/toy --processed data/processed/toy \
+  --validation-mask data/processed/toy/masks/validation \
+  --validation-case data/processed/toy/cases/validation \
+  --output "runs/trace-graph-toy/${rtg_run_id}-train" --device cpu --json
+```
+
+`all_train_traces`ではtrain mask/caseは不要であり、追加訓練アクセスをrunへ明示する。
+`training_data.pool: mask_observed`に変更する場合は、同時に
+`--train-mask data/processed/toy/masks/train --train-case data/processed/toy/cases/train`を指定する。
+`--train-volume`はtrain mask/caseが両方ある場合に使え、O0の観測をそのcropへ制限する。
+`--validation-volume`はvalidationの観測・queryをそのvolumeへ制限する。
+
+凍結推論用の`predict.yaml`は、checkpointの構成を再定義しない。
+次の`benchmark_case.id`は既存test caseのIDへ合わせる。
+
+```yaml
+project: {random_seed: 42}
+data: {dataset_id: synthetic_c3_ccnet5d}
+benchmark_case: {id: test}
+prediction: {device: cpu, query_batch_size: 3}
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target
+```
+
+```bash
+seis-interp interpolate relational-trace-graph \
+  --checkpoint "runs/trace-graph-toy/${rtg_run_id}-train/artifacts/best.pt" \
+  --config predict.yaml \
+  --interim data/interim/toy --processed data/processed/toy \
+  --mask data/processed/toy/masks/test --case data/processed/toy/cases/test \
+  --output "runs/trace-graph-toy/${rtg_run_id}-test" --device cpu --json
+```
+
+`--volume`を追加すると、同じcaseにbindingされた既存volumeを選択する。
+モデル・graph・前処理・time gridはcheckpointを正本とし、推論configでの上書きやtime resamplingは拒否する。
+benchmark入力はcheckpointの訓練元と同じinterim/processed hashを要求する。
+`--json`のstdoutはstrict JSON、進捗はstderrへ出力する。
+
+## run出力
+
+出力先は既存pathの再使用を拒否する。各runへ`config.resolved.yaml`、`inputs.lock.json`、
+`run.json`、`metrics.json`を保存し、実際の入力hash、seedの役割、訓練pool、time、モデル・graph・固定尺度、
+method variant、device、件数とlayoutを記録する。
+訓練runの`artifacts/best.pt`はvalidation SSE最小の状態、`artifacts/final.pt`は最終stepの状態である。
+訓練runに保存するpredictionはbestを再ロードしたvalidation予測であり、testの採点は凍結推論runで行う。
+
+| layout | `artifacts/prediction.npy` | 出力対応 |
+|---|---|---|
+| `native_trace_list` | query順の物理振幅`[Q,T]` | `artifacts/query_index.parquet`にtrace ID、座標、context flag、存在する場合のarray_row |
+| `dense_volume` | `(time, source_line, shot_in_line, rx, ry)` | 既存volume index順へ復元し、観測は元の物理振幅をexact copy。query対応表も保存 |
+
+モデルはこの出力layoutを認識しない。予測・行対応保存は`data/trace_graph_prediction_store.py`、
+labelを使う採点は`evaluation/trace_graph_metrics.py`、runの接続は二つの専用pipelineが担当する。
+追加診断・IDW、比較モデルとablation、study preflightや本実験を扱うTask14以降は未実装である。

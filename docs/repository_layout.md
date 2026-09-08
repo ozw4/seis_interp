@@ -129,6 +129,10 @@ PRごとの実装説明、現在のclass/function contract、test件数、全epo
 Grid-freeな多関係trace graphでは、幾何・近傍探索・依存サブグラフと固定前処理のfitを
 `processing/trace_graph_*.py`、検証済みrow domainと観測入力の組み立てを`data/`、
 時間codecを接続したmessage passingとrelation融合を`models/relational_trace_graph.py`へ置く。
+人工maskと分離した訓練ラベル読み出しは`training/trace_graph_episodes.py`、optimizer・checkpoint・
+凍結予測は`training/relational_trace_graph_*.py`へ置く。物理target採点は`evaluation/trace_graph_metrics.py`、
+native/dense出力対応は`data/trace_graph_prediction_store.py`、CLIの設定検証とrun接続は
+`relational_trace_graph_config.py`および専用pipelineへ分ける。
 公開APIと入力契約は[relational_trace_graph.md](relational_trace_graph.md)に記載する。
 
 ### Runtime inputの責務

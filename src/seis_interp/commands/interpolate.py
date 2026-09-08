@@ -126,6 +126,37 @@ def _print_run_summary(
         print(f"Uncovered samples: {summary['uncovered_sample_count']}")
 
 
+def _interpolate_relational_trace_graph(args: argparse.Namespace) -> int:
+    from seis_interp.pipelines.interpolate_relational_trace_graph import (
+        interpolate_relational_trace_graph_run,
+    )
+
+    try:
+        summary = interpolate_relational_trace_graph_run(
+            config_path=args.config,
+            checkpoint_path=args.checkpoint,
+            interim_dir=args.interim,
+            processed_dir=args.processed,
+            mask_dir=args.mask,
+            case_dir=args.case,
+            volume_dir=args.volume,
+            output_dir=args.output,
+            device_override=args.device,
+            progress_reporter=_print_progress_to_stderr,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"interpolate relational-trace-graph failed: {error}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
+    else:
+        print(f"Output directory: {args.output}")
+        print(f"Benchmark case: {summary['case_id']}")
+        print(f"Target global S/N: {_format_snr(summary['evaluation_target'])}")
+        print(f"Target RMSE: {summary['evaluation_target']['rmse']:.4f}")
+    return 0
+
+
 def _format_snr(target: Mapping[str, object]) -> str:
     status = target.get("snr_status")
     if status == "finite":
@@ -203,3 +234,20 @@ def add_interpolate_commands(
     )
     ccnet5d.add_argument("--device", help="Override the configured inference device for this run.")
     ccnet5d.set_defaults(handler=_interpolate_ccnet5d)
+    relational = interpolate_commands.add_parser(
+        "relational-trace-graph", help="Predict a native case or volume with a frozen trace graph."
+    )
+    for option, help_text in (
+        ("checkpoint", "Trained relational trace graph checkpoint."),
+        ("config", "Frozen inference configuration YAML."),
+        ("interim", "Interim trace dataset."),
+        ("processed", "Prepared split dataset."),
+        ("mask", "Interpolation mask artifact."),
+        ("case", "Benchmark case artifact."),
+        ("output", "New run output directory."),
+    ):
+        relational.add_argument(f"--{option}", type=Path, required=True, help=help_text)
+    relational.add_argument("--volume", type=Path, help="Optional C3 volume-index selection.")
+    relational.add_argument("--device", help="Override prediction.device for this environment.")
+    relational.add_argument("--json", action="store_true", help="Print metrics as strict JSON.")
+    relational.set_defaults(handler=_interpolate_relational_trace_graph)
