@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import resource
 import subprocess
+import tempfile
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -129,3 +130,29 @@ def write_run_outputs(
         json.dumps(run_metadata, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
+
+
+def write_run_progress(
+    output_directory: Path,
+    metrics: Mapping[str, object],
+    run_metadata: Mapping[str, object],
+) -> None:
+    """Replace progress records individually, leaving the starting inputs intact.
+
+    Metrics are committed before run metadata. Each file remains readable if a
+    write is interrupted; the two replacements are not a single transaction.
+    """
+    records = {
+        name: json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        for name, payload in ((METRICS_FILE_NAME, metrics), (RUN_FILE_NAME, run_metadata))
+    }
+    for name, text in records.items():
+        with tempfile.NamedTemporaryFile(
+            dir=output_directory, prefix=f".{name}.", suffix=".tmp", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+        try:
+            temporary.write_text(text, encoding="utf-8")
+            temporary.replace(output_directory / name)
+        finally:
+            temporary.unlink(missing_ok=True)

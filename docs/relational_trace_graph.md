@@ -121,6 +121,8 @@ graphのroundsは常にモデルから導出する。
 validationは固定caseの観測だけで予測を完了してから物理振幅のtarget SSEを採点する。
 SSE最小のstepをbestとし、同値では早いstepを保持する。最終stepでもvalidationを行う。
 戻り値は独立したCPUのbest/final state、選択指標、加重history、query/context件数、episode完了情報を持つ。
+任意の`on_best_update(state_dict, step, metrics)`を指定すると、best更新直後に独立したCPU snapshotと
+選択指標を通知する。受け取った値は変更せず保存に用い、通知先の例外は呼出元へ伝播する。
 `max_steps`でepisodeの途中に停止した場合は`final_episode_interrupted`へ記録する。
 trainerはtest domainを受け入れない。
 
@@ -131,6 +133,7 @@ constructor configとstate dictを別々に受け取り、best状態を後続の
 graph尺度/k/radius、relation・node/edge特徴の順序、固定前処理とfit domain、time_s/T/factor、
 人工mask設定、訓練provenance・seed、`best_validation`または`final`のrole、stepと選択指標も保存する。
 module objectやoptimizer/resume状態は保存しない。
+保存は同じdirectoryの一時ファイルへ完了してから置き換え、途中の書き込み失敗で直前のcheckpointを失わない。
 `load_relational_trace_graph_checkpoint()`は保存構成からモデルを再構築し、stateをstrict loadする。
 異なるモデル名、特徴順序、無効な尺度、time gridや構成の不整合はエラーとなる。
 
@@ -322,6 +325,19 @@ benchmark入力はcheckpointの訓練元と同じinterim/processed hashを要求
 method variant、device、件数とlayoutを記録する。
 訓練runの`artifacts/best.pt`はvalidation SSE最小の状態、`artifacts/final.pt`は最終stepの状態である。
 訓練runに保存するpredictionはbestを再ロードしたvalidation予測であり、testの採点は凍結推論runで行う。
+
+訓練では入力・設定・人工maskの成立条件と固定前処理を検証してから出力先を作り、
+学習前にresolved config、input lock、開始時の`run.json`と`metrics.json`を保存する。
+`run.json`は`status: running`、`phase: training`で始まり、best更新ごとにpipelineが`best.pt`、
+bestのstep・指標、記録時点の進捗を保存する。最初のvalidation前はbest関連の指標・checkpointは存在しない。
+configとinput lockは開始後に書き換えない。
+
+trainer正常終了後、`final.pt`と全学習指標を先に保存し、`phase: validation_prediction`でbestの予測を出力する。
+予測の保存まで完了すると`status: success`、`phase: complete`と終了時刻を確定する。
+例外時は`failed`、KeyboardInterrupt時は`interrupted`として、失敗したphase・例外・終了時刻を記録する。
+強制終了など終了処理を実行できない場合は、最後に保存された`running`の記録とcheckpointが残る。
+更新するJSONは各ファイルを一時ファイルから置き換える。checkpointとJSON全体を一括更新する契約ではないため、
+更新途中で終了した場合、そのcheckpointのstep・選択指標はcheckpoint自身の内容で確認する。
 
 | layout | `artifacts/prediction.npy` | 出力対応 |
 |---|---|---|

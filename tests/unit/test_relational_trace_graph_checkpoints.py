@@ -113,6 +113,59 @@ def test_saved_best_state_is_cpu_snapshot_and_saving_preserves_rng(tmp_path):
         torch.testing.assert_close(tensor + 5, states[name], rtol=0, atol=0)
 
 
+def test_successful_save_replaces_best_checkpoint_and_removes_temporary_file(tmp_path):
+    model, _, preprocessing, _ = _fixture()
+    path = tmp_path / "best.pt"
+    _save(path, model, preprocessing, global_step=6)
+    with torch.no_grad():
+        model.decoder.head[-1].weight.add_(1)
+    _save(path, model, preprocessing, global_step=9)
+
+    loaded = load_relational_trace_graph_checkpoint(path)
+    assert loaded.global_step == 9
+    for name, tensor in loaded.model.state_dict().items():
+        torch.testing.assert_close(tensor, model.state_dict()[name], rtol=0, atol=0)
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("existing_checkpoint", [False, True])
+def test_failed_save_preserves_existing_best_and_removes_partial_file(
+    tmp_path, monkeypatch, existing_checkpoint
+):
+    model, _, preprocessing, _ = _fixture()
+    path = tmp_path / "best.pt"
+    if existing_checkpoint:
+        _save(path, model, preprocessing, global_step=6)
+        original_bytes = path.read_bytes()
+    rng = torch.get_rng_state().clone()
+    temporary_paths = []
+
+    def fail_after_partial_write(payload, temporary_path):
+        assert temporary_path.parent == path.parent
+        assert temporary_path != path
+        temporary_paths.append(temporary_path)
+        temporary_path.write_bytes(b"partial checkpoint")
+        raise OSError("checkpoint write interrupted")
+
+    monkeypatch.setattr(torch, "save", fail_after_partial_write)
+    with pytest.raises(OSError, match="checkpoint write interrupted"):
+        _save(path, model, preprocessing, global_step=9)
+
+    assert len(temporary_paths) == 1
+    assert not temporary_paths[0].exists()
+    torch.testing.assert_close(torch.get_rng_state(), rng, rtol=0, atol=0)
+    if existing_checkpoint:
+        assert path.read_bytes() == original_bytes
+        loaded = load_relational_trace_graph_checkpoint(path)
+        assert loaded.global_step == 6
+        for name, tensor in loaded.model.state_dict().items():
+            torch.testing.assert_close(tensor, model.state_dict()[name], rtol=0, atol=0)
+        assert list(tmp_path.iterdir()) == [path]
+    else:
+        assert not path.exists()
+        assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "field,value,error",
     [

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from numbers import Integral, Real
@@ -70,6 +71,7 @@ def save_relational_trace_graph_checkpoint(
     Accepting a state dictionary separately permits saving a best-validation
     snapshot after training without changing the final model's parameters.
     All metadata is copied into pure JSON values; no module objects are saved.
+    A complete temporary file replaces the destination only after saving succeeds.
     """
     if not isinstance(preprocessing, TraceGraphPreprocessing):
         raise TypeError("preprocessing must be TraceGraphPreprocessing")
@@ -104,7 +106,15 @@ def save_relational_trace_graph_checkpoint(
         _load_payload(payload, device="cpu")
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(payload, destination)
+    with tempfile.NamedTemporaryFile(
+        dir=destination.parent, prefix=f".{destination.name}-", suffix=".tmp", delete=False
+    ) as temporary_file:
+        temporary_path = Path(temporary_file.name)
+    try:
+        torch.save(payload, temporary_path)
+        temporary_path.replace(destination)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def load_relational_trace_graph_checkpoint(

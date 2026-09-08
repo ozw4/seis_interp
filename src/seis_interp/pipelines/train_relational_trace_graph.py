@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 
 import numpy as np
@@ -39,6 +40,7 @@ from seis_interp.training.relational_trace_graph_checkpoints import (
 )
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
 from seis_interp.training.relational_trace_graph_trainer import train_relational_trace_graph
+from seis_interp.training.trace_graph_episodes import TraceGraphEpisodeGenerator
 
 
 def train_relational_trace_graph_run(
@@ -106,7 +108,19 @@ def train_relational_trace_graph_run(
     )
     if np.intersect1d(training.trace_ids, validation.trace_ids).size:
         raise ValueError("training and validation trace domains must be disjoint")
+    if not np.any(validation.query_mask):
+        raise ValueError("fixed validation must have evaluation target queries")
+    # Check domain-dependent mask feasibility before creating a run. Construction
+    # does not sample an episode or advance the trainer's separate local RNG.
+    TraceGraphEpisodeGenerator(
+        training,
+        random_seed=trainer_options["random_seed"],
+        kind_probabilities=trainer_options["episode_kind_probabilities"],
+        missing_fractions=trainer_options["missing_fractions"],
+    )
     preprocessing = fit_trace_graph_preprocessing(training, **config["geometry_features"])
+    if not np.array_equal(validation.time_s, preprocessing.time_s):
+        raise ValueError("validation time_s must match the fixed preprocessing time grid")
     seed_global_model_initialization(trainer_options["random_seed"], device=device)
     model = RelationalTraceGraphInterpolator(**model_config).float()
     provenance = {
@@ -123,98 +137,18 @@ def train_relational_trace_graph_run(
         "partition_random_seed": config["project"]["random_seed"],
         "training_random_seed": trainer_options["random_seed"],
     }
-    output.mkdir(parents=True, exist_ok=False)
-    artifacts = output / "artifacts"
-    artifacts.mkdir()
-    trained = train_relational_trace_graph(
-        model,
-        training,
-        validation,
-        preprocessing,
-        graph_settings=graph_settings,
-        device=device,
-        reporter=progress_reporter,
-        **trainer_options,
-    )
-    for role, state, step, selection in (
-        (
-            "best_validation",
-            trained.best_state_dict,
-            trained.best_step,
-            trained.best_validation_metrics,
-        ),
-        (
-            "final",
-            trained.final_state_dict,
-            trained.steps_completed,
-            trained.final_validation_metrics,
-        ),
-    ):
-        save_relational_trace_graph_checkpoint(
-            artifacts / ("best.pt" if role == "best_validation" else "final.pt"),
-            model_config=model.constructor_config(),
-            state_dict=state,
-            preprocessing=preprocessing,
-            graph_settings=graph_settings,
-            training_mask=config["training_mask"],
-            training_provenance=provenance,
-            training_random_seed=trainer_options["random_seed"],
-            checkpoint_role=role,
-            global_step=step,
-            selection_metrics=selection,
-        )
-    best = load_relational_trace_graph_checkpoint(artifacts / "best.pt", device=device)
-    predicted = predict_relational_trace_graph(
-        best.model,
-        validation,
-        best.preprocessing,
-        graph_settings=best.graph_settings,
-        query_batch_size=trainer_options["validation_query_batch_size"],
-        device=device,
-    )
-    prediction_metadata = save_trace_graph_prediction(
-        artifacts,
-        predicted.prediction,
-        validation,
-        query_trace_ids=predicted.query_trace_ids,
-        has_observed_context=predicted.has_observed_context,
-        volume_dir=validation_volume_dir,
-    )
     identity = {
         "method": METHOD,
         "method_variant": model_config["relation_fusion"],
         "training_regime": TRAINING_REGIME,
     }
-    metrics = {
-        **identity,
-        **{
-            name: getattr(trained, name)
-            for name in (
-                "best_step",
-                "steps_completed",
-                "episodes_completed",
-                "best_validation_metrics",
-                "final_validation_metrics",
-                "training_history",
-                "validation_history",
-                "episode_history",
-                "query_count",
-                "no_context_query_count",
-                "sample_count",
-                "normalized_error_energy",
-                "final_episode_interrupted",
-            )
-        },
-    }
-    metrics["no_context_query_fraction"] = trained.no_context_query_count / trained.query_count
-    for name in ("training_history", "validation_history", "episode_history"):
-        metrics[name] = list(metrics[name])
     metadata = {
         **identity,
         **git_metadata,
         "started_at_utc": started_at,
-        "finished_at_utc": run_records.utc_timestamp(),
-        "status": "success",
+        "finished_at_utc": None,
+        "status": "running",
+        "phase": "training",
         "device": str(device),
         "random_seed": config["project"]["random_seed"],
         "python_version": platform.python_version(),
@@ -222,7 +156,7 @@ def train_relational_trace_graph_run(
         "torch_version": str(torch.__version__),
         "input": {"training": training_input, "validation": validation_input},
         "training_data": provenance["training_data"],
-        "training": {**config["training"], "steps_completed": trained.steps_completed},
+        "training": {**config["training"], "steps_completed": 0},
         "training_mask": config["training_mask"],
         "graph": {**graph_settings.constructor_config(), "relation_names": list(RELATION_NAMES)},
         "model": model.constructor_config(),
@@ -237,27 +171,132 @@ def train_relational_trace_graph_run(
             "amplitude_scale": preprocessing.amplitude_scale,
         },
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
-        "prediction": {
-            **prediction_metadata,
-            "partition": "validation",
-            "checkpoint_role": "best_validation",
-        },
-        "checkpoints": {
-            "best": {
-                "artifact": "artifacts/best.pt",
-                "role": "best_validation",
-                "step": trained.best_step,
-            },
-            "final": {
-                "artifact": "artifacts/final.pt",
-                "role": "final",
-                "step": trained.steps_completed,
-            },
-        },
+        "checkpoints": {},
         "resources": {
             "elapsed_seconds": time.perf_counter() - started,
             **run_records.runtime_resource_metadata(device),
         },
     }
+    output.mkdir(parents=True, exist_ok=False)
+    artifacts = output / "artifacts"
+    artifacts.mkdir()
+    metrics = dict(identity)
     run_records.write_run_outputs(output, config, provenance, metrics, metadata)
+
+    def save_checkpoint(state, step, selection, *, role):
+        name = "best" if role == "best_validation" else "final"
+        save_relational_trace_graph_checkpoint(
+            artifacts / f"{name}.pt",
+            model_config=model.constructor_config(),
+            state_dict=state,
+            preprocessing=preprocessing,
+            graph_settings=graph_settings,
+            training_mask=config["training_mask"],
+            training_provenance=provenance,
+            training_random_seed=trainer_options["random_seed"],
+            checkpoint_role=role,
+            global_step=step,
+            selection_metrics=selection,
+        )
+        metadata["checkpoints"][name] = {
+            "artifact": f"artifacts/{name}.pt",
+            "role": role,
+            "step": step,
+        }
+
+    def write_progress():
+        metadata["resources"] = {
+            "elapsed_seconds": time.perf_counter() - started,
+            **run_records.runtime_resource_metadata(device),
+        }
+        run_records.write_run_progress(output, metrics, metadata)
+
+    def save_best(state, step, selection):
+        save_checkpoint(state, step, selection, role="best_validation")
+        metrics.update(best_step=step, best_validation_metrics=selection)
+        metadata["training"]["steps_completed"] = step
+        write_progress()
+
+    try:
+        trained = train_relational_trace_graph(
+            model,
+            training,
+            validation,
+            preprocessing,
+            graph_settings=graph_settings,
+            device=device,
+            reporter=progress_reporter,
+            on_best_update=save_best,
+            **trainer_options,
+        )
+        save_checkpoint(
+            trained.final_state_dict,
+            trained.steps_completed,
+            trained.final_validation_metrics,
+            role="final",
+        )
+        metrics = {
+            **identity,
+            **{
+                name: getattr(trained, name)
+                for name in (
+                    "best_step",
+                    "steps_completed",
+                    "episodes_completed",
+                    "best_validation_metrics",
+                    "final_validation_metrics",
+                    "training_history",
+                    "validation_history",
+                    "episode_history",
+                    "query_count",
+                    "no_context_query_count",
+                    "sample_count",
+                    "normalized_error_energy",
+                    "final_episode_interrupted",
+                )
+            },
+        }
+        metrics["no_context_query_fraction"] = trained.no_context_query_count / trained.query_count
+        for name in ("training_history", "validation_history", "episode_history"):
+            metrics[name] = list(metrics[name])
+        metadata["training"]["steps_completed"] = trained.steps_completed
+        metadata["phase"] = "validation_prediction"
+        write_progress()
+        best = load_relational_trace_graph_checkpoint(artifacts / "best.pt", device=device)
+        predicted = predict_relational_trace_graph(
+            best.model,
+            validation,
+            best.preprocessing,
+            graph_settings=best.graph_settings,
+            query_batch_size=trainer_options["validation_query_batch_size"],
+            device=device,
+        )
+        prediction_metadata = save_trace_graph_prediction(
+            artifacts,
+            predicted.prediction,
+            validation,
+            query_trace_ids=predicted.query_trace_ids,
+            has_observed_context=predicted.has_observed_context,
+            volume_dir=validation_volume_dir,
+        )
+        metadata["prediction"] = {
+            **prediction_metadata,
+            "partition": "validation",
+            "checkpoint_role": "best_validation",
+        }
+        metadata.update(
+            status="success", phase="complete", finished_at_utc=run_records.utc_timestamp()
+        )
+        write_progress()
+    except (Exception, KeyboardInterrupt) as error:
+        metadata.update(
+            status="interrupted" if isinstance(error, KeyboardInterrupt) else "failed",
+            finished_at_utc=run_records.utc_timestamp(),
+            error={"type": type(error).__name__, "message": str(error)},
+        )
+        # Preserve the original failure if storage cannot accept another
+        # record. The last committed run record and best snapshot remain.
+        with suppress(OSError, ValueError):
+            write_progress()
+        raise
     return metrics

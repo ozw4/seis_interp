@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+import yaml
 
 from seis_interp.cli import main
 from seis_interp.data.file_checksums import file_sha256
@@ -304,6 +305,7 @@ def test_partition_seed_and_validation_partition_fail_before_training(trained_in
     path = write_trace_graph_config(tmp_path / "wrong_seed.yaml", config)
     with pytest.raises(ValueError, match="partition seed"):
         _train(data, path, tmp_path / "bad_seed")
+    assert not (tmp_path / "bad_seed").exists()
     path = write_trace_graph_config(tmp_path / "train.yaml", trace_graph_training_config())
     with pytest.raises(ValueError, match="validation partition"):
         train_relational_trace_graph_run(
@@ -314,6 +316,125 @@ def test_partition_seed_and_validation_partition_fail_before_training(trained_in
             validation_case_dir=data.cases["test"],
             output_dir=tmp_path / "bad_validation",
         )
+    assert not (tmp_path / "bad_validation").exists()
+
+
+@pytest.fixture(scope="module")
+def persistence_inputs(tmp_path_factory):
+    return prepare_trace_graph_run_artifacts(
+        tmp_path_factory.mktemp("trace_graph_persistence") / "data", dense=True
+    )
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt])
+def test_first_validation_preserves_start_records_and_best_on_interruption(
+    persistence_inputs, tmp_path, monkeypatch, error_type
+):
+    from seis_interp.pipelines import train_relational_trace_graph as pipeline
+
+    data = persistence_inputs
+    config = trace_graph_training_config()
+    config["training"].update(max_steps=3, validation_interval=1)
+    path = write_trace_graph_config(tmp_path / "train.yaml", config)
+    output = tmp_path / "run"
+    original_train = pipeline.train_relational_trace_graph
+    initial_files = {}
+
+    def check_start_records(*args, **kwargs):
+        records = _records(output)
+        assert records["run"]["status"] == "running"
+        assert records["run"]["phase"] == "training"
+        assert records["run"]["finished_at_utc"] is None
+        assert records["run"]["checkpoints"] == {}
+        assert records["run"]["training"]["steps_completed"] == 0
+        assert "best_step" not in records["metrics"]
+        assert not list((output / "artifacts").iterdir())
+        for name in ("config.resolved.yaml", "inputs.lock.json"):
+            initial_files[name] = (output / name).read_bytes()
+        assert yaml.safe_load(initial_files["config.resolved.yaml"]) == config
+        return original_train(*args, **kwargs)
+
+    def stop_after_validation(message):
+        if "validation step 1:" in message:
+            # These must already be readable before the trainer returns.
+            records = _records(output)
+            best = load_relational_trace_graph_checkpoint(output / "artifacts/best.pt")
+            assert best.global_step == records["metrics"]["best_step"] == 1
+            assert best.selection_metrics == records["metrics"]["best_validation_metrics"]
+            assert best.training_provenance == records["inputs.lock"]
+            assert records["run"]["status"] == "running"
+            assert records["run"]["training"]["steps_completed"] == 1
+            raise error_type("intentional stop after first validation")
+
+    monkeypatch.setattr(pipeline, "train_relational_trace_graph", check_start_records)
+    with pytest.raises(error_type, match="intentional stop"):
+        _train(
+            data,
+            path,
+            output,
+            validation_volume_dir=data.volumes["validation"],
+            progress_reporter=stop_after_validation,
+        )
+    records = _records(output)
+    best = load_relational_trace_graph_checkpoint(output / "artifacts/best.pt")
+    assert best.global_step == records["metrics"]["best_step"] == 1
+    assert best.selection_metrics == records["metrics"]["best_validation_metrics"]
+    assert best.training_provenance == records["inputs.lock"]
+    assert best.training_random_seed == config["training"]["random_seed"]
+    assert records["run"]["status"] == (
+        "interrupted" if error_type is KeyboardInterrupt else "failed"
+    )
+    assert records["run"]["finished_at_utc"] is not None
+    assert records["run"]["error"]["type"] == error_type.__name__
+    assert records["run"]["phase"] == "training"
+    assert records["run"]["checkpoints"]["best"]["step"] == 1
+    assert not (output / "artifacts/final.pt").exists()
+    assert not (output / "artifacts/prediction.npy").exists()
+    for name, contents in initial_files.items():
+        assert (output / name).read_bytes() == contents
+
+
+@pytest.mark.parametrize(
+    "failing_function", ["predict_relational_trace_graph", "save_trace_graph_prediction"]
+)
+def test_post_training_prediction_failure_preserves_final_metrics_and_checkpoints(
+    persistence_inputs, tmp_path, monkeypatch, failing_function
+):
+    from seis_interp.pipelines import train_relational_trace_graph as pipeline
+
+    data = persistence_inputs
+    config = trace_graph_training_config()
+    path = write_trace_graph_config(tmp_path / "train.yaml", config)
+    output = tmp_path / "run"
+
+    def fail_after_training(*args, **kwargs):
+        records = _records(output)
+        assert records["run"]["status"] == "running"
+        assert records["run"]["phase"] == "validation_prediction"
+        assert records["metrics"]["steps_completed"] == config["training"]["max_steps"]
+        for name in ("best", "final"):
+            checkpoint = load_relational_trace_graph_checkpoint(output / f"artifacts/{name}.pt")
+            assert checkpoint.selection_metrics == records["metrics"][f"{name}_validation_metrics"]
+        raise RuntimeError("intentional prediction artifact failure")
+
+    monkeypatch.setattr(pipeline, failing_function, fail_after_training)
+    with pytest.raises(RuntimeError, match="intentional prediction artifact failure"):
+        _train(data, path, output, validation_volume_dir=data.volumes["validation"])
+    records = _records(output)
+    assert records["run"]["status"] == "failed"
+    assert records["run"]["phase"] == "validation_prediction"
+    assert records["run"]["finished_at_utc"] is not None
+    assert records["metrics"]["steps_completed"] == config["training"]["max_steps"]
+    assert "prediction" not in records["run"]
+
+
+def test_infeasible_episode_mask_fails_before_creating_run(persistence_inputs, tmp_path):
+    config = trace_graph_training_config()
+    config["training_mask"]["missing_fractions"] = [0.000001]
+    path = write_trace_graph_config(tmp_path / "train.yaml", config)
+    with pytest.raises(ValueError, match="both visible and hidden units"):
+        _train(persistence_inputs, path, tmp_path / "output")
+    assert not (tmp_path / "output").exists()
 
 
 def test_frozen_cli_configuration_override_is_a_clean_error(tmp_path, capsys):

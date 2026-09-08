@@ -142,6 +142,115 @@ def test_best_snapshot_is_deep_copied_earliest_tie_and_predicts_independently(mo
     np.testing.assert_array_equal(restored.prediction, expected.prediction)
 
 
+def test_best_update_notifies_only_strict_improvements_with_stable_cpu_snapshots(
+    monkeypatch,
+) -> None:
+    actual = trainer_module.evaluate_trace_graph_prediction
+    errors = iter([3.0, 3.0, 2.0, 4.0])
+    model = _model()
+    updates, events = [], []
+
+    def score(*args, **kwargs):
+        metrics = actual(*args, **kwargs)
+        metrics["evaluation_target"]["error_energy"] = next(errors)
+        return metrics
+
+    def on_best_update(state, step, metrics):
+        events.append(f"best {step}")
+        expected = {
+            name: value.detach().cpu().clone() for name, value in model.state_dict().items()
+        }
+        for name, value in state.items():
+            assert value.device.type == "cpu" and not value.requires_grad
+            assert value.grad_fn is None
+            assert value.data_ptr() != model.state_dict()[name].data_ptr()
+            assert torch.equal(value, expected[name])
+        updates.append((state, step, metrics, expected))
+
+    monkeypatch.setattr(trainer_module, "evaluate_trace_graph_prediction", score)
+    result = _train(
+        model,
+        max_steps=4,
+        validation_interval=1,
+        on_best_update=on_best_update,
+        reporter=events.append,
+    )
+    assert [step for _, step, _, _ in updates] == [1, 3]
+    assert [metrics["evaluation_target"]["error_energy"] for _, _, metrics, _ in updates] == [
+        3.0,
+        2.0,
+    ]
+    assert result.best_step == 3
+    for state, step, _, expected in updates:
+        validation_event = next(
+            index for index, event in enumerate(events) if f"validation step {step}:" in event
+        )
+        assert events.index(f"best {step}") < validation_event
+        for name, value in state.items():
+            assert torch.equal(value, expected[name])
+    for name, value in updates[-1][0].items():
+        assert torch.equal(value, result.best_state_dict[name])
+
+
+def test_best_update_observer_preserves_results_predictions_and_torch_rng() -> None:
+    plain_model = _model()
+    plain = _train(plain_model, max_steps=3, validation_interval=1)
+    plain_rng = torch.get_rng_state().clone()
+    observed_model = _model()
+    observed = _train(
+        observed_model,
+        max_steps=3,
+        validation_interval=1,
+        on_best_update=lambda state, step, metrics: None,
+    )
+    assert torch.equal(torch.get_rng_state(), plain_rng)
+    for name in (
+        "training_history",
+        "validation_history",
+        "episode_history",
+        "best_step",
+        "best_validation_metrics",
+        "final_validation_metrics",
+        "steps_completed",
+        "query_count",
+        "sample_count",
+        "normalized_error_energy",
+    ):
+        assert getattr(plain, name) == getattr(observed, name)
+    for field in ("best_state_dict", "final_state_dict"):
+        for name, value in getattr(plain, field).items():
+            assert torch.equal(value, getattr(observed, field)[name])
+    _, validation, values, preprocessing, settings = _setup()
+    expected = predict_relational_trace_graph(
+        plain_model, validation, preprocessing, graph_settings=settings, amplitudes=values
+    )
+    actual = predict_relational_trace_graph(
+        observed_model, validation, preprocessing, graph_settings=settings, amplitudes=values
+    )
+    np.testing.assert_array_equal(expected.prediction, actual.prediction)
+
+
+def test_best_update_exception_propagates_before_validation_report_or_next_step() -> None:
+    failure = OSError("snapshot save failed")
+    calls, messages = [], []
+
+    def fail(state, step, metrics):
+        calls.append(step)
+        raise failure
+
+    with pytest.raises(OSError, match="snapshot save failed") as caught:
+        _train(
+            _model(),
+            max_steps=3,
+            validation_interval=1,
+            on_best_update=fail,
+            reporter=messages.append,
+        )
+    assert caught.value is failure
+    assert calls == [1]
+    assert not any("validation step" in message or "step 2/" in message for message in messages)
+
+
 def test_validation_labels_affect_only_scores_not_training_or_current_prediction() -> None:
     _, validation, values, preprocessing, settings = _setup()
     changed = values.copy()

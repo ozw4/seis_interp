@@ -75,6 +75,7 @@ def train_relational_trace_graph(
     training_amplitudes: np.ndarray | None = None,
     validation_amplitudes: np.ndarray | None = None,
     reporter: Callable[[str], None] | None = None,
+    on_best_update: Callable[[dict[str, torch.Tensor], int, dict[str, object]], None] | None = None,
 ) -> RelationalTraceGraphTrainingResult:
     """Train an already initialized model, selecting by target-only physical SSE.
 
@@ -82,6 +83,11 @@ def train_relational_trace_graph(
     function uses ``random_seed`` only for a separate local episode RNG. The
     fixed preprocessing is never fitted here; validation labels enter scoring
     only after observed-only predictions have been produced.
+
+    ``on_best_update(state_dict, step, metrics)`` can save each improved best
+    snapshot immediately. It receives the independent CPU snapshot and its
+    selection metrics before validation reporting; treat them as read-only.
+    Callback exceptions propagate to the caller.
     """
     if not isinstance(model, RelationalTraceGraphInterpolator):
         raise TypeError("model must be a RelationalTraceGraphInterpolator")
@@ -224,6 +230,8 @@ def train_relational_trace_graph(
                     best_metrics = deepcopy(metrics)
                     best_state = _cpu_state(model)
                     best_step = step
+                    if on_best_update is not None:
+                        on_best_update(best_state, best_step, best_metrics)
                 if reporter is not None:
                     reporter(
                         f"relational-trace-graph validation step {step}: physical_sse={error:.8g}"

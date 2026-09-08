@@ -97,6 +97,95 @@ def test_write_run_outputs_rejects_non_finite_json_values(
         )
 
 
+def test_write_run_progress_updates_records_without_changing_starting_inputs(
+    tmp_path: Path,
+) -> None:
+    config = {"training": {"random_seed": 31}}
+    inputs_lock = {"files": {"traces.npy": {"sha256": "abc"}}}
+    run_records.write_run_outputs(tmp_path, config, inputs_lock, {}, {"status": "running"})
+    starting_inputs = {
+        name: (tmp_path / name).read_bytes()
+        for name in (run_records.CONFIG_FILE_NAME, run_records.INPUTS_LOCK_FILE_NAME)
+    }
+    metrics = {"best_step": 2, "best_validation_metrics": {"error_energy": 1.25}}
+    metadata = {"status": "running", "checkpoints": {"best": {"step": 2}}}
+
+    run_records.write_run_progress(tmp_path, metrics, metadata)
+
+    for name, payload in (
+        (run_records.METRICS_FILE_NAME, metrics),
+        (run_records.RUN_FILE_NAME, metadata),
+    ):
+        text = (tmp_path / name).read_text(encoding="utf-8")
+        assert json.loads(text) == payload
+        assert text == json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    for name, original in starting_inputs.items():
+        assert (tmp_path / name).read_bytes() == original
+    assert {path.name for path in tmp_path.iterdir()} == {
+        *starting_inputs,
+        run_records.METRICS_FILE_NAME,
+        run_records.RUN_FILE_NAME,
+    }
+
+
+@pytest.mark.parametrize(
+    "failed_record", [run_records.METRICS_FILE_NAME, run_records.RUN_FILE_NAME]
+)
+def test_write_run_progress_preserves_readable_records_after_partial_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failed_record: str
+) -> None:
+    original_metrics = {"best_step": 1}
+    original_metadata = {"status": "running", "checkpoints": {"best": {"step": 1}}}
+    run_records.write_run_outputs(
+        tmp_path, {"seed": 31}, {"sha256": "abc"}, original_metrics, original_metadata
+    )
+    originals = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    metrics = {"best_step": 2}
+    metadata = {"status": "running", "checkpoints": {"best": {"step": 2}}}
+    original_write_text = Path.write_text
+    partial_paths = []
+
+    def fail_after_partial_write(path, text, *args, **kwargs):
+        if path.name.startswith(f".{failed_record}."):
+            assert path.parent == tmp_path
+            partial_paths.append(path)
+            original_write_text(path, '{"partial":', *args, **kwargs)
+            raise OSError("progress write interrupted")
+        return original_write_text(path, text, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_after_partial_write)
+    with pytest.raises(OSError, match="progress write interrupted"):
+        run_records.write_run_progress(tmp_path, metrics, metadata)
+
+    assert len(partial_paths) == 1
+    assert not partial_paths[0].exists()
+    expected_metrics = (
+        original_metrics if failed_record == run_records.METRICS_FILE_NAME else metrics
+    )
+    assert json.loads((tmp_path / run_records.METRICS_FILE_NAME).read_text()) == expected_metrics
+    assert json.loads((tmp_path / run_records.RUN_FILE_NAME).read_text()) == original_metadata
+    for name in (run_records.CONFIG_FILE_NAME, run_records.INPUTS_LOCK_FILE_NAME, failed_record):
+        assert (tmp_path / name).read_bytes() == originals[name]
+    assert {path.name for path in tmp_path.iterdir()} == set(originals)
+
+
+@pytest.mark.parametrize("invalid_record", ["metrics", "run_metadata"])
+def test_write_run_progress_rejects_non_finite_json_before_changing_either_record(
+    tmp_path: Path, invalid_record: str
+) -> None:
+    run_records.write_run_outputs(
+        tmp_path, {"seed": 31}, {"sha256": "abc"}, {"step": 1}, {"status": "running"}
+    )
+    originals = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    payloads = {"metrics": {"step": 2}, "run_metadata": {"status": "success"}}
+    payloads[invalid_record] = {"value": math.nan}
+
+    with pytest.raises(ValueError, match="Out of range float values"):
+        run_records.write_run_progress(tmp_path, payloads["metrics"], payloads["run_metadata"])
+
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == originals
+
+
 def test_file_hashes_returns_sha256_of_named_files(tmp_path: Path) -> None:
     payload = b"seis-interp"
     (tmp_path / "small.bin").write_bytes(payload)
