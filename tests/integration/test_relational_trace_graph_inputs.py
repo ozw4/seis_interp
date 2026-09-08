@@ -23,7 +23,11 @@ from tests.fixtures.benchmark_case_artifacts import prepare_benchmark_case_artif
 
 
 def _plan(
-    domain: TraceGraphDomain, query_rows: np.ndarray, *, add_remote_query: bool = False
+    domain: TraceGraphDomain,
+    query_rows: np.ndarray,
+    *,
+    rounds: int,
+    add_remote_query: bool = False,
 ) -> TraceGraphPlan:
     source = domain.source_xy_m[query_rows]
     receiver = domain.receiver_xy_m[query_rows]
@@ -42,7 +46,7 @@ def _plan(
         observed_geometry,
         domain.trace_ids,
         domain.observed_mask,
-        rounds=2,
+        rounds=rounds,
         relation_scales_m=np.full((4, 2), 1000.0),
         neighbors_per_relation=1,
         candidate_chunk_size=1,
@@ -110,6 +114,7 @@ def test_native_domains_to_model_preserve_queries_and_read_only_support(
     def predict(plan: TraceGraphPlan) -> tuple[torch.Tensor, torch.Tensor]:
         plans.append(plan)
         inputs = source.inputs(plan)
+        assert inputs.dependency_rounds == model.message_passing_rounds
         assert inputs.waveforms.shape[1] == 3
         assert torch.equal(
             inputs.waveforms[inputs.query_indices], torch.zeros(len(plan.query_indices), 3)
@@ -120,10 +125,15 @@ def test_native_domains_to_model_preserve_queries_and_read_only_support(
 
     query_rows = benchmark.query_indices
     assert len(query_rows) == 2
-    joint, context = predict(_plan(benchmark, query_rows))
-    split = torch.cat([predict(_plan(benchmark, row[None]))[0] for row in query_rows])
-    reversed_prediction, _ = predict(_plan(benchmark, query_rows[::-1]))
-    augmented, augmented_context = predict(_plan(benchmark, query_rows, add_remote_query=True))
+    rounds = model.message_passing_rounds
+    joint, context = predict(_plan(benchmark, query_rows, rounds=rounds))
+    split = torch.cat(
+        [predict(_plan(benchmark, row[None], rounds=rounds))[0] for row in query_rows]
+    )
+    reversed_prediction, _ = predict(_plan(benchmark, query_rows[::-1], rounds=rounds))
+    augmented, augmented_context = predict(
+        _plan(benchmark, query_rows, rounds=rounds, add_remote_query=True)
+    )
 
     assert joint.shape == (2, 3) and context.all()
     assert torch.all(joint.abs().amax(dim=1) > 1e-4)

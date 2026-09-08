@@ -192,6 +192,7 @@ def assemble_masked_trace_graph_inputs(
         observed_mask=torch.tensor(plan.observed_mask, dtype=torch.bool),
         query_indices=torch.tensor(plan.query_indices, dtype=torch.int64),
         coverage=torch.tensor(plan.coverage, dtype=torch.float32),
+        dependency_rounds=plan.dependency_rounds,
     )
     return validate_masked_trace_graph_inputs(inputs.to(device))
 

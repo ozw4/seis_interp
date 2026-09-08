@@ -23,6 +23,8 @@ class TraceGraphPlan:
     leaves have no incoming edges unless another query reaches them sooner.
     Degree and minimum distance describe the full selected incoming edges for
     expanded nodes; both are zero for an empty relation or an unexpanded leaf.
+    ``dependency_rounds`` records the requested update depth, even when the
+    observed domain is exhausted before reaching that depth.
     """
 
     trace_ids: np.ndarray
@@ -37,6 +39,7 @@ class TraceGraphPlan:
     depth: np.ndarray
     diagnostics: dict[str, int]
     neighbors_per_relation: int
+    dependency_rounds: int
 
     @property
     def coverage(self) -> np.ndarray:
@@ -167,6 +170,7 @@ def build_trace_graph_subgraph(
         depth=depths,
         diagnostics=diagnostics,
         neighbors_per_relation=int(neighbors_per_relation),
+        dependency_rounds=int(rounds),
     )
 
 

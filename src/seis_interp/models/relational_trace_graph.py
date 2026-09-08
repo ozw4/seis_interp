@@ -89,22 +89,32 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         coverage: torch.Tensor | None = None,
         *,
         diagnostics: dict[str, torch.Tensor] | None = None,
+        diagnostic_query_indices: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Update from sender/destination edges without modifying input states.
 
         ``coverage[N,4,2]`` contains selected degree/k and minimum distance,
-        with zero for empty relations. Diagnostics hold only detached four-value
-        summaries; gate weights describe the model, not causal importance.
+        with zero for empty relations. Diagnostics require explicit query indices
+        and hold detached gate sums and query counts, excluding support nodes.
+        Indices must be validated, unique int64 local query indices in a 1-D
+        tensor on the latent device; the interpolator validates its inputs.
+        Gate weights describe the model, not causal importance.
         """
         _validate_graph_tensors(latents, self.width, edge_index, edge_type, edge_features)
+        if diagnostics is not None and diagnostic_query_indices is None:
+            raise ValueError("diagnostic_query_indices are required for diagnostics")
         updated = latents + self.temporal_update(self.temporal(F.silu(self.temporal_norm(latents))))
         messages, valid = self._relation_messages(updated, edge_index, edge_type, edge_features)
         weights = self._relation_weights(updated, messages, valid, coverage)
         aggregate = (weights[:, :, None, None] * messages).sum(dim=1)
         if diagnostics is not None:
+            query_valid = valid.detach()[diagnostic_query_indices]
+            has_context = query_valid.any(dim=1)
             diagnostics.update(
-                gate_mean=weights.detach().mean(dim=0),
-                available_count=valid.detach().sum(dim=0),
+                gate_sum=weights.detach()[diagnostic_query_indices][has_context].sum(dim=0),
+                available_query_count=query_valid.sum(dim=0),
+                context_query_count=has_context.sum(),
+                no_context_query_count=(~has_context).sum(),
             )
         return updated + self.message_update(aggregate)
 
@@ -213,6 +223,11 @@ class RelationalTraceGraphInterpolator(nn.Module):
         """Return independent, JSON-compatible constructor values."""
         return {**self._config, "temporal_dilations": list(self._config["temporal_dilations"])}
 
+    @property
+    def message_passing_rounds(self) -> int:
+        """Required dependency rounds for graph construction."""
+        return len(self.rounds)
+
     def forward(
         self,
         inputs: MaskedTraceGraphInputs,
@@ -221,6 +236,11 @@ class RelationalTraceGraphInterpolator(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Return ``([Q,T], [Q])`` in query order; no-context predictions are zero."""
         validate_masked_trace_graph_inputs(inputs)
+        if inputs.dependency_rounds < self.message_passing_rounds:
+            raise ValueError(
+                f"dependency_rounds ({inputs.dependency_rounds}) must be at least "
+                f"message_passing_rounds ({self.message_passing_rounds})"
+            )
         waveforms = inputs.waveforms
         if waveforms.ndim != 2 or min(waveforms.shape) < 1:
             raise ValueError("waveforms must have shape (positive nodes, positive time)")
@@ -232,8 +252,7 @@ class RelationalTraceGraphInterpolator(nn.Module):
         visible = waveforms.masked_fill(~inputs.observed_mask[:, None], 0)
         padded = F.pad(visible[:, None], (0, padded_time - time_count))
         latents = self.encoder(padded) + self.node_embedding(inputs.node_features)[:, :, None]
-        gate_means = []
-        available_counts = []
+        round_summaries = []
         for block in self.rounds:
             summary = {} if diagnostics is not None else None
             latents = block(
@@ -243,10 +262,10 @@ class RelationalTraceGraphInterpolator(nn.Module):
                 inputs.edge_features,
                 inputs.coverage,
                 diagnostics=summary,
+                diagnostic_query_indices=inputs.query_indices,
             )
             if summary is not None:
-                gate_means.append(summary["gate_mean"])
-                available_counts.append(summary["available_count"])
+                round_summaries.append(summary)
         context = torch.zeros_like(inputs.observed_mask)
         context[inputs.edge_index[1]] = True
         has_context = context[inputs.query_indices]
@@ -258,8 +277,10 @@ class RelationalTraceGraphInterpolator(nn.Module):
         predictions = predictions.masked_fill(~has_context[:, None], 0)
         if diagnostics is not None:
             diagnostics.update(
-                gate_mean=torch.stack(gate_means),
-                available_count=torch.stack(available_counts),
+                {
+                    name: torch.stack([summary[name] for summary in round_summaries])
+                    for name in round_summaries[0]
+                }
             )
         return predictions, has_context
 

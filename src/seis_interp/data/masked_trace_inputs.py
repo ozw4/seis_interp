@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from numbers import Integral
 
 import torch
 
@@ -13,6 +14,8 @@ class MaskedTraceGraphInputs:
 
     Coverage has shape ``[N, 4, 2]``: selected degree divided by k, followed
     by minimum relation distance. Both entries are zero for empty relations.
+    ``dependency_rounds`` is the number of synchronous updates whose incoming
+    dependencies were collected, independent of the graph's realized depth.
     Array-row identities and training/evaluation labels are deliberately absent.
     """
 
@@ -24,11 +27,17 @@ class MaskedTraceGraphInputs:
     observed_mask: torch.Tensor
     query_indices: torch.Tensor
     coverage: torch.Tensor
+    dependency_rounds: int
 
     def to(self, device: torch.device | str) -> MaskedTraceGraphInputs:
         """Move this batch's tensors together without changing their dtypes."""
         return MaskedTraceGraphInputs(
-            **{field.name: getattr(self, field.name).to(device) for field in fields(self)}
+            **{
+                field.name: getattr(self, field.name).to(device)
+                for field in fields(self)
+                if field.name != "dependency_rounds"
+            },
+            dependency_rounds=self.dependency_rounds,
         )
 
 
@@ -36,7 +45,17 @@ def validate_masked_trace_graph_inputs(inputs: MaskedTraceGraphInputs) -> Masked
     """Check shapes, visibility and finite values without changing the batch."""
     if not isinstance(inputs, MaskedTraceGraphInputs):
         raise TypeError("inputs must be a MaskedTraceGraphInputs object")
-    tensors = {field.name: getattr(inputs, field.name) for field in fields(inputs)}
+    if (
+        isinstance(inputs.dependency_rounds, bool)
+        or not isinstance(inputs.dependency_rounds, Integral)
+        or inputs.dependency_rounds < 1
+    ):
+        raise ValueError("dependency_rounds must be a positive integer")
+    tensors = {
+        field.name: getattr(inputs, field.name)
+        for field in fields(inputs)
+        if field.name != "dependency_rounds"
+    }
     for name, tensor in tensors.items():
         if not isinstance(tensor, torch.Tensor):
             raise TypeError(f"{name} must be a torch.Tensor")

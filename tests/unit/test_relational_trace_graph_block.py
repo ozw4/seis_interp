@@ -98,9 +98,35 @@ def test_empty_edges_are_finite_and_have_exact_zero_messages(fusion: str) -> Non
     assert torch.equal(messages, torch.zeros_like(messages))
     assert not valid.any()
     diagnostics = {}
-    actual = block(latents, edges, relations, features, coverage, diagnostics=diagnostics)
+    actual = block(
+        latents,
+        edges,
+        relations,
+        features,
+        coverage,
+        diagnostics=diagnostics,
+        diagnostic_query_indices=torch.tensor([0]),
+    )
     assert torch.isfinite(actual).all()
-    assert torch.equal(diagnostics["gate_mean"], torch.zeros(4))
+    assert torch.equal(diagnostics["gate_sum"], torch.zeros(4))
+    assert diagnostics["context_query_count"] == 0
+    assert diagnostics["no_context_query_count"] == 1
+
+
+def test_diagnostics_select_queries_and_exclude_support_from_counts() -> None:
+    block = RelationalTraceGraphMessageBlock(8)
+    diagnostics = {}
+    block(*_fixture(), diagnostics=diagnostics, diagnostic_query_indices=torch.tensor([3, 1]))
+    assert torch.equal(diagnostics["gate_sum"], torch.tensor([0.5, 0.0, 0.5, 0.0]))
+    assert torch.equal(diagnostics["available_query_count"], torch.tensor([1, 0, 1, 0]))
+    assert diagnostics["context_query_count"] == 1
+    assert diagnostics["no_context_query_count"] == 1
+
+
+def test_diagnostics_require_explicit_query_selection() -> None:
+    block = RelationalTraceGraphMessageBlock(8)
+    with pytest.raises(ValueError, match="diagnostic_query_indices"):
+        block(*_fixture(), diagnostics={})
 
 
 def test_synchronous_update_is_equivariant_to_node_and_edge_order() -> None:

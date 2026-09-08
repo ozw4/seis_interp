@@ -29,7 +29,8 @@ float64でstream集計し、全サンプルのglobal RMSとCMPの算術平均を
 `data/masked_trace_source.py`の`MaskedTraceSource`はmemory mapと行対応を持ち、`inputs(plan)`で必要な
 観測supportだけを読む。元の物理振幅を変更せず、固定RMSで一度だけ正規化する。
 query波形は最初からexact zeroである。`MaskedTraceGraphInputs`にはwaveform、9/15次元特徴、
-edge index/type、observed mask、query index、coverageだけを渡し、ラベルやarray_rowは含めない。
+edge index/type、observed mask、query index、coverage、依存範囲の`dependency_rounds`を渡す。
+ラベルやarray_rowは含めない。
 
 任意座標では`build_trace_graph_domain()`を使える。queryのarray_rowは省略可能で、混在する行対応には
 `-1`を使える。`assemble_masked_trace_graph_inputs()`はplan、明示的な観測ID・物理波形、time grid、
@@ -62,7 +63,10 @@ depth<Lのdestinationだけを元の観測domainへ問い合わせる。L-hop葉
 
 coverageは`[N,4,2]`のdegree/kと最小Dであり、空relationと未展開葉では両方0。
 planにはquery数、support数、typed edge数、unique pair数、最大depthの診断も含む。
-モデルのround数と同じLでplanを作り、query分割間で可視集合・前処理・検索条件を固定する。
+`dependency_rounds`は構築時に要求したLを保持し、そのままモデル入力へ引き継ぐ。
+探索が早く完了した場合も、実際の最大depthからLを求め直さない。
+モデルは`dependency_rounds >= model.message_passing_rounds`を予測前に検証する。
+呼出側は`model.message_passing_rounds`からLを導出し、query分割間で可視集合・前処理・検索条件を固定する。
 
 ## 波形モデルとrelation融合
 
@@ -84,8 +88,19 @@ decoderも既存のzero initを使うため、未学習モデルの直接予測�
 
 `constructor_config()`は独立した純粋な構成値を返す。
 `model(inputs, diagnostics=summary)`は通常と同じ戻り値を保ち、渡したdictへdetach済みの
-`gate_mean[rounds,4]`と`available_count[rounds,4]`だけを記録する。
-gate平均は全plan nodeを分母とし、空relationの0も含む。gate値だけから物理的重要度や因果関係を判断しない。
+query診断だけを記録する。途中の観測supportや未展開葉は集計対象に含めない。
+
+| キー | shape | 内容 |
+|---|---|---|
+| `gate_sum` | `[rounds,4]` | contextのあるqueryのrelation別gate合計 |
+| `available_query_count` | `[rounds,4]` | 各relationにincoming edgeがあるquery数 |
+| `context_query_count` | `[rounds]` | いずれかのrelationにincoming edgeがある集計対象query数 |
+| `no_context_query_count` | `[rounds]` | incoming edgeのないquery数 |
+
+batchごとに各合計・件数を足し、`gate_sum / context_query_count[:, None]`で全体のgate平均を得る。
+集計対象queryが0件の場合は合計も0となり、平均は計算しない。
+message block単体で診断する場合は`diagnostic_query_indices`に検証済みのquery indexを明示する。
+gate値だけから物理的重要度や因果関係を判断しない。
 
 ## 任意座標queryの例
 
@@ -128,17 +143,17 @@ query_geometry = compute_trace_graph_geometry(
     np.array([[0.5, -1.8]]),
     azimuth_min_offset_m=0.1,
 )
+model = RelationalTraceGraphInterpolator(relation_fusion="learned_gate").eval()
 plan = build_trace_graph_subgraph(
     query_geometry,
     np.array([-1]),
     observed_geometry,
     training.trace_ids,
     training.observed_mask,
-    rounds=2,
+    rounds=model.message_passing_rounds,
     relation_scales_m=np.array([[1.0, 4.0], [4.0, 1.0], [1.0, 4.0], [4.0, 1.0]]),
 )
 inputs = MaskedTraceSource(training, fixed, waveforms).inputs(plan)
-model = RelationalTraceGraphInterpolator(relation_fusion="learned_gate").eval()
 with torch.no_grad():
     normalized_prediction, has_observed_context = model(inputs)
 physical_prediction = normalized_prediction * fixed.amplitude_scale

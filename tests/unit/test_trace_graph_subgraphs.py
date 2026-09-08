@@ -109,6 +109,7 @@ def test_closure_matches_full_domain_reverse_reachability_and_stops_at_leaves(ro
     _, full_records = _full_graph([0.0], [100])
     expected_depths = _reverse_closure([100], full_records, rounds)
 
+    assert plan.dependency_rounds == rounds
     assert dict(zip(plan.trace_ids, plan.depth, strict=True)) == expected_depths
     assert set(plan.trace_ids) == {100, *range(1, rounds + 1)}
     assert np.all(plan.observed_mask[plan.edge_index[0]])
@@ -202,6 +203,7 @@ def test_invisible_ffid_and_disallowed_candidates_never_return_at_any_hop():
     assert set(plan.trace_ids) == {100, 2, 4, 6}
     assert set(plan.trace_ids[plan.edge_index[0]]) == {2, 4, 6}
     assert plan.diagnostics["max_depth"] == 3
+    assert plan.dependency_rounds == 5
     assert np.all(plan.depth < 5)  # Observed cycles terminate after exhausting the domain.
 
 
@@ -224,6 +226,7 @@ def test_empty_context_or_query_set_has_well_shaped_empty_edges(empty_queries):
     assert plan.coverage.shape == (count, 4, 2)
     assert plan.diagnostics["unique_pair_count"] == 0
     assert plan.diagnostics["max_depth"] == 0
+    assert plan.dependency_rounds == 3
     np.testing.assert_array_equal(plan.degree, np.zeros((count, 4)))
     np.testing.assert_array_equal(plan.min_distance, np.zeros((count, 4)))
 

@@ -27,13 +27,24 @@ def _inputs():
 
 def test_validation_and_device_transfer_preserve_inputs() -> None:
     inputs = _inputs()
-    originals = {field.name: getattr(inputs, field.name).clone() for field in fields(inputs)}
+    originals = {
+        field.name: getattr(inputs, field.name).clone()
+        for field in fields(inputs)
+        if field.name != "dependency_rounds"
+    }
     assert validate_masked_trace_graph_inputs(inputs) is inputs
     moved = inputs.to("cpu")
 
+    assert inputs.dependency_rounds == moved.dependency_rounds == 2
     for name, original in originals.items():
         assert torch.equal(getattr(inputs, name), original)
         assert torch.equal(getattr(moved, name), original)
+
+
+@pytest.mark.parametrize("rounds", [0, -1, 2.0, True, np.bool_(True), "2", None])
+def test_dependency_rounds_must_be_a_positive_integer(rounds) -> None:
+    with pytest.raises(ValueError, match="dependency_rounds must be a positive integer"):
+        validate_masked_trace_graph_inputs(replace(_inputs(), dependency_rounds=rounds))
 
 
 @pytest.mark.parametrize("field_name", ["waveforms", "node_features", "edge_features", "coverage"])

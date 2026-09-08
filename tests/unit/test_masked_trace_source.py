@@ -71,6 +71,7 @@ def test_only_support_rows_are_read_and_query_waveforms_start_at_exact_zero() ->
     )
     assert torch.count_nonzero(inputs.waveforms[inputs.query_indices]) == 0
     assert inputs.waveforms.shape == (len(plan.trace_ids), 5)
+    assert inputs.dependency_rounds == plan.dependency_rounds == 2
     assert all(
         "label" not in field.name and "array_row" not in field.name for field in fields(inputs)
     )
@@ -89,7 +90,10 @@ def test_fixed_input_tensors_do_not_depend_on_hidden_labels_or_unused_observatio
     after = source.inputs(plan)
 
     for field in fields(MaskedTraceGraphInputs):
-        assert torch.equal(getattr(before, field.name), getattr(after, field.name))
+        if field.name == "dependency_rounds":
+            assert before.dependency_rounds == after.dependency_rounds
+        else:
+            assert torch.equal(getattr(before, field.name), getattr(after, field.name))
 
 
 def test_query_splitting_keeps_fixed_features_and_normalized_observations() -> None:
@@ -131,7 +135,10 @@ def test_source_memory_maps_file_without_reading_target_values(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("coordinate_shift", [0.0, 100.0])
-def test_arbitrary_query_assembly_requires_no_array_row(coordinate_shift: float) -> None:
+@pytest.mark.parametrize("rounds", [1, 2, 4])
+def test_arbitrary_query_assembly_requires_no_array_row(
+    coordinate_shift: float, rounds: int
+) -> None:
     source, domain, _ = _source()
     observed_rows = np.flatnonzero(domain.observed_mask)
     geometry = compute_trace_graph_geometry(
@@ -150,7 +157,7 @@ def test_arbitrary_query_assembly_requires_no_array_row(coordinate_shift: float)
         geometry,
         domain.trace_ids[observed_rows],
         np.ones(len(observed_rows), dtype=bool),
-        rounds=2,
+        rounds=rounds,
         relation_scales_m=np.ones((4, 2)),
         neighbors_per_relation=2,
     )
@@ -165,9 +172,11 @@ def test_arbitrary_query_assembly_requires_no_array_row(coordinate_shift: float)
     )
 
     assert plan.trace_ids[plan.query_indices].tolist() == [-17]
+    assert inputs.dependency_rounds == source.inputs(plan).dependency_rounds == rounds
     assert torch.count_nonzero(inputs.waveforms[inputs.query_indices]) == 0
     assert torch.equal(source.inputs(plan).waveforms, inputs.waveforms)
     if coordinate_shift:
+        assert plan.diagnostics["max_depth"] == 0
         assert inputs.edge_index.shape == (2, 0)
         assert torch.count_nonzero(inputs.coverage) == 0
 

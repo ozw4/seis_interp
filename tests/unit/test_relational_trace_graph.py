@@ -91,6 +91,7 @@ def _inputs(plan: TraceGraphPlan, *, time=9) -> MaskedTraceGraphInputs:
         observed_mask=torch.from_numpy(plan.observed_mask),
         query_indices=torch.from_numpy(plan.query_indices),
         coverage=torch.from_numpy(plan.coverage),
+        dependency_rounds=plan.dependency_rounds,
     )
 
 
@@ -235,8 +236,9 @@ def test_gate_initialization_matches_mean_model_with_shared_parameters() -> None
     torch.testing.assert_close(mean(inputs)[0], learned(inputs)[0], atol=1e-6, rtol=1e-5)
 
 
-def test_diagnostics_are_detached_compact_and_do_not_change_prediction_or_gradient() -> None:
-    model = _model("learned_gate")
+@pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
+def test_diagnostics_are_detached_compact_and_do_not_change_prediction_or_gradient(fusion) -> None:
+    model = _model(fusion)
     inputs = _inputs(_plan())
     diagnostics = {}
     diagnostic_prediction, _ = model(inputs, diagnostics=diagnostics)
@@ -246,11 +248,88 @@ def test_diagnostics_are_detached_compact_and_do_not_change_prediction_or_gradie
     plain_prediction, _ = model(inputs)
     plain_prediction.square().sum().backward()
     assert torch.equal(diagnostic_prediction, plain_prediction)
-    assert set(diagnostics) == {"gate_mean", "available_count"}
-    assert all(value.shape == (2, 4) for value in diagnostics.values())
+    assert {name: value.shape for name, value in diagnostics.items()} == {
+        "gate_sum": (2, 4),
+        "available_query_count": (2, 4),
+        "context_query_count": (2,),
+        "no_context_query_count": (2,),
+    }
     assert all(value.grad_fn is None and not value.requires_grad for value in diagnostics.values())
     for name, value in model.named_parameters():
         assert torch.equal(gradients[name], value.grad)
+
+
+@pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
+def test_query_diagnostic_totals_match_split_batches_and_deeper_closure(fusion) -> None:
+    model = _model(fusion)
+    if fusion == "learned_gate":
+        with torch.no_grad():
+            for block in model.rounds:
+                block.relation_gate[-1].weight.normal_(std=0.4)
+    query_x = (0.0, 2.2, 100.0)
+    query_ids = (100, 101, 102)
+    joint = _plan(query_x, query_ids)
+    separate = [_plan((x,), (trace_id,)) for x, trace_id in zip(query_x, query_ids, strict=True)]
+    # Splitting duplicates shared support and leaves more boundary nodes unexpanded.
+    assert sum(plan.observed_mask.sum() for plan in separate) > joint.observed_mask.sum()
+    leaves = separate[0].trace_ids[separate[0].depth == 2]
+    assert np.isin(joint.trace_ids[joint.edge_index[1]], leaves).any()
+    diagnostics = {}
+    model(_inputs(joint), diagnostics=diagnostics)
+    split_diagnostics = []
+    for plan in separate:
+        summary = {}
+        model(_inputs(plan), diagnostics=summary)
+        split_diagnostics.append(summary)
+    deeper_diagnostics = {}
+    model(_inputs(_plan(query_x, query_ids, rounds=6)), diagnostics=deeper_diagnostics)
+    for name, value in diagnostics.items():
+        torch.testing.assert_close(
+            value, torch.stack([summary[name] for summary in split_diagnostics]).sum(dim=0)
+        )
+        torch.testing.assert_close(value, deeper_diagnostics[name])
+    assert torch.equal(diagnostics["context_query_count"], torch.tensor([2, 2]))
+    assert torch.equal(diagnostics["no_context_query_count"], torch.tensor([1, 1]))
+    torch.testing.assert_close(diagnostics["gate_sum"].sum(dim=1), torch.tensor([2.0, 2.0]))
+    query_available = torch.from_numpy(joint.degree[joint.query_indices] > 0).sum(dim=0)
+    assert torch.equal(diagnostics["available_query_count"], query_available.expand(2, -1))
+
+
+@pytest.mark.parametrize("query_x,query_ids", [((100.0,), (100,)), ((), ())])
+def test_diagnostics_without_context_have_zero_sums_and_explicit_counts(query_x, query_ids) -> None:
+    plan = _plan(query_x, query_ids) if query_ids else _plan()
+    inputs = _inputs(plan)
+    if not query_ids:
+        inputs = replace(inputs, query_indices=torch.empty(0, dtype=torch.int64))
+    diagnostics = {}
+    _model("learned_gate")(inputs, diagnostics=diagnostics)
+    assert torch.equal(diagnostics["gate_sum"], torch.zeros(2, 4))
+    assert torch.equal(diagnostics["available_query_count"], torch.zeros(2, 4, dtype=torch.int64))
+    assert torch.equal(diagnostics["context_query_count"], torch.zeros(2, dtype=torch.int64))
+    assert torch.equal(diagnostics["no_context_query_count"], torch.full((2,), len(query_ids)))
+
+
+def test_forward_rejects_insufficient_dependency_rounds() -> None:
+    model = _model(message_passing_rounds=4, temporal_dilations=(1, 2, 3, 4))
+    inputs = _inputs(_plan(rounds=2))
+    with pytest.raises(ValueError, match=r"dependency_rounds \(2\).*message_passing_rounds \(4\)"):
+        model(inputs)
+
+
+@pytest.mark.parametrize("dependency_rounds", [2, 4])
+def test_forward_accepts_sufficient_dependency_rounds(dependency_rounds) -> None:
+    model = _model()
+    prediction, context = model(_inputs(_plan(rounds=dependency_rounds)))
+    assert prediction.shape == (2, 9) and torch.isfinite(prediction).all()
+    assert context.all()
+
+
+def test_exhausted_graph_is_accepted_when_requested_rounds_exceed_actual_depth() -> None:
+    model = _model(message_passing_rounds=6, temporal_dilations=(1, 2, 1, 2, 1, 2))
+    plan = _plan((0.0,), (100,), rounds=model.message_passing_rounds)
+    assert 0 < plan.diagnostics["max_depth"] < model.message_passing_rounds
+    prediction, context = model(_inputs(plan))
+    assert context.all() and torch.isfinite(prediction).all()
 
 
 def test_constructor_config_roundtrips_pure_values_and_is_independent() -> None:
