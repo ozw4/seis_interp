@@ -680,6 +680,81 @@ def test_prepare_c3_volume_index_rejects_missing_range(
 
 
 @pytest.mark.parametrize(
+    ("axis", "value", "error_text"),
+    [
+        ("time", [1, 385], "selection.time must be"),
+        ("source_line", [24, 40], "selection.source_line must be"),
+        ("shot_in_line", [0, 31], "exactly 32 indices"),
+        ("shot_in_line", None, "is unresolved"),
+    ],
+)
+def test_fixed_benchmark_rejects_invalid_crop_before_pipeline_io(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    axis: str,
+    value: object,
+    error_text: str,
+) -> None:
+    from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
+
+    config = load_resolved_config(
+        REPOSITORY_ROOT / "studies" / "study_027_c3_na_benchmark" / "config.yaml"
+    )
+    config["benchmark_volume"]["selection"].update(
+        shot_in_line=[0, 32], relative_receiver_x=[0, 8], relative_receiver_y=[0, 32]
+    )
+    config["benchmark_volume"]["selection"][axis] = value
+    config_path = _write_volume_config(tmp_path, monkeypatch)
+    config_path.write_text(yaml.safe_dump(config))
+
+    def unexpected_prepare(**kwargs: object) -> dict[str, object]:
+        pytest.fail("invalid main crop reached the artifact pipeline")
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_c3_volume_index.prepare_c3_volume_index",
+        unexpected_prepare,
+    )
+
+    assert main([*_volume_arguments(tmp_path, config_path), "--json"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert error_text in captured.err
+    assert not (tmp_path / "volume").exists()
+
+
+def test_fixed_benchmark_passes_resolved_ranges_to_existing_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
+
+    config = load_resolved_config(
+        REPOSITORY_ROOT / "studies" / "study_027_c3_na_benchmark" / "config.yaml"
+    )
+    config["benchmark_volume"]["selection"].update(
+        shot_in_line=[7, 39], relative_receiver_x=[0, 8], relative_receiver_y=[18, 50]
+    )
+    config_path = _write_volume_config(tmp_path, monkeypatch)
+    config_path.write_text(yaml.safe_dump(config))
+    received: dict[str, object] = {}
+
+    def fake_prepare(**kwargs: object) -> dict[str, object]:
+        received.update(kwargs)
+        return {"accepted": True}
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.prepare_c3_volume_index.prepare_c3_volume_index",
+        fake_prepare,
+    )
+    assert main([*_volume_arguments(tmp_path, config_path), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"accepted": True}
+    assert received["time_range"] == (0, 384)
+    assert received["source_line_range"] == (25, 41)
+    assert received["shot_in_line_range"] == (7, 39)
+    assert received["relative_receiver_y_range"] == (18, 50)
+
+
+@pytest.mark.parametrize(
     "option",
     [
         "--volume-id",

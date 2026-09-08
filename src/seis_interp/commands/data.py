@@ -467,9 +467,12 @@ def _prepare_c3_volume_index(args: argparse.Namespace) -> int:
     # Imported here so that unrelated commands keep working without the data extras.
     from seis_interp.data.c3_volume_index_store import validated_volume_id
     from seis_interp.pipelines.prepare_c3_volume_index import prepare_c3_volume_index
+    from seis_interp.processing.c3_benchmark_contract import validate_c3_benchmark_contract
 
     try:
         config = load_resolved_config(args.config, repository_root=REPOSITORY_ROOT)
+        if "c3_benchmark" in config:
+            validate_c3_benchmark_contract(config, require_resolved=True)
         volume_id = validated_volume_id(get_required_config_value(config, "benchmark_volume.id"))
         ranges = {
             name: _required_index_range(
@@ -588,6 +591,10 @@ def add_data_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         "data", help="Acquire, verify, inspect, and prepare external datasets."
     )
     data_commands = data.add_subparsers(dest="data_command", required=True)
+
+    from seis_interp.commands.c3_benchmark import add_c3_benchmark_commands
+
+    add_c3_benchmark_commands(data_commands)
 
     download = data_commands.add_parser("download", help="Download an external dataset.")
     download.add_argument("dataset", choices=(DATASET_ID,))

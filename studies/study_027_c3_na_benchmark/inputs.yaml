@@ -1,0 +1,101 @@
+source:
+  dataset_id: seg_c3_na
+  manifest: ../../data/external/seg_c3_na/manifest.yaml
+  interim: ../../data/interim/c3_na/all_ffids
+  extraction_reference: 5-D Seismic Data Interpolation by Continuous Representation
+
+# Crop constants are in config.yaml; the executable case list is below.
+selection_config: config.yaml
+cases:
+  - {case_id: c3_benchmark_test_random_trace_50_seed42, partition: test, kind: random_trace, missing_fraction: 0.5, random_seed: 42}
+  - {case_id: c3_benchmark_test_random_trace_50_seed43, partition: test, kind: random_trace, missing_fraction: 0.5, random_seed: 43}
+  - {case_id: c3_benchmark_test_random_trace_50_seed44, partition: test, kind: random_trace, missing_fraction: 0.5, random_seed: 44}
+  - {case_id: c3_benchmark_test_random_trace_80_seed42, partition: test, kind: random_trace, missing_fraction: 0.8, random_seed: 42}
+  - {case_id: c3_benchmark_test_random_trace_80_seed43, partition: test, kind: random_trace, missing_fraction: 0.8, random_seed: 43}
+  - {case_id: c3_benchmark_test_random_trace_80_seed44, partition: test, kind: random_trace, missing_fraction: 0.8, random_seed: 44}
+  - {case_id: c3_benchmark_test_random_trace_90_seed42, partition: test, kind: random_trace, missing_fraction: 0.9, random_seed: 42}
+  - {case_id: c3_benchmark_test_random_trace_90_seed43, partition: test, kind: random_trace, missing_fraction: 0.9, random_seed: 43}
+  - {case_id: c3_benchmark_test_random_trace_90_seed44, partition: test, kind: random_trace, missing_fraction: 0.9, random_seed: 44}
+  - {case_id: c3_benchmark_test_random_whole_ffid_50_seed42, partition: test, kind: random_whole_ffid, missing_fraction: 0.5, random_seed: 42}
+  - {case_id: c3_benchmark_test_random_whole_ffid_50_seed43, partition: test, kind: random_whole_ffid, missing_fraction: 0.5, random_seed: 43}
+  - {case_id: c3_benchmark_test_random_whole_ffid_50_seed44, partition: test, kind: random_whole_ffid, missing_fraction: 0.5, random_seed: 44}
+  - {case_id: c3_benchmark_test_random_whole_ffid_80_seed42, partition: test, kind: random_whole_ffid, missing_fraction: 0.8, random_seed: 42}
+  - {case_id: c3_benchmark_test_random_whole_ffid_80_seed43, partition: test, kind: random_whole_ffid, missing_fraction: 0.8, random_seed: 43}
+  - {case_id: c3_benchmark_test_random_whole_ffid_80_seed44, partition: test, kind: random_whole_ffid, missing_fraction: 0.8, random_seed: 44}
+  - {case_id: c3_benchmark_validation_random_trace_50_seed142, partition: validation, kind: random_trace, missing_fraction: 0.5, random_seed: 142}
+  - {case_id: c3_benchmark_validation_random_trace_80_seed142, partition: validation, kind: random_trace, missing_fraction: 0.8, random_seed: 142}
+  - {case_id: c3_benchmark_validation_random_trace_90_seed142, partition: validation, kind: random_trace, missing_fraction: 0.9, random_seed: 142}
+  - {case_id: c3_benchmark_validation_random_whole_ffid_50_seed142, partition: validation, kind: random_whole_ffid, missing_fraction: 0.5, random_seed: 142}
+  - {case_id: c3_benchmark_validation_random_whole_ffid_80_seed142, partition: validation, kind: random_whole_ffid, missing_fraction: 0.8, random_seed: 142}
+selection_provenance:
+  time_and_sail_lines: user_fixed
+  shape: user_fixed_based_on_extraction_reference
+  shot_and_receiver_starts: geometry_resolved_when_not_explicit
+  exact_paper_start_positions: not_required
+
+sail_line_numbering:
+  rule: use_explicit_original_numbers_if_present_otherwise_global_source_line_index
+  current_table_convention: global_source_line_index
+  current_table_reason: segy_index.TRACE_TABLE_COLUMNS_has_no_original_sail_line_number
+  original_number_selection: inclusive_25_through_40
+  global_index_selection: zero_based_half_open_25_to_41
+  mapping_output: geometry_qc
+  mapping_fields: [source_line_index, original_sail_line_number_if_available, source_x_m, ffid]
+  conversion: resolve_once_and_share_without_per_pipeline_offsets
+
+start_resolution:
+  rule: centered_contiguous
+  bounds: common_available_axis_ranges_on_selected_sail_lines
+  initial_start: lo + (hi - lo - length) // 2
+  explicit_start: validate_first_when_provided
+  adjustment: only_if_initial_candidate_fails_existing_grid_validation
+  candidate_order: manhattan_distance_from_initial_then_lexicographic_start_indices
+  output: resolved_integer_ranges_and_trace_to_cell_table
+  selection_evidence: geometry_only
+  initial_starts: {shot_in_line: 32, relative_receiver_x: 0, relative_receiver_y: 18}
+  resolved_starts: {shot_in_line: 28, relative_receiver_x: 0, relative_receiver_y: 18}
+  adjustment_reason: central_candidate_missing_cell_at_local_indices_0_28_1_4
+
+partition_plan:
+  split_scope: c3_source_line_blocks
+  train: all_global_source_lines_before_test
+  test: fixed_sail_line_selection
+  validation: all_global_source_lines_after_test
+  # Measured N=50; the exact integer ranges are in config.yaml.
+  validation_stop: actual_source_line_count_from_geometry_qc
+  output_config_key: sampling.source_line_ranges
+  require_nonempty_roles: true
+  require_complete_disjoint_source_line_coverage: true
+  require_disjoint_canonical_trace_rows: true
+  historical_usage_audit: false
+
+training_pool:
+  row_selection: canonical_trace_rows_assigned_to_train
+  time_selection: c3_benchmark.training.time_samples
+  consumers: [ccnet5d, relational_trace_graph]
+  identity: canonical_array_rows_and_time_indices
+
+mask_contract:
+  recipes: c3_benchmark.mask_recipes
+  generate_over: entire_canonical_partition
+  report_separately: realized_crop_trace_and_ffid_missing_fractions
+  redraw_seed_to_match_fraction: false
+  training_seed_changes_regenerate_masks_or_partition: false
+
+outputs:
+  root: ../../data/processed/c3_na/study_027_c3_na_benchmark
+  existing_directory_policy: reject
+  hash_policy: compute_sha256_from_current_files
+  tracked_data_artifacts: false
+
+frozen_suite:
+  manifest: ../../data/processed/c3_na/study_027_c3_na_benchmark/benchmark_suite.json
+  sha256: 6447a35cc7d4de43532ee8e2e0de3245ac0e93d855efa7ff59c98a85e1631cab
+  source_configs: manifest_bound_snapshots_in_sources_directory
+
+execution:
+  preparation_entrypoint: data_prepare_c3_benchmark
+  default_action: dry_run
+  artifact_creation: explicit_execute
+  full_training: false
+  hyperparameter_search: false

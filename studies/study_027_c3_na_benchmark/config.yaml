@@ -1,0 +1,97 @@
+extends: ../../configs/default.yaml
+
+project:
+  # Data preparation seed; model training seeds are recorded separately below.
+  random_seed: 42
+
+study:
+  id: study_027_c3_na_benchmark
+  status: materialized_locked
+
+c3_benchmark:
+  extraction_reference: 5-D Seismic Data Interpolation by Continuous Representation
+  axis_order: [time, source_line, shot_in_line, relative_receiver_x, relative_receiver_y]
+  shape: [384, 16, 32, 8, 32]
+  sail_lines:
+    requested_inclusive: [25, 40]
+    numbering: global_source_line_index
+    original_number_column: null
+    index_range: [25, 41]
+    source_line_count: 50
+    lines:
+      - {requested_sail_line_number: 25, source_line_index: 25, source_x_m: 7860.0}
+      - {requested_sail_line_number: 26, source_line_index: 26, source_x_m: 8020.0}
+      - {requested_sail_line_number: 27, source_line_index: 27, source_x_m: 8180.0}
+      - {requested_sail_line_number: 28, source_line_index: 28, source_x_m: 8340.0}
+      - {requested_sail_line_number: 29, source_line_index: 29, source_x_m: 8500.0}
+      - {requested_sail_line_number: 30, source_line_index: 30, source_x_m: 8660.0}
+      - {requested_sail_line_number: 31, source_line_index: 31, source_x_m: 8820.0}
+      - {requested_sail_line_number: 32, source_line_index: 32, source_x_m: 8980.0}
+      - {requested_sail_line_number: 33, source_line_index: 33, source_x_m: 9140.0}
+      - {requested_sail_line_number: 34, source_line_index: 34, source_x_m: 9300.0}
+      - {requested_sail_line_number: 35, source_line_index: 35, source_x_m: 9460.0}
+      - {requested_sail_line_number: 36, source_line_index: 36, source_x_m: 9620.0}
+      - {requested_sail_line_number: 37, source_line_index: 37, source_x_m: 9780.0}
+      - {requested_sail_line_number: 38, source_line_index: 38, source_x_m: 9940.0}
+      - {requested_sail_line_number: 39, source_line_index: 39, source_x_m: 10100.0}
+      - {requested_sail_line_number: 40, source_line_index: 40, source_x_m: 10260.0}
+  start_rule: centered_contiguous
+  training:
+    random_seeds: [20260908]
+    time_samples: [0, 384]
+    pool: canonical_train_rows_and_time_samples
+  inference:
+    amplitude_domain: same_crop_observed_traces
+    outside_crop_context: false
+    target_coordinates: allowed
+    target_amplitudes: scoring_only
+  methods:
+    pocs: no_supervised_training
+    drr: no_supervised_training
+    siren_5d: independent_implementation_fit_per_volume_observed_only
+    ccnet5d: shared_train_pool_then_frozen_inference
+    relational_trace_graph: shared_train_pool_then_frozen_inference
+  mask_recipes:
+    population: canonical_partition_traces
+    test:
+      random_seeds: [42, 43, 44]
+      random_trace: [0.5, 0.8, 0.9]
+      random_whole_ffid: [0.5, 0.8]
+    validation:
+      random_seeds: [142]
+      random_trace: [0.5, 0.8, 0.9]
+      random_whole_ffid: [0.5, 0.8]
+
+sampling:
+  split_scope: c3_source_line_blocks
+  source_line_ranges:
+    train: [0, 25]
+    test: [25, 41]
+    validation: [41, 50]
+
+# Representative case; inputs.yaml contains the complete locked case list.
+interpolation_mask:
+  partition: test
+  kind: random_trace
+  missing_fraction: 0.8
+
+benchmark_case:
+  id: c3_benchmark_test_random_trace_80_seed42
+
+benchmark_volume:
+  id: c3_benchmark_test_t0_384_sl25_41
+  selection:
+    time: [0, 384]
+    source_line: [25, 41]
+    shot_in_line: [28, 60]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [18, 50]
+
+# This is a data contract, without a default model or training run.
+model: null
+training: null
+
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  metrics: [physical_amplitude_global_snr_db]

@@ -142,6 +142,16 @@ query幾何診断と独立IDWは`processing/trace_graph_diagnostics.py`・`trace
 
 Model-independentなinput assemblyは`data/`へ置く。`data/c3_masked_gather_source.py`は新しいartifactではなく、検証済みのobserved C3 volumeから要求されたbatchだけをmaterializeするruntime objectである。Training targetとloss logicは`training/`、model forwardは`models/`の責務とし、evaluation target amplitudeはevaluation boundaryの外へ出さない。
 
+C3 benchmarkのmask前QCとcrop選択は`processing/c3_geometry_qc.py`・
+`c3_crop_selection.py`・`c3_crop_signal_qc.py`、partition/case条件の検証は
+`processing/c3_benchmark_*.py`に置く。小さいimmutableな記録とsuite manifestの
+保存・再検証は`data/c3_benchmark_artifacts.py`・`c3_benchmark_suite.py`、
+既存モデルreaderへの接続は`data/c3_benchmark_inputs.py`の責務とする。
+既存partition/mask/case/volume APIの実行順は`pipelines/prepare_c3_benchmark.py`、
+CLIは`commands/c3_benchmark.py`、任意のQC図は`visualization/c3_crop_qc.py`に置く。
+suiteは既存artifactを参照するdata artifactであり、配列を複製しない。
+固定契約と実行方法は[固定C3 benchmark準備](c3_benchmark.md)に記載する。
+
 ## 4. 設定・命名・再現性
 
 設定の優先順位は次とする。
