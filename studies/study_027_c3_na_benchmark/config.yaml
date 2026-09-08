@@ -51,16 +51,6 @@ c3_benchmark:
     siren_5d: independent_implementation_fit_per_volume_observed_only
     ccnet5d: shared_train_pool_then_frozen_inference
     relational_trace_graph: shared_train_pool_then_frozen_inference
-  mask_recipes:
-    population: canonical_partition_traces
-    test:
-      random_seeds: [42, 43, 44]
-      random_trace: [0.5, 0.8, 0.9]
-      random_whole_ffid: [0.5, 0.8]
-    validation:
-      random_seeds: [142]
-      random_trace: [0.5, 0.8, 0.9]
-      random_whole_ffid: [0.5, 0.8]
 
 sampling:
   split_scope: c3_source_line_blocks

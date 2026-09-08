@@ -76,7 +76,7 @@ training_pool:
   identity: canonical_array_rows_and_time_indices
 
 mask_contract:
-  recipes: c3_benchmark.mask_recipes
+  recipes: inputs.yaml:cases
   generate_over: entire_canonical_partition
   report_separately: realized_crop_trace_and_ffid_missing_fractions
   redraw_seed_to_match_fraction: false

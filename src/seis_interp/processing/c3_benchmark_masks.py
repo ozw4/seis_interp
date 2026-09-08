@@ -44,7 +44,7 @@ def validated_benchmark_cases(value: object) -> list[dict]:
 
 
 def benchmark_case_config(config: dict, recipe: dict, selection: dict) -> dict:
-    """Translate one mask seed for the existing CLI without mutating suite settings."""
+    """Translate one inputs.yaml case into a CLI config, preserving suite settings."""
     return {
         "project": {"random_seed": recipe["random_seed"]},
         "data": deepcopy(config["data"]),

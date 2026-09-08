@@ -46,20 +46,17 @@ def test_materialized_contract_loads_with_resolved_spatial_starts(config: dict) 
 
 def test_recipes_and_training_seeds_are_distinct_config_data(config: dict) -> None:
     benchmark = config["c3_benchmark"]
-    assert benchmark["mask_recipes"]["population"] == "canonical_partition_traces"
-    test = benchmark["mask_recipes"]["test"]
-    validation = benchmark["mask_recipes"]["validation"]
-    assert test == {
-        "random_seeds": [42, 43, 44],
-        "random_trace": [0.5, 0.8, 0.9],
-        "random_whole_ffid": [0.5, 0.8],
-    }
-    assert validation == {**test, "random_seeds": [142]}
+    inputs = yaml.safe_load((STUDY_DIRECTORY / "inputs.yaml").read_text())
+    assert "mask_recipes" not in benchmark
+    assert inputs["mask_contract"]["recipes"] == "inputs.yaml:cases"
+    assert inputs["mask_contract"]["generate_over"] == "entire_canonical_partition"
+    assert len(inputs["cases"]) == 20
+    assert {case["partition"] for case in inputs["cases"]} == {"test", "validation"}
     assert config["project"]["random_seed"] == 42
     assert benchmark["training"]["time_samples"] == [0, 384]
-    assert not set(benchmark["training"]["random_seeds"]) & set(
-        test["random_seeds"] + validation["random_seeds"]
-    )
+    assert not set(benchmark["training"]["random_seeds"]) & {
+        case["random_seed"] for case in inputs["cases"]
+    }
     assert set(benchmark["methods"]) == {
         "pocs",
         "drr",

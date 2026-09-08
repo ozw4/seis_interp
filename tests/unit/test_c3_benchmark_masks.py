@@ -20,7 +20,7 @@ from seis_interp.processing.interpolation_masks import (
     make_random_whole_ffid_mask,
 )
 from seis_interp.processing.trace_splits import assign_c3_source_line_block_splits
-from tests.fixtures.c3_benchmark import synthetic_benchmark_config
+from tests.fixtures.c3_benchmark import synthetic_benchmark_cases, synthetic_benchmark_config
 from tests.fixtures.c3_volume_artifacts import make_c3_trace_table
 
 
@@ -50,18 +50,22 @@ def test_existing_mask_sequences_and_effective_crop_counts():
         validate_partition_mask_ffids(candidates, damaged, kind="random_whole_ffid")
 
 
-def test_case_seed_translation_does_not_mutate_partition_or_training_settings():
+@pytest.mark.parametrize("missing_fraction,random_seed", [(0.5, 42), (0.9, 99)])
+def test_case_changes_drive_mask_config_without_mutating_training_settings(
+    missing_fraction, random_seed
+):
     config = synthetic_benchmark_config()
     before = deepcopy(config)
-    recipe = {
-        "case_id": "test_43",
+    inputs = {"cases": synthetic_benchmark_cases()}
+    recipe = inputs["cases"][0]
+    recipe.update(missing_fraction=missing_fraction, random_seed=random_seed)
+    result = benchmark_case_config(config, recipe, {"time": [0, 4]})
+    assert result["project"]["random_seed"] == random_seed
+    assert result["interpolation_mask"] == {
         "partition": "test",
         "kind": "random_trace",
-        "missing_fraction": 0.8,
-        "random_seed": 43,
+        "missing_fraction": missing_fraction,
     }
-    result = benchmark_case_config(config, recipe, {"time": [0, 4]})
-    assert result["project"]["random_seed"] == 43
     assert config == before
     assert config["project"]["random_seed"] == 42
     assert config["c3_benchmark"]["training"]["random_seeds"] == [71]
