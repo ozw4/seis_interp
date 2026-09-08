@@ -1,0 +1,63 @@
+{
+  "status": "first_results_complete",
+  "source_summary_run": "runs/study_028_c3_first_results/20260908T154124633001Z_edda0ae6aa06_summarize",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "suite_sha256": "6447a35cc7d4de43532ee8e2e0de3245ac0e93d855efa7ff59c98a85e1631cab",
+  "adoption_rule": "All five explicit final-budget full-volume predictions passed native/dense target-energy reconciliation; fixed figures retained regardless of SNR.",
+  "artifact_sha256": {
+    "first_results.csv": "7bba5891b81c15bf6087fd39aaedc78a4cd1bd06dd1a8005da0bef88280dce0c",
+    "first_results.json": "f4ee9df1a75fb6ed99e0f9dfa00bbddb305580364ee4669603cdee97193db68f",
+    "section_time_relative_receiver_y.png": "8b6e587c8009804257e0f39a4bdce7e8efbf237779d4f70018ef0984d81ea195",
+    "section_time_shot_in_line.png": "7e1344eaece3ef2b9a47c57eaf58c187a13beb7f92af4d6d1746fa11285a6422",
+    "section_time_source_line.png": "c4ef2b5742335472a15bbfbfb5beb55f527ee9417b921a04ba1a306dd91d4c9e",
+    "target_traces.png": "1d4dd695ed41e7aa1a852debe8ca5790048501a7e259076815bd81dae83574fb",
+    "learning_curve_siren5d.png": "f815f220380328a8b4c634eaea6e7068dfcdc6e46b30f12e45b76503dfa6601b",
+    "learning_curve_ccnet5d.png": "3460760dd4447ec4a4b1dea0c16a775db455815414f195b9c68cdb92667f6d03",
+    "learning_curve_relational_trace_graph.png": "97922358eb804893e561a0559e3cb116b390592b08500c2cab4226c6e0b775fa"
+  },
+  "native_run_paths": {
+    "zero_fill": "runs/study_028_c3_first_results/20260908T140105265573Z_edda0ae6aa06_zero-fill/native",
+    "pocs": "runs/study_028_c3_first_results/20260908T140343770055Z_edda0ae6aa06_pocs/native",
+    "drr": "runs/study_028_c3_first_results/20260908T140521669511Z_edda0ae6aa06_drr/native",
+    "siren5d": "runs/study_028_c3_first_results/20260908T140522881249Z_edda0ae6aa06_siren/native",
+    "ccnet5d": "runs/study_028_c3_first_results/20260908T141318498508Z_edda0ae6aa06_ccnet-predict/native",
+    "relational_trace_graph": "runs/study_028_c3_first_results/20260908T151434795132Z_edda0ae6aa06_gnn-predict/native"
+  },
+  "large_artifacts": "Checkpoints and dense/query predictions remain in immutable native run directories; not copied here.",
+  "status_meaning": "All five required methods have full-volume predictions and native/dense reconciliation; this does not assert that every experimental audit passed.",
+  "verification_findings": {
+    "gnn_training_vs_frozen_metrics": {
+      "status": "failed_original_tolerance",
+      "relative_tolerance": 1e-06,
+      "absolute_tolerance": 1e-12,
+      "relative_error_energy_difference": 0.00020509414636782073,
+      "snr_difference_db": -0.000890621232997546,
+      "tolerance_relaxed": false,
+      "note": "Same weights and target IDs; controlled fixed batches reproduce frozen values, but matching cuDNN benchmark flags alone does not reproduce every auxiliary-training batch. Cause not fully isolated."
+    },
+    "native_vs_dense_metrics": "matched for all five methods and recorded zero-fill"
+  },
+  "verification_records": {
+    "gnn_strict_metric_audit": "runs/study_028_c3_first_results/20260908T153234862216Z_edda0ae6aa06_gnn_final_metric_audit/result.json",
+    "gnn_saved_prediction_audit": "runs/study_028_c3_first_results/20260908T153531961228Z_edda0ae6aa06_gnn_saved_prediction_audit/audit.json",
+    "gnn_numerical_modes": "runs/study_028_c3_first_results/20260908T153527990916Z_edda0ae6aa06_gnn_numerical_modes/request.json",
+    "train_amplitude_audit": "runs/study_028_c3_first_results/20260908T143208413758Z_edda0ae6aa06_train_amplitude_audit/audit.json"
+  },
+  "publication_export": {
+    "audit_run": "runs/study_028_c3_first_results/20260908T232502380577Z_edda0ae6aa06_publication_export",
+    "audit_script_sha256": "38d2b436e305b808fb24459f18f0a15a3205a5e4f0956e25998f8e2b6d8830d9",
+    "source_tables": {
+      "first_results.json": {
+        "path": "runs/study_028_c3_first_results/20260908T154124633001Z_edda0ae6aa06_summarize/native/first_results.json",
+        "sha256": "23b3b6aa3239ab3b62b13722f9fa93caf1928ab62bcb0ab815189d2fcde79b53"
+      },
+      "first_results.csv": {
+        "path": "runs/study_028_c3_first_results/20260908T154124633001Z_edda0ae6aa06_summarize/native/first_results.csv",
+        "sha256": "102f7459b92c02b7592d840d6aae114db14e32759db19a81da5e4044001277cc"
+      }
+    },
+    "transformation": "The adopted JSON/CSV are portable derivatives. Workspace-root absolute path values are repository-relative (19 JSON values; 17 CSV values). All numeric values, metrics, hashes, arrays, versions, precision and other numerical settings are unchanged. The seven PNG files are byte-identical.",
+    "numpy_build_config": "Only four environment-local absolute path substrings in the zero-fill native_resources.numpy_build_config field were replaced by '<environment-local build path omitted>' in each table. All other build diagnostic text, including dependency/compiler/Python versions and SIMD settings, is retained.",
+    "native_sources": "All original native artifacts were verified before export and remain byte-identical."
+  }
+}

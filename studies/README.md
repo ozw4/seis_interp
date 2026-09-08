@@ -33,6 +33,8 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_024_c3_na_siren_volume](study_024_c3_na_siren_volume/README.md) | `draft` | validation C3 volume / per-volume SIREN | How well does fixed-step observed-only SIREN internal learning reconstruct missing traces on the shared benchmark? |
 | [study_025_c3_na_ccnet5d](study_025_c3_na_ccnet5d/README.md) | `draft` | supervised train-partition CCNet5D / frozen validation inference | How well does pretrained CCNet5D reconstruct the shared benchmark when additional complete train labels are used? |
 | [study_026_grid_free_multi_relation_gnn](study_026_grid_free_multi_relation_gnn/README.md) | `draft` | masked train-partition trace GNN / arbitrary-coordinate queries | Do separate source, receiver, CMP and offset relations improve physical target reconstruction over matched graph controls? |
+| [study_027_c3_na_benchmark](study_027_c3_na_benchmark/README.md) | `materialized_locked` | fixed C3 cases and shared train pool | Which immutable data contract supports the five-method comparison? |
+| [study_028_c3_first_results](study_028_c3_first_results/README.md) | `first_results_complete` — GNN cross-run tolerance unmet | fixed validation / five-method pilot | What are the first full-volume results under finite declared budgets? |
 
 ## Scratch workspaces
 
