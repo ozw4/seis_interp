@@ -1,0 +1,107 @@
+# Experiment plan, not a native training/interpolation config. E02 combines
+# the selected method fragment with the verified suite's data declarations.
+study:
+  id: study_028_c3_first_results
+  status: first_results_complete
+  verification_status: gnn_cross_run_metric_tolerance_not_met
+
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 3600
+  preflight_timeout_seconds: 600
+  device: cuda:1
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  budget_extension: explicit_recorded_revision_only
+
+seeds:
+  partition: 42
+  training: 20260908
+  siren_sampler: 20260908
+  ccnet_patches: 20260908
+  gnn_episodes: 20260908
+# The evaluation mask seed is read from the suite case. SIREN sampler and GNN
+# episode seeds follow native training.random_seed; there are no new RNG knobs.
+
+methods:
+  pocs:
+    native_fragment: methods/pocs.yaml
+    preflight: {window_count: 1, n_iterations: 2}
+  drr:
+    native_fragment: methods/drr.yaml
+    preflight: {spatial_window_count: 1, n_iterations: 1, frequency_scope: all_selected_bins}
+  siren:
+    native_fragment: methods/siren.yaml
+    preflight: {max_steps: 10, prediction_scope: predetermined_coordinate_subset}
+    model_description: independent_6_feature_siren_5d
+  ccnet-train:
+    native_fragment: methods/ccnet_train.yaml
+    preflight: {max_steps: 2, prediction_tiles: central_and_edge_with_native_halo}
+    model_description: pilot reduced-width/kernel configuration
+  ccnet-predict:
+    native_fragment: methods/ccnet_predict.yaml
+    checkpoint_role: final
+  gnn-train:
+    native_fragment: methods/gnn_train_resource_revision.yaml
+    model_description: pilot_width32_two_neighbors_per_relation_validation_batch32
+    preflight: {train_batches: 1, validation_query_counts: [1, 8, 32], evaluate_baselines: false}
+  gnn-predict:
+    native_fragment: methods/gnn_predict_resource_revision.yaml
+    checkpoint_role: final
+
+resource_revisions:
+  gnn:
+    revision_count: 1
+    evidence_run: ../../runs/study_028_c3_first_results/20260908T141536716257Z_edda0ae6aa06_gnn-preflight
+    reason: initial_estimated_train_and_final_prediction_actions_exceed_3600_seconds
+    initial_estimated_train_action_seconds: 8135.548377130181
+    initial_estimated_predict_action_seconds: 3792.0787564944476
+    initial_train_fragment: methods/gnn_train.yaml
+    initial_predict_fragment: methods/gnn_predict.yaml
+    changes:
+      neighbors_per_relation: {before: 4, after: 2}
+      validation_query_batch_size: {before: 8, after: 32}
+      prediction_query_batch_size: {before: 8, after: 32}
+    training_query_batch_size: 4
+    max_steps: 200
+    width: 32
+    geometry_distances: unchanged
+    training_pool: all_train_traces
+    status: adopted_after_remeasurement
+    remeasurement_run: ../../runs/study_028_c3_first_results/20260908T142005777781Z_edda0ae6aa06_gnn-preflight
+    revised_estimated_train_action_seconds: 2803.8468628674746
+    revised_estimated_predict_action_seconds: 1197.010744806379
+
+training_information:
+  allowed_pool: suite_canonical_train_rows
+  time_samples: [0, 384]
+  siren: validation_crop_observed_only
+  ccnet: disjoint_fit_and_selection_regions_within_allowed_train_pool
+  gnn: all_train_traces
+  equal_actual_training_exposure_claimed: false
+
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  context_free_targets: include
+  null_snr: preserve_native_status
+  target_amplitudes: evaluation_and_visualization_only
+  validation_metrics: selection_and_diagnosis_only_never_gradient_or_normalization
+  primary_checkpoint: final_after_declared_budget
+  best_checkpoint: auxiliary_only
+  zero_fill: sanity_baseline
+
+completion:
+  required_methods: [pocs, drr, siren, ccnet5d, relational_trace_graph]
+  required_outputs: [full_volume_predictions, all_target_metrics, resource_measurements, comparison_figures]
+  all_methods_present_status: first_results_complete
+  missing_methods_status: partial_results
+  snr_threshold: null
+  automatic_quality_retries: false
+  optional_whole_ffid: false
+  test_execution: false

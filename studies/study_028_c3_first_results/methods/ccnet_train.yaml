@@ -1,0 +1,36 @@
+model:
+  name: ccnet5d
+  hidden_channels: 8
+  intermediate_channels: 8
+  kernel_size: 3
+  output_activation: linear
+supervision:
+  partition: train
+  amplitude_normalization: fit_region_global_rms
+patches:
+  shape:
+  - 32
+  - 2
+  - 4
+  - 2
+  - 8
+  fit_count: 64
+  selection_count: 16
+  missing_fraction: 0.8
+  mask_kind: random_trace
+  random_seed: 20260908
+training:
+  optimizer: adam
+  loss: mse_complete_patch
+  random_seed: 20260908
+  batch_size: 1
+  max_epochs: 2
+  learning_rate: 0.0001
+  decay_after_epochs: 2
+  decay_factor: 0.1
+  validate_every_steps: 64
+  report_every_steps: 16
+  device: cuda:1
+selection:
+  metric: missing_global_snr_db
+  domain: held_out_train_partition_patch_instances

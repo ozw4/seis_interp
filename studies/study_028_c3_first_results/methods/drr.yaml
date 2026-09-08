@@ -1,0 +1,13 @@
+# Proposed finite pilot. null maximum means all available bins to Nyquist.
+drr:
+  rank: 4
+  damping_power: 4
+  n_iterations: 5
+  frequency_min_hz: 0.0
+  frequency_max_hz: null
+  spatial_window_shape: [4, 8, 4, 8]
+  spatial_overlap: [2, 4, 2, 4]
+
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db

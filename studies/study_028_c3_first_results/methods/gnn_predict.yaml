@@ -1,0 +1,6 @@
+prediction:
+  device: cuda:1
+  query_batch_size: 8
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target

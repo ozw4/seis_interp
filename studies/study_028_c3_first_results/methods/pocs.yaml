@@ -1,0 +1,11 @@
+# Proposed finite pilot; resource preflight must precede execution.
+pocs:
+  n_iterations: 20
+  threshold_start: 0.9
+  threshold_end: 0.01
+  window_shape: [128, 4, 8, 4, 16]
+  overlap: [64, 2, 4, 2, 8]
+
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db

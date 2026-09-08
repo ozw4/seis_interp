@@ -1,0 +1,43 @@
+# Relative paths resolve from this study directory. Model fragments contain
+# no old Study 022--026 partition, case, mask, or crop declarations.
+frozen_suite:
+  manifest: ../../data/processed/c3_na/study_027_c3_na_benchmark/benchmark_suite.json
+  expected_sha256: 6447a35cc7d4de43532ee8e2e0de3245ac0e93d855efa7ff59c98a85e1631cab
+
+required_cases:
+  - c3_benchmark_validation_random_trace_80_seed142
+
+# Assertions against the existing volume, never a crop-generation recipe.
+# The volume path, mask seed and missing fractions come from the suite entry.
+validation_contract:
+  partition: validation
+  shape: [384, 9, 32, 8, 32]
+  selection:
+    time: [0, 384]
+    source_line: [41, 50]
+    shot_in_line: [32, 64]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [18, 50]
+
+ccnet_regions:
+  fit:
+    time: [0, 384]
+    source_line: [0, 8]
+    shot_in_line: [32, 64]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [17, 49]
+  selection:
+    time: [0, 384]
+    source_line: [8, 10]
+    shot_in_line: [32, 64]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [18, 50]
+  time_samples: [0, 384]
+  status: geometry_resolved_and_authorized
+  resolution_run: ../../runs/study_028_c3_first_results/20260908T140708977068Z_edda0ae6aa06_ccnet-train
+
+outputs:
+  runs: ../../runs/study_028_c3_first_results
+  results: ../../results/study_028_c3_first_results
+  existing_directory_policy: reject
+  run_selection: explicit_paths_only
