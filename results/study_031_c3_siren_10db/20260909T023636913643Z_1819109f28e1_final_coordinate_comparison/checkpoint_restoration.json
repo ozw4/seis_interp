@@ -1,0 +1,64 @@
+{
+  "checkpoint_gain_source": "checkpoint_saved_vector_no_IDW_refit",
+  "checkpoint_model_coordinates": {
+    "coordinate_features": "cmp_cartesian_half_offset",
+    "coordinate_order": [
+      "time_s",
+      "cmp_x_m",
+      "cmp_y_m",
+      "half_offset_x_m",
+      "half_offset_y_m"
+    ],
+    "coordinate_scale_max": [
+      3.064,
+      11770.0,
+      5740.0,
+      982.496819333274,
+      982.496819333274
+    ],
+    "coordinate_scale_min": [
+      0.0,
+      10350.0,
+      2600.0,
+      -982.496819333274,
+      -982.496819333274
+    ],
+    "half_offset_scale_m": 982.496819333274,
+    "relative_receiver_y_time_shear_s_per_m": 0.0006,
+    "time_coordinate_scale": 12.0
+  },
+  "comparison_thresholds": {
+    "normalized_difference_max_abs": 0.02,
+    "normalized_difference_rmse": 0.005,
+    "physical_relative_l2": 0.005
+  },
+  "device": "cpu",
+  "elapsed_seconds": 1.458761771209538,
+  "environment": {
+    "cuda_initialized": false,
+    "float32_matmul_precision": "highest",
+    "numpy": "1.26.4",
+    "torch": "2.5.0a0+b465a5843b.nv24.09",
+    "torch_threads": 1
+  },
+  "metrics": {
+    "compared_sample_count": 6144,
+    "compared_trace_count": 16,
+    "coordinate_max_abs_error": 7.105427357601002e-15,
+    "normalized_difference_max_abs": 0.011612940650658241,
+    "normalized_difference_rmse": 0.000980808004715162,
+    "physical_difference_max_abs": 0.10251617431640625,
+    "physical_difference_rmse": 0.009272671461697251,
+    "physical_relative_l2": 0.001011401279860869
+  },
+  "observed_handling": "CPU model outputs saved for 16 observed query geometries; excluded from restored-model versus saved-prediction comparison because saved observed values were reinserted. No claim of bit equality or observed fit scoring.",
+  "status": "passed",
+  "target_truth_read": false,
+  "threshold_decisions": {
+    "normalized_difference_max_abs": true,
+    "normalized_difference_rmse": true,
+    "physical_relative_l2": true
+  },
+  "threshold_interpretation": "Predeclared engineering restoration thresholds allowing GPU-versus-CPU float32/TF32 kernel and reduction differences; these are NOT a rigorous rounding-error upper bound. Keep actual errors and the same thresholds on both success and failure; no post-result relaxation.",
+  "training": false
+}

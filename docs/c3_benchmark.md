@@ -133,7 +133,99 @@ SIREN-5D is the independent existing implementation: it uses known crop geometry
 and fits amplitude normalization and training samples from crop observations
 only. Target coordinates are available to all methods, while target waveforms
 are excluded from normalization, model inputs, neighborhood construction, and
-training/stopping decisions. Target amplitudes enter the scoring boundary.
+training updates or stopping rules within each declared run. Target amplitudes
+enter the scoring boundary.
+
+`model.coordinate_features` defaults to the six-input `cmp_offset_azimuth`
+representation. The optional `cmp_cartesian_half_offset` uses five inputs:
+time, CMP X/Y, and source-minus-receiver half-offset X/Y. Both half-offset axes
+share the scale derived from the maximum known offset. The existing
+`cmp_cartesian_half_offset_radius` mode adds offset magnitude as a sixth input.
+`model.input_features` must match the selected representation. Optional
+`model.time_coordinate_scale` multiplies normalized time and defaults to 1.0.
+Coordinate bounds use known crop geometry; changing these model coordinates
+does not change amplitude normalization or the physical IDW distance metric.
+Checkpoints retain the selected coordinate order, bounds and time scale.
+
+The default SIREN amplitude mode remains `train_global_rms`, fitted on the
+selected volume's observed samples. Explicit `training.amplitude_scaling:
+per_trace_rms` uses each observed trace's RMS over the selected time samples.
+This mode requires `prediction.scale_interpolation` with `neighbors`, `power`,
+and four positive `distance_scales_m` values. Missing-trace physical RMS is a
+convex inverse-distance-weighted average of nearby observed RMS values in
+source X/Y and relative receiver X/Y coordinates divided by those distance
+scales. Exact coordinate matches and equal distances use original array-row
+order. Zero observed waveforms retain zero physical scale and zero normalized
+targets; an entirely zero observed volume still fails the existing RMS guard.
+
+Per-trace SIREN predictions are multiplied once by their measured or interpolated
+scale before observed-data reinsertion and physical target scoring. Target RMS
+and prediction self-normalization are not used. A per-trace fixed-step checkpoint
+records the scale vector, original row IDs and interpolation contract; loading
+exposes these fields for row-checked physical prediction. The scale vector is
+also saved as `artifacts/trace_amplitude_scales.npy` in C-order spatial flattening.
+The global RMS stored in normalization metadata is diagnostic in per-trace mode.
+The default global-mode checkpoint payload and normalization behavior are unchanged.
+
+The default `training.batch_mode` is `random_points`, where `training.batch_size`
+counts sampled points per optimizer update. Opting into `random_complete_traces`
+requires `training.traces_per_step`: a positive count selects distinct observed
+traces within each update, while `null` uses every observed trace in fixed order.
+Every selected trace contributes all selected time samples. In this mode,
+`training.batch_size` limits points per forward/backward microbatch; losses are
+weighted by each microbatch's fraction of the update's samples, including a
+short final microbatch. Adam updates once after the complete trace batch.
+`training.learning_rate_schedule` accepts `constant` or `cosine`; cosine requires
+a positive `training.minimum_learning_rate` below the initial rate and spans
+the declared `training.max_steps`. Each run saves its final fixed-step model.
+
+`training.initial_time_weight_scale` defaults to 1.0. An explicit positive value
+multiplies only column zero of the first SIREN layer's weight after the seeded
+model is constructed. It consumes no random numbers and changes neither spatial
+columns nor biases or subsequent layers. This is a training initialization;
+checkpoint prediction restores the stored weights without applying it again.
+
+Complete-trace training can additionally use `training.envelope_loss` with
+exactly `weight`, `sigma_samples`, and `decay_steps`. Weight and sigma values
+must be positive, finite numbers excluding booleans; the sigma sequence must
+be nonempty, and decay steps must be an integer of at least two. Trace-length
+and microbatch limits are checked before model initialization changes.
+Each trace's local RMS envelope is
+the square root of its Gaussian-smoothed squared waveform plus 1e-6. Gaussian
+kernels sum to one, extend to `ceil(4 * sigma)` samples on each side, and use
+reflection padding within that trace. The auxiliary loss is the mean envelope
+MSE across the declared scales, added to the original waveform MSE with weight
+`weight * max(0, 1 - (step - 1) / (decay_steps - 1))`. Decay requires at least two
+steps and remains independent of a shortened preflight budget. Waveforms and
+evaluation times are never shifted or resampled.
+
+While the auxiliary weight is positive, each microbatch contains whole traces
+within the existing point limit and contributes its fraction of the observed
+batch to the gradient. The point limit must fit at least one trace, and each
+kernel radius must be shorter than the trace. At zero weight, training uses
+the existing point-MSE path. Opt-in histories separate waveform MSE, weighted
+envelope MSE and the current weight from total training loss; an uncomputed raw
+envelope error is not reported as zero. Loss components are means over each
+reporting interval; the weight is the value at that interval's final step.
+Without these options, existing random
+sequences, updates and checkpoint payloads are preserved. SIREN architecture,
+observed-only amplitude scales and the target-scoring boundary are unchanged.
+
+[Study 031](../studies/study_031_c3_siren_10db/README.md) evaluates whether these
+options can exceed 10 dB physical target SNR on the unchanged QC-derived case.
+The common-method comparison excludes an externally estimated fixed temporal
+shear supplied only to SIREN. Fitting a transform without target waveforms
+prevents that source of leakage, but does not establish comparable preprocessing
+across methods. The current SIREN condition uses Cartesian five-input coordinates,
+omega 30, time factor 12, per-trace RMS with observed IDW scales, all 14,729 observed
+traces per update, and 5,000 constant-rate updates with shear 0. It scores
+-3.1486 dB. The shear-assisted 11.3422 dB result is diagnostic and does not meet
+the common-condition goal; that goal remains unmet. The prior
+10.6805 dB result cited in its [decision record](../studies/study_031_c3_siren_10db/decisions.md)
+used oracle unit-RMS scoring and 80% observed traces, whereas this case has
+approximately 20% observed traces and physical-amplitude scoring. Those results
+are not directly comparable. Recorded validation scores may guide subsequent
+declared variants; the test partition remains unused.
 
 The primary metric is target-only `physical_amplitude_global_snr_db`: float64
 reference and error energies are summed in physical units before taking dB.
@@ -160,3 +252,12 @@ generation records capture the commit and dirty-worktree state at execution.
 Later document edits do not rewrite the generation record or its snapshots.
 The already frozen suite retains its original configuration snapshots; removing
 the duplicate recipe declaration from the current study does not rewrite it.
+
+C3 SIRENの5入力Cartesian条件では、`model.relative_receiver_y_time_shear_s_per_m`
+（既定0）で `tau = time_s + coefficient * relative_receiver_y_m` を指定できる。
+観測学習と全位置の予測に同じ可逆変換を用い、波形の再サンプリング・時刻範囲・RMS尺度は
+変えない。非zero係数はcheckpointの座標metadataへ保存され、復元時に同じ変換を再構成する。
+既定0では従来の座標演算・乱数・checkpoint payloadを維持する。
+この固定shearは補助変換の効果を調べる診断用とし、SIRENだけへ与えた結果は共通条件の
+手法比較および10 dB達成判定に採用しない。時間・空間の関係は主比較ではSIRENの
+学習対象とする。他手法の前処理へ固定shearを導入することは、現在の比較契約に含めない。

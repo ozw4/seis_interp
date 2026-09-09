@@ -1,0 +1,4 @@
+source_run,classification,eligible_for_common_comparison,omega_0,time_coordinate_scale,shear_s_per_m,target_snr_db,target_rmse,counts_as_common_condition_10db_success
+runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren,current_no_fixed_shear_comparison,True,30.0,12.0,0.0,-3.148627264633568,14.280947143600079,False
+runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren,fixed_shear_assisted_diagnostic,False,30.0,12.0,0.0006,11.342154102264281,2.692885844540137,False
+runs/study_031_c3_siren_10db/20260909T015011064447Z_1819109f28e1_siren,fixed_shear_assisted_diagnostic,False,90.0,4.0,0.0006,7.883116007688606,4.0102352316817695,False

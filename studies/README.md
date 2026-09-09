@@ -37,6 +37,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_028_c3_first_results](study_028_c3_first_results/README.md) | `first_results_complete` — GNN cross-run tolerance unmet | fixed validation / five-method pilot | What are the first full-volume results under finite declared budgets? |
 | [study_029_c3_amplitude_qc](study_029_c3_amplitude_qc/README.md) | `qc_and_numerical_validation_complete` | raw SEG-Y provenance / amplitude QC / GNN numerical probe / SIREN rerun | Does source-bound QC restore a meaningful fixed training scale while preserving the evaluation cases? |
 | [study_030_c3_siren_trace_scaling](study_030_c3_siren_trace_scaling/README.md) | `per_trace_scaling_evaluated` | observed per-trace RMS / interpolated physical scale | Does observed-only scale interpolation make per-trace SIREN useful in physical amplitude? |
+| [study_031_c3_siren_10db](study_031_c3_siren_10db/README.md) | `no_fixed_shear_10db_unmet` — three additions complete; best declared condition -1.6301 dB; no model adopted | Cartesian SIREN / complete observed traces / fixed QC validation case | Can SIREN exceed 10 dB physical target SNR with observed-only scale interpolation and no externally fixed shear? See the [initialization and envelope comparison](../reports/c3_siren_time_learning_20260909.md). |
 
 ## Scratch workspaces
 

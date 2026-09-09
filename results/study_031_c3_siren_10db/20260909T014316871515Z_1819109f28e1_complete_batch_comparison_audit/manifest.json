@@ -1,0 +1,67 @@
+{
+  "status": "adopted",
+  "adoption_kind": "diagnostic_figures_and_tables",
+  "model_adopted": false,
+  "target_snr_above_10_db_achieved_by_these_runs": false,
+  "path_base": "repository_root",
+  "source_analysis_run": "runs/study_031_c3_siren_10db/20260909T014316871515Z_1819109f28e1_complete_batch_comparison_audit",
+  "source_analysis_manifest_sha256": "7e88d2c89d83d18cbb900f18e3ced378a43247d9d76d5a1e29166c91fb610910",
+  "source_analysis_script_sha256": "442feb357c7cc3e6054440c54cbf642344a67c8c8534bcb66bdd571cf3648a33",
+  "source_file_sha256": {
+    "435_traces_per_update": {
+      "request.json": "da0a767d4ae97c79e71d1218079f93e98abb6e1c0e3231e6ecaa0212445b9c95",
+      "result.json": "19b41b3397b5eaaee1b21a5513b694a8411905e808988cbe66617bbeea8ab098",
+      "config.generated.yaml": "a55c5aadd01fa4300901cb29b4781bcb3d77a528f07a313e0e094e8cc35475b1",
+      "native/config.resolved.yaml": "a55c5aadd01fa4300901cb29b4781bcb3d77a528f07a313e0e094e8cc35475b1",
+      "native/run.json": "e1973cef234794a5833f2890441633fd12c1ba0ee1ee03d9dff10c5a1381e34b",
+      "native/metrics.json": "19880b3bbc843476e7bd97fb1c23e938ee65cc051f369bc6d9ad22314d9c5205",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/artifacts/prediction.npy": "3dcd50eb92748776ffd2106ffbb41a9c75b266f5d12b1553d24bc0e3ae7b55a4",
+      "native/artifacts/final.pt": "678e1d74269c028ad375e52d7bd43dff6b06213b311fc1579c266f51a90f483b",
+      "native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+    },
+    "14729_traces_per_update": {
+      "request.json": "eb69cc3c72f6dceb8e6fc78daaba7874078f21bce909fdd74a466d48cf164b1c",
+      "result.json": "821ba2f91758f67744fe20cb49fa9a6c118d23f666a6d6e856d638c95a233e45",
+      "config.generated.yaml": "bcab3d004da20dbf4af97b3dd0e39d7eea3cb237d6db3838bc18ac2a46b6b81e",
+      "native/config.resolved.yaml": "bcab3d004da20dbf4af97b3dd0e39d7eea3cb237d6db3838bc18ac2a46b6b81e",
+      "native/run.json": "be0a87ac58dcfc178f410e2bc4862af5f93b79d878c3ebfbcb7ea5ef4b6471e6",
+      "native/metrics.json": "98ca2a21bf06056d1ba619219cc26551e0d94e765c3105e75568f0d4b0acce91",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/artifacts/prediction.npy": "7fc0998f6e7794998e19589fc945d34dd0d2d3021e9fb38c7ae818dfe5ca948e",
+      "native/artifacts/final.pt": "5a0884c3bae5156eb9d5a5ccb9c00d2299aee56126d445c78e00c966098691b7",
+      "native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+    }
+  },
+  "source_input_hashes": {
+    "case": "e65b918bc159cd17d396fc1b1aa0b36f0c113fd624b8a7bb39b610b064a82daa",
+    "suite": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+    "train_pool": "b01b39f6746178e10dd67d8c145006fc27917da533d1754e11c8a6be9a356cd5",
+    "volume": {
+      "volume.json": "04dd3d84528038f1d21d7a6ec939932a09f600ddb0dc24d33d14a1b6d37fabd6",
+      "volume_index.parquet": "a7afaeed1512968b01e2fcc6498595b7a51314c96c6c485aa76e208a90c94a30"
+    }
+  },
+  "source_artifact_sha256": {
+    "batch_comparison.json": "fee9e5e33026316ba9429f1611af2090d2daef4a3f4da4d298c620576634849c",
+    "physical_metrics.csv": "ff9407ab61c04356b175292b82e498720735dce4e74d5eba952ca3ef7ef5da06",
+    "target_energy_components.csv": "88ad58a6dd6355694b7b96432a771de7ed4c11b796432e34722dec3c53fa4f29",
+    "training_history.csv": "dfbadb6d43e91d53c6c3001b6541129e8451b0ca84ea8e300d6c0699cf513035",
+    "batch_loss_comparison.png": "1121824f8318360f6edbe56875a4752722e71fe3060a319d787d8959dea63928"
+  },
+  "artifact_sha256": {
+    "batch_comparison.json": "fee9e5e33026316ba9429f1611af2090d2daef4a3f4da4d298c620576634849c",
+    "physical_metrics.csv": "ff9407ab61c04356b175292b82e498720735dce4e74d5eba952ca3ef7ef5da06",
+    "target_energy_components.csv": "88ad58a6dd6355694b7b96432a771de7ed4c11b796432e34722dec3c53fa4f29",
+    "training_history.csv": "dfbadb6d43e91d53c6c3001b6541129e8451b0ca84ea8e300d6c0699cf513035",
+    "batch_loss_comparison.png": "1121824f8318360f6edbe56875a4752722e71fe3060a319d787d8959dea63928"
+  },
+  "publication_audit_run": "runs/study_031_c3_siren_10db/20260909T015603816597Z_1819109f28e1_batch_publication",
+  "publication_script_sha256": "8b8616e3158e63658872851c5eda9d16e6ebfb52d5d5332d7b59a9d53c202e5a",
+  "transformation": "None; selected source artifacts are copied byte-for-byte. Original publication_policy records the earlier analysis-only state; each new publication manifest records the later diagnostic adoption.",
+  "verification": {
+    "all_original_source_hashes_verified_before_copy": true,
+    "selected_artifacts_byte_identical": true,
+    "paths_repository_relative": true
+  }
+}

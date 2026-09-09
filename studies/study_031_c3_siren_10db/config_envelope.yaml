@@ -1,0 +1,45 @@
+completion:
+  automatic_quality_retries: false
+  required_methods:
+  - siren
+  target_snr_db_strictly_greater_than: 10.0
+  test_execution: false
+  variant_policy: record_settings_before_each_run_keep_all_results
+evaluation:
+  coverage: every_target_and_every_selected_time_sample
+  domain: evaluation_target
+  energy_accumulation_dtype: float64
+  primary_checkpoint: final_after_declared_budget
+  primary_metric: physical_amplitude_global_snr_db
+  target_amplitudes: evaluation_and_visualization_only
+  zero_fill: sanity_baseline
+execution:
+  action_timeout_seconds: 7200
+  budget_extension: explicit_recorded_revision_only
+  cpu_training_fallback: false
+  default_action: dry_run
+  device: cuda:1
+  execute_requires_explicit_flag: true
+  gpu_actions_parallel: false
+  one_action_per_invocation: true
+  preflight_timeout_seconds: 600
+  thread_count: 1
+methods:
+  siren:
+    model_description: five_coordinate_siren_without_fixed_shear_envelope
+    native_fragment: methods/global_cartesian_time12_omega30_shear0_envelope_batch14729_5k.yaml
+    preflight:
+      max_steps: 10
+      prediction_scope: predetermined_coordinate_subset
+seeds:
+  partition: 42
+  siren_sampler: 20260908
+  training: 20260908
+study:
+  id: study_031_c3_siren_10db
+  status: predeclared_envelope
+training_information:
+  checkpoint_initialization: fresh_seeded_model
+  normalization: per_trace_rms_observed_only
+  prediction_scale: idw_of_observed_physical_trace_rms
+  siren: validation_crop_observed_only

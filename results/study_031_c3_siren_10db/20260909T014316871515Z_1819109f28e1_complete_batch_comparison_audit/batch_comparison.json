@@ -1,0 +1,1052 @@
+{
+  "started_at_utc": "2026-09-09T01:48:00.658576+00:00",
+  "timeout_seconds": 600,
+  "runs": {
+    "435_traces_per_update": "runs/study_031_c3_siren_10db/20260909T011656120058Z_1819109f28e1_siren",
+    "14729_traces_per_update": "runs/study_031_c3_siren_10db/20260909T011832015888Z_1819109f28e1_siren"
+  },
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "suite": "data/processed/c3_na/study_029_c3_amplitude_qc",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "script_sha256": "442feb357c7cc3e6054440c54cbf642344a67c8c8534bcb66bdd571cf3648a33",
+  "source_file_sha256": {
+    "435_traces_per_update": {
+      "request.json": "da0a767d4ae97c79e71d1218079f93e98abb6e1c0e3231e6ecaa0212445b9c95",
+      "result.json": "19b41b3397b5eaaee1b21a5513b694a8411905e808988cbe66617bbeea8ab098",
+      "config.generated.yaml": "a55c5aadd01fa4300901cb29b4781bcb3d77a528f07a313e0e094e8cc35475b1",
+      "native/config.resolved.yaml": "a55c5aadd01fa4300901cb29b4781bcb3d77a528f07a313e0e094e8cc35475b1",
+      "native/run.json": "e1973cef234794a5833f2890441633fd12c1ba0ee1ee03d9dff10c5a1381e34b",
+      "native/metrics.json": "19880b3bbc843476e7bd97fb1c23e938ee65cc051f369bc6d9ad22314d9c5205",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/artifacts/prediction.npy": "3dcd50eb92748776ffd2106ffbb41a9c75b266f5d12b1553d24bc0e3ae7b55a4",
+      "native/artifacts/final.pt": "678e1d74269c028ad375e52d7bd43dff6b06213b311fc1579c266f51a90f483b",
+      "native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+    },
+    "14729_traces_per_update": {
+      "request.json": "eb69cc3c72f6dceb8e6fc78daaba7874078f21bce909fdd74a466d48cf164b1c",
+      "result.json": "821ba2f91758f67744fe20cb49fa9a6c118d23f666a6d6e856d638c95a233e45",
+      "config.generated.yaml": "bcab3d004da20dbf4af97b3dd0e39d7eea3cb237d6db3838bc18ac2a46b6b81e",
+      "native/config.resolved.yaml": "bcab3d004da20dbf4af97b3dd0e39d7eea3cb237d6db3838bc18ac2a46b6b81e",
+      "native/run.json": "be0a87ac58dcfc178f410e2bc4862af5f93b79d878c3ebfbcb7ea5ef4b6471e6",
+      "native/metrics.json": "98ca2a21bf06056d1ba619219cc26551e0d94e765c3105e75568f0d4b0acce91",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/artifacts/prediction.npy": "7fc0998f6e7794998e19589fc945d34dd0d2d3021e9fb38c7ae818dfe5ca948e",
+      "native/artifacts/final.pt": "5a0884c3bae5156eb9d5a5ccb9c00d2299aee56126d445c78e00c966098691b7",
+      "native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+    }
+  },
+  "source_input_hashes": {
+    "case": "e65b918bc159cd17d396fc1b1aa0b36f0c113fd624b8a7bb39b610b064a82daa",
+    "suite": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+    "train_pool": "b01b39f6746178e10dd67d8c145006fc27917da533d1754e11c8a6be9a356cd5",
+    "volume": {
+      "volume.json": "04dd3d84528038f1d21d7a6ec939932a09f600ddb0dc24d33d14a1b6d37fabd6",
+      "volume_index.parquet": "a7afaeed1512968b01e2fcc6498595b7a51314c96c6c485aa76e208a90c94a30"
+    }
+  },
+  "related_resource_tables": {
+    "manifest": "runs/study_031_c3_siren_10db/20260909T012259271444Z_1819109f28e1_batch_resource_tables/manifest.json",
+    "sha256": "e285923faa70868b116e82e0c2f00885803d5c7d30ed74e1dc244022acecb720"
+  },
+  "execution_device": "cpu",
+  "model_construction_training_or_forward": false,
+  "evaluation_scope": "Saved complete predictions scored unchanged; target amplitudes enter only the public physical evaluator.",
+  "publication_policy": "runs_only_root_decides_later",
+  "status": "success",
+  "finished_at_utc": "2026-09-09T01:48:09.913516+00:00",
+  "elapsed_seconds": 9.459394527599216,
+  "recomputed_metrics": {
+    "435_traces_per_update": {
+      "evaluation_domain": "evaluation_target",
+      "amplitude_domain": "physical",
+      "evaluation_target": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 3313899992.7479978,
+        "snr_db": -1.7051222602461635,
+        "snr_status": "finite",
+        "rmse": 12.094328528361082,
+        "relative_l2": 1.2169034238115466
+      },
+      "zero_fill": {
+        "snr_db": 0.0,
+        "snr_status": "finite",
+        "rmse": 9.938609992960336
+      },
+      "observed_max_abs_error": 0.0
+    },
+    "14729_traces_per_update": {
+      "evaluation_domain": "evaluation_target",
+      "amplitude_domain": "physical",
+      "evaluation_target": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 4411945174.5375395,
+        "snr_db": -2.9480293493135257,
+        "snr_status": "finite",
+        "rmse": 13.954912444249095,
+        "relative_l2": 1.404111083354067
+      },
+      "zero_fill": {
+        "snr_db": 0.0,
+        "snr_status": "finite",
+        "rmse": 9.938609992960336
+      },
+      "observed_max_abs_error": 0.0
+    }
+  },
+  "artifact_checks": {
+    "435_traces_per_update": {
+      "all_prediction_samples_finite": true,
+      "prediction_sample_count": 28311552,
+      "prediction_dtype": "float32",
+      "checkpoint_steps_completed": 5000,
+      "row_ids_exactly_match_volume": true,
+      "gain_vector_exactly_matches_checkpoint": true,
+      "gain_count": 73728,
+      "gain_dtype": "float64",
+      "gain_min": 5.512910193355946,
+      "gain_max": 14.498312835186105,
+      "target_scale_use_declared_false": true
+    },
+    "14729_traces_per_update": {
+      "all_prediction_samples_finite": true,
+      "prediction_sample_count": 28311552,
+      "prediction_dtype": "float32",
+      "checkpoint_steps_completed": 5000,
+      "row_ids_exactly_match_volume": true,
+      "gain_vector_exactly_matches_checkpoint": true,
+      "gain_count": 73728,
+      "gain_dtype": "float64",
+      "gain_min": 5.512910193355946,
+      "gain_max": 14.498312835186105,
+      "target_scale_use_declared_false": true
+    }
+  },
+  "metric_rows": [
+    {
+      "run": "435_traces_per_update",
+      "native_run": "runs/study_031_c3_siren_10db/20260909T011656120058Z_1819109f28e1_siren/native",
+      "traces_per_update": 435,
+      "observed_pool_coverage_fraction_per_update": 0.02953357322289361,
+      "points_per_update": 167040,
+      "optimizer_updates": 5000,
+      "total_point_draw_count_including_repeats": 835200000,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 3313899992.7479978,
+      "snr_db": -1.7051222602461635,
+      "snr_status": "finite",
+      "rmse": 12.094328528361082,
+      "relative_l2": 1.2169034238115466,
+      "observed_max_abs_error_after_reinsertion": 0.0,
+      "observed_model_rmse_before_reinsertion_native_record": 6.70691781068048,
+      "final_batch_loss": 0.46861034631729126,
+      "training_seconds": 32.81265522912145,
+      "prediction_seconds": 0.8829756611958146,
+      "outer_action_seconds": 59.04943939205259
+    },
+    {
+      "run": "14729_traces_per_update",
+      "native_run": "runs/study_031_c3_siren_10db/20260909T011832015888Z_1819109f28e1_siren/native",
+      "traces_per_update": 14729,
+      "observed_pool_coverage_fraction_per_update": 1.0,
+      "points_per_update": 5655936,
+      "optimizer_updates": 5000,
+      "total_point_draw_count_including_repeats": 28279680000,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 4411945174.5375395,
+      "snr_db": -2.9480293493135257,
+      "snr_status": "finite",
+      "rmse": 13.954912444249095,
+      "relative_l2": 1.404111083354067,
+      "observed_max_abs_error_after_reinsertion": 0.0,
+      "observed_model_rmse_before_reinsertion_native_record": 5.041192258591539,
+      "final_batch_loss": 0.2649999557333905,
+      "training_seconds": 1349.400905684568,
+      "prediction_seconds": 1.444860314950347,
+      "outer_action_seconds": 1387.3570960378274
+    }
+  ],
+  "history_rows": [
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 100,
+      "native_interval_mean_loss": 0.9995193475484848,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 16704000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 200,
+      "native_interval_mean_loss": 0.9926680654287339,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 33408000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 300,
+      "native_interval_mean_loss": 0.9762317591905594,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 50112000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 400,
+      "native_interval_mean_loss": 0.9592533135414123,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 66816000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 500,
+      "native_interval_mean_loss": 0.9460181081295014,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 83520000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 600,
+      "native_interval_mean_loss": 0.935109423995018,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 100224000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 700,
+      "native_interval_mean_loss": 0.9262994742393493,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 116928000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 800,
+      "native_interval_mean_loss": 0.9195647728443146,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 133632000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 900,
+      "native_interval_mean_loss": 0.913446689248085,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 150336000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1000,
+      "native_interval_mean_loss": 0.9096259301900864,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 167040000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1100,
+      "native_interval_mean_loss": 0.9043606662750244,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 183744000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1200,
+      "native_interval_mean_loss": 0.9017502576112747,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 200448000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1300,
+      "native_interval_mean_loss": 0.8987317115068436,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 217152000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1400,
+      "native_interval_mean_loss": 0.8958870726823807,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 233856000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1500,
+      "native_interval_mean_loss": 0.8933840620517731,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 250560000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1600,
+      "native_interval_mean_loss": 0.8907662081718445,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 267264000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1700,
+      "native_interval_mean_loss": 0.8878430235385895,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 283968000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1800,
+      "native_interval_mean_loss": 0.8845774513483048,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 300672000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 1900,
+      "native_interval_mean_loss": 0.8815416371822358,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 317376000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2000,
+      "native_interval_mean_loss": 0.8765676552057267,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 334080000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2100,
+      "native_interval_mean_loss": 0.869431940317154,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 350784000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2200,
+      "native_interval_mean_loss": 0.8604306125640869,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 367488000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2300,
+      "native_interval_mean_loss": 0.8476511096954346,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 384192000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2400,
+      "native_interval_mean_loss": 0.8348628777265549,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 400896000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2500,
+      "native_interval_mean_loss": 0.8224517863988876,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 417600000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2600,
+      "native_interval_mean_loss": 0.808473687171936,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 434304000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2700,
+      "native_interval_mean_loss": 0.7928894948959351,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 451008000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2800,
+      "native_interval_mean_loss": 0.7771164184808731,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 467712000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 2900,
+      "native_interval_mean_loss": 0.7624028182029724,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 484416000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3000,
+      "native_interval_mean_loss": 0.7454910945892333,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 501120000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3100,
+      "native_interval_mean_loss": 0.7293488401174545,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 517824000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3200,
+      "native_interval_mean_loss": 0.7125790774822235,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 534528000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3300,
+      "native_interval_mean_loss": 0.6993689197301864,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 551232000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3400,
+      "native_interval_mean_loss": 0.6821998834609986,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 567936000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3500,
+      "native_interval_mean_loss": 0.6641411286592483,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 584640000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3600,
+      "native_interval_mean_loss": 0.6477843773365021,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 601344000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3700,
+      "native_interval_mean_loss": 0.6278940236568451,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 618048000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3800,
+      "native_interval_mean_loss": 0.6093588095903396,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 634752000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 3900,
+      "native_interval_mean_loss": 0.5899748224020004,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 651456000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4000,
+      "native_interval_mean_loss": 0.5722338318824768,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 668160000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4100,
+      "native_interval_mean_loss": 0.5556701296567916,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 684864000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4200,
+      "native_interval_mean_loss": 0.5388769799470902,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 701568000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4300,
+      "native_interval_mean_loss": 0.5258080381155014,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 718272000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4400,
+      "native_interval_mean_loss": 0.5167166593670846,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 734976000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4500,
+      "native_interval_mean_loss": 0.5070299381017684,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 751680000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4600,
+      "native_interval_mean_loss": 0.49506302654743195,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 768384000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4700,
+      "native_interval_mean_loss": 0.4878517246246338,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 785088000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4800,
+      "native_interval_mean_loss": 0.48051448076963427,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 801792000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 4900,
+      "native_interval_mean_loss": 0.47501990556716917,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 818496000
+    },
+    {
+      "run": "435_traces_per_update",
+      "optimizer_step": 5000,
+      "native_interval_mean_loss": 0.4681645792722702,
+      "traces_per_update": 435,
+      "points_per_update": 167040,
+      "cumulative_point_draw_count": 835200000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 100,
+      "native_interval_mean_loss": 0.9975857696278905,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 565593600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 200,
+      "native_interval_mean_loss": 0.9452256713426885,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 1131187200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 300,
+      "native_interval_mean_loss": 0.496923609214232,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 1696780800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 400,
+      "native_interval_mean_loss": 0.35088212279744996,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 2262374400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 500,
+      "native_interval_mean_loss": 0.3316051970899549,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 2827968000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 600,
+      "native_interval_mean_loss": 0.3238935079784233,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 3393561600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 700,
+      "native_interval_mean_loss": 0.318805357415729,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 3959155200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 800,
+      "native_interval_mean_loss": 0.3150712794375659,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 4524748800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 900,
+      "native_interval_mean_loss": 0.3122547210589779,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 5090342400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1000,
+      "native_interval_mean_loss": 0.30975938519110496,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 5655936000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1100,
+      "native_interval_mean_loss": 0.30764099835099723,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 6221529600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1200,
+      "native_interval_mean_loss": 0.3059559533079916,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 6787123200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1300,
+      "native_interval_mean_loss": 0.3042650174854497,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 7352716800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1400,
+      "native_interval_mean_loss": 0.3028750726501641,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 7918310400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1500,
+      "native_interval_mean_loss": 0.30131106503502225,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 8483904000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1600,
+      "native_interval_mean_loss": 0.3000053285067608,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 9049497600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1700,
+      "native_interval_mean_loss": 0.2985176101090544,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 9615091200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1800,
+      "native_interval_mean_loss": 0.29712668932238,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 10180684800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 1900,
+      "native_interval_mean_loss": 0.2958128642825121,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 10746278400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2000,
+      "native_interval_mean_loss": 0.2946859118524099,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 11311872000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2100,
+      "native_interval_mean_loss": 0.29354323750914146,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 11877465600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2200,
+      "native_interval_mean_loss": 0.2925586370188215,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 12443059200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2300,
+      "native_interval_mean_loss": 0.29145399529823535,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 13008652800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2400,
+      "native_interval_mean_loss": 0.2905113259986008,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 13574246400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2500,
+      "native_interval_mean_loss": 0.2896252234460494,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 14139840000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2600,
+      "native_interval_mean_loss": 0.2888242153200007,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 14705433600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2700,
+      "native_interval_mean_loss": 0.28795225907142846,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 15271027200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2800,
+      "native_interval_mean_loss": 0.28712273105472785,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 15836620800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 2900,
+      "native_interval_mean_loss": 0.28622870400444456,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 16402214400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3000,
+      "native_interval_mean_loss": 0.2854430405373666,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 16967808000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3100,
+      "native_interval_mean_loss": 0.2846228654130761,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 17533401600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3200,
+      "native_interval_mean_loss": 0.2836784708376955,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 18098995200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3300,
+      "native_interval_mean_loss": 0.2828161642660523,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 18664588800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3400,
+      "native_interval_mean_loss": 0.2819748191271658,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 19230182400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3500,
+      "native_interval_mean_loss": 0.2808240817847502,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 19795776000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3600,
+      "native_interval_mean_loss": 0.27985494597596683,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 20361369600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3700,
+      "native_interval_mean_loss": 0.2785860200239156,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 20926963200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3800,
+      "native_interval_mean_loss": 0.2773824274415645,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 21492556800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 3900,
+      "native_interval_mean_loss": 0.2763583868692282,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 22058150400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4000,
+      "native_interval_mean_loss": 0.27508785046180617,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 22623744000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4100,
+      "native_interval_mean_loss": 0.2740521911380625,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 23189337600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4200,
+      "native_interval_mean_loss": 0.27295712770033775,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 23754931200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4300,
+      "native_interval_mean_loss": 0.2720648013675051,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 24320524800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4400,
+      "native_interval_mean_loss": 0.27094317834454634,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 24886118400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4500,
+      "native_interval_mean_loss": 0.2698326230862396,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 25451712000
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4600,
+      "native_interval_mean_loss": 0.2690061650446391,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 26017305600
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4700,
+      "native_interval_mean_loss": 0.26792200795819004,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 26582899200
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4800,
+      "native_interval_mean_loss": 0.26712734058235965,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 27148492800
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 4900,
+      "native_interval_mean_loss": 0.2662656064750607,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 27714086400
+    },
+    {
+      "run": "14729_traces_per_update",
+      "optimizer_step": 5000,
+      "native_interval_mean_loss": 0.26547297466895076,
+      "traces_per_update": 14729,
+      "points_per_update": 5655936,
+      "cumulative_point_draw_count": 28279680000
+    }
+  ],
+  "target_energy_components": {
+    "435_traces_per_update": {
+      "domain": "all_evaluation_target_samples",
+      "sample_count": 22655616,
+      "truth_energy": 2237830414.4522877,
+      "prediction_energy": 867736524.8125114,
+      "truth_prediction_dot": -104166526.74159932,
+      "twice_truth_prediction_dot": -208333053.48319864,
+      "uncentered_cosine": -0.07475162850729207,
+      "uncentered_cosine_definition": "dot(truth,prediction)/sqrt(Etruth*Eprediction), without subtracting a mean",
+      "truth_rms": 9.938609992960336,
+      "prediction_rms": 6.188793637454173,
+      "prediction_to_truth_rms_ratio": 0.6227021325756608,
+      "direct_error_energy": 3313899992.7479978,
+      "identity_error_energy": 3313899992.7479978,
+      "identity_absolute_difference": 0.0,
+      "identity_relative_tolerance": 5e-13,
+      "identity_verified": true,
+      "physical_prediction_rescaling_performed": false
+    },
+    "14729_traces_per_update": {
+      "domain": "all_evaluation_target_samples",
+      "sample_count": 22655616,
+      "truth_energy": 2237830414.4522877,
+      "prediction_energy": 2030840024.6527228,
+      "truth_prediction_dot": -71637367.71626417,
+      "twice_truth_prediction_dot": -143274735.43252835,
+      "uncentered_cosine": -0.033603783378716126,
+      "uncentered_cosine_definition": "dot(truth,prediction)/sqrt(Etruth*Eprediction), without subtracting a mean",
+      "truth_rms": 9.938609992960336,
+      "prediction_rms": 9.467818406311453,
+      "prediction_to_truth_rms_ratio": 0.9526300370995189,
+      "direct_error_energy": 4411945174.5375395,
+      "identity_error_energy": 4411945174.537539,
+      "identity_absolute_difference": 9.5367431640625e-07,
+      "identity_relative_tolerance": 5e-13,
+      "identity_verified": true,
+      "physical_prediction_rescaling_performed": false
+    }
+  },
+  "target_energy_changes": {
+    "direction": "14729minus435traces_per_update",
+    "prediction_energy_change": 1163103499.8402114,
+    "twice_dot_change": 65058318.050670296,
+    "direct_error_energy_change": 1098045181.7895417,
+    "prediction_energy_change_minus_twice_dot_change": 1098045181.789541
+  },
+  "configuration_difference": "training.traces_per_step435versus14729; every other resolved configuration value is identical",
+  "model_constructor_and_coordinate_metadata_identical": true,
+  "input_hashes_and_inputs_locks_identical": true,
+  "saved_row_ids_and_gain_vectors_identical": true,
+  "each_recomputed_target_metric_exactly_matches_native": true,
+  "observed_reinsertion_max_difference_zero_in_both_runs": true,
+  "scale_interpolation_metadata": {
+    "method": "inverse_distance_weighting",
+    "coordinate_order": [
+      "source_x_m",
+      "source_y_m",
+      "relative_receiver_x_m",
+      "relative_receiver_y_m"
+    ],
+    "coordinate_units": "m",
+    "distance_metric": "euclidean_after_dividing_coordinates_by_distance_scales_m",
+    "neighbors": 8,
+    "power": 2.0,
+    "distance_scales_m": [
+      160.0,
+      80.0,
+      40.0,
+      40.0
+    ]
+  },
+  "all_source_files_unchanged": true,
+  "interpretation_scope": "Matched optimizer-update budget with different observed traces per update and unequal total point exposure. Losses use native100-update interval means; the point axis changes only the displayed abscissa. Pre-reinsertion observed RMSE is quoted from native records and is not recomputed without a model forward. No cause of target error or winning batch size is inferred."
+}

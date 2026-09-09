@@ -1,0 +1,61 @@
+{
+  "status": "adopted",
+  "analysis_run": "runs/study_031_c3_siren_10db/20260909T031103662283Z_1819109f28e1_shear_ablation_comparison",
+  "script_sha256": "2c194968113c9e4b485386dbe3ddd85c165f91aa8fb9c8343c55ac06e01918a1",
+  "request_sha256": "4276dcd690fc3df5d6c528bda40141b9e332b572ffb11a57d5026fb1895e4868",
+  "source_file_sha256": {
+    "runs/study_031_c3_siren_10db/20260909T025839182592Z_1819109f28e1_shear0_ablation_saved_output_audit/manifest.json": "b343a3912217fa6d0ef59b5bb2efc004a302c571e4a30b9eaa1c9369ea85567d",
+    "runs/study_031_c3_siren_10db/20260909T025839182592Z_1819109f28e1_shear0_ablation_saved_output_audit/request.json": "ddeddcbdfe06eb3c6199df60ea3ab3a91b6021dc914fa62d225ddb1e1c60037d",
+    "runs/study_031_c3_siren_10db/20260909T025839182592Z_1819109f28e1_shear0_ablation_saved_output_audit/execution.json": "9a7f47c84fe217b44d6c1c0d9b49eea0c58f374be8f6e7fde506175acf82f8a6",
+    "runs/study_031_c3_siren_10db/20260909T025839182592Z_1819109f28e1_shear0_ablation_saved_output_audit/result.json": "604a75c33a5f2939afaeb6769c6f902c2894ec4df8e92d4e384a11a5e41aa1f9",
+    "runs/study_031_c3_siren_10db/20260909T025839182592Z_1819109f28e1_shear0_ablation_saved_output_audit/audit_saved_shear_ablation_outputs.py": "c253cbf55487ee6bfd84b9d46b0285fc2f205ad379fd7921b5ddf6502579f771",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/request.json": "55e19604759727989bd47ea765f0fcf8adc40c8b1de2f8306b8f4bd661e3b6a8",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/result.json": "9b7745644b99c9a00cdfa84083aeb566f73862d1037c811f1199be329f5fe8eb",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/config.generated.yaml": "ea0d7d6476d299ad9d7551b7f1a0be15e96f908b304bf154f6ccca5c541334a8",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/config.resolved.yaml": "ea0d7d6476d299ad9d7551b7f1a0be15e96f908b304bf154f6ccca5c541334a8",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/run.json": "d987e2bce18cea2ffefafce59facfe6f7b568f88135b9ea9a202d38554923866",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/metrics.json": "0add06d53dbcaec53157ced0277553386b03fbc652a28e068a2c031b9fe678ee",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/artifacts/prediction.npy": "13352f20c804930df2e1d4c2f29b8ab529be975dd9aecb883b2fba6e8a8576f2",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/artifacts/final.pt": "1b91e928e21cc5e53f806cf7a4c0bffb593f5536b8b6d530ab592e4e90042ce8",
+    "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/request.json": "71bcdba3593eeea5e320a699e129f6f47401917595cba35f1e8ee0c5d0db0ebf",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/result.json": "52ae7583e7ae37a2bec570b544be6a5c3c52800726b3286067d52551f33ba20d",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/config.generated.yaml": "1e909d31ada5d0c0faf8b4a7a8d3786c359f0985cad67a0f5514beeaee10ab67",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/config.resolved.yaml": "1e909d31ada5d0c0faf8b4a7a8d3786c359f0985cad67a0f5514beeaee10ab67",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/run.json": "7f972766cec80719ba88e8ae6ceafb7881e6bff9c5c807460a17d1f74ea8dd0b",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/metrics.json": "f4f138c44e697db2b0315276e4fb217670570044594e0a0006b6c18b112c3127",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/prediction.npy": "cf795c1d929ecf789994b09fafd0d4635b865d8026bcc8e933cae14fbd43ab85",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/final.pt": "b212f70277a05faa87afc0c504eeae8f0bd998864dfc764d121a47c3f432e704",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+  },
+  "source_input_hashes": {
+    "case": "e65b918bc159cd17d396fc1b1aa0b36f0c113fd624b8a7bb39b610b064a82daa",
+    "suite": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+    "train_pool": "b01b39f6746178e10dd67d8c145006fc27917da533d1754e11c8a6be9a356cd5",
+    "volume": {
+      "volume.json": "04dd3d84528038f1d21d7a6ec939932a09f600ddb0dc24d33d14a1b6d37fabd6",
+      "volume_index.parquet": "a7afaeed1512968b01e2fcc6498595b7a51314c96c6c485aa76e208a90c94a30"
+    }
+  },
+  "artifact_sha256": {
+    "shear_ablation.json": "2dcd17ddea7f152820f7c9333121314eeb056419265a6ca2a6f9eac164f29be7",
+    "shear_ablation.csv": "e1744ad4c2a942e2e1ebe22b8e02e2050b70a33d469f5e01044dad5f90f87aab",
+    "training_loss.csv": "0f3857286dc8e01aadc64a7a9d2c1faaa112da454cb163ea309d895f10e68371",
+    "shear_ablation.png": "1ad5c16d1f2a4831fbcb10df478d6d43c10f703886e05b20d8e839bf35db3677"
+  },
+  "all_source_files_unchanged": true,
+  "model_construction_training_or_forward": false,
+  "publication_kind": "shear_ablation_diagnostic_comparison",
+  "new_model_adopted": false,
+  "source_analysis_manifest_sha256": "48e88930aeaca17481efb5e1402a5f3790675b8f46ef8fff94f7332ffa5abf58",
+  "source_artifact_sha256": {
+    "shear_ablation.json": "2dcd17ddea7f152820f7c9333121314eeb056419265a6ca2a6f9eac164f29be7",
+    "shear_ablation.csv": "e1744ad4c2a942e2e1ebe22b8e02e2050b70a33d469f5e01044dad5f90f87aab",
+    "training_loss.csv": "0f3857286dc8e01aadc64a7a9d2c1faaa112da454cb163ea309d895f10e68371",
+    "shear_ablation.png": "1ad5c16d1f2a4831fbcb10df478d6d43c10f703886e05b20d8e839bf35db3677"
+  },
+  "path_base": "repository_root",
+  "transformation": "No changes: compact analysis artifacts copied byte-for-byte. All paths are repository-relative; native inputs and outputs remain unchanged."
+}

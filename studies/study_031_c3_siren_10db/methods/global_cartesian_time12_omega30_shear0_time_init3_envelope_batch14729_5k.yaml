@@ -1,0 +1,46 @@
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+model:
+  coordinate_features: cmp_cartesian_half_offset
+  hidden_layers: 4
+  hidden_omega: 30.0
+  hidden_width: 256
+  input_features: 5
+  layer_omega_schedule: null
+  name: siren
+  omega_0: 30.0
+  output_features: 1
+  skip_connections: null
+  time_coordinate_scale: 12.0
+  relative_receiver_y_time_shear_s_per_m: 0.0
+prediction:
+  batch_size: 65536
+  scale_interpolation:
+    distance_scales_m:
+    - 160.0
+    - 80.0
+    - 40.0
+    - 40.0
+    neighbors: 8
+    power: 2.0
+training:
+  amplitude_scaling: per_trace_rms
+  batch_mode: random_complete_traces
+  batch_size: 262144
+  device: cuda:1
+  learning_rate: 0.0001
+  learning_rate_schedule: constant
+  loss: l2
+  max_steps: 5000
+  optimizer: adam
+  random_seed: 20260908
+  report_interval: 100
+  traces_per_step: 14729
+  initial_time_weight_scale: 3.0
+  envelope_loss:
+    weight: 1.0
+    sigma_samples:
+    - 4.0
+    - 8.0
+    decay_steps: 2500

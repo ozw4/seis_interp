@@ -1,0 +1,35 @@
+frozen_suite:
+  manifest: ../../data/processed/c3_na/study_029_c3_amplitude_qc/benchmark_suite.json
+  expected_sha256: f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee
+required_cases:
+- c3_benchmark_validation_random_trace_80_seed142
+validation_contract:
+  partition: validation
+  shape:
+  - 384
+  - 9
+  - 32
+  - 8
+  - 32
+  selection:
+    time:
+    - 0
+    - 384
+    source_line:
+    - 41
+    - 50
+    shot_in_line:
+    - 32
+    - 64
+    relative_receiver_x:
+    - 0
+    - 8
+    relative_receiver_y:
+    - 18
+    - 50
+reference_run: ../../runs/study_030_c3_siren_trace_scaling/20260909T003230820286Z_1819109f28e1_siren
+outputs:
+  runs: ../../runs/study_031_c3_siren_10db
+  results: ../../results/study_031_c3_siren_10db
+  existing_directory_policy: reject
+  run_selection: explicit_paths_only

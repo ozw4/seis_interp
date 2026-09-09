@@ -1,0 +1,639 @@
+{
+  "created_at_utc": "2026-09-09T01:23:13.067249+00:00",
+  "action": "read_only_batch_resource_tables",
+  "source_resource_pilot": "runs/study_031_c3_siren_10db/20260909T011126736333Z_1819109f28e1_large_batch_resource",
+  "source_input_hashes": {
+    "case": "e65b918bc159cd17d396fc1b1aa0b36f0c113fd624b8a7bb39b610b064a82daa",
+    "suite": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+    "train_pool": "b01b39f6746178e10dd67d8c145006fc27917da533d1754e11c8a6be9a356cd5",
+    "volume": {
+      "volume.json": "04dd3d84528038f1d21d7a6ec939932a09f600ddb0dc24d33d14a1b6d37fabd6",
+      "volume_index.parquet": "a7afaeed1512968b01e2fcc6498595b7a51314c96c6c485aa76e208a90c94a30"
+    }
+  },
+  "prepared_array_sha256": {
+    "time.npy": "42c466b10049527aa7b14edf666f606ce2696522fe0ca2ef8551e2fb92e8b248",
+    "spatial.npy": "1c5846bc0bdd1bf7e11643aebf86f64a3fec806d23b297d79fc5b15ba1506361",
+    "normalized_amplitudes.npy": "b4f7474afd952ea8a2cfd6fc9599768980e63b573c965e297263ed9b5f1d44d9",
+    "physical_amplitudes.npy": "bc8a6576b204004985274bd33ce677c1149a079ec101d99ec1d99311a875ac15",
+    "observed_scales.npy": "0a11fb7e123921402e129f06e6acc8675118d30a83320040be786022ca7f1e1f",
+    "observed_array_rows.npy": "a02d428482fe1244d0b3c2baf6d2246fd42bcafeb587ca3c5501dc8064f9f391",
+    "all_trace_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283",
+    "all_trace_array_rows.npy": "64fcc372b6381ca4cdf5d3467b57a673d81ce28a3281d6cde0fe1e28aa780439"
+  },
+  "script_sha256": "869bb85a65110c1c6fc2d1e7c8f9b4cf839ff1e42d91e65cc8f678053f561f64",
+  "publication_policy": "runs_only_root_decides_later",
+  "model_or_gpu_execution": false,
+  "status": "success",
+  "rows": [
+    {
+      "variant": "t435_m262144",
+      "traces_per_update": 435,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 0.02953357322289361,
+      "observed_pool_coverage_percent": 2.953357322289361,
+      "time_samples_per_trace": 384,
+      "points_per_update": 167040,
+      "microbatch_size_points": 262144,
+      "microbatches_per_update": 1,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.008958334103226662,
+      "p90_step_seconds": 0.010709452629089355,
+      "mean_step_seconds": 0.009415088454261422,
+      "points_per_second_at_median": 18646323.97890079,
+      "peak_allocated_bytes": 1794512896,
+      "peak_allocated_gb_decimal": 1.794512896,
+      "peak_reserved_bytes": 2017460224,
+      "peak_reserved_gb_decimal": 2.017460224,
+      "peak_memory_update_count": 10
+    },
+    {
+      "variant": "t435_m524288",
+      "traces_per_update": 435,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 0.02953357322289361,
+      "observed_pool_coverage_percent": 2.953357322289361,
+      "time_samples_per_trace": 384,
+      "points_per_update": 167040,
+      "microbatch_size_points": 524288,
+      "microbatches_per_update": 1,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.009420826099812984,
+      "p90_step_seconds": 0.011185898352414368,
+      "mean_step_seconds": 0.009955871966667473,
+      "points_per_second_at_median": 17730929.13829669,
+      "peak_allocated_bytes": 1794512896,
+      "peak_allocated_gb_decimal": 1.794512896,
+      "peak_reserved_bytes": 2017460224,
+      "peak_reserved_gb_decimal": 2.017460224,
+      "peak_memory_update_count": 10
+    },
+    {
+      "variant": "t1740_m262144",
+      "traces_per_update": 1740,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 0.11813429289157444,
+      "observed_pool_coverage_percent": 11.813429289157444,
+      "time_samples_per_trace": 384,
+      "points_per_update": 668160,
+      "microbatch_size_points": 262144,
+      "microbatches_per_update": 3,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.02844228269532323,
+      "p90_step_seconds": 0.0287827736698091,
+      "mean_step_seconds": 0.02842537104152143,
+      "points_per_second_at_median": 23491785.352019783,
+      "peak_allocated_bytes": 2763041792,
+      "peak_allocated_gb_decimal": 2.763041792,
+      "peak_reserved_bytes": 2984247296,
+      "peak_reserved_gb_decimal": 2.984247296,
+      "peak_memory_update_count": 10
+    },
+    {
+      "variant": "t1740_m524288",
+      "traces_per_update": 1740,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 0.11813429289157444,
+      "observed_pool_coverage_percent": 11.813429289157444,
+      "time_samples_per_trace": 384,
+      "points_per_update": 668160,
+      "microbatch_size_points": 524288,
+      "microbatches_per_update": 2,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.03209879621863365,
+      "p90_step_seconds": 0.03799441261216998,
+      "mean_step_seconds": 0.034238092135638,
+      "points_per_second_at_median": 20815733.881388575,
+      "peak_allocated_bytes": 5454989312,
+      "peak_allocated_gb_decimal": 5.454989312,
+      "peak_reserved_bytes": 5664407552,
+      "peak_reserved_gb_decimal": 5.664407552,
+      "peak_memory_update_count": 10
+    },
+    {
+      "variant": "t6960_m262144",
+      "traces_per_update": 6960,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 0.47253717156629776,
+      "observed_pool_coverage_percent": 47.253717156629776,
+      "time_samples_per_trace": 384,
+      "points_per_update": 2672640,
+      "microbatch_size_points": 262144,
+      "microbatches_per_update": 11,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.12336741387844086,
+      "p90_step_seconds": 0.13319311244413257,
+      "mean_step_seconds": 0.12010520766489208,
+      "points_per_second_at_median": 21664067.64944806,
+      "peak_allocated_bytes": 2763041792,
+      "peak_allocated_gb_decimal": 2.763041792,
+      "peak_reserved_bytes": 2984247296,
+      "peak_reserved_gb_decimal": 2.984247296,
+      "peak_memory_update_count": 10
+    },
+    {
+      "variant": "t6960_m524288",
+      "traces_per_update": 6960,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 0.47253717156629776,
+      "observed_pool_coverage_percent": 47.253717156629776,
+      "time_samples_per_trace": 384,
+      "points_per_update": 2672640,
+      "microbatch_size_points": 524288,
+      "microbatches_per_update": 6,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.10528005380183458,
+      "p90_step_seconds": 0.1250583237968385,
+      "mean_step_seconds": 0.10969811386894435,
+      "points_per_second_at_median": 25386005.26392804,
+      "peak_allocated_bytes": 5455784960,
+      "peak_allocated_gb_decimal": 5.45578496,
+      "peak_reserved_bytes": 5664407552,
+      "peak_reserved_gb_decimal": 5.664407552,
+      "peak_memory_update_count": 10
+    },
+    {
+      "variant": "t14729_m262144",
+      "traces_per_update": 14729,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 1.0,
+      "observed_pool_coverage_percent": 100.0,
+      "time_samples_per_trace": 384,
+      "points_per_update": 5655936,
+      "microbatch_size_points": 262144,
+      "microbatches_per_update": 22,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.23780081002041698,
+      "p90_step_seconds": 0.2627164354547858,
+      "mean_step_seconds": 0.24416158790700138,
+      "points_per_second_at_median": 23784342.868783314,
+      "peak_allocated_bytes": 2763041792,
+      "peak_allocated_gb_decimal": 2.763041792,
+      "peak_reserved_bytes": 2984247296,
+      "peak_reserved_gb_decimal": 2.984247296,
+      "peak_memory_update_count": 10
+    },
+    {
+      "variant": "t14729_m524288",
+      "traces_per_update": 14729,
+      "observed_pool_trace_count": 14729,
+      "observed_pool_coverage_fraction": 1.0,
+      "observed_pool_coverage_percent": 100.0,
+      "time_samples_per_trace": 384,
+      "points_per_update": 5655936,
+      "microbatch_size_points": 524288,
+      "microbatches_per_update": 11,
+      "total_optimizer_updates": 10,
+      "warmup_steps_excluded_from_timing": 2,
+      "measured_timing_steps": 8,
+      "median_step_seconds": 0.2883026897907257,
+      "p90_step_seconds": 0.3164537109434605,
+      "mean_step_seconds": 0.28840291395317763,
+      "points_per_second_at_median": 19618047.976262562,
+      "peak_allocated_bytes": 5455784960,
+      "peak_allocated_gb_decimal": 5.45578496,
+      "peak_reserved_bytes": 5662310400,
+      "peak_reserved_gb_decimal": 5.6623104,
+      "peak_memory_update_count": 10
+    }
+  ],
+  "measurement_notes": {
+    "measurement_scope": "Eight fresh seeded workers on shared CUDA device1;10optimizer updates each, timing median/mean/p90 from updates3\u201310; memory maxima from all10updates.",
+    "coverage_definition": "Distinct observed traces selected within one optimizer update divided by14729; every selected trace contributes384time samples. This is per-update coverage, not cumulative distinct exposure.",
+    "throughput_definition": "points_per_update / median_step_seconds; not a mean of individual step throughputs.",
+    "memory_units": "GB is decimal1e9bytes; exact allocated/reserved byte counts retained.",
+    "limits": "Short shared-GPU resource measurements do not establish target SNR, a winning learning batch size, sustained throughput, or equal-exposure learning performance. No forecasts or incomplete-run rows are included."
+  },
+  "environment_by_variant": {
+    "t435_m262144": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    },
+    "t435_m524288": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    },
+    "t1740_m262144": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    },
+    "t1740_m524288": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    },
+    "t6960_m262144": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    },
+    "t6960_m524288": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    },
+    "t14729_m262144": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    },
+    "t14729_m524288": {
+      "device": "cuda:1",
+      "gpu_name": "NVIDIA H100 NVL",
+      "gpu_total_bytes": 99951706112,
+      "gpu_free_bytes_after_model": 7291142144,
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "cuda_version": "12.6",
+      "matmul_precision": "high",
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "seed": 20260908,
+      "model_arguments": {
+        "input_features": 5,
+        "hidden_width": 256,
+        "hidden_layers": 4,
+        "output_features": 1,
+        "omega_0": 90.0,
+        "hidden_omega": 30.0,
+        "layer_omega_schedule": null,
+        "skip_connections": null
+      },
+      "source_model_coordinates": {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "coordinate_order": [
+          "time_s",
+          "cmp_x_m",
+          "cmp_y_m",
+          "half_offset_x_m",
+          "half_offset_y_m"
+        ],
+        "coordinate_scale_min": [
+          0.0,
+          10350.0,
+          2600.0,
+          -982.496819333274,
+          -982.496819333274
+        ],
+        "coordinate_scale_max": [
+          3.064,
+          11770.0,
+          5740.0,
+          982.496819333274,
+          982.496819333274
+        ],
+        "half_offset_scale_m": 982.496819333274,
+        "time_coordinate_scale": 4.0
+      },
+      "training_schedule": "constant_resource_only",
+      "normalized_target_scaling": "per_trace_rms"
+    }
+  }
+}

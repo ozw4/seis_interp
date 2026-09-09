@@ -1,0 +1,167 @@
+{
+  "status": "success",
+  "analysis_run": "runs/study_031_c3_siren_10db/20260909T044151000000Z_1819109f28e1_time_learning_comparison",
+  "artifact_sha256": {
+    "time_learning_comparison.json": "d68bad4fb112666e07b9736adcc15fff18e80e9c8f5bb5cf764b54fc3dd9c35c",
+    "time_learning_comparison.csv": "4e3da1a038b9b3c2197604e78b880d074e219aeff6055365802cc132e558af68",
+    "training_loss.csv": "68024a4329a6783f06b6a3cad32b04414ef4dd56f90d1d52f82f02dd54223e38",
+    "time_learning_comparison.png": "021f2638382bb661b4b43020156da3c04b87f60814320cfe478b7028f74b8b58"
+  },
+  "source_file_sha256": {
+    "runs/study_031_c3_siren_10db/20260909T041328342594Z_1819109f28e1_time_learning_implementation_checks/result.json": "0f0c62d40d704f3cecf9f3eedf1dc3127d3acb0ccfb50345e4fec4a5f0cd18cf",
+    "runs/study_031_c3_siren_10db/20260909T041714193709Z_1819109f28e1_time_init3_saved_output_audit/manifest.json": "32789eb22627c9418ceb8698f4fdb1ede5ec6f170f17594116e9a80420d68248",
+    "runs/study_031_c3_siren_10db/20260909T041714193709Z_1819109f28e1_time_init3_saved_output_audit/request.json": "166f4de6aebfdb6a4d7212d85ac68bafdc7acd7a42fa603de9d8c382352a2bf2",
+    "runs/study_031_c3_siren_10db/20260909T041714193709Z_1819109f28e1_time_init3_saved_output_audit/execution.json": "7cc618c8ef9f54f57b67d46e8ab4bcd3be28f44cc1d7e9867d539eee1cc096f0",
+    "runs/study_031_c3_siren_10db/20260909T041714193709Z_1819109f28e1_time_init3_saved_output_audit/result.json": "46b90f398efdef206ac1b84bdd1ecf4f0bb603078e3f23e31086575b6601d893",
+    "runs/study_031_c3_siren_10db/20260909T041714193709Z_1819109f28e1_time_init3_saved_output_audit/audit_saved_time_learning_outputs.py": "d342a02632e7388fea4f2fd592ce8baeb6ae3385351de35cac7effadbd19faa7",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/request.json": "71bcdba3593eeea5e320a699e129f6f47401917595cba35f1e8ee0c5d0db0ebf",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/result.json": "52ae7583e7ae37a2bec570b544be6a5c3c52800726b3286067d52551f33ba20d",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/config.generated.yaml": "1e909d31ada5d0c0faf8b4a7a8d3786c359f0985cad67a0f5514beeaee10ab67",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/config.resolved.yaml": "1e909d31ada5d0c0faf8b4a7a8d3786c359f0985cad67a0f5514beeaee10ab67",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/run.json": "7f972766cec80719ba88e8ae6ceafb7881e6bff9c5c807460a17d1f74ea8dd0b",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/metrics.json": "f4f138c44e697db2b0315276e4fb217670570044594e0a0006b6c18b112c3127",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/prediction.npy": "cf795c1d929ecf789994b09fafd0d4635b865d8026bcc8e933cae14fbd43ab85",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/final.pt": "b212f70277a05faa87afc0c504eeae8f0bd998864dfc764d121a47c3f432e704",
+    "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/request.json": "eabb3f6df0b7481ed057adffeae1300d9d6ae9aed9936af448050e8a819f0070",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/result.json": "e6b7c265fa1967201757cc4111e669defeb480246599711ddad7f783cc024f22",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/config.generated.yaml": "d7ddc9d4bdecf6b89d1c9800739d44b906d611c3030f55f802b84375ef28ad79",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/config.resolved.yaml": "d7ddc9d4bdecf6b89d1c9800739d44b906d611c3030f55f802b84375ef28ad79",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/run.json": "57c09cd0916b2116a269a34100304f46f66694cddd4c8278c3f793621655a7bd",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/metrics.json": "5a1496a0957b2d3f2ced07bc72864f570d258d98002b653b065b6addeb5f4644",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/artifacts/prediction.npy": "1f2d9c073dc1774740743e1f0317d715de4057cde758ff808ad993f5c3a33abc",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/artifacts/final.pt": "8c076928ecffb072a3b8c3039cddfabc3746d1ae9422441421fd7ce4b37f3611",
+    "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283",
+    "runs/study_031_c3_siren_10db/20260909T041714194377Z_1819109f28e1_envelope_saved_output_audit/manifest.json": "8a6082c6a5f6a3301970a68fc32f2cf8fd2c86c7ee8dbd130ad4e69f4fabb1fa",
+    "runs/study_031_c3_siren_10db/20260909T041714194377Z_1819109f28e1_envelope_saved_output_audit/request.json": "26d1ca20d09ed4b30ea55a9133cadf3c1ca899acca3e80a5b3d7308137944bf7",
+    "runs/study_031_c3_siren_10db/20260909T041714194377Z_1819109f28e1_envelope_saved_output_audit/execution.json": "a180d594eeada604200adc4a0d4313036ecdad1784a13ad5607125abf064dfdd",
+    "runs/study_031_c3_siren_10db/20260909T041714194377Z_1819109f28e1_envelope_saved_output_audit/result.json": "09b4f8ab8fd78d2dd1234a74494a6802c1e6493fe9a54811ce9fd39b47de527c",
+    "runs/study_031_c3_siren_10db/20260909T041714194377Z_1819109f28e1_envelope_saved_output_audit/audit_saved_time_learning_outputs.py": "d342a02632e7388fea4f2fd592ce8baeb6ae3385351de35cac7effadbd19faa7",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/request.json": "471fbbba86d812820dc22b31bbd6745f7d71eff7a7ccce0297115ea4459cec22",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/result.json": "d72dd3e8a31d845a9afa0e0c095193855b4d2119c26d28b5e2ad2f7b00b02d16",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/config.generated.yaml": "1c8c3560a01a48ddb6992fb98d085479747424aba7149b87e177ae91d9e70cb5",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/config.resolved.yaml": "1c8c3560a01a48ddb6992fb98d085479747424aba7149b87e177ae91d9e70cb5",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/run.json": "ee6b24c8cdd7f59136eb60ea8261714c2e39813a72fcd655c9d0b1a9e146521e",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/metrics.json": "b34c35288b8bc413bb9c536422a4fe066886c6b28d17253d10cc036312e4b931",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/artifacts/prediction.npy": "3817b36419da596ebb7f6cd2497fd724423326ae6b52bac4beb92ac88eaa9982",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/artifacts/final.pt": "5bfc8eb36c863a20f9c3abb0090f8ef727a89d919196ae70ac89a5c5ab165e43",
+    "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283",
+    "runs/study_031_c3_siren_10db/20260909T041714194650Z_1819109f28e1_time_init3_envelope_saved_output_audit/manifest.json": "c00ae8a93d42c4dffa494daa696752d7618a87e7c29e1d63ec0bdb6d84512a39",
+    "runs/study_031_c3_siren_10db/20260909T041714194650Z_1819109f28e1_time_init3_envelope_saved_output_audit/request.json": "bd988dcbbb750628fb457d1f1b4ed14ee61922e613185aad3f0c20a5a989a4cd",
+    "runs/study_031_c3_siren_10db/20260909T041714194650Z_1819109f28e1_time_init3_envelope_saved_output_audit/execution.json": "f6426e12480165ffd389646d29290a90cb57873bd4d43af5e211a843b996414c",
+    "runs/study_031_c3_siren_10db/20260909T041714194650Z_1819109f28e1_time_init3_envelope_saved_output_audit/result.json": "a2477521324bcf1c7248c37a74caafb3bfbb4571d410675f0e8a972720208d09",
+    "runs/study_031_c3_siren_10db/20260909T041714194650Z_1819109f28e1_time_init3_envelope_saved_output_audit/audit_saved_time_learning_outputs.py": "d342a02632e7388fea4f2fd592ce8baeb6ae3385351de35cac7effadbd19faa7",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/request.json": "4ba972d3d8f86714b5f1b44f655498295800499b91967aa47434801b96c437c8",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/result.json": "55842efca6697c90aa85b09a4f450682d37fbcc88dc6cd4cee3ec5ccb82bef37",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/config.generated.yaml": "8757e33a3a03f825fbec24e0bfcecf199065259eab7ce89fc9e0e10f21188a28",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/config.resolved.yaml": "8757e33a3a03f825fbec24e0bfcecf199065259eab7ce89fc9e0e10f21188a28",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/run.json": "66748be5625b236b980c64bb3a97f6740edb7de89c13518e4a332b1772a0a331",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/metrics.json": "057878c6d28d9aca956ee913c01cde7d56bd1d4befb6bb6926a2050b3d533006",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/artifacts/prediction.npy": "4ee30775d07a24360c726d2ba5c967811315c66573b54b3a722c2cda9541bbc1",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/artifacts/final.pt": "80e2b9e9ac2c1f07e3b8e369726f2741efbfa9ca9f0db9e384c13405b56f493c",
+    "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283",
+    "runs/study_031_c3_siren_10db/20260909T050058176083Z_1819109f28e1_time_init3_gpu_restoration_audit/result.json": "e16195d353550dd648109e5b96b46f077b70803ffac79649beb9abb5e26ecb61",
+    "runs/study_031_c3_siren_10db/20260909T050058176083Z_1819109f28e1_time_init3_gpu_restoration_audit/request.json": "a9b34ba84a57511610f12036cc3b98aa161d0f9f16202e1ec19a7b2bc20a77d4",
+    "runs/study_031_c3_siren_10db/20260909T043342314077Z_1819109f28e1_time_init3_checkpoint_cpu_audit/query_predictions.npz": "0b86e6a49212fd3df3a37526c4934b421f28515590daffc267cb86c527aa8640",
+    "runs/study_031_c3_siren_10db/20260909T043342314077Z_1819109f28e1_time_init3_checkpoint_cpu_audit/result.json": "e08ff258abe88d458a4bd91decbcd5a46825c3e46da6e8718420a6a643efcda7",
+    "data/interim/c3_na/all_ffids/time_s.npy": "35ffa4765a7e2877618451d961cdcccb7272ade8e084282754e8cc6c5af1181b",
+    "data/processed/c3_na/study_029_c3_amplitude_qc/benchmark_suite.json": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+    "data/processed/c3_na/study_029_c3_amplitude_qc/cases/c3_benchmark_validation_random_trace_80_seed142/benchmark_case.json": "e65b918bc159cd17d396fc1b1aa0b36f0c113fd624b8a7bb39b610b064a82daa",
+    "data/processed/c3_na/study_029_c3_amplitude_qc/masks/c3_benchmark_validation_random_trace_80_seed142/interpolation_mask.json": "d92fb4c276f3b3ea58476dc42a0749bc7111bc5f04febd711a3eda676994a09d",
+    "data/processed/c3_na/study_029_c3_amplitude_qc/masks/c3_benchmark_validation_random_trace_80_seed142/observation_mask.parquet": "e2b2a7f2c55b4b19dfe87052b8694a09d116d29466fa15904e659e10e80d703b",
+    "data/processed/c3_na/study_029_c3_amplitude_qc/volumes/c3_benchmark_validation_random_trace_80_seed142/volume.json": "04dd3d84528038f1d21d7a6ec939932a09f600ddb0dc24d33d14a1b6d37fabd6",
+    "data/processed/c3_na/study_029_c3_amplitude_qc/volumes/c3_benchmark_validation_random_trace_80_seed142/volume_index.parquet": "a7afaeed1512968b01e2fcc6498595b7a51314c96c6c485aa76e208a90c94a30",
+    "src/seis_interp/data/c3_volume_index_store.py": "3b97f8893149de1749b2c2a1f211a72c97c1296cc6c6ad3d935861bdb1583795",
+    "src/seis_interp/data/file_checksums.py": "4738b008eb89600b2fd9b7cb7b08fd3489cf0114d7b90dae7bcebe0f5a671e49",
+    "src/seis_interp/data/interpolation_mask_store.py": "a72f82d17b1ebd02d9aa672ca6d4b2d13a4324f86acf2f89ec1bc00959c29275",
+    "src/seis_interp/models/siren.py": "ce4c33583d0991e1e21997e7204deb6e2966f3cc2edbfb39f53e5ea262f76473",
+    "src/seis_interp/processing/geometry.py": "08ec7f2f9cc843a07a3701959bb4cc331f8df43e8f0a0d859dce7ec4c5ca7f85",
+    "src/seis_interp/processing/normalization.py": "576106d329ae9be5a5c454deee7d2bbe7271e2cc602b1a6ca8156eee63879451",
+    "src/seis_interp/processing/training_coordinates.py": "67d51d23471871a85eb3c4c7be5c59775dfe4e60c80d576400023852d0d55e00",
+    "src/seis_interp/training/checkpoints.py": "96bf7d2e9e4358d00f0c5aad0be7468ac9cae4b68b21328ea03588ccb9276ac3",
+    "src/seis_interp/training/model_inputs.py": "4db3affd14b2dd4392c7906fd77c7dd2e6e32dfc20009b448c9323b5e95877c9",
+    "src/seis_interp/training/point_sampler.py": "4e6cbbbac5a4306d47f5f0118400cade85925ec32ccd6296a69528a5b38dfe90",
+    "src/seis_interp/training/prediction.py": "905fa36d9207960f1adf357083ebe96ff60eaf7f424625e524ed69f6741bee6e",
+    "runs/study_031_c3_siren_10db/20260909T043342314077Z_1819109f28e1_time_init3_checkpoint_cpu_audit/request.json": "be4a21fbebc593a99989c69ff42d9017e797e4ef75d5461d5578b3e9b357d4f7",
+    "runs/study_031_c3_siren_10db/20260909T043342314077Z_1819109f28e1_time_init3_checkpoint_cpu_audit/consumed_output_hashes.json": "d8d06cdca444fa0cdd27e1a0e1674ff748395783fec9493b070bc98c9cd0b290",
+    "runs/study_031_c3_siren_10db/20260909T050058120052Z_1819109f28e1_envelope_checkpoint_cpu_audit/result.json": "852afc4a053f86e959ab65cabecb13736b50feba7d9dd5b47b0c9842d3b8e0b1",
+    "runs/study_031_c3_siren_10db/20260909T050058120052Z_1819109f28e1_envelope_checkpoint_cpu_audit/request.json": "fcfa8478ec7858d78a189eef1c5de108011cd0e4d8fdb8404ad8a9e9d99f2832",
+    "runs/study_031_c3_siren_10db/20260909T050058120052Z_1819109f28e1_envelope_checkpoint_cpu_audit/consumed_output_hashes.json": "11b34e63d261fe981364e10906cd8327cf999afd8466752361b1c090f4601ffc",
+    "runs/study_031_c3_siren_10db/20260909T052200501668Z_1819109f28e1_time_init3_envelope_checkpoint_cpu_audit/result.json": "fff65dfbaea02195407a055b2a3eea9ee1a8d4eca27e946a8853ed6488c09b0b",
+    "runs/study_031_c3_siren_10db/20260909T052200501668Z_1819109f28e1_time_init3_envelope_checkpoint_cpu_audit/request.json": "f199bf17f6ef83bc7df1db9f3d86af21380e1d28a28da4da14afbaa6a1703737",
+    "runs/study_031_c3_siren_10db/20260909T052200501668Z_1819109f28e1_time_init3_envelope_checkpoint_cpu_audit/consumed_output_hashes.json": "9687e533226f1fe1af3f135fd16ca1e84ddaf7be3a90c9d0bbaf3f9c8186c652"
+  },
+  "analysis_provenance_sha256": {
+    "request.json": "254d9cca8bddce5d98c56eb96fac25683c3c847c343dc35fcd37888c7f3afb83",
+    "execution.json": "e1e19ab48cac253173366d4d4e30e8b45f011d76ee540154d8b45516b29954c3",
+    "summarize_time_learning.py": "f4839b84d9a8ebd996da87b5bdc3108a9ce91076f627f5c0da98535354d1069d"
+  },
+  "original_sources_unchanged": true,
+  "publication_classification": "diagnostic_comparison_only",
+  "model_adoption_decided_by_this_bundle": false,
+  "model_adopted": false,
+  "goal_achieved": false,
+  "checkpoint_weights_and_prediction_arrays": {
+    "baseline": {
+      "final.pt": {
+        "path": "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/final.pt",
+        "sha256": "b212f70277a05faa87afc0c504eeae8f0bd998864dfc764d121a47c3f432e704"
+      },
+      "prediction.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/prediction.npy",
+        "sha256": "cf795c1d929ecf789994b09fafd0d4635b865d8026bcc8e933cae14fbd43ab85"
+      },
+      "trace_amplitude_scales.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T030400486453Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy",
+        "sha256": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+      }
+    },
+    "time_init3": {
+      "final.pt": {
+        "path": "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/artifacts/final.pt",
+        "sha256": "8c076928ecffb072a3b8c3039cddfabc3746d1ae9422441421fd7ce4b37f3611"
+      },
+      "prediction.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/artifacts/prediction.npy",
+        "sha256": "1f2d9c073dc1774740743e1f0317d715de4057cde758ff808ad993f5c3a33abc"
+      },
+      "trace_amplitude_scales.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T041346896156Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy",
+        "sha256": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+      }
+    },
+    "envelope": {
+      "final.pt": {
+        "path": "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/artifacts/final.pt",
+        "sha256": "5bfc8eb36c863a20f9c3abb0090f8ef727a89d919196ae70ac89a5c5ab165e43"
+      },
+      "prediction.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/artifacts/prediction.npy",
+        "sha256": "3817b36419da596ebb7f6cd2497fd724423326ae6b52bac4beb92ac88eaa9982"
+      },
+      "trace_amplitude_scales.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T043544755153Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy",
+        "sha256": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+      }
+    },
+    "time_init3_envelope": {
+      "final.pt": {
+        "path": "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/artifacts/final.pt",
+        "sha256": "80e2b9e9ac2c1f07e3b8e369726f2741efbfa9ca9f0db9e384c13405b56f493c"
+      },
+      "prediction.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/artifacts/prediction.npy",
+        "sha256": "4ee30775d07a24360c726d2ba5c967811315c66573b54b3a722c2cda9541bbc1"
+      },
+      "trace_amplitude_scales.npy": {
+        "path": "runs/study_031_c3_siren_10db/20260909T050203109381Z_1819109f28e1_siren/native/artifacts/trace_amplitude_scales.npy",
+        "sha256": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+      }
+    }
+  },
+  "portable_export": "Selected numeric fields from completed records without numerical alteration. Workspace paths rendered repository-relative. Full checkpoint audit is retained by source hash. No unweighted envelope means inferred; no waveforms, weights, or predictions copied."
+}
