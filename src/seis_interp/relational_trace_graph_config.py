@@ -93,10 +93,14 @@ def validate_relational_trace_graph_training_config(
     config_values.nonnegative_float(
         geometry["azimuth_min_offset_m"], "geometry_features.azimuth_min_offset_m"
     )
-    data = config_values.exact_section(config, "training_data", {"pool", "time_samples"})
+    data = _section_with_options(
+        config, "training_data", {"pool", "time_samples"}, {"max_abs_amplitude"}
+    )
     if data["pool"] not in ("all_train_traces", "mask_observed"):
         raise ConfigurationError("training_data.pool must be all_train_traces or mask_observed")
     validated_index_range(data["time_samples"], name="training_data.time_samples")
+    if "max_abs_amplitude" in data:
+        config_values.positive_float(data["max_abs_amplitude"], "training_data.max_abs_amplitude")
     mask = config_values.exact_section(
         config, "training_mask", {"kinds", "kind_probabilities", "missing_fractions"}
     )

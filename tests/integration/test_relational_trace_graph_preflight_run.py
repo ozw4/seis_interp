@@ -93,6 +93,27 @@ def test_preflight_reports_resource_limit_without_changing_sample_or_graph(artif
     assert report["blockers"][0]["reason"] == "measured_limit_exceeded"
 
 
+def test_training_preflight_physical_bound_blocks_before_model_initialization(
+    artifacts, tmp_path, monkeypatch
+):
+    config = trace_graph_training_config()
+    config["training_data"]["max_abs_amplitude"] = 1e-12
+    path = write_trace_graph_config(tmp_path / "training.yaml", config)
+    monkeypatch.setattr(
+        "seis_interp.pipelines.preflight_relational_trace_graph.RelationalTraceGraphInterpolator",
+        lambda **kwargs: pytest.fail("invalid training amplitudes must block model initialization"),
+    )
+
+    report = _preflight(artifacts, path)
+
+    assert report["status"] == "blocked"
+    assert report["stage"] == "inputs"
+    assert not report["training_started"]
+    assert "max_abs_amplitude=1e-12" in report["blockers"][0]["message"]
+    assert "array_row" in report["blockers"][0]["message"]
+    assert "prediction_diagnostics" not in report
+
+
 @pytest.mark.parametrize("problem", ["missing", "time", "hash"])
 def test_input_failures_are_reported_before_measurement(artifacts, tmp_path, problem):
     config = trace_graph_training_config()

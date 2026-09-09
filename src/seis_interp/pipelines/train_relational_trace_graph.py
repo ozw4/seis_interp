@@ -120,7 +120,11 @@ def train_relational_trace_graph_run(
         kind_probabilities=trainer_options["episode_kind_probabilities"],
         missing_fractions=trainer_options["missing_fractions"],
     )
-    preprocessing = fit_trace_graph_preprocessing(training, **config["geometry_features"])
+    preprocessing = fit_trace_graph_preprocessing(
+        training,
+        **config["geometry_features"],
+        max_abs_amplitude=config["training_data"].get("max_abs_amplitude"),
+    )
     if not np.array_equal(validation.time_s, preprocessing.time_s):
         raise ValueError("validation time_s must match the fixed preprocessing time grid")
     seed_global_model_initialization(trainer_options["random_seed"], device=device)

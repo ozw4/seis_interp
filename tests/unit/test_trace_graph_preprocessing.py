@@ -147,3 +147,88 @@ def test_fit_does_not_coerce_invalid_configured_scale_types(name: str, value: ob
     settings[name] = value
     with pytest.raises(ValueError, match=name):
         fit_trace_graph_preprocessing(training, values, **settings)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 2, 100])
+def test_physical_bound_preserves_global_rms_boundary_samples_and_zero_traces(chunk_size):
+    _, training, values = make_relational_trace_domains()
+    values[training.array_rows[0], 1:6] = 0.0
+    values[training.array_rows[1], 1:3] = [-10000.0, 10000.0]
+    original = values.copy()
+    settings = {
+        "position_scale_m": 10.0,
+        "offset_scale_m": 2.0,
+        "azimuth_min_offset_m": 0.1,
+        "row_chunk_size": chunk_size,
+    }
+
+    before = fit_trace_graph_preprocessing(training, values, **settings)
+    guarded = fit_trace_graph_preprocessing(training, values, **settings, max_abs_amplitude=10000.0)
+
+    assert guarded == before
+    assert guarded.fit_domain["trace_count"] == 3
+    np.testing.assert_array_equal(values, original)
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+@pytest.mark.parametrize("chunk_size", [1, 2, 100])
+def test_physical_bound_rejects_first_excessive_sample_before_accumulating_energy(
+    monkeypatch, sign, chunk_size
+):
+    _, training, values = make_relational_trace_domains()
+    # ID 10 / row 0 is first in the fitter's stable order, although it is the
+    # second domain entry. Original sample 3 is inside the selected [1, 6).
+    values[0, 3:] = sign * np.nextafter(np.float32(10000), np.float32(np.inf))
+    values[4, 1] = 1e30
+    reader = RecordingAmplitudes(values)
+    monkeypatch.setattr(
+        np, "sum", lambda *args, **kwargs: pytest.fail("bad chunk energy must not be accumulated")
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"max_abs_amplitude=10000.*trace_id 10, array_row 0, sample 3",
+    ):
+        fit_trace_graph_preprocessing(
+            training,
+            reader,
+            position_scale_m=10.0,
+            offset_scale_m=2.0,
+            azimuth_min_offset_m=0.1,
+            row_chunk_size=chunk_size,
+            max_abs_amplitude=10000.0,
+        )
+    assert len(reader.reads) == 1
+
+
+def test_physical_bound_reads_only_authorized_training_rows_and_selected_time():
+    _, training, values = make_relational_trace_domains()
+    settings = {"position_scale_m": 10.0, "offset_scale_m": 2.0, "azimuth_min_offset_m": 0.1}
+    expected = fit_trace_graph_preprocessing(training, values, **settings)
+    values[[1, 2, 3, 6]] = 1e30
+    values[:, [0, 6]] = -1e30
+    reader = RecordingAmplitudes(values)
+
+    actual = fit_trace_graph_preprocessing(
+        training, reader, **settings, row_chunk_size=1, max_abs_amplitude=10000.0
+    )
+
+    assert actual == expected
+    assert np.concatenate([rows for rows, _ in reader.reads]).tolist() == [0, 4, 5]
+    assert all(times == slice(1, 6) for _, times in reader.reads)
+
+
+@pytest.mark.parametrize("value", [True, False, "10000", 0.0, -1.0, np.nan, np.inf, -np.inf])
+def test_invalid_physical_bound_fails_before_reading_amplitudes(value):
+    _, training, values = make_relational_trace_domains()
+    reader = RecordingAmplitudes(values)
+    with pytest.raises(ValueError, match="max_abs_amplitude must be positive and finite"):
+        fit_trace_graph_preprocessing(
+            training,
+            reader,
+            position_scale_m=10.0,
+            offset_scale_m=2.0,
+            azimuth_min_offset_m=0.1,
+            max_abs_amplitude=value,
+        )
+    assert reader.reads == []

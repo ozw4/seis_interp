@@ -26,6 +26,16 @@ float64でstream集計し、全サンプルのglobal RMSとCMPの算術平均を
 人工的に隠す訓練行もO0の固定fitには寄与する。episodeやvalidation/testに適用するときは再fitしない。
 全ゼロの訓練プールは、正のRMSを定義できないためエラーとなる。
 
+`training_data.max_abs_amplitude`を指定すると、通常学習と訓練preflightは
+許可されたtrain行・時間内の物理振幅をRMS集計前に再検査する。正の有限値を指定し、
+絶対値がその値を超えたsampleはtrace ID・array row・元のsample位置とともにエラーとなる。
+この検査はクリッピングや行の自動除外を行わない。QCによる除外は別のprepared partitionへ
+明示的に記録する。未指定時のRMS計算とcheckpoint形式は従来どおりである。
+
+`processing/normalization_qc.py`の`summarize_amplitude_normalization()`は、明示した行と
+時間だけについて、固定尺度でfloat32へ正規化した後の非有限値と二乗エネルギーの消失を
+調べる。正当なゼロトレースは消失として数えず、尺度の再fitやデータの変更も行わない。
+
 `data/masked_trace_source.py`の`MaskedTraceSource`はmemory mapと行対応を持ち、`inputs(plan)`で必要な
 観測supportだけを読む。元の物理振幅を変更せず、固定RMSで一度だけ正規化する。
 query波形は最初からexact zeroである。`MaskedTraceGraphInputs`にはwaveform、9/15次元特徴、

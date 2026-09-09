@@ -61,13 +61,16 @@ def fit_trace_graph_preprocessing(
     offset_scale_m: float,
     azimuth_min_offset_m: float,
     row_chunk_size: int = 4096,
+    max_abs_amplitude: float | None = None,
 ) -> TraceGraphPreprocessing:
     """Stream float64 global RMS over O0 and fix its arithmetic mean CMP.
 
     ``domain`` must be an unmasked training pool produced by the training
     domain loader. The supplied amplitude array, if any, uses original file
     rows and time samples. Only those rows and the selected time slice are
-    read. Artificial episode masks must be applied after this fit.
+    read. Artificial episode masks must be applied after this fit. An explicit
+    amplitude bound rejects excessive physical samples before their energy is
+    accumulated; it never clips samples or removes traces.
     """
     if domain.pool not in ("all_train_traces", "mask_observed"):
         raise ValueError("preprocessing requires an explicit authorized training pool")
@@ -81,6 +84,13 @@ def fit_trace_graph_preprocessing(
         or row_chunk_size <= 0
     ):
         raise ValueError("row_chunk_size must be a positive integer")
+    if max_abs_amplitude is not None and (
+        isinstance(max_abs_amplitude, bool)
+        or not isinstance(max_abs_amplitude, Real)
+        or not np.isfinite(max_abs_amplitude)
+        or max_abs_amplitude <= 0
+    ):
+        raise ValueError("max_abs_amplitude must be positive and finite")
     if amplitudes is None:
         if domain.amplitudes_path is None:
             raise ValueError("training amplitudes or an amplitudes_path are required")
@@ -101,6 +111,17 @@ def fit_trace_graph_preprocessing(
             raise ValueError("training row reader returned an inconsistent shape")
         if not np.all(np.isfinite(chunk)):
             raise ValueError("training amplitudes must be finite")
+        if max_abs_amplitude is not None:
+            excessive = (chunk > max_abs_amplitude) | (chunk < -max_abs_amplitude)
+            if np.any(excessive):
+                row_index, sample_index = np.unravel_index(np.argmax(excessive), chunk.shape)
+                position = offset + row_index
+                raise ValueError(
+                    f"training amplitude exceeds max_abs_amplitude={max_abs_amplitude} "
+                    f"at trace_id {domain.trace_ids[order[position]]}, "
+                    f"array_row {rows[position]}, sample {start + sample_index}: "
+                    f"{chunk[row_index, sample_index]}"
+                )
         values = chunk.astype(np.float64)
         sum_squares += float(np.sum(values * values, dtype=np.float64))
         sample_count += values.size

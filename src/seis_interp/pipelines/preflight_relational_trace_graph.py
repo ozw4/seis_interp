@@ -192,7 +192,11 @@ def _training_inputs(
         kind_probabilities=options["episode_kind_probabilities"],
         missing_fractions=options["missing_fractions"],
     )
-    fixed = fit_trace_graph_preprocessing(training, **config["geometry_features"])
+    fixed = fit_trace_graph_preprocessing(
+        training,
+        **config["geometry_features"],
+        max_abs_amplitude=config["training_data"].get("max_abs_amplitude"),
+    )
     if not np.array_equal(domain.time_s, fixed.time_s):
         raise ValueError("validation time_s must match fixed preprocessing")
     with torch.random.fork_rng(devices=[]):

@@ -24,6 +24,31 @@ def test_training_config_preserves_model_graph_and_separate_seed_contracts():
     assert training["episode_kind_probabilities"] == {"random_trace": 0.5, "random_whole_ffid": 0.5}
 
 
+@pytest.mark.parametrize("threshold", [10000, 10000.0])
+def test_training_physical_bound_is_optional_without_changing_model_or_trainer_options(threshold):
+    config = trace_graph_training_config()
+    expected = validate_relational_trace_graph_training_config(config)
+    config["training_data"]["max_abs_amplitude"] = threshold
+
+    assert validate_relational_trace_graph_training_config(config) == expected
+    assert config["training_data"]["max_abs_amplitude"] == threshold
+
+
+@pytest.mark.parametrize("value", [None, True, False, "10000", 0, -1, float("nan"), float("inf")])
+def test_training_physical_bound_rejects_invalid_values(value):
+    config = trace_graph_training_config()
+    config["training_data"]["max_abs_amplitude"] = value
+    with pytest.raises(ConfigurationError, match="training_data.max_abs_amplitude"):
+        validate_relational_trace_graph_training_config(config)
+
+
+def test_training_physical_bound_does_not_allow_other_training_data_options():
+    config = trace_graph_training_config()
+    config["training_data"].update(max_abs_amplitude=10000.0, clip=True)
+    with pytest.raises(ConfigurationError, match="training_data"):
+        validate_relational_trace_graph_training_config(config)
+
+
 @pytest.mark.parametrize(
     "section,key,value",
     [

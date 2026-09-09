@@ -60,6 +60,23 @@ def _records(output):
     }
 
 
+def test_training_physical_bound_blocks_before_model_or_run_creation(tmp_path, monkeypatch):
+    artifacts = prepare_trace_graph_run_artifacts(tmp_path / "data")
+    config = trace_graph_training_config()
+    config["training_data"]["max_abs_amplitude"] = 1e-12
+    config_path = write_trace_graph_config(tmp_path / "training.yaml", config)
+    output = tmp_path / "training"
+    monkeypatch.setattr(
+        "seis_interp.pipelines.train_relational_trace_graph.RelationalTraceGraphInterpolator",
+        lambda **kwargs: pytest.fail("invalid training amplitudes must block model initialization"),
+    )
+
+    with pytest.raises(ValueError, match=r"max_abs_amplitude=1e-12.*trace_id.*array_row.*sample"):
+        _train(artifacts, config_path, output)
+
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("variant", ["plain_gcn_row_normalized", "untyped_edge_conditioned"])
 def test_control_pipeline_records_variant_and_physical_diagnostics(variant, tmp_path):
     data = prepare_trace_graph_run_artifacts(tmp_path / "data", dense=True)
