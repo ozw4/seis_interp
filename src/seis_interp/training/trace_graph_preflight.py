@@ -24,7 +24,10 @@ from seis_interp.processing.trace_graph_diagnostics import (
 from seis_interp.processing.trace_graph_geometry import compute_trace_graph_geometry
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
-from seis_interp.processing.trace_graph_subgraphs import build_trace_graph_subgraph
+from seis_interp.processing.trace_graph_subgraphs import (
+    FixedTraceGraphSubgraphBuilder,
+    build_trace_graph_subgraph,
+)
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
 
 
@@ -104,15 +107,24 @@ def run_trace_graph_preflight(
             domain.receiver_xy_m[rows],
             azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
         )
-        plan = build_trace_graph_subgraph(
-            queries,
-            ids,
-            candidates,
-            domain.trace_ids,
-            domain.observed_mask,
-            rounds=model.message_passing_rounds,
-            **graph_settings.subgraph_kwargs(),
-        )
+        if graph_settings.neighbor_search == "exact_index":
+            builder = FixedTraceGraphSubgraphBuilder(
+                candidates,
+                domain.trace_ids,
+                domain.observed_mask,
+                **graph_settings.subgraph_kwargs(),
+            )
+            plan = builder.build(queries, ids, rounds=model.message_passing_rounds)
+        else:
+            plan = build_trace_graph_subgraph(
+                queries,
+                ids,
+                candidates,
+                domain.trace_ids,
+                domain.observed_mask,
+                rounds=model.message_passing_rounds,
+                **graph_settings.subgraph_kwargs(),
+            )
     except (MemoryError, torch.cuda.OutOfMemoryError) as error:
         return _memory_blocked(result, error, "geometry", device)
     geometry_graph_seconds = perf_counter() - started

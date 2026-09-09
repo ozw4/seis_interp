@@ -27,6 +27,7 @@ class TraceGraphSettings:
     excluded_relation: str | None = None
     common_distance_scales_m: tuple[float, float] | None = None
     single_4d_neighbors: int = 32
+    neighbor_search: str = "brute_force"
 
     def __post_init__(self) -> None:
         raw = np.asarray(self.relation_scales_m)
@@ -51,6 +52,8 @@ class TraceGraphSettings:
         ):
             raise ValueError("radius must be finite and positive")
         object.__setattr__(self, "radius", float(self.radius))
+        if self.neighbor_search not in ("brute_force", "exact_index"):
+            raise ValueError("neighbor_search must be brute_force or exact_index")
         if self.topology not in ("multi_relation", "single_4d"):
             raise ValueError("topology must be multi_relation or single_4d")
         if self.excluded_relation is not None and self.excluded_relation not in RELATION_NAMES:
@@ -94,11 +97,15 @@ class TraceGraphSettings:
             config["excluded_relation"] = self.excluded_relation
         if self.common_distance_scales_m is not None:
             config["common_distance_scales_m"] = list(self.common_distance_scales_m)
+        if self.neighbor_search != "brute_force":
+            config["neighbor_search"] = self.neighbor_search
         return config
 
     def subgraph_kwargs(self) -> dict[str, object]:
         """Return keyword arguments for exact dependency-graph construction."""
-        return self.constructor_config()
+        config = self.constructor_config()
+        config.pop("neighbor_search", None)
+        return config
 
     def validate_model_config(self, model_config: Mapping[str, object]) -> None:
         """Reject combinations that would silently ignore an ablation setting."""

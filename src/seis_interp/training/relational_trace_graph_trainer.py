@@ -23,10 +23,14 @@ from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterp
 from seis_interp.processing.trace_graph_geometry import compute_trace_graph_geometry
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
-from seis_interp.processing.trace_graph_subgraphs import build_trace_graph_subgraph
+from seis_interp.processing.trace_graph_subgraphs import (
+    FixedTraceGraphSubgraphBuilder,
+    build_trace_graph_subgraph,
+)
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
 from seis_interp.training.trace_graph_episodes import (
     TraceGraphEpisodeGenerator,
+    TraceGraphEpisodeLabelReader,
     read_trace_graph_training_labels,
 )
 
@@ -152,6 +156,27 @@ def train_relational_trace_graph(
 
     while step < steps:
         episode = episodes.next_episode()
+        builder = (
+            FixedTraceGraphSubgraphBuilder(
+                geometry,
+                training_domain.trace_ids,
+                episode.visible_mask,
+                **graph_settings.subgraph_kwargs(),
+            )
+            if graph_settings.neighbor_search == "exact_index"
+            else None
+        )
+        label_reader = (
+            TraceGraphEpisodeLabelReader(
+                training_domain,
+                episode,
+                preprocessing,
+                training_amplitudes,
+                device=device_value,
+            )
+            if builder is not None
+            else None
+        )
         episode_queries = 0
         for query_ids in episode.query_batches(batch_size):
             graph_started = perf_counter()
@@ -161,28 +186,35 @@ def train_relational_trace_graph(
                 training_domain.receiver_xy_m[indices],
                 azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
             )
-            plan = build_trace_graph_subgraph(
-                query_geometry,
-                query_ids,
-                geometry,
-                training_domain.trace_ids,
-                episode.visible_mask,
-                rounds=model.message_passing_rounds,
-                **graph_settings.subgraph_kwargs(),
-            )
+            if builder is None:
+                plan = build_trace_graph_subgraph(
+                    query_geometry,
+                    query_ids,
+                    geometry,
+                    training_domain.trace_ids,
+                    episode.visible_mask,
+                    rounds=model.message_passing_rounds,
+                    **graph_settings.subgraph_kwargs(),
+                )
+            else:
+                plan = builder.build(query_geometry, query_ids, rounds=model.message_passing_rounds)
             graph_seconds = perf_counter() - graph_started
             read_started = perf_counter()
             inputs = source.inputs(plan)
             if diagnostic_bands is not None and device_value.type == "cuda":
                 torch.cuda.synchronize(device_value)
             read_seconds = perf_counter() - read_started
-            labels = read_trace_graph_training_labels(
-                training_domain,
-                episode,
-                query_ids,
-                preprocessing,
-                training_amplitudes,
-                device=device_value,
+            labels = (
+                read_trace_graph_training_labels(
+                    training_domain,
+                    episode,
+                    query_ids,
+                    preprocessing,
+                    training_amplitudes,
+                    device=device_value,
+                )
+                if label_reader is None
+                else label_reader.read(query_ids)
             )
             model.train()
             optimizer.zero_grad(set_to_none=True)

@@ -54,17 +54,20 @@ def test_disposable_training_batch_uses_episode_support_and_restores_rng(monkeyp
             training,
             fixed,
             model_config={"width": 8, "attention_width": 8},
-            graph_settings=TraceGraphSettings(((2.0, 2.0),) * 4, neighbors_per_relation=2),
+            graph_settings=TraceGraphSettings(
+                ((2.0, 2.0),) * 4, neighbors_per_relation=2, neighbor_search=search
+            ),
             training_options=options,
             device=torch.device("cpu"),
             amplitudes=amplitudes,
         )
-        for _ in range(2)
+        for search in ("brute_force", "exact_index")
     ]
     assert captured
     assert torch.equal(torch.get_rng_state(), before_rng)
     assert reports[0]["query_trace_ids"] == episode.query_trace_ids.tolist()
     assert reports[0]["normalized_training_loss"] == reports[1]["normalized_training_loss"]
+    assert reports[0]["geometry"] == reports[1]["geometry"]
     assert reports[0]["visible_trace_count"] == 1
     assert reports[0]["sample_count"] == 10
     assert not reports[0]["state_reused_by_pilot"]
@@ -101,3 +104,46 @@ def test_graph_estimate_counts_validation_best_baseline_and_final_scopes():
             validation_interval=200,
             validation_query_batch_size=8,
         )
+
+
+def test_training_measurement_includes_exact_index_construction(monkeypatch):
+    _, training, amplitudes = make_relational_trace_domains()
+    training = replace(training, pool="all_train_traces")
+    fixed = fit_trace_graph_preprocessing(
+        training, amplitudes, position_scale_m=10, offset_scale_m=10, azimuth_min_offset_m=0.1
+    )
+    native_builder = preflight.FixedTraceGraphSubgraphBuilder
+    clock = [0.0]
+
+    def build_index(*args, **settings):
+        clock[0] += 7.0
+        return native_builder(*args, **settings)
+
+    monkeypatch.setattr(preflight, "perf_counter", lambda: clock[0])
+    monkeypatch.setattr(preflight, "FixedTraceGraphSubgraphBuilder", build_index)
+    monkeypatch.setattr(
+        preflight,
+        "build_trace_graph_subgraph",
+        lambda *a, **kw: pytest.fail("indexed episode must not call brute-force builder"),
+    )
+    report = preflight.measure_c3_first_results_graph_training_batch(
+        training,
+        fixed,
+        model_config={"width": 8, "attention_width": 8},
+        graph_settings=TraceGraphSettings(
+            ((2.0, 2.0),) * 4, neighbors_per_relation=2, neighbor_search="exact_index"
+        ),
+        training_options={
+            "random_seed": 20260908,
+            "episode_kind_probabilities": {"random_trace": 1.0},
+            "missing_fractions": (0.8,),
+            "query_batch_size": 2,
+            "learning_rate": 1e-4,
+            "weight_decay": 0.0,
+            "gradient_clip_norm": 1.0,
+        },
+        device=torch.device("cpu"),
+        amplitudes=amplitudes,
+    )
+    assert report["timings"]["graph_build_seconds"] == 7.0
+    assert report["smoke_optimizer_steps"] == 1

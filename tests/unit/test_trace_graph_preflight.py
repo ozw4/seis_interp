@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -34,8 +35,10 @@ def _arguments():
     return model, domain, fixed, {"graph_settings": settings, "amplitudes": amplitudes}
 
 
-def test_cpu_preflight_scores_same_queries_for_model_zero_idw_and_fixed_bands():
+@pytest.mark.parametrize("neighbor_search", ["brute_force", "exact_index"])
+def test_cpu_preflight_scores_same_queries_for_model_zero_idw_and_fixed_bands(neighbor_search):
     model, domain, fixed, kwargs = _arguments()
+    kwargs["graph_settings"] = replace(kwargs["graph_settings"], neighbor_search=neighbor_search)
     report = preflight.run_trace_graph_preflight(
         model,
         domain,
@@ -109,6 +112,42 @@ def test_measured_graph_limit_blocks_before_forward_or_evaluation(monkeypatch):
     assert report["blockers"][0]["measured"] > report["blockers"][0]["limit"]
     assert report["prediction_diagnostics"] is None
     assert "baselines" not in report
+
+
+def test_exact_index_construction_time_counts_toward_geometry_budget(monkeypatch):
+    model, domain, fixed, kwargs = _arguments()
+    kwargs["graph_settings"] = replace(kwargs["graph_settings"], neighbor_search="exact_index")
+    native_builder = preflight.FixedTraceGraphSubgraphBuilder
+    clock = [0.0]
+
+    def build_index(*args, **settings):
+        clock[0] += 7.0
+        return native_builder(*args, **settings)
+
+    monkeypatch.setattr(preflight, "perf_counter", lambda: clock[0])
+    monkeypatch.setattr(preflight, "FixedTraceGraphSubgraphBuilder", build_index)
+    monkeypatch.setattr(
+        preflight,
+        "build_trace_graph_subgraph",
+        lambda *a, **kw: pytest.fail("exact_index preflight must use the indexed builder"),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "predict_relational_trace_graph",
+        lambda *a, **kw: pytest.fail("index construction exceeded the geometry budget"),
+    )
+    report = preflight.run_trace_graph_preflight(
+        model,
+        domain,
+        fixed,
+        **kwargs,
+        query_trace_ids=np.array([20]),
+        max_graph_seconds=3.0,
+    )
+    assert report["status"] == "blocked" and report["blocked_stage"] == "geometry"
+    assert report["geometry_graph_seconds"] == 7.0
+    assert report["blockers"][0]["measured"] == 7.0
+    assert report["prediction_diagnostics"] is None
 
 
 @pytest.mark.parametrize(

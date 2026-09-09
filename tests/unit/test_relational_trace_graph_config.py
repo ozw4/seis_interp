@@ -58,6 +58,7 @@ def test_training_physical_bound_does_not_allow_other_training_data_options():
         ("model", "message_passing_rounds", 4),
         ("graph", "rounds", 2),
         ("graph", "neighbors_per_relation", 0),
+        ("graph", "neighbor_search", "approximate"),
         ("geometry_features", "position_scale_m", 0),
         ("training_data", "pool", "test"),
         ("training_data", "time_samples", [2, 2]),
@@ -157,3 +158,14 @@ def test_diagnostic_bands_are_explicit_fixed_config_and_optional():
     config["diagnostics"]["offset_m"] = [200, 100]
     with pytest.raises(ValueError):
         validate_relational_trace_graph_training_config(config)
+
+
+def test_exact_index_is_opt_in_and_does_not_change_graph_construction_arguments():
+    config = trace_graph_training_config()
+    _, default, _ = validate_relational_trace_graph_training_config(config)
+    assert "neighbor_search" not in default.constructor_config()
+    config["graph"]["neighbor_search"] = "exact_index"
+    _, indexed, _ = validate_relational_trace_graph_training_config(config)
+    assert indexed.neighbor_search == "exact_index"
+    assert indexed.constructor_config()["neighbor_search"] == "exact_index"
+    assert indexed.subgraph_kwargs() == default.subgraph_kwargs()

@@ -387,3 +387,22 @@ def test_trainer_rejects_test_or_training_domain_for_fixed_validation(partition)
             training_amplitudes=values,
             validation_amplitudes=values,
         )
+
+
+@pytest.mark.parametrize("kind", ["random_trace", "random_whole_ffid"])
+def test_exact_index_preserves_multi_episode_training_masks_rng_and_validation(kind):
+    plain = _train(_model(), kind=kind, max_steps=6, query_batch_size=3)
+    plain_rng = torch.get_rng_state().clone()
+    settings = replace(_setup()[-1], neighbor_search="exact_index")
+    indexed = _train(_model(), kind=kind, max_steps=6, query_batch_size=3, graph_settings=settings)
+    torch.testing.assert_close(torch.get_rng_state(), plain_rng, rtol=0, atol=0)
+    assert indexed.episodes_completed > 1
+    assert indexed.training_history == plain.training_history
+    assert indexed.episode_history == plain.episode_history
+    assert indexed.validation_history == plain.validation_history
+    assert indexed.best_step == plain.best_step
+    for name, value in plain.final_state_dict.items():
+        torch.testing.assert_close(indexed.final_state_dict[name], value, rtol=0, atol=0)
+        torch.testing.assert_close(
+            indexed.best_state_dict[name], plain.best_state_dict[name], rtol=0, atol=0
+        )

@@ -19,7 +19,10 @@ from seis_interp.processing.trace_graph_diagnostics import trace_graph_resource_
 from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, compute_trace_graph_geometry
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
-from seis_interp.processing.trace_graph_subgraphs import build_trace_graph_subgraph
+from seis_interp.processing.trace_graph_subgraphs import (
+    FixedTraceGraphSubgraphBuilder,
+    build_trace_graph_subgraph,
+)
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,16 @@ def predict_relational_trace_graph(
         domain.receiver_xy_m,
         azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
     )
+    builder = (
+        FixedTraceGraphSubgraphBuilder(
+            candidate_geometry,
+            domain.trace_ids,
+            domain.observed_mask,
+            **graph_settings.subgraph_kwargs(),
+        )
+        if graph_settings.neighbor_search == "exact_index"
+        else None
+    )
     if measure_resources:
         timings["graph_build_seconds"] += perf_counter() - geometry_started
     prediction = np.empty((len(query_ids), len(domain.time_s)), dtype=np.float32)
@@ -142,15 +155,18 @@ def predict_relational_trace_graph(
                     receiver_xy[start:stop],
                     azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
                 )
-                plan = build_trace_graph_subgraph(
-                    geometry,
-                    query_ids[start:stop],
-                    candidate_geometry,
-                    domain.trace_ids,
-                    domain.observed_mask,
-                    rounds=rounds,
-                    **graph_settings.subgraph_kwargs(),
-                )
+                if builder is None:
+                    plan = build_trace_graph_subgraph(
+                        geometry,
+                        query_ids[start:stop],
+                        candidate_geometry,
+                        domain.trace_ids,
+                        domain.observed_mask,
+                        rounds=rounds,
+                        **graph_settings.subgraph_kwargs(),
+                    )
+                else:
+                    plan = builder.build(geometry, query_ids[start:stop], rounds=rounds)
                 if measure_resources:
                     timings["graph_build_seconds"] += perf_counter() - started
                 if source is not None:

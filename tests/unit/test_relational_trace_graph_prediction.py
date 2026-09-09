@@ -50,9 +50,13 @@ def _settings(**overrides):
 
 
 @pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
-def test_physical_prediction_query_split_order_and_gate_totals(fusion):
+@pytest.mark.parametrize("neighbor_search", ["brute_force", "exact_index"])
+def test_physical_prediction_query_split_order_and_gate_totals(fusion, neighbor_search):
     model, domain, preprocessing, amplitudes = _inputs(fusion)
-    arguments = {"graph_settings": _settings(), "amplitudes": amplitudes}
+    arguments = {
+        "graph_settings": _settings(neighbor_search=neighbor_search),
+        "amplitudes": amplitudes,
+    }
     results = [
         predict_relational_trace_graph(
             model, domain, preprocessing, query_batch_size=batch, **arguments
@@ -80,14 +84,15 @@ def test_physical_prediction_query_split_order_and_gate_totals(fusion):
 
 
 @pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
-def test_off_grid_queries_without_any_array_rows_and_query_addition(fusion):
+@pytest.mark.parametrize("neighbor_search", ["brute_force", "exact_index"])
+def test_off_grid_queries_without_any_array_rows_and_query_addition(fusion, neighbor_search):
     model, domain, preprocessing, amplitudes = _inputs(fusion)
     waveforms = amplitudes[domain.array_rows[domain.observed_mask], 1:6]
     domain = replace(domain, array_rows=None)
     sources = np.array([[0.73, 0.04], [1.43, 0.1], [500.0, 9.0]])
     receivers = sources - [0.3, 2.1]
     arguments = {
-        "graph_settings": _settings(),
+        "graph_settings": _settings(neighbor_search=neighbor_search),
         "observed_waveforms": waveforms,
         "query_trace_ids": np.array([101, 102, 103]),
         "query_source_xy_m": sources,
@@ -113,7 +118,10 @@ def test_off_grid_queries_without_any_array_rows_and_query_addition(fusion):
     assert np.max(np.abs(changed.prediction - alone.prediction)) > 1e-5
 
 
-def test_frozen_prediction_reads_only_support_and_preserves_parameters_and_gradients(monkeypatch):
+@pytest.mark.parametrize("neighbor_search", ["brute_force", "exact_index"])
+def test_frozen_prediction_reads_only_support_and_preserves_parameters_and_gradients(
+    monkeypatch, neighbor_search
+):
     model, domain, preprocessing, amplitudes = _inputs()
     model.train()
     for parameter in model.parameters():
@@ -131,7 +139,11 @@ def test_frozen_prediction_reads_only_support_and_preserves_parameters_and_gradi
         return original(source, ids)
 
     monkeypatch.setattr(MaskedTraceSource, "read_observed_rows", observed_only)
-    arguments = {"graph_settings": _settings(), "amplitudes": amplitudes, "query_batch_size": 1}
+    arguments = {
+        "graph_settings": _settings(neighbor_search=neighbor_search),
+        "amplitudes": amplitudes,
+        "query_batch_size": 1,
+    }
     result = predict_relational_trace_graph(model, domain, preprocessing, **arguments)
     changed = amplitudes.copy()
     changed[domain.array_rows[domain.query_mask]] = np.nan
@@ -221,6 +233,7 @@ def test_explicit_query_cannot_alias_any_observed_pair_even_outside_support_radi
         {"radius": 0},
         {"neighbors_per_relation": True},
         {"candidate_chunk_size": 1.5},
+        {"neighbor_search": "approximate"},
     ],
 )
 def test_invalid_fixed_graph_settings_rejected(settings):
@@ -236,3 +249,22 @@ def test_graph_settings_copy_mutable_config_and_have_no_independent_round_count(
     values["relation_scales_m"][0][0] = 7
     assert settings.relation_scales_m == ((1.0, 1.0),) * 4
     assert "rounds" not in settings.subgraph_kwargs()
+
+
+def test_exact_index_preserves_physical_predictions_context_and_diagnostics():
+    model, domain, preprocessing, amplitudes = _inputs()
+    outputs = [
+        predict_relational_trace_graph(
+            model,
+            domain,
+            preprocessing,
+            graph_settings=_settings(neighbor_search=search),
+            amplitudes=amplitudes,
+            query_batch_size=2,
+            measure_resources=False,
+        )
+        for search in ("brute_force", "exact_index")
+    ]
+    np.testing.assert_array_equal(outputs[0].prediction, outputs[1].prediction)
+    np.testing.assert_array_equal(outputs[0].has_observed_context, outputs[1].has_observed_context)
+    assert outputs[0].diagnostics == outputs[1].diagnostics

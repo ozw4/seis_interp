@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from copy import deepcopy
+from dataclasses import dataclass, fields
 from numbers import Integral, Real
 
 import numpy as np
@@ -133,6 +134,191 @@ def select_trace_graph_neighbors(
         edge_type=_concatenate(type_blocks, np.int64),
         distances=_concatenate(distance_blocks, np.float64),
     )
+
+
+class FixedTraceGraphNeighborIndex:
+    """Exact radius search over one owned geometry and fixed visibility mask.
+
+    Sorted coordinate axes only remove candidates outside conservative boxes.
+    The original float64 distance formula and distance/ID ordering decide every
+    edge. Index storage is linear in candidates; no pairwise matrix is built.
+    Construct a new index when an episode's visibility or allowed mask changes.
+    """
+
+    def __init__(
+        self,
+        candidate_geometry: TraceGraphGeometry,
+        candidate_trace_ids: np.ndarray,
+        observed_mask: np.ndarray,
+        **search_settings,
+    ) -> None:
+        empty = TraceGraphGeometry(
+            **{
+                field.name: getattr(candidate_geometry, field.name)[:0]
+                for field in fields(TraceGraphGeometry)
+            }
+        )
+        # Reuse the brute boundary's validation, without searching any query.
+        select_trace_graph_neighbors(
+            empty,
+            np.empty(0, dtype=np.int64),
+            candidate_geometry,
+            candidate_trace_ids,
+            observed_mask,
+            **search_settings,
+        )
+        self.geometry = TraceGraphGeometry(
+            **{
+                field.name: _owned_readonly(getattr(candidate_geometry, field.name))
+                for field in fields(TraceGraphGeometry)
+            }
+        )
+        self.trace_ids = _owned_readonly(np.asarray(candidate_trace_ids, dtype=np.int64))
+        eligible = np.asarray(observed_mask).copy()
+        if search_settings.get("allowed_mask") is not None:
+            eligible &= np.asarray(search_settings["allowed_mask"])
+        self.eligible_mask = _owned_readonly(eligible)
+        self._settings = {
+            "neighbors_per_relation": 8,
+            "radius": 1.0,
+            "candidate_chunk_size": 4096,
+            "topology": "multi_relation",
+            "excluded_relation": None,
+            "common_distance_scales_m": None,
+            "single_4d_neighbors": 32,
+            **deepcopy(search_settings),
+        }
+        self._settings.pop("allowed_mask", None)
+        self._scales = np.asarray(self._settings["relation_scales_m"], dtype=np.float64)
+        self._eligible_rows = np.flatnonzero(self.eligible_mask)
+        self._axes = {}
+        for name in ("source_xy_m", "receiver_xy_m", "midpoint_xy_m", "offset_xy_m"):
+            for axis in range(2):
+                coordinates = getattr(self.geometry, name)[self._eligible_rows, axis]
+                order = np.argsort(coordinates, kind="stable")
+                self._axes[name, axis] = (coordinates[order], self._eligible_rows[order])
+
+    @property
+    def search_settings(self) -> dict:
+        """Return settings independently of the owned visibility and arrays."""
+        return deepcopy(self._settings)
+
+    def select(
+        self, destination_geometry: TraceGraphGeometry, destination_trace_ids: np.ndarray
+    ) -> TraceGraphNeighbors:
+        """Select exact incoming edges in destination, relation, distance/ID order."""
+        ids = _trace_ids(destination_trace_ids, destination_geometry, "destination")
+        single = self._settings["topology"] == "single_4d"
+        relations = (
+            (0,)
+            if single
+            else tuple(
+                index
+                for index, name in enumerate(RELATION_NAMES)
+                if name != self._settings["excluded_relation"]
+            )
+        )
+        k = self._settings["single_4d_neighbors" if single else "neighbors_per_relation"]
+        chunk_size = self._settings["candidate_chunk_size"]
+        blocks = ([], [], [], [])
+        for row, trace_id in enumerate(ids):
+            for relation in relations:
+                candidates = self._box_rows(destination_geometry, row, relation)
+                candidates = candidates[self.trace_ids[candidates] != trace_id]
+                selected_ids = np.empty(0, dtype=np.int64)
+                selected_distances = np.empty(0, dtype=np.float64)
+                for start in range(0, len(candidates), chunk_size):
+                    rows = candidates[start : start + chunk_size]
+                    distances = self._distances(destination_geometry, row, rows, relation)
+                    inside = distances <= self._settings["radius"]
+                    combined_ids = np.concatenate((selected_ids, self.trace_ids[rows[inside]]))
+                    combined_distances = np.concatenate((selected_distances, distances[inside]))
+                    order = np.lexsort((combined_ids, combined_distances))[:k]
+                    selected_ids = combined_ids[order]
+                    selected_distances = combined_distances[order]
+                count = len(selected_ids)
+                blocks[0].append(selected_ids)
+                blocks[1].append(np.full(count, trace_id, dtype=np.int64))
+                blocks[2].append(np.full(count, relation, dtype=np.int64))
+                blocks[3].append(selected_distances)
+        return TraceGraphNeighbors(
+            *(
+                _concatenate(block, dtype)
+                for block, dtype in zip(
+                    blocks, (np.int64, np.int64, np.int64, np.float64), strict=True
+                )
+            )
+        )
+
+    def _box_rows(self, destination, row, relation):
+        single = self._settings["topology"] == "single_4d"
+        names = (
+            ("source_xy_m", "receiver_xy_m")
+            if relation < 2 and not single
+            else ("midpoint_xy_m", "offset_xy_m")
+        )
+        scales = self._settings["common_distance_scales_m"] if single else self._scales[relation]
+        bounds = []
+        for name, scale in zip(names, scales, strict=True):
+            width = _conservative_box_width(self._settings["radius"], scale)
+            if width is None:
+                continue
+            for axis in range(2):
+                center = getattr(destination, name)[row, axis]
+                with np.errstate(over="ignore", invalid="ignore"):
+                    lower = np.nextafter(center - width, -np.inf)
+                    upper = np.nextafter(center + width, np.inf)
+                if np.isnan(lower) or np.isnan(upper):
+                    continue
+                values, indices = self._axes[name, axis]
+                start = np.searchsorted(values, lower, side="left")
+                stop = np.searchsorted(values, upper, side="right")
+                bounds.append((stop - start, indices, start, stop, name, axis, lower, upper))
+        if not bounds:
+            return self._eligible_rows
+        _, indices, start, stop, *_ = min(bounds, key=lambda bound: bound[0])
+        rows = indices[start:stop]
+        # The shortest sorted range avoids allocating a full-domain Boolean mask.
+        for _, _, _, _, name, axis, lower, upper in bounds:
+            values = getattr(self.geometry, name)[rows, axis]
+            rows = rows[(values >= lower) & (values <= upper)]
+        return rows
+
+    def _distances(self, destination, row, rows, relation):
+        if self._settings["topology"] != "single_4d":
+            return _relation_distances(destination, row, self.geometry, rows, self._scales)[
+                :, relation
+            ]
+        common = np.asarray(self._settings["common_distance_scales_m"], dtype=np.float64)
+        delta_midpoint = self.geometry.midpoint_xy_m[rows] - destination.midpoint_xy_m[row]
+        delta_offset = self.geometry.offset_xy_m[rows] - destination.offset_xy_m[row]
+        return np.sqrt(
+            np.sum(delta_midpoint**2, axis=1) / common[0] ** 2
+            + np.sum(delta_offset**2, axis=1) / common[1] ** 2
+        )
+
+
+def _conservative_box_width(radius, scale):
+    """Widen radius bounds for rounded products/sums; avoid unsafe extreme scales."""
+    limits = np.finfo(np.float64)
+    if radius < np.sqrt(limits.tiny):
+        # A squared distance can underflow during division by a large scale.
+        # Its zero result may pass a radius far below the geometric distance.
+        return None
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        squared_scale = np.float64(scale) ** 2
+        width = np.float64(radius) * scale
+        if not np.isfinite(squared_scale) or squared_scale < limits.tiny:
+            return None
+        # The absolute allowance also covers subnormal squared differences.
+        width = width * (1.0 + 16.0 * limits.eps) + np.sqrt(limits.tiny)
+    return None if not np.isfinite(width) else np.nextafter(width, np.inf)
+
+
+def _owned_readonly(values):
+    result = np.array(values, copy=True)
+    result.setflags(write=False)
+    return result
 
 
 def _relation_distances(

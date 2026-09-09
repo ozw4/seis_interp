@@ -180,6 +180,87 @@ def read_trace_graph_training_labels(
     return torch.from_numpy((values / preprocessing.amplitude_scale).astype(np.float32)).to(device)
 
 
+class TraceGraphEpisodeLabelReader:
+    """Reuse owned row and visibility metadata for one fixed training episode.
+
+    Construct a new reader when the episode changes. Only metadata is inspected
+    at construction; amplitude opening and validation remain lazy until a valid
+    hidden query batch is read. The amplitude array itself is not copied.
+    """
+
+    def __init__(
+        self,
+        domain: TraceGraphDomain,
+        episode: TraceGraphEpisode,
+        preprocessing: TraceGraphPreprocessing,
+        amplitudes: np.ndarray | None = None,
+        *,
+        device: torch.device | str = "cpu",
+    ) -> None:
+        validate_trace_graph_training_domain(domain)
+        if not np.array_equal(episode.trace_ids, domain.trace_ids):
+            raise ValueError("episode trace IDs must match the training domain")
+        if not np.array_equal(domain.time_s, preprocessing.time_s):
+            raise ValueError("training time_s must match the fixed preprocessing time grid")
+        self._positions = {int(trace_id): index for index, trace_id in enumerate(domain.trace_ids)}
+        assert domain.array_rows is not None
+        self._array_rows = domain.array_rows.copy()
+        self._hidden_trace_ids = np.array(episode.hidden_trace_ids, copy=True)
+        self._hidden_mask = np.isin(domain.trace_ids, self._hidden_trace_ids)
+        self._visible_mask = np.array(episode.visible_mask, copy=True)
+        for values in (
+            self._array_rows,
+            self._hidden_trace_ids,
+            self._hidden_mask,
+            self._visible_mask,
+        ):
+            values.setflags(write=False)
+        self._observed_shape = domain.observed_mask.shape
+        self._time_samples = tuple(domain.time_samples)
+        self._time_count = len(domain.time_s)
+        self._amplitude_scale = preprocessing.amplitude_scale
+        self._amplitudes_path = domain.amplitudes_path
+        self._amplitudes = amplitudes
+        self._device = device
+
+    def read(self, query_trace_ids: np.ndarray) -> torch.Tensor:
+        """Read only this authorized hidden batch with unchanged float64 scaling."""
+        ids = np.asarray(query_trace_ids)
+        if ids.ndim != 1 or ids.dtype.kind not in "iu" or len(np.unique(ids)) != len(ids):
+            raise ValueError("query_trace_ids must be a unique integer vector")
+        indices = np.array([self._positions.get(int(value), -1) for value in ids], dtype=np.int64)
+        known = indices >= 0
+        hidden = np.zeros(len(ids), dtype=bool)
+        hidden[known] = self._hidden_mask[indices[known]]
+        if not np.all(known):
+            # Preserve the old hidden-set-before-pool error order even for a
+            # malformed episode that lists an ID outside the training domain.
+            hidden[~known] = np.isin(ids[~known], self._hidden_trace_ids)
+        if not np.all(hidden):
+            raise ValueError("training label queries must belong to the episode hidden set")
+        if not np.all(known):
+            raise ValueError("training label queries are outside the authorized training pool")
+        if self._visible_mask.shape != self._observed_shape or np.any(self._visible_mask[indices]):
+            raise ValueError("training label queries must be hidden throughout the episode")
+        if self._amplitudes is None:
+            if self._amplitudes_path is None:
+                raise ValueError("training amplitudes or an amplitudes_path are required")
+            self._amplitudes = np.load(self._amplitudes_path, mmap_mode="r", allow_pickle=False)
+        amplitudes = self._amplitudes
+        if amplitudes.ndim != 2 or amplitudes.dtype != np.float32:
+            raise ValueError("amplitudes must have float32 shape [rows, time]")
+        rows = self._array_rows[indices]
+        start, stop = self._time_samples
+        if np.any(rows >= amplitudes.shape[0]) or stop > amplitudes.shape[1]:
+            raise ValueError("training rows or time selection are outside amplitudes")
+        values = np.array(amplitudes[rows, start:stop], dtype=np.float64, copy=True)
+        if values.shape != (len(ids), self._time_count) or not np.all(np.isfinite(values)):
+            raise ValueError("training labels must have finite shape [Q, T]")
+        return torch.from_numpy((values / self._amplitude_scale).astype(np.float32)).to(
+            self._device
+        )
+
+
 def _hidden_count(unit_count: int, fraction: float, kind: str) -> int:
     count = round(unit_count * fraction)
     if not 0 < count < unit_count:

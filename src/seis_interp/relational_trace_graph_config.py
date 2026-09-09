@@ -216,7 +216,13 @@ def _graph_settings(config: Mapping[str, object]) -> TraceGraphSettings:
         config,
         "graph",
         {"neighbors_per_relation", "max_normalized_distance", "candidate_chunk_size", "relations"},
-        {"topology", "excluded_relation", "common_distance_scales_m", "single_4d_neighbors"},
+        {
+            "topology",
+            "excluded_relation",
+            "common_distance_scales_m",
+            "single_4d_neighbors",
+            "neighbor_search",
+        },
     )
     relations = config_values.exact_section(graph, "relations", set(RELATION_NAMES))
     scales = []
@@ -251,6 +257,7 @@ def _graph_settings(config: Mapping[str, object]) -> TraceGraphSettings:
                 "excluded_relation",
                 "common_distance_scales_m",
                 "single_4d_neighbors",
+                "neighbor_search",
             )
             if name in graph
         },

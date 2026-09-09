@@ -153,6 +153,7 @@ def _load_payload(
             "candidate_chunk_size",
         }
         graph_optional = {
+            "neighbor_search",
             "topology",
             "excluded_relation",
             "common_distance_scales_m",

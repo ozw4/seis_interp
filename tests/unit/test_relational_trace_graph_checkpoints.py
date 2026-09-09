@@ -67,11 +67,23 @@ def _save(path, model, preprocessing, **overrides):
 
 @pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
 @pytest.mark.parametrize("role", ["best_validation", "final"])
-def test_round_trip_reproduces_nonzero_physical_predictions(tmp_path, fusion, role):
+@pytest.mark.parametrize("neighbor_search", ["brute_force", "exact_index"])
+def test_round_trip_reproduces_nonzero_physical_predictions(
+    tmp_path, fusion, role, neighbor_search
+):
     model, domain, preprocessing, amplitudes = _fixture(fusion)
     path = tmp_path / "model.pt"
-    _save(path, model, preprocessing, checkpoint_role=role)
+    _save(
+        path,
+        model,
+        preprocessing,
+        checkpoint_role=role,
+        graph_settings=TraceGraphSettings(
+            ((1.0, 1.0),) * 4, neighbors_per_relation=2, neighbor_search=neighbor_search
+        ),
+    )
     loaded = load_relational_trace_graph_checkpoint(path)
+    assert loaded.graph_settings.neighbor_search == neighbor_search
     arguments = {"graph_settings": loaded.graph_settings, "amplitudes": amplitudes}
     original = predict_relational_trace_graph(model, domain, preprocessing, **arguments)
     restored = predict_relational_trace_graph(

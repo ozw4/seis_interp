@@ -63,13 +63,25 @@ queryと観測の同一物理source/receiver pairを別IDで入力すること�
 距離Dは両成分の二乗ノルム和の平方根。既定値は`radius=1`、`neighbors_per_relation=8`で、物理尺度は
 呼出側が必ず指定する。検索は候補をchunkで走査するexact searchであり、距離の一時配列は
 O(chunk size + k)、返すedgeはO(destination数 × 4k)。全surveyのN×N配列は作らない。
-chunk sizeは結果を変えない。実surveyでの速度・メモリ使用量は未測定である。
+chunk sizeは結果を変えない。
+
+`TraceGraphSettings.neighbor_search`（CLIでは`graph.neighbor_search`）の既定は`brute_force`。
+任意の`exact_index`は`FixedTraceGraphNeighborIndex`を使い、座標軸のsorted indexと保守的な範囲で
+候補を絞ってから、同じfloat64距離・radius判定・距離/ID順で選ぶ。可視・許可domain、自己ID除外、
+relation別top-kは共通であり、近似探索やquery batch内への候補制限は行わない。
 
 `processing/trace_graph_subgraphs.py`の`build_trace_graph_subgraph()`はqueryをdepth=0として、
 depth<Lのdestinationだけを元の観測domainへ問い合わせる。L-hop葉のincoming edgeは追加しない。
 `TraceGraphPlan`のnode順はstable ID順、`query_indices`は元のquery順を保持する。
 `edge_index`は`[sender, destination]`で、すべてのsenderは可視観測である。
 異なるrelationの同一ペアは保持し、対称化・radius拡大・fallbackは行わない。
+
+`exact_index`の`FixedTraceGraphSubgraphBuilder`はgeometry・ID・可視/許可mask・検索設定を所有し、
+固定domain内でindexとID対応を再利用する。可視senderのincoming edgesだけをIDごとに遅延cacheし、
+初期queryの検索は毎回行う。各hopの検索domainは元の可視候補全体のままである。
+cacheのedge数は可視・許可sender数 × 有効relation数 × kが上限で、返すplanの変更はcacheへ伝わらない。
+`observed_neighbor_cache_info()`で件数と数値配列のbytesを取得でき、bytesにはPython容器の領域を含めない。
+trainerはepisodeごとに新しいbuilderを作り、凍結予測は一つの固定観測domainでquery batch間に再利用する。
 
 coverageは`[N,4,2]`のdegree/kと最小Dであり、空relationと未展開葉では両方0。
 planにはquery数、support数、typed edge数、unique pair数、最大depthの診断も含む。
@@ -145,7 +157,10 @@ hidden集合Hと可視集合Oを決め、その後でHをquery minibatchへ分�
 欠損数は`round(unit_count * missing_fraction)`で決まり、観測・hiddenの両方が残らない設定は拒否する。
 kindは指定確率、missing fractionは指定リストから等確率で選ぶ。
 hidden IDを昇順に並べてからlocal RNGでshuffleし、一巡するまでOを変更しない。
-`read_trace_graph_training_labels()`だけが、そのbatchのHに属する訓練ラベルを読み、固定RMSで正規化する。
+訓練ラベルは`read_trace_graph_training_labels()`が、そのbatchのHに属する行だけを読み、固定RMSで正規化する。
+`exact_index`では`TraceGraphEpisodeLabelReader`がepisodeの行対応・hidden/visible metadataを所有して再利用し、
+同じ許可判定・行順・正規化でラベルを読む。波形の読み込みはbatch要求時に行い、ラベルをモデル入力へ渡さない。
+builderとreaderはepisodeの切り替え時に作り直し、mask生成やquery順のRNGは変更しない。
 
 `training/relational_trace_graph_trainer.py`の`train_relational_trace_graph()`は、初期化済みモデル、
 train/validation domain、固定前処理、`TraceGraphSettings`、episode/optimizer設定を受け取る。
@@ -167,6 +182,7 @@ trainerはtest domainを受け入れない。
 constructor configとstate dictを別々に受け取り、best状態を後続の更新から独立したCPU snapshotとして保存する。
 graph尺度/k/radius、relation・node/edge特徴の順序、固定前処理とfit domain、time_s/T/factor、
 人工mask設定、訓練provenance・seed、`best_validation`または`final`のrole、stepと選択指標も保存する。
+非既定の`neighbor_search`も構成値に保存する。既定値は新しい構成keyを追加せず、従来のcheckpointを復元する。
 module objectやoptimizer/resume状態は保存しない。
 保存は同じdirectoryの一時ファイルへ完了してから置き換え、途中の書き込み失敗で直前のcheckpointを失わない。
 `load_relational_trace_graph_checkpoint()`は保存構成からモデルを再構築し、stateをstrict loadする。
