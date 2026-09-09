@@ -83,6 +83,30 @@ def test_training_preflight_measures_selected_queries_without_optimizer(
     assert sorted(path.name for path in tmp_path.iterdir()) == ["training.yaml"]
 
 
+@pytest.mark.parametrize("benchmark_option", ["missing", True, False])
+def test_training_config_preflight_honors_benchmark_only_when_disabled(
+    artifacts, tmp_path, monkeypatch, benchmark_option
+):
+    config = trace_graph_training_config()
+    if benchmark_option != "missing":
+        config["training"]["cudnn_benchmark"] = benchmark_option
+    path = write_trace_graph_config(tmp_path / "training.yaml", config)
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", True)
+    modes = []
+
+    def record_forward(module, inputs):
+        if isinstance(module, RelationalTraceGraphInterpolator):
+            modes.append(torch.backends.cudnn.benchmark)
+
+    handle = torch.nn.modules.module.register_module_forward_pre_hook(record_forward)
+    try:
+        report = _preflight(artifacts, path)
+    finally:
+        handle.remove()
+    assert report["status"] == "success", report
+    assert modes and all(value is (benchmark_option is not False) for value in modes)
+
+
 def test_preflight_reports_resource_limit_without_changing_sample_or_graph(artifacts, tmp_path):
     path = write_trace_graph_config(tmp_path / "training.yaml", trace_graph_training_config())
     report = _preflight(artifacts, path, max_process_rss_bytes=1)

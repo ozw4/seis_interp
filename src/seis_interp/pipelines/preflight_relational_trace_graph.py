@@ -201,6 +201,8 @@ def _training_inputs(
         raise ValueError("validation time_s must match fixed preprocessing")
     with torch.random.fork_rng(devices=[]):
         torch.random.default_generator.manual_seed(options["random_seed"])
+        if not options.get("cudnn_benchmark", True):
+            torch.backends.cudnn.benchmark = False
         model = RelationalTraceGraphInterpolator(**model_config)
     records = {
         "training": training_record,

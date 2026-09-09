@@ -62,6 +62,25 @@ def _train(model, *, kind="random_trace", **overrides):
     return train_relational_trace_graph(model, train, validation, preprocessing, **arguments)
 
 
+@pytest.mark.parametrize("kind", ["random_trace", "random_whole_ffid"])
+def test_exact_index_preserves_multi_episode_training_masks_rng_and_validation(kind):
+    plain = _train(_model(), kind=kind, max_steps=6, query_batch_size=3)
+    plain_rng = torch.get_rng_state().clone()
+    settings = replace(_setup()[-1], neighbor_search="exact_index")
+    indexed = _train(_model(), kind=kind, max_steps=6, query_batch_size=3, graph_settings=settings)
+    torch.testing.assert_close(torch.get_rng_state(), plain_rng, rtol=0, atol=0)
+    assert indexed.episodes_completed > 1
+    assert indexed.training_history == plain.training_history
+    assert indexed.episode_history == plain.episode_history
+    assert indexed.validation_history == plain.validation_history
+    assert indexed.best_step == plain.best_step
+    for name, value in plain.final_state_dict.items():
+        torch.testing.assert_close(indexed.final_state_dict[name], value, rtol=0, atol=0)
+        torch.testing.assert_close(
+            indexed.best_state_dict[name], plain.best_state_dict[name], rtol=0, atol=0
+        )
+
+
 def test_fixed_band_and_gate_logging_preserves_training_results_and_rng():
     plain_model = _model()
     plain = _train(plain_model, max_steps=3)
@@ -284,13 +303,16 @@ def test_best_update_exception_propagates_before_validation_report_or_next_step(
     assert not any("validation step" in message or "step 2/" in message for message in messages)
 
 
-def test_validation_labels_affect_only_scores_not_training_or_current_prediction() -> None:
+@pytest.mark.parametrize("loss", ["masked_mse", "masked_trace_relative_mse"])
+def test_validation_labels_affect_only_scores_not_training_or_current_prediction(loss) -> None:
     _, validation, values, preprocessing, settings = _setup()
     changed = values.copy()
     changed[validation.array_rows[validation.query_mask]] *= -5
     first_model, second_model = _model(), _model()
-    one = _train(first_model, max_steps=3, validation_interval=1)
-    two = _train(second_model, max_steps=3, validation_interval=1, validation_amplitudes=changed)
+    one = _train(first_model, max_steps=3, validation_interval=1, loss=loss)
+    two = _train(
+        second_model, max_steps=3, validation_interval=1, validation_amplitudes=changed, loss=loss
+    )
     assert one.training_history == two.training_history
     assert one.final_validation_metrics != two.final_validation_metrics
     for name in one.final_state_dict:
@@ -304,7 +326,8 @@ def test_validation_labels_affect_only_scores_not_training_or_current_prediction
     np.testing.assert_array_equal(first.prediction, second.prediction)
 
 
-def test_zero_context_and_final_small_batch_use_exact_unpadded_sample_denominator() -> None:
+@pytest.mark.parametrize("loss", ["masked_mse", "masked_trace_relative_mse"])
+def test_zero_context_and_final_small_batch_use_exact_unpadded_sample_denominator(loss) -> None:
     train, validation, values, preprocessing, _ = _setup()
     values[:8] *= np.arange(1, 9, dtype=np.float32)[:, None]
     tiny_radius = TraceGraphSettings(((0.001, 0.001),) * 4)
@@ -338,6 +361,7 @@ def test_zero_context_and_final_small_batch_use_exact_unpadded_sample_denominato
         weight_decay=0.0,
         training_amplitudes=values,
         validation_amplitudes=values,
+        loss=loss,
     )
     assert [row["query_count"] for row in result.training_history] == [3, 1]
     assert result.query_count == result.no_context_query_count == 4
@@ -348,6 +372,95 @@ def test_zero_context_and_final_small_batch_use_exact_unpadded_sample_denominato
     assert result.training_history[-1]["train_loss"] == pytest.approx(expected_errors.mean())
     assert result.best_step == 1  # Identical zero predictions keep the first validation.
     assert result.episodes_completed == 1 and not result.final_episode_interrupted
+    if loss == "masked_trace_relative_mse":
+        assert all(
+            row["batch_objective_loss"] == pytest.approx(1.0) for row in result.training_history
+        )
+        assert result.training_history[-1]["objective_loss"] == pytest.approx(1.0)
+    else:
+        assert all("batch_objective_loss" not in row for row in result.training_history)
+
+
+def test_explicit_default_loss_preserves_history_states_and_rng():
+    implicit = _train(_model(), max_steps=4, query_batch_size=3)
+    rng = torch.get_rng_state().clone()
+    explicit = _train(_model(), max_steps=4, query_batch_size=3, loss="masked_mse")
+    assert implicit.training_history == explicit.training_history
+    assert implicit.validation_history == explicit.validation_history
+    assert implicit.episode_history == explicit.episode_history
+    assert torch.equal(torch.get_rng_state(), rng)
+    assert all(
+        torch.equal(value, explicit.final_state_dict[name])
+        for name, value in implicit.final_state_dict.items()
+    )
+
+
+@pytest.mark.parametrize("initial_benchmark", [False, True])
+def test_default_cudnn_benchmark_preserves_backend_history_weights_and_rng(
+    monkeypatch, initial_benchmark
+):
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", initial_benchmark)
+    implicit = _train(_model(), max_steps=4, query_batch_size=3)
+    rng = torch.get_rng_state().clone()
+    explicit = _train(_model(), max_steps=4, query_batch_size=3, cudnn_benchmark=True)
+    assert torch.backends.cudnn.benchmark is initial_benchmark
+    assert implicit.training_history == explicit.training_history
+    assert implicit.validation_history == explicit.validation_history
+    assert implicit.episode_history == explicit.episode_history
+    assert torch.equal(torch.get_rng_state(), rng)
+    for name, value in implicit.final_state_dict.items():
+        assert torch.equal(value, explicit.final_state_dict[name])
+        assert torch.equal(implicit.best_state_dict[name], explicit.best_state_dict[name])
+
+
+def test_cudnn_benchmark_false_applies_before_training_and_validation_forward(monkeypatch):
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", True)
+    model = _model()
+    modes = []
+    handle = model.register_forward_pre_hook(
+        lambda module, inputs: modes.append(torch.backends.cudnn.benchmark)
+    )
+    try:
+        result = _train(model, max_steps=2, validation_interval=1, cudnn_benchmark=False)
+    finally:
+        handle.remove()
+    assert result.steps_completed == 2
+    assert modes and not any(modes)
+
+
+@pytest.mark.parametrize("benchmark", [None, 0, 1, "false", [], np.bool_(False)])
+def test_invalid_cudnn_benchmark_fails_before_input_reads(monkeypatch, benchmark):
+    monkeypatch.setattr(
+        trainer_module,
+        "MaskedTraceSource",
+        lambda *a, **kw: pytest.fail("invalid benchmark must fail before waveform access"),
+    )
+    with pytest.raises(ValueError, match="cudnn_benchmark must be a boolean"):
+        _train(_model(), cudnn_benchmark=benchmark)
+
+
+def test_relative_trace_loss_logs_sample_weighted_objective_separately_from_mse():
+    result = _train(_model(), max_steps=4, query_batch_size=3, loss="masked_trace_relative_mse")
+    assert [row["query_count"] for row in result.training_history] == [3, 1, 3, 1]
+    total_objective = total_samples = 0
+    for row in result.training_history:
+        total_objective += row["batch_objective_loss"] * row["sample_count"]
+        total_samples += row["sample_count"]
+        assert row["objective_loss"] == total_objective / total_samples
+        assert row["batch_loss"] == row["normalized_error_energy"] / row["sample_count"]
+    assert result.train_loss == result.training_history[-1]["train_loss"]
+    assert result.training_history[0]["batch_objective_loss"] == pytest.approx(1.0)
+    assert result.training_history[-1]["batch_objective_loss"] < 1.0
+
+
+@pytest.mark.parametrize("loss", [None, True, 0, "relative"])
+def test_trainer_rejects_invalid_loss_before_reading_inputs(monkeypatch, loss):
+    def fail(*args, **kwargs):
+        pytest.fail("invalid loss must be rejected before constructing a waveform reader")
+
+    monkeypatch.setattr(trainer_module, "MaskedTraceSource", fail)
+    with pytest.raises(ValueError, match="loss must be"):
+        _train(_model(), loss=loss)
 
 
 def test_final_step_validates_and_records_interrupted_episode() -> None:
@@ -386,23 +499,4 @@ def test_trainer_rejects_test_or_training_domain_for_fixed_validation(partition)
             weight_decay=0.0,
             training_amplitudes=values,
             validation_amplitudes=values,
-        )
-
-
-@pytest.mark.parametrize("kind", ["random_trace", "random_whole_ffid"])
-def test_exact_index_preserves_multi_episode_training_masks_rng_and_validation(kind):
-    plain = _train(_model(), kind=kind, max_steps=6, query_batch_size=3)
-    plain_rng = torch.get_rng_state().clone()
-    settings = replace(_setup()[-1], neighbor_search="exact_index")
-    indexed = _train(_model(), kind=kind, max_steps=6, query_batch_size=3, graph_settings=settings)
-    torch.testing.assert_close(torch.get_rng_state(), plain_rng, rtol=0, atol=0)
-    assert indexed.episodes_completed > 1
-    assert indexed.training_history == plain.training_history
-    assert indexed.episode_history == plain.episode_history
-    assert indexed.validation_history == plain.validation_history
-    assert indexed.best_step == plain.best_step
-    for name, value in plain.final_state_dict.items():
-        torch.testing.assert_close(indexed.final_state_dict[name], value, rtol=0, atol=0)
-        torch.testing.assert_close(
-            indexed.best_state_dict[name], plain.best_state_dict[name], rtol=0, atol=0
         )

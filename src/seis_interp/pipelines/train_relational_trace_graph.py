@@ -128,6 +128,8 @@ def train_relational_trace_graph_run(
     if not np.array_equal(validation.time_s, preprocessing.time_s):
         raise ValueError("validation time_s must match the fixed preprocessing time grid")
     seed_global_model_initialization(trainer_options["random_seed"], device=device)
+    if not trainer_options.get("cudnn_benchmark", True):
+        torch.backends.cudnn.benchmark = False
     model = RelationalTraceGraphInterpolator(**model_config).float()
     provenance = {
         "training_run": git_metadata,

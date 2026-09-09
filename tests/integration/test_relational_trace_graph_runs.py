@@ -13,6 +13,7 @@ import yaml
 
 from seis_interp.cli import main
 from seis_interp.data.file_checksums import file_sha256
+from seis_interp.pipelines import train_relational_trace_graph as training_pipeline
 from seis_interp.pipelines.interpolate_relational_trace_graph import (
     interpolate_relational_trace_graph_run,
 )
@@ -58,6 +59,114 @@ def _records(output):
         name: json.loads((output / f"{name}.json").read_text())
         for name in ("run", "metrics", "inputs.lock")
     }
+
+
+@pytest.mark.parametrize("benchmark_option", ["missing", True, False])
+def test_training_benchmark_option_applies_after_seed_and_preserves_default_kwargs(
+    tmp_path, monkeypatch, benchmark_option
+):
+    artifacts = prepare_trace_graph_run_artifacts(tmp_path / "data")
+    config = trace_graph_training_config()
+    config["training"].update(max_steps=2, validation_interval=2)
+    if benchmark_option != "missing":
+        config["training"]["cudnn_benchmark"] = benchmark_option
+    path = write_trace_graph_config(tmp_path / "training.yaml", config)
+    seed = training_pipeline.seed_global_model_initialization
+    train = training_pipeline.train_relational_trace_graph
+    resources = training_pipeline.run_records.runtime_resource_metadata
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", False)
+    modes = []
+    options = []
+
+    def seed_with_cuda_benchmark_behavior(*args, **kwargs):
+        seed(*args, **kwargs)
+        torch.backends.cudnn.benchmark = True
+
+    def record_training(*args, **kwargs):
+        options.append(kwargs.copy())
+        return train(*args, **kwargs)
+
+    def record_resources(device):
+        modes.append(torch.backends.cudnn.benchmark)
+        return resources(device)
+
+    monkeypatch.setattr(
+        training_pipeline, "seed_global_model_initialization", seed_with_cuda_benchmark_behavior
+    )
+    monkeypatch.setattr(training_pipeline, "train_relational_trace_graph", record_training)
+    monkeypatch.setattr(
+        training_pipeline.run_records, "runtime_resource_metadata", record_resources
+    )
+    output = tmp_path / "run"
+    result = _train(artifacts, path, output)
+    expected = benchmark_option is not False
+    assert result["steps_completed"] == 2
+    assert modes and all(value is expected for value in modes)
+    assert len(options) == 1
+    if benchmark_option is False:
+        assert options[0]["cudnn_benchmark"] is False
+    else:
+        assert "cudnn_benchmark" not in options[0]
+    recorded = _records(output)["run"]["training"]
+    if benchmark_option == "missing":
+        assert "cudnn_benchmark" not in recorded
+    else:
+        assert recorded["cudnn_benchmark"] is benchmark_option
+    checkpoint = load_relational_trace_graph_checkpoint(output / "artifacts/final.pt")
+    assert "cudnn_benchmark" not in checkpoint.model.constructor_config()
+
+
+@pytest.mark.parametrize("loss", ["masked_mse", "masked_trace_relative_mse"])
+def test_training_objective_keeps_frozen_validation_in_physical_units(loss, tmp_path):
+    data = prepare_trace_graph_run_artifacts(tmp_path / "data")
+    config = trace_graph_training_config()
+    config["model"]["amplitude_mode"] = "observed_trace_rms"
+    config["graph"]["common_distance_scales_m"] = [2000.0, 5000.0]
+    config["training"].update(loss=loss, max_steps=6, validation_interval=3)
+    config_path = write_trace_graph_config(tmp_path / "training.yaml", config)
+    output = tmp_path / "training"
+    trained = _train(data, config_path, output)
+
+    history = trained["training_history"]
+    samples = sum(row["sample_count"] for row in history)
+    error = sum(row["normalized_error_energy"] for row in history)
+    assert history[-1]["train_loss"] == pytest.approx(error / samples)
+    if loss == "masked_trace_relative_mse":
+        objective = sum(row["batch_objective_loss"] * row["sample_count"] for row in history)
+        assert history[-1]["objective_loss"] == pytest.approx(objective / samples)
+        assert history[-1]["objective_loss"] != pytest.approx(history[-1]["train_loss"])
+    else:
+        assert all(
+            "objective_loss" not in row and "batch_objective_loss" not in row for row in history
+        )
+    records = _records(output)
+    assert records["metrics"]["training_history"] == history
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text())
+    assert resolved["training"]["loss"] == loss
+
+    checkpoint_path = output / "artifacts/final.pt"
+    checkpoint = load_relational_trace_graph_checkpoint(checkpoint_path, device="cpu")
+    assert checkpoint.model.constructor_config()["amplitude_mode"] == "observed_trace_rms"
+    assert "loss" not in checkpoint.model.constructor_config()
+    frozen_config = trace_graph_prediction_config()
+    frozen_config["benchmark_case"]["id"] = "validation"
+    frozen_config["prediction"]["query_batch_size"] = config["evaluation"]["query_batch_size"]
+    prediction_config = write_trace_graph_config(tmp_path / "prediction.yaml", frozen_config)
+    predicted = interpolate_relational_trace_graph_run(
+        config_path=prediction_config,
+        checkpoint_path=checkpoint_path,
+        interim_dir=data.interim,
+        processed_dir=data.processed,
+        mask_dir=data.masks["validation"],
+        case_dir=data.cases["validation"],
+        output_dir=tmp_path / "prediction",
+        device_override="cpu",
+    )["evaluation_target"]
+    expected = trained["final_validation_metrics"]["evaluation_target"]
+    assert predicted["trace_count"] == expected["trace_count"]
+    assert predicted["sample_count"] == expected["sample_count"]
+    for name in ("reference_energy", "error_energy", "rmse", "snr_db"):
+        assert predicted[name] == pytest.approx(expected[name], rel=1e-6, abs=1e-8)
 
 
 def test_training_physical_bound_blocks_before_model_or_run_creation(tmp_path, monkeypatch):

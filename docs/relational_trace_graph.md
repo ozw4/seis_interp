@@ -103,6 +103,31 @@ dilations=(1,2)、attention width=32、relation embedding dim=8。
 右側をfactorの倍数へzero-padし、復元後に元Tへcropする。width=8かつT=1にも対応するため、
 codec境界では最低2サンプルまでpadする。paddingは返す波形に含めない。
 
+`model.amplitude_mode`の既定は`train_global_rms`で、固定global RMSによる既存の入力・出力単位を保つ。
+任意の`observed_trace_rms`は、モデル内で可視波形の選択時間範囲ごとのtrace RMSを求め、
+非ゼロの各traceをunit RMSにしてencoderへ渡す。正当なゼロtraceは波形・RMSとも0のまま扱う。
+queryの倍率は、直接incoming edgesにあるuniqueな観測senderのRMSを
+`1 / max(D0, 1e-6)²`の正規化重みで平均する。同じpairのrelation重複は一度だけ数え、
+2-hop supportへのedgeや他query専用の近傍は混ぜない。
+
+このmodeは`graph.common_distance_scales_m: [midpoint_scale_m, offset_vector_scale_m]`を必須とし、
+`D0 = sqrt(||dm||² / midpoint_scale_m² + ||do||² / offset_vector_scale_m²)`を用いる。
+倍率はdecoder出力へ一度だけ掛ける。入力RMSと倍率は固定global RMSで割った単位なので、
+予測関数が最後にglobal RMSを掛けると物理振幅へ戻る。この倍率には訓練・予測ともqueryの教師RMSを使わない。
+既定lossは固定global RMSで正規化した物理波形のMSEであり、下記の相対MSEは損失の重みだけを変更する。
+
+`model.max_edge_time_shift_samples`の既定は0で、非ゼロの整数はrelational model内で
+学習するedgeごとの時間ずれの最大値をraw sample単位で指定する。sender−destinationの
+source/receiver差4成分（既存の位置尺度で正規化）と、全round・relationで共有する
+ゼロ初期化の4係数から `lag = (max / factor) × tanh(delta @ weights)` を求める。
+外部推定係数やquery教師をforwardへ渡さず、選択した訓練lossの勾配で係数を学習する。
+
+各edgeのvalue系列を `value[f + lag]` で線形補間し、既存attentionとgammaで集約する。
+正lagは早い出力時刻への移動、範囲外はゼロで、末尾から先頭へのwrapは行わない。
+小数lagの線形補間は高周波を減衰させ、半frameでは振幅応答が`abs(cos(omega/2))`になる。
+振幅を保存する厳密なdelayとは異なる。`observed_trace_rms`と併用でき、
+非ゼロ設定だけが4係数とconstructor設定をcheckpointへ追加する。
+
 `relation_fusion="mean"`は利用可能なrelationだけの等重み、`"learned_gate"`は潜在特徴・relation message・
 embedding・coverageによる学習重みである。gate最終層はzero initなので等重みから始まる。
 空relationの重みは0、全relation空のqueryは予測0・context=Falseを返す。
@@ -164,9 +189,25 @@ builderとreaderはepisodeの切り替え時に作り直し、mask生成やquery
 
 `training/relational_trace_graph_trainer.py`の`train_relational_trace_graph()`は、初期化済みモデル、
 train/validation domain、固定前処理、`TraceGraphSettings`、episode/optimizer設定を受け取る。
-AdamWでhidden queryのMSEを最適化し、paddingを分母へ入れない。
+AdamWでhidden queryの選択したlossを最適化し、paddingを分母へ入れない。
 historyはerror energyとsample数から集計し、最後の小batchとcontextなしqueryも含める。
 graphのroundsは常にモデルから導出する。
+
+`training.cudnn_benchmark`は任意のboolで、既定は`true`。
+`false`を指定した場合だけ、モデル初期化のseed設定後にcuDNNのbenchmark探索を無効にし、
+trainerと訓練preflightへ同じ設定を渡す。省略時と`true`指定時は従来の設定・RNGを保ち、
+既定keyをtrainer引数やcheckpointへ追加しない。native runの`resources.cudnn_benchmark`は
+実際に有効な値を記録する。アルゴリズム選択に伴う速度・一時メモリ・丸め差は実測で確認する。
+
+`training.loss`の既定は`masked_mse`で、global正規化単位のMSEを使う。
+任意の`masked_trace_relative_mse`は、各訓練教師traceのRMSを`r_q`として
+`mean(((prediction_q - teacher_q) / r_q) ** 2)`を最適化する。
+RMSはfloat64で計算してdetachし、lossの重み付けだけに使う。モデル入力や予測倍率には渡さず、
+validation/testから重みをfitしない。ゼロRMSだけはglobal正規化単位の除数1を使い、
+小さい正のRMSにfloorやクリッピングを加えない。したがって小振幅traceの逆重みは大きくなり得る。
+このmodeだけhistoryに`batch_objective_loss`とsample数で加重した`objective_loss`を追加する。
+既存の`batch_loss`・`train_loss`・`normalized_error_energy`は物理換算可能なglobal正規化MSEのままで、
+preflightも同じlossを使い、目的関数とそのMSEを分けて記録する。
 
 validationは固定caseの観測だけで予測を完了してから物理振幅のtarget SSEを採点する。
 SSE最小のstepをbestとし、同値では早いstepを保持する。最終stepでもvalidationを行う。
@@ -182,7 +223,8 @@ trainerはtest domainを受け入れない。
 constructor configとstate dictを別々に受け取り、best状態を後続の更新から独立したCPU snapshotとして保存する。
 graph尺度/k/radius、relation・node/edge特徴の順序、固定前処理とfit domain、time_s/T/factor、
 人工mask設定、訓練provenance・seed、`best_validation`または`final`のrole、stepと選択指標も保存する。
-非既定の`neighbor_search`も構成値に保存する。既定値は新しい構成keyを追加せず、従来のcheckpointを復元する。
+非既定の`amplitude_mode`と`neighbor_search`も構成値に保存し、復元時にD0尺度との組合せを検証する。
+既定値は新しい構成keyを追加せず、従来のcheckpointは既定modeとして復元する。
 module objectやoptimizer/resume状態は保存しない。
 保存は同じdirectoryの一時ファイルへ完了してから置き換え、途中の書き込み失敗で直前のcheckpointを失わない。
 `load_relational_trace_graph_checkpoint()`は保存構成からモデルを再構築し、stateをstrict loadする。

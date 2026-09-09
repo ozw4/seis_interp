@@ -110,6 +110,13 @@ class TraceGraphSettings:
     def validate_model_config(self, model_config: Mapping[str, object]) -> None:
         """Reject combinations that would silently ignore an ablation setting."""
         variant = model_config.get("method_variant", "relational")
+        if model_config.get("max_edge_time_shift_samples", 0) and variant != "relational":
+            raise ValueError("max_edge_time_shift_samples requires the relational model")
+        if (
+            model_config.get("amplitude_mode", "train_global_rms") == "observed_trace_rms"
+            and self.common_distance_scales_m is None
+        ):
+            raise ValueError("observed_trace_rms requires common_distance_scales_m for D0")
         if self.topology == "single_4d" and variant != "untyped_edge_conditioned":
             raise ValueError("single_4d requires the untyped_edge_conditioned model")
         if variant == "untyped_edge_conditioned" and self.common_distance_scales_m is None:

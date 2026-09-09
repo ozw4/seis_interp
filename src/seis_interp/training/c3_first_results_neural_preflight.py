@@ -27,6 +27,10 @@ from seis_interp.training.trace_graph_episodes import (
     TraceGraphEpisodeLabelReader,
     read_trace_graph_training_labels,
 )
+from seis_interp.training.trace_graph_losses import (
+    TRACE_GRAPH_TRAINING_LOSSES,
+    trace_graph_training_errors_and_loss,
+)
 
 
 def measure_c3_first_results_graph_training_batch(
@@ -47,6 +51,12 @@ def measure_c3_first_results_graph_training_batch(
     if domain.pool != "all_train_traces":
         raise ValueError("pilot GNN preflight requires all_train_traces")
     options = training_options
+    loss_name = options.get("loss", "masked_mse")
+    if not isinstance(loss_name, str) or loss_name not in TRACE_GRAPH_TRAINING_LOSSES:
+        raise ValueError(f"loss must be one of {TRACE_GRAPH_TRAINING_LOSSES}")
+    cudnn_benchmark = options.get("cudnn_benchmark", True)
+    if not isinstance(cudnn_benchmark, bool):
+        raise ValueError("cudnn_benchmark must be a boolean")
     episode = TraceGraphEpisodeGenerator(
         domain,
         random_seed=options["random_seed"],
@@ -59,6 +69,8 @@ def measure_c3_first_results_graph_training_batch(
     devices = list(range(torch.cuda.device_count())) if device.type == "cuda" else []
     with torch.random.fork_rng(devices=devices):
         torch.manual_seed(options["random_seed"])
+        if not cudnn_benchmark:
+            torch.backends.cudnn.benchmark = False
         model = RelationalTraceGraphInterpolator(**model_config).float().to(device)
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -115,7 +127,7 @@ def measure_c3_first_results_graph_training_batch(
         prediction, context = model(inputs)
         if prediction.shape != labels.shape:
             raise ValueError("preflight predictions must match hidden training labels")
-        loss = (prediction - labels).square().mean()
+        errors, loss = trace_graph_training_errors_and_loss(prediction, labels, loss=loss_name)
         if not torch.isfinite(loss):
             raise RuntimeError("preflight training loss is nonfinite")
         synchronize_preflight_device(device)
@@ -157,6 +169,13 @@ def measure_c3_first_results_graph_training_batch(
             "resources": trace_graph_resource_measurements(device),
             "state_reused_by_pilot": False,
         }
+        if loss_name != "masked_mse":
+            report.update(
+                loss=loss_name,
+                normalized_training_loss=float(errors.detach().mean().cpu()),
+                batch_objective_loss=float(loss.detach().cpu()),
+                objective_loss=float(loss.detach().cpu()),
+            )
     return report
 
 

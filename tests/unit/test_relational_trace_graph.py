@@ -12,6 +12,10 @@ import torch
 from seis_interp.data.masked_trace_inputs import MaskedTraceGraphInputs
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
 from seis_interp.models.trace_codec import TraceNodeDecoder, TraceNodeEncoder
+from seis_interp.models.trace_graph_amplitude import (
+    interpolate_query_trace_rms,
+    normalize_observed_trace_rms,
+)
 from seis_interp.processing.trace_graph_geometry import (
     build_trace_graph_edge_features,
     build_trace_graph_node_features,
@@ -49,7 +53,7 @@ def _geometry(x):
     return compute_trace_graph_geometry(source, source - [10.0, 2.0], azimuth_min_offset_m=0.01)
 
 
-def _plan(query_x=(0.0, 2.2), query_ids=(100, 101), *, rounds=2):
+def _plan(query_x=(0.0, 2.2), query_ids=(100, 101), *, rounds=2, common_distance_scales_m=None):
     return build_trace_graph_subgraph(
         _geometry(query_x),
         np.array(query_ids, dtype=np.int64),
@@ -59,6 +63,7 @@ def _plan(query_x=(0.0, 2.2), query_ids=(100, 101), *, rounds=2):
         rounds=rounds,
         relation_scales_m=np.array([[1.4, 1.4], [1.4, 1.4], [1.0, 1.0], [1.0, 1.0]]),
         neighbors_per_relation=2,
+        common_distance_scales_m=common_distance_scales_m,
     )
 
 
@@ -92,6 +97,11 @@ def _inputs(plan: TraceGraphPlan, *, time=9) -> MaskedTraceGraphInputs:
         query_indices=torch.from_numpy(plan.query_indices),
         coverage=torch.from_numpy(plan.coverage),
         dependency_rounds=plan.dependency_rounds,
+        common_edge_distances=(
+            None
+            if plan.common_edge_distances is None
+            else torch.from_numpy(plan.common_edge_distances).to(waveforms.dtype)
+        ),
     )
 
 
@@ -136,18 +146,29 @@ def test_two_round_closure_matches_full_graph_with_excluded_boundary_edges(fusio
 
 
 @pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
-def test_query_order_split_addition_and_node_order_preserve_predictions(fusion) -> None:
-    model = _model(fusion)
+@pytest.mark.parametrize("amplitude_mode", ["train_global_rms", "observed_trace_rms"])
+@pytest.mark.parametrize("max_shift", [0, 4])
+def test_query_order_split_addition_and_node_order_preserve_predictions(
+    fusion, amplitude_mode, max_shift
+) -> None:
+    model = _model(fusion, amplitude_mode=amplitude_mode, max_edge_time_shift_samples=max_shift)
+    if max_shift:
+        with torch.no_grad():
+            model.edge_time_shift_weights.copy_(torch.tensor([0.25, -0.5, 0.4, 0.1]))
     if fusion == "learned_gate":
         with torch.no_grad():
             for block in model.rounds:
                 block.relation_gate[-1].weight.normal_(std=0.4)
-    joint = _inputs(_plan())
+    common = {"common_distance_scales_m": (1.4, 1.0)}
+    joint = _inputs(_plan(**common))
     prediction, _ = model(joint)
     separate = torch.cat(
-        [model(_inputs(_plan((x,), (trace_id,))))[0] for x, trace_id in [(0.0, 100), (2.2, 101)]]
+        [
+            model(_inputs(_plan((x,), (trace_id,), **common)))[0]
+            for x, trace_id in [(0.0, 100), (2.2, 101)]
+        ]
     )
-    reversed_prediction, _ = model(_inputs(_plan((2.2, 0.0), (101, 100))))
+    reversed_prediction, _ = model(_inputs(_plan((2.2, 0.0), (101, 100), **common)))
     order = torch.arange(len(joint.waveforms) - 1, -1, -1)
     inverse = torch.argsort(order)
     permuted = replace(
@@ -353,8 +374,12 @@ def test_rejects_dilation_count_mismatch() -> None:
         _model(message_passing_rounds=3)
 
 
-def test_forward_rejects_nonzero_hidden_waveforms_and_hidden_senders() -> None:
-    model = _model()
+@pytest.mark.parametrize("amplitude_mode", ["train_global_rms", "observed_trace_rms"])
+@pytest.mark.parametrize("max_shift", [0, 4])
+def test_forward_rejects_nonzero_hidden_waveforms_and_hidden_senders(
+    amplitude_mode, max_shift
+) -> None:
+    model = _model(amplitude_mode=amplitude_mode, max_edge_time_shift_samples=max_shift)
     inputs = _inputs(_plan())
     corrupted = inputs.waveforms.clone()
     corrupted[inputs.query_indices] = 1
@@ -364,3 +389,276 @@ def test_forward_rejects_nonzero_hidden_waveforms_and_hidden_senders() -> None:
     edges[0, 0] = inputs.query_indices[-1]
     with pytest.raises(ValueError, match="sender"):
         model(replace(inputs, edge_index=edges))
+
+
+def test_default_amplitude_mode_preserves_constructor_weights_rng_and_outputs() -> None:
+    implicit = _model("learned_gate")
+    default_rng = torch.random.get_rng_state().clone()
+    explicit = _model("learned_gate", amplitude_mode="train_global_rms")
+    assert torch.equal(torch.random.get_rng_state(), default_rng)
+    factored = _model("learned_gate", amplitude_mode="observed_trace_rms")
+    assert torch.equal(torch.random.get_rng_state(), default_rng)
+    assert "amplitude_mode" not in implicit.constructor_config()
+    assert explicit.constructor_config() == implicit.constructor_config()
+    assert factored.constructor_config() == {
+        **implicit.constructor_config(),
+        "amplitude_mode": "observed_trace_rms",
+    }
+    for key, value in implicit.state_dict().items():
+        assert torch.equal(value, explicit.state_dict()[key])
+        assert torch.equal(value, factored.state_dict()[key])
+    inputs = _inputs(_plan())
+    default_output, default_context = implicit(inputs)
+    explicit_output, explicit_context = explicit(inputs)
+    assert torch.equal(default_output, explicit_output)
+    assert torch.equal(default_context, explicit_context)
+    assert torch.equal(torch.random.get_rng_state(), default_rng)
+
+
+def test_default_amplitude_mode_does_not_call_amplitude_helpers(monkeypatch) -> None:
+    def unexpected(*args, **kwargs):
+        pytest.fail("default path must not apply amplitude factorization")
+
+    monkeypatch.setattr(
+        "seis_interp.models.relational_trace_graph.normalize_observed_trace_rms", unexpected
+    )
+    monkeypatch.setattr(
+        "seis_interp.models.relational_trace_graph.interpolate_query_trace_rms", unexpected
+    )
+    _model()(_inputs(_plan()))
+
+
+@pytest.mark.parametrize("mode", [None, True, 1, "observed_trace_rms ", "oracle", ""])
+def test_invalid_amplitude_mode_rejected_before_rng_consumption(mode) -> None:
+    rng = torch.random.get_rng_state().clone()
+    with pytest.raises(ValueError, match="amplitude_mode"):
+        RelationalTraceGraphInterpolator(amplitude_mode=mode)
+    assert torch.equal(torch.random.get_rng_state(), rng)
+
+
+def test_observed_trace_rms_requires_common_geometry_distances() -> None:
+    with pytest.raises(ValueError, match="observed_trace_rms requires common_edge_distances"):
+        _model(amplitude_mode="observed_trace_rms")(_inputs(_plan()))
+
+
+@pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
+@pytest.mark.parametrize("factor", [0.1, 0.3, 1.0, 3.0, 10.0])
+@pytest.mark.parametrize("max_shift", [0, 4])
+def test_observed_trace_mode_prediction_is_positive_gain_homogeneous(
+    fusion, factor, max_shift
+) -> None:
+    model = _model(
+        fusion, amplitude_mode="observed_trace_rms", max_edge_time_shift_samples=max_shift
+    )
+    if max_shift:
+        with torch.no_grad():
+            model.edge_time_shift_weights.copy_(torch.tensor([0.25, -0.5, 0.4, 0.1]))
+    inputs = _inputs(_plan(common_distance_scales_m=(1.4, 1.0)))
+    prediction, context = model(inputs)
+    scaled, scaled_context = model(replace(inputs, waveforms=inputs.waveforms * factor))
+    assert prediction.abs().max() > 1e-4
+    torch.testing.assert_close(scaled, prediction * factor, rtol=2e-5, atol=1e-6)
+    assert torch.equal(context, scaled_context)
+
+
+def test_observed_trace_mode_applies_query_gain_once_after_decoder() -> None:
+    model = _model(amplitude_mode="observed_trace_rms")
+    inputs = _inputs(_plan(common_distance_scales_m=(1.4, 1.0)))
+    captured = {}
+
+    def capture_encoder(module, arguments):
+        captured["encoder"] = arguments[0].detach().clone()
+
+    def capture_decoder(module, arguments, output):
+        captured["decoder"] = output.detach().clone()
+
+    encoder_hook = model.encoder.register_forward_pre_hook(capture_encoder)
+    decoder_hook = model.decoder.register_forward_hook(capture_decoder)
+    prediction, _ = model(inputs)
+    encoder_hook.remove()
+    decoder_hook.remove()
+    unit, rms = normalize_observed_trace_rms(inputs.waveforms, inputs.observed_mask)
+    gain = interpolate_query_trace_rms(
+        rms, inputs.edge_index, inputs.query_indices, inputs.common_edge_distances
+    )
+    assert torch.equal(captured["encoder"][:, 0, :9], unit)
+    assert torch.equal(prediction, captured["decoder"][:, :9] * gain[:, None])
+
+
+@pytest.mark.parametrize("zero_observed", [False, True])
+@pytest.mark.parametrize("max_shift", [0, 4])
+def test_observed_trace_mode_zero_context_and_zero_waveforms_remain_zero(
+    zero_observed, max_shift
+) -> None:
+    model = _model(amplitude_mode="observed_trace_rms", max_edge_time_shift_samples=max_shift)
+    if max_shift:
+        with torch.no_grad():
+            model.edge_time_shift_weights.fill_(0.5)
+    inputs = _inputs(_plan((0.0, 100.0), (100, 101), common_distance_scales_m=(1.4, 1.0)))
+    if zero_observed:
+        inputs = replace(inputs, waveforms=torch.zeros_like(inputs.waveforms))
+    prediction, context = model(inputs)
+    assert torch.equal(context, torch.tensor([True, False]))
+    assert torch.equal(prediction[1], torch.zeros(9))
+    if zero_observed:
+        assert torch.equal(prediction, torch.zeros_like(prediction))
+        prediction.sum().backward()
+        assert all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
+    else:
+        assert prediction[0].abs().max() > 1e-4
+    empty = replace(inputs, query_indices=torch.empty(0, dtype=torch.int64))
+    output, context = model(empty)
+    assert output.shape == (0, 9) and context.shape == (0,)
+
+
+def test_observed_trace_mode_has_waveform_and_model_gradients_and_roundtrips() -> None:
+    model = _model("learned_gate", amplitude_mode="observed_trace_rms")
+    inputs = _inputs(_plan(common_distance_scales_m=(1.4, 1.0)))
+    waveforms = inputs.waveforms.clone().requires_grad_()
+    prediction, _ = model(replace(inputs, waveforms=waveforms))
+    prediction.square().mean().backward()
+    assert torch.isfinite(waveforms.grad).all()
+    assert waveforms.grad[inputs.observed_mask].abs().sum() > 0
+    assert torch.equal(waveforms.grad[~inputs.observed_mask], torch.zeros_like(prediction))
+    for parameter in (model.encoder.stem.weight, model.decoder.head[-1].weight):
+        assert torch.isfinite(parameter.grad).all() and parameter.grad.abs().sum() > 0
+    restored = RelationalTraceGraphInterpolator(
+        **json.loads(json.dumps(model.constructor_config()))
+    )
+    restored.load_state_dict(model.state_dict())
+    assert torch.equal(restored(inputs)[0], prediction)
+
+
+@pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
+@pytest.mark.parametrize("amplitude_mode", ["train_global_rms", "observed_trace_rms"])
+def test_zero_initial_edge_lag_preserves_base_weights_rng_outputs_and_gradients(
+    fusion, amplitude_mode
+) -> None:
+    base = _model(fusion, amplitude_mode=amplitude_mode)
+    rng = torch.random.get_rng_state().clone()
+    explicit_zero = _model(fusion, amplitude_mode=amplitude_mode, max_edge_time_shift_samples=0)
+    assert torch.equal(torch.random.get_rng_state(), rng)
+    shifted = _model(fusion, amplitude_mode=amplitude_mode, max_edge_time_shift_samples=4)
+    assert torch.equal(torch.random.get_rng_state(), rng)
+    assert explicit_zero.constructor_config() == base.constructor_config()
+    assert "max_edge_time_shift_samples" not in base.constructor_config()
+    assert not hasattr(base, "edge_time_shift_weights")
+    assert shifted.constructor_config() == {
+        **base.constructor_config(),
+        "max_edge_time_shift_samples": 4,
+    }
+    assert set(shifted.state_dict()) == set(base.state_dict()) | {"edge_time_shift_weights"}
+    assert torch.equal(shifted.edge_time_shift_weights, torch.zeros(4))
+    for name, value in base.state_dict().items():
+        assert torch.equal(value, explicit_zero.state_dict()[name])
+        assert torch.equal(value, shifted.state_dict()[name])
+
+    inputs = _inputs(_plan(common_distance_scales_m=(1.4, 1.0)))
+    base_waveforms = inputs.waveforms.clone().requires_grad_()
+    shift_waveforms = inputs.waveforms.clone().requires_grad_()
+    base_diagnostics, shift_diagnostics = {}, {}
+    prediction, context = base(
+        replace(inputs, waveforms=base_waveforms), diagnostics=base_diagnostics
+    )
+    shifted_prediction, shifted_context = shifted(
+        replace(inputs, waveforms=shift_waveforms), diagnostics=shift_diagnostics
+    )
+    assert torch.equal(prediction, explicit_zero(inputs)[0])
+    assert torch.equal(prediction, shifted_prediction)
+    assert torch.equal(context, shifted_context)
+    assert all(
+        torch.equal(value, shift_diagnostics[name]) for name, value in base_diagnostics.items()
+    )
+    prediction.square().sum().backward()
+    shifted_prediction.square().sum().backward()
+    assert torch.equal(base_waveforms.grad, shift_waveforms.grad)
+    shifted_parameters = dict(shifted.named_parameters())
+    for name, parameter in base.named_parameters():
+        assert torch.equal(parameter.grad, shifted_parameters[name].grad), name
+    assert torch.isfinite(shifted.edge_time_shift_weights.grad).all()
+    assert shifted.edge_time_shift_weights.grad.abs().sum() > 0
+    assert torch.equal(torch.random.get_rng_state(), rng)
+
+
+@pytest.mark.parametrize("factor", [1, 2, 3])
+def test_edge_lag_geometry_formula_is_shared_across_relations_and_rounds(factor) -> None:
+    model = _model(max_edge_time_shift_samples=6, time_downsample_factor=factor)
+    with torch.no_grad():
+        model.edge_time_shift_weights.copy_(torch.tensor([0.25, -0.5, 0.4, 0.1]))
+    inputs = _inputs(_plan())
+    captured = []
+
+    def capture(module, arguments, keywords):
+        captured.append(keywords["edge_time_shifts"])
+
+    handles = [block.register_forward_pre_hook(capture, with_kwargs=True) for block in model.rounds]
+    prediction, _ = model(inputs)
+    for handle in handles:
+        handle.remove()
+    expected = (6 / factor) * (inputs.edge_features[:, :4] @ model.edge_time_shift_weights).tanh()
+    assert len(captured) == 2 and captured[0] is captured[1]
+    assert torch.equal(captured[0], expected)
+    assert (captured[0].abs() <= 6 / factor).all()
+    # Repeated geometric edges in different relation channels use the same lag.
+    pairs = inputs.edge_index.T
+    duplicate_pair_found = False
+    for first in range(len(pairs)):
+        for second in range(first):
+            if torch.equal(pairs[first], pairs[second]):
+                duplicate_pair_found = True
+                assert captured[0][first] == captured[0][second]
+    assert duplicate_pair_found
+    prediction.square().sum().backward()
+    assert torch.isfinite(model.edge_time_shift_weights.grad).all()
+    assert model.edge_time_shift_weights.grad.abs().sum() > 0
+    restored = RelationalTraceGraphInterpolator(
+        **json.loads(json.dumps(model.constructor_config()))
+    )
+    restored.load_state_dict(model.state_dict())
+    assert torch.equal(restored(inputs)[0], prediction)
+    with torch.no_grad():
+        restored.edge_time_shift_weights.zero_()
+    assert (restored(inputs)[0] - prediction).abs().max() > 1e-5
+
+
+@pytest.mark.parametrize("amplitude_mode", ["train_global_rms", "observed_trace_rms"])
+def test_positive_edge_lag_handles_empty_edges_and_empty_query_selection(amplitude_mode) -> None:
+    model = _model("learned_gate", amplitude_mode=amplitude_mode, max_edge_time_shift_samples=4)
+    with torch.no_grad():
+        model.edge_time_shift_weights.fill_(0.5)
+    inputs = _inputs(_plan((100.0,), (100,), common_distance_scales_m=(1.4, 1.0)), time=1)
+    assert inputs.edge_index.shape == (2, 0)
+    prediction, context = model(inputs)
+    assert torch.equal(prediction, torch.zeros(1, 1))
+    assert torch.equal(context, torch.tensor([False]))
+    empty = replace(inputs, query_indices=torch.empty(0, dtype=torch.int64))
+    output, context = model(empty)
+    assert output.shape == (0, 1) and context.shape == (0,)
+
+
+def test_disabled_edge_lag_does_not_call_shift_operator(monkeypatch) -> None:
+    def unexpected(*args, **kwargs):
+        pytest.fail("disabled edge lag must preserve the original message path")
+
+    monkeypatch.setattr(
+        "seis_interp.models.relational_trace_graph.shift_trace_graph_values", unexpected
+    )
+    _model()(_inputs(_plan()))
+
+
+@pytest.mark.parametrize("limit", [None, True, False, -1, 1.0, "4", float("nan")])
+def test_invalid_edge_lag_limit_is_rejected_before_rng_consumption(limit) -> None:
+    rng = torch.random.get_rng_state().clone()
+    with pytest.raises(ValueError, match="max_edge_time_shift_samples"):
+        RelationalTraceGraphInterpolator(max_edge_time_shift_samples=limit)
+    assert torch.equal(torch.random.get_rng_state(), rng)
+
+
+@pytest.mark.parametrize("variant", ["plain_gcn_row_normalized", "untyped_edge_conditioned"])
+def test_positive_edge_lag_rejects_comparison_variants_before_rng_consumption(variant) -> None:
+    rng = torch.random.get_rng_state().clone()
+    with pytest.raises(ValueError, match="method_variant=relational"):
+        RelationalTraceGraphInterpolator(method_variant=variant, max_edge_time_shift_samples=4)
+    assert torch.equal(torch.random.get_rng_state(), rng)
+    model = RelationalTraceGraphInterpolator(method_variant=variant, max_edge_time_shift_samples=0)
+    assert "max_edge_time_shift_samples" not in model.constructor_config()

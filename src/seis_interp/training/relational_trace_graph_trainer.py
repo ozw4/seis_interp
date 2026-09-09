@@ -33,6 +33,10 @@ from seis_interp.training.trace_graph_episodes import (
     TraceGraphEpisodeLabelReader,
     read_trace_graph_training_labels,
 )
+from seis_interp.training.trace_graph_losses import (
+    TRACE_GRAPH_TRAINING_LOSSES,
+    trace_graph_training_errors_and_loss,
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,8 @@ def train_relational_trace_graph(
     reporter: Callable[[str], None] | None = None,
     on_best_update: Callable[[dict[str, torch.Tensor], int, dict[str, object]], None] | None = None,
     diagnostic_bands: TraceGraphDiagnosticBands | None = None,
+    loss: str = "masked_mse",
+    cudnn_benchmark: bool = True,
 ) -> RelationalTraceGraphTrainingResult:
     """Train an already initialized model, selecting by target-only physical SSE.
 
@@ -103,6 +109,10 @@ def train_relational_trace_graph(
     if not isinstance(model, RelationalTraceGraphInterpolator):
         raise TypeError("model must be a RelationalTraceGraphInterpolator")
     graph_settings.validate_model_config(model.constructor_config())
+    if not isinstance(loss, str) or loss not in TRACE_GRAPH_TRAINING_LOSSES:
+        raise ValueError(f"loss must be one of {TRACE_GRAPH_TRAINING_LOSSES}")
+    if not isinstance(cudnn_benchmark, bool):
+        raise ValueError("cudnn_benchmark must be a boolean")
     steps = _positive_integer(max_steps, "max_steps")
     batch_size = _positive_integer(query_batch_size, "query_batch_size")
     interval = _positive_integer(validation_interval, "validation_interval")
@@ -134,6 +144,8 @@ def train_relational_trace_graph(
         missing_fractions=missing_fractions,
     )
     device_value = torch.device(device)
+    if not cudnn_benchmark:
+        torch.backends.cudnn.benchmark = False
     source = MaskedTraceSource(
         training_domain, preprocessing, training_amplitudes, device=device_value
     )
@@ -152,6 +164,7 @@ def train_relational_trace_graph(
     best_state = None
     best_step = 0
     total_error = 0.0
+    total_objective = 0.0
     total_samples = total_queries = no_context_queries = step = 0
 
     while step < steps:
@@ -228,11 +241,10 @@ def train_relational_trace_graph(
             forward_seconds = perf_counter() - forward_started
             if prediction.shape != labels.shape:
                 raise ValueError("training prediction must match unpadded query labels [Q, T]")
-            errors = (prediction - labels).square()
-            loss = errors.mean()
-            if not torch.isfinite(loss):
+            errors, objective = trace_graph_training_errors_and_loss(prediction, labels, loss=loss)
+            if not torch.isfinite(objective):
                 raise RuntimeError(f"non-finite training loss at step {step + 1}")
-            loss.backward()
+            objective.backward()
             if clip is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), clip, error_if_nonfinite=True)
             optimizer.step()
@@ -256,6 +268,13 @@ def train_relational_trace_graph(
                     "no_context_query_count": batch_no_context,
                 }
             )
+            if loss != "masked_mse":
+                batch_objective = float(objective.detach().cpu())
+                total_objective += batch_objective * labels.numel()
+                training_history[-1].update(
+                    batch_objective_loss=batch_objective,
+                    objective_loss=total_objective / total_samples,
+                )
             if diagnostic_bands is not None:
                 scale = preprocessing.amplitude_scale
                 training_history[-1]["diagnostics"] = {
@@ -282,7 +301,7 @@ def train_relational_trace_graph(
             if reporter is not None:
                 reporter(
                     f"relational-trace-graph step {step}/{steps} episode {episode.episode_id}: "
-                    f"loss={float(loss.detach().cpu()):.8g} queries={len(query_ids)} "
+                    f"loss={float(objective.detach().cpu()):.8g} queries={len(query_ids)} "
                     f"no_context={batch_no_context}"
                 )
             if step % interval == 0 or step == steps:

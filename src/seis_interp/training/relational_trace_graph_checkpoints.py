@@ -35,7 +35,12 @@ _MODEL_FIELDS = {
     "relation_embedding_dim",
     "relation_fusion",
 }
-_MODEL_OPTIONS = {"method_variant", "explicit_azimuth_features"}
+_MODEL_OPTIONS = {
+    "method_variant",
+    "explicit_azimuth_features",
+    "amplitude_mode",
+    "max_edge_time_shift_samples",
+}
 
 
 @dataclass(frozen=True)
@@ -212,6 +217,12 @@ def _model_config(value: object) -> dict[str, object]:
         raise ValueError("checkpoint model_config must contain exactly all constructor fields")
     for name in _MODEL_FIELDS - {"temporal_dilations", "relation_fusion"}:
         _integer(config[name], f"model_config.{name}", minimum=1)
+    if "max_edge_time_shift_samples" in config:
+        _integer(
+            config["max_edge_time_shift_samples"],
+            "model_config.max_edge_time_shift_samples",
+            minimum=0,
+        )
     dilations = config["temporal_dilations"]
     if not isinstance(dilations, list) or len(dilations) != config["message_passing_rounds"]:
         raise ValueError("model_config.temporal_dilations must match message_passing_rounds")

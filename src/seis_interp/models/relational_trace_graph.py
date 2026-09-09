@@ -13,7 +13,13 @@ from seis_interp.data.masked_trace_inputs import (
     validate_masked_trace_graph_inputs,
 )
 from seis_interp.models.trace_codec import TraceNodeDecoder, TraceNodeEncoder
+from seis_interp.models.trace_graph_amplitude import (
+    TRACE_GRAPH_AMPLITUDE_MODES,
+    interpolate_query_trace_rms,
+    normalize_observed_trace_rms,
+)
 from seis_interp.models.trace_graph_comparison import TraceGraphComparisonBlock
+from seis_interp.models.trace_graph_time_shift import shift_trace_graph_values
 from seis_interp.processing.trace_graph_geometry import (
     EDGE_FEATURE_NAMES,
     NODE_FEATURE_NAMES,
@@ -92,6 +98,7 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         *,
         diagnostics: dict[str, torch.Tensor] | None = None,
         diagnostic_query_indices: torch.Tensor | None = None,
+        edge_time_shifts: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Update from sender/destination edges without modifying input states.
 
@@ -101,12 +108,16 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         Indices must be validated, unique int64 local query indices in a 1-D
         tensor on the latent device; the interpolator validates its inputs.
         Gate weights describe the model, not causal importance.
+        Optional ``edge_time_shifts[E]`` advance sender values in latent frames;
+        attention logits retain their existing time-pooled computation.
         """
         _validate_graph_tensors(latents, self.width, edge_index, edge_type, edge_features)
         if diagnostics is not None and diagnostic_query_indices is None:
             raise ValueError("diagnostic_query_indices are required for diagnostics")
         updated = latents + self.temporal_update(self.temporal(F.silu(self.temporal_norm(latents))))
-        messages, valid = self._relation_messages(updated, edge_index, edge_type, edge_features)
+        messages, valid = self._relation_messages(
+            updated, edge_index, edge_type, edge_features, edge_time_shifts=edge_time_shifts
+        )
         weights = self._relation_weights(updated, messages, valid, coverage)
         aggregate = (weights[:, :, None, None] * messages).sum(dim=1)
         if diagnostics is not None:
@@ -126,6 +137,8 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         edge_index: torch.Tensor,
         edge_type: torch.Tensor,
         edge_features: torch.Tensor,
+        *,
+        edge_time_shifts: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         node_count, channels, frames = latents.shape
         sender, destination = edge_index
@@ -141,6 +154,8 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         attention = _group_softmax(logits, group, group_count)
         gamma = 2 * torch.sigmoid(self.gamma(edge_context))
         values = self.value_projection(latents)[sender]
+        if edge_time_shifts is not None:
+            values = shift_trace_graph_values(values, edge_time_shifts)
         weighted = attention[:, None, None] * gamma[:, :, None] * values
         messages = latents.new_zeros(group_count, channels, frames)
         messages.index_add_(0, group, weighted)
@@ -188,6 +203,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
         relation_fusion: str = "mean",
         method_variant: str = "relational",
         explicit_azimuth_features: bool = True,
+        amplitude_mode: str = "train_global_rms",
+        max_edge_time_shift_samples: int = 0,
     ) -> None:
         super().__init__()
         if method_variant not in TRACE_GRAPH_METHOD_VARIANTS:
@@ -196,8 +213,20 @@ class RelationalTraceGraphInterpolator(nn.Module):
             raise ValueError("explicit_azimuth_features must be a boolean")
         if method_variant != "relational" and relation_fusion != "mean":
             raise ValueError("comparison models require relation_fusion=mean")
+        if amplitude_mode not in TRACE_GRAPH_AMPLITUDE_MODES:
+            raise ValueError(f"amplitude_mode must be one of {TRACE_GRAPH_AMPLITUDE_MODES}")
+        if (
+            isinstance(max_edge_time_shift_samples, bool)
+            or not isinstance(max_edge_time_shift_samples, Integral)
+            or max_edge_time_shift_samples < 0
+        ):
+            raise ValueError("max_edge_time_shift_samples must be a nonnegative integer")
+        if max_edge_time_shift_samples and method_variant != "relational":
+            raise ValueError("edge time shifts require method_variant=relational")
         self.method_variant = method_variant
         self.explicit_azimuth_features = explicit_azimuth_features
+        self.amplitude_mode = amplitude_mode
+        self.max_edge_time_shift_samples = int(max_edge_time_shift_samples)
         rounds = _positive_integer(message_passing_rounds, "message_passing_rounds")
         if len(temporal_dilations) != rounds:
             raise ValueError("temporal_dilations must match message_passing_rounds")
@@ -229,6 +258,10 @@ class RelationalTraceGraphInterpolator(nn.Module):
             for dilation in temporal_dilations
         )
         self.decoder = TraceNodeDecoder(width, time_downsample_factor=time_downsample_factor)
+        if self.max_edge_time_shift_samples:
+            # One bias-free geometry vector for all relations and all rounds.
+            # zeros consumes no RNG and does not change existing initialization.
+            self.edge_time_shift_weights = nn.Parameter(torch.zeros(4))
         self._config = {
             "width": int(width),
             "message_passing_rounds": rounds,
@@ -244,6 +277,10 @@ class RelationalTraceGraphInterpolator(nn.Module):
             self._config["method_variant"] = method_variant
         if not explicit_azimuth_features:
             self._config["explicit_azimuth_features"] = False
+        if amplitude_mode != "train_global_rms":
+            self._config["amplitude_mode"] = amplitude_mode
+        if self.max_edge_time_shift_samples:
+            self._config["max_edge_time_shift_samples"] = self.max_edge_time_shift_samples
 
     def constructor_config(self) -> dict[str, object]:
         """Return independent, JSON-compatible constructor values."""
@@ -272,6 +309,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
             and inputs.common_edge_distances is None
         ):
             raise ValueError("untyped_edge_conditioned requires common_edge_distances for D0")
+        if self.amplitude_mode == "observed_trace_rms" and inputs.common_edge_distances is None:
+            raise ValueError("observed_trace_rms requires common_edge_distances for D0")
         if inputs.dependency_rounds < self.message_passing_rounds:
             raise ValueError(
                 f"dependency_rounds ({inputs.dependency_rounds}) must be at least "
@@ -286,9 +325,23 @@ class RelationalTraceGraphInterpolator(nn.Module):
         # for width=8, factor=1, T=1. Its implementation remains unchanged.
         padded_time = ((max(time_count, 2) + factor - 1) // factor) * factor
         visible = waveforms.masked_fill(~inputs.observed_mask[:, None], 0)
+        if self.amplitude_mode == "observed_trace_rms":
+            visible, observed_rms = normalize_observed_trace_rms(visible, inputs.observed_mask)
+            query_rms = interpolate_query_trace_rms(
+                observed_rms,
+                inputs.edge_index,
+                inputs.query_indices,
+                inputs.common_edge_distances,
+            )
         padded = F.pad(visible[:, None], (0, padded_time - time_count))
         node_features, edge_features = self.input_features(inputs)
         latents = self.encoder(padded) + self.node_embedding(node_features)[:, :, None]
+        shift_arguments = {}
+        if self.max_edge_time_shift_samples:
+            # Features 0:4 are sender-minus-destination source/receiver deltas.
+            shift_arguments["edge_time_shifts"] = (self.max_edge_time_shift_samples / factor) * (
+                edge_features[:, :4] @ self.edge_time_shift_weights
+            ).tanh()
         round_summaries = []
         for block in self.rounds:
             summary = {} if diagnostics is not None else None
@@ -300,6 +353,7 @@ class RelationalTraceGraphInterpolator(nn.Module):
                 inputs.coverage,
                 diagnostics=summary,
                 diagnostic_query_indices=inputs.query_indices,
+                **shift_arguments,
             )
             if summary is not None:
                 round_summaries.append(summary)
@@ -311,6 +365,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
             if inputs.query_indices.numel()
             else waveforms.new_empty((0, time_count))
         )
+        if self.amplitude_mode == "observed_trace_rms":
+            predictions = predictions * query_rms[:, None]
         predictions = predictions.masked_fill(~has_context[:, None], 0)
         if diagnostics is not None:
             diagnostics.update(

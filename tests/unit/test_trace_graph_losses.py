@@ -10,6 +10,7 @@ from seis_interp.training.trace_graph_losses import (
     masked_mean_square,
     slope_consistency_loss,
     spectrum_loss,
+    trace_graph_training_errors_and_loss,
 )
 
 BATCH = 2
@@ -140,3 +141,97 @@ def test_rejects_empty_selection() -> None:
         masked_mean_square(target, target, empty)
     with pytest.raises(ValueError, match="at least one trace"):
         spectrum_loss(target, target, empty)
+
+
+def test_trace_training_default_preserves_exact_errors_objective_gradient_and_rng() -> None:
+    prediction = torch.tensor([[1.3, -0.4], [2.1, 0.1]], requires_grad=True)
+    target = torch.tensor([[0.4, -0.1], [1.0, 0.2]])
+    expected_errors = (prediction - target).square()
+    expected = expected_errors.mean()
+    expected.backward()
+    gradient = prediction.grad.clone()
+    prediction.grad = None
+    rng = torch.get_rng_state().clone()
+    errors, actual = trace_graph_training_errors_and_loss(prediction, target)
+    assert errors.dtype == actual.dtype == torch.float32
+    assert torch.equal(errors, expected_errors) and torch.equal(actual, expected)
+    actual.backward()
+    assert torch.equal(prediction.grad, gradient)
+    assert torch.equal(torch.get_rng_state(), rng)
+
+
+def test_relative_trace_loss_weights_teacher_rms_but_retains_physical_errors() -> None:
+    target = torch.tensor([[1.0, -1.0], [10.0, -10.0], [0.0, 0.0]])
+    prediction = torch.tensor([[0.5, -0.5], [5.0, -5.0], [2.0, -2.0]], requires_grad=True)
+    errors, objective = trace_graph_training_errors_and_loss(
+        prediction, target, loss="masked_trace_relative_mse"
+    )
+    expected_errors = (prediction.double() - target.double()).square()
+    assert torch.equal(errors, expected_errors)
+    assert objective.item() == pytest.approx((0.25 + 0.25 + 4) / 3)
+    assert errors.mean().item() == pytest.approx((0.25 + 25 + 4) / 3)
+    objective.backward()
+    assert torch.isfinite(prediction.grad).all()
+    assert torch.count_nonzero(prediction.grad) == prediction.numel()
+
+
+def test_relative_trace_weights_are_detached_from_teacher_gradient() -> None:
+    target = torch.tensor([[2.0, -2.0], [3.0, -3.0]], requires_grad=True)
+    prediction = torch.zeros_like(target, requires_grad=True)
+    _, objective = trace_graph_training_errors_and_loss(
+        prediction, target, loss="masked_trace_relative_mse"
+    )
+    objective.backward()
+    expected = 2 * target.detach() / torch.tensor([[4.0], [9.0]]) / target.numel()
+    torch.testing.assert_close(target.grad, expected)
+    torch.testing.assert_close(prediction.grad, -expected)
+
+
+@pytest.mark.parametrize("scale", [0.1, 3.0, 1e-30, 1e30])
+def test_relative_trace_objective_is_scale_invariant_for_nonzero_teachers(scale) -> None:
+    target = torch.tensor([[1.0, -2.0], [4.0, -3.0]])
+    prediction = target * 0.3
+    _, base = trace_graph_training_errors_and_loss(
+        prediction, target, loss="masked_trace_relative_mse"
+    )
+    scaled = (prediction * scale).requires_grad_()
+    errors, actual = trace_graph_training_errors_and_loss(
+        scaled, target * scale, loss="masked_trace_relative_mse"
+    )
+    assert torch.isfinite(errors).all() and torch.isfinite(actual)
+    torch.testing.assert_close(actual, base, rtol=1e-6, atol=1e-8)
+    actual.backward()
+    assert torch.isfinite(scaled.grad).all()
+
+
+def test_relative_trace_loss_handles_subnormal_float32_teacher_without_rms_underflow() -> None:
+    tiny = torch.nextafter(torch.tensor(0.0), torch.tensor(1.0))
+    target = torch.tensor([[tiny, -tiny]])
+    errors, objective = trace_graph_training_errors_and_loss(
+        torch.zeros_like(target), target, loss="masked_trace_relative_mse"
+    )
+    assert (errors > 0).all()
+    assert objective.item() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("loss", [None, True, 0, "relative", "masked_trace_relative_mse "])
+def test_trace_training_loss_rejects_unknown_modes_before_tensor_operations(loss) -> None:
+    with pytest.raises(ValueError, match="loss must be"):
+        trace_graph_training_errors_and_loss(None, None, loss=loss)
+
+
+@pytest.mark.parametrize(
+    "prediction,target,error,match",
+    [
+        (None, torch.zeros(1, 2), TypeError, "floating"),
+        (torch.zeros(1, 2), torch.zeros(1, 2, dtype=torch.int64), TypeError, "floating"),
+        (torch.zeros(2), torch.zeros(2), ValueError, "shape"),
+        (torch.zeros(0, 2), torch.zeros(0, 2), ValueError, "shape"),
+        (torch.zeros(1, 2), torch.zeros(2, 2), ValueError, "shape"),
+        (torch.tensor([[float("nan")]]), torch.ones(1, 1), ValueError, "finite"),
+        (torch.zeros(1, 1), torch.tensor([[float("inf")]]), ValueError, "finite"),
+    ],
+)
+def test_relative_trace_loss_validates_unpadded_query_tensors(prediction, target, error, match):
+    with pytest.raises(error, match=match):
+        trace_graph_training_errors_and_loss(prediction, target, loss="masked_trace_relative_mse")

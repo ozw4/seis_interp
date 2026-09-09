@@ -174,6 +174,11 @@ def test_mean_and_gate_use_identical_graph_and_feature_hashes_while_azimuth_remo
             {"method_variant": "plain_gcn_row_normalized"},
         ),
         ({}, {"method_variant": "untyped_edge_conditioned"}),
+        ({}, {"amplitude_mode": "observed_trace_rms"}),
+        (
+            {},
+            {"max_edge_time_shift_samples": 32, "method_variant": "plain_gcn_row_normalized"},
+        ),
     ],
 )
 def test_invalid_graph_model_combinations_are_rejected(settings, model):

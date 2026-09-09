@@ -22,6 +22,107 @@ def test_training_config_preserves_model_graph_and_separate_seed_contracts():
     assert graph.relation_scales_m == ((2000.0, 5000.0), (5000.0, 2000.0)) * 2
     assert training["random_seed"] == 7 and config["project"]["random_seed"] == 42
     assert training["episode_kind_probabilities"] == {"random_trace": 0.5, "random_whole_ffid": 0.5}
+    assert "loss" not in training
+    assert "cudnn_benchmark" not in training
+
+
+@pytest.mark.parametrize("benchmark", [True, False])
+def test_cudnn_benchmark_changes_only_nondefault_trainer_option(benchmark):
+    config = trace_graph_training_config()
+    original_model, original_graph, original_training = (
+        validate_relational_trace_graph_training_config(config)
+    )
+    config["training"]["cudnn_benchmark"] = benchmark
+    model, graph, training = validate_relational_trace_graph_training_config(config)
+    assert model == original_model and graph == original_graph
+    assert training == {
+        **original_training,
+        **({"cudnn_benchmark": False} if not benchmark else {}),
+    }
+    assert config["training"]["cudnn_benchmark"] is benchmark
+
+
+@pytest.mark.parametrize("benchmark", [None, 0, 1, "false", [], float("nan")])
+def test_cudnn_benchmark_rejects_non_boolean_config(benchmark):
+    config = trace_graph_training_config()
+    config["training"]["cudnn_benchmark"] = benchmark
+    with pytest.raises(ConfigurationError, match=r"training.cudnn_benchmark.*boolean"):
+        validate_relational_trace_graph_training_config(config)
+
+
+def test_relative_trace_loss_changes_only_opt_in_trainer_option():
+    config = trace_graph_training_config()
+    original_model, original_graph, original_training = (
+        validate_relational_trace_graph_training_config(config)
+    )
+    config["training"]["loss"] = "masked_trace_relative_mse"
+    model, graph, training = validate_relational_trace_graph_training_config(config)
+    assert model == original_model and graph == original_graph
+    assert training == {**original_training, "loss": "masked_trace_relative_mse"}
+
+
+@pytest.mark.parametrize("loss", [None, True, 0, "relative", "masked_trace_relative_mse "])
+def test_relative_trace_loss_rejects_unknown_modes(loss):
+    config = trace_graph_training_config()
+    config["training"]["loss"] = loss
+    with pytest.raises(ConfigurationError, match="training.loss"):
+        validate_relational_trace_graph_training_config(config)
+
+
+def test_exact_index_is_opt_in_and_does_not_change_graph_construction_arguments():
+    config = trace_graph_training_config()
+    _, default, _ = validate_relational_trace_graph_training_config(config)
+    assert "neighbor_search" not in default.constructor_config()
+    config["graph"]["neighbor_search"] = "exact_index"
+    _, indexed, _ = validate_relational_trace_graph_training_config(config)
+    assert indexed.neighbor_search == "exact_index"
+    assert indexed.constructor_config()["neighbor_search"] == "exact_index"
+    assert indexed.subgraph_kwargs() == default.subgraph_kwargs()
+
+
+def test_observed_trace_rms_keeps_physical_training_objective_and_requires_d0():
+    config = trace_graph_training_config()
+    _, _, original_training = validate_relational_trace_graph_training_config(config)
+    config["model"]["amplitude_mode"] = "observed_trace_rms"
+    with pytest.raises(ValueError, match="common_distance_scales_m"):
+        validate_relational_trace_graph_training_config(config)
+    config["graph"]["common_distance_scales_m"] = [2000.0, 5000.0]
+    model, graph, training = validate_relational_trace_graph_training_config(config)
+    assert model["amplitude_mode"] == "observed_trace_rms"
+    assert graph.common_distance_scales_m == (2000.0, 5000.0)
+    assert training == original_training
+
+
+@pytest.mark.parametrize("limit", [0, 1, 32])
+def test_learned_edge_time_shift_is_an_opt_in_model_setting(limit):
+    config = trace_graph_training_config()
+    original_model, original_graph, original_training = (
+        validate_relational_trace_graph_training_config(config)
+    )
+    assert "max_edge_time_shift_samples" not in original_model
+    config["model"]["max_edge_time_shift_samples"] = limit
+    model, graph, training = validate_relational_trace_graph_training_config(config)
+    assert model == {**original_model, "max_edge_time_shift_samples": limit}
+    assert graph == original_graph and training == original_training
+
+
+@pytest.mark.parametrize("limit", [None, True, False, -1, 1.5, "32", float("inf")])
+def test_learned_edge_time_shift_rejects_invalid_limits(limit):
+    config = trace_graph_training_config()
+    config["model"]["max_edge_time_shift_samples"] = limit
+    with pytest.raises(ConfigurationError, match="max_edge_time_shift_samples"):
+        validate_relational_trace_graph_training_config(config)
+
+
+@pytest.mark.parametrize("variant", ["plain_gcn_row_normalized", "untyped_edge_conditioned"])
+def test_learned_edge_time_shift_requires_relational_model(variant):
+    config = trace_graph_training_config()
+    config["model"].update(
+        method_variant=variant, relation_fusion="mean", max_edge_time_shift_samples=32
+    )
+    config["graph"]["common_distance_scales_m"] = [2000.0, 5000.0]
+    with pytest.raises(ValueError, match="requires the relational model"):
+        validate_relational_trace_graph_training_config(config)
 
 
 @pytest.mark.parametrize("threshold", [10000, 10000.0])
@@ -54,6 +155,7 @@ def test_training_physical_bound_does_not_allow_other_training_data_options():
     [
         ("model", "name", "trace_graph"),
         ("model", "relation_fusion", "unknown"),
+        ("model", "amplitude_mode", "oracle_rms"),
         ("model", "node_feature_names", ["observed"]),
         ("model", "message_passing_rounds", 4),
         ("graph", "rounds", 2),
@@ -158,14 +260,3 @@ def test_diagnostic_bands_are_explicit_fixed_config_and_optional():
     config["diagnostics"]["offset_m"] = [200, 100]
     with pytest.raises(ValueError):
         validate_relational_trace_graph_training_config(config)
-
-
-def test_exact_index_is_opt_in_and_does_not_change_graph_construction_arguments():
-    config = trace_graph_training_config()
-    _, default, _ = validate_relational_trace_graph_training_config(config)
-    assert "neighbor_search" not in default.constructor_config()
-    config["graph"]["neighbor_search"] = "exact_index"
-    _, indexed, _ = validate_relational_trace_graph_training_config(config)
-    assert indexed.neighbor_search == "exact_index"
-    assert indexed.constructor_config()["neighbor_search"] == "exact_index"
-    assert indexed.subgraph_kwargs() == default.subgraph_kwargs()

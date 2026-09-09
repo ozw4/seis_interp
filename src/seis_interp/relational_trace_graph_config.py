@@ -52,7 +52,12 @@ def validate_relational_trace_graph_training_config(
                 "relation_embedding_dim",
                 "relation_fusion",
             },
-            {"method_variant", "explicit_azimuth_features"},
+            {
+                "method_variant",
+                "explicit_azimuth_features",
+                "amplitude_mode",
+                "max_edge_time_shift_samples",
+            },
         )
     )
     if model.pop("name") != METHOD:
@@ -83,6 +88,15 @@ def validate_relational_trace_graph_training_config(
         raise ConfigurationError("comparison models require relation_fusion=mean")
     if not isinstance(model.get("explicit_azimuth_features", True), bool):
         raise ConfigurationError("model.explicit_azimuth_features must be boolean")
+    if model.get("amplitude_mode", "train_global_rms") not in (
+        "train_global_rms",
+        "observed_trace_rms",
+    ):
+        raise ConfigurationError("unsupported model.amplitude_mode")
+    if "max_edge_time_shift_samples" in model:
+        model["max_edge_time_shift_samples"] = config_values.nonnegative_integer(
+            model["max_edge_time_shift_samples"], "model.max_edge_time_shift_samples"
+        )
     graph = _graph_settings(config)
     graph.validate_model_config(model)
     geometry = config_values.exact_section(
@@ -129,7 +143,7 @@ def validate_relational_trace_graph_training_config(
         if fraction >= 1:
             raise ConfigurationError("training_mask.missing_fractions must be in (0, 1)")
     training = dict(
-        config_values.exact_section(
+        _section_with_options(
             config,
             "training",
             {
@@ -143,10 +157,19 @@ def validate_relational_trace_graph_training_config(
                 "weight_decay",
                 "gradient_clip_norm",
             },
+            {"cudnn_benchmark"},
         )
     )
-    if training.pop("loss") != "masked_mse":
-        raise ConfigurationError("training.loss must be masked_mse")
+    cudnn_benchmark = training.pop("cudnn_benchmark", True)
+    if not isinstance(cudnn_benchmark, bool):
+        raise ConfigurationError("training.cudnn_benchmark must be a boolean")
+    if not cudnn_benchmark:
+        training["cudnn_benchmark"] = False
+    loss = training.pop("loss")
+    if loss not in ("masked_mse", "masked_trace_relative_mse"):
+        raise ConfigurationError("training.loss must be masked_mse or masked_trace_relative_mse")
+    if loss != "masked_mse":
+        training["loss"] = loss
     _device_name(training.pop("device"), "training.device")
     training["random_seed"] = config_values.nonnegative_integer(
         training["random_seed"], "training.random_seed"

@@ -13,6 +13,49 @@ DEFAULT_SLOPE_EPSILON = 1.0e-4
 DEFAULT_SLOPE_SMOOTHING_RECEIVER_SPAN = 3
 DEFAULT_SLOPE_SMOOTHING_TIME_SPAN = 9
 DEFAULT_ENVELOPE_WINDOW = 25
+TRACE_GRAPH_TRAINING_LOSSES = ("masked_mse", "masked_trace_relative_mse")
+
+
+def trace_graph_training_errors_and_loss(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    *,
+    loss: str = "masked_mse",
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return physical-scale squared errors and the selected query objective.
+
+    Inputs are the unpadded ``[query, time]`` predictions and authorized hidden
+    training labels, already in the same global-normalized amplitude units.
+    The default preserves the original subtraction, square and mean arithmetic.
+
+    Relative MSE gives every nonzero target trace equal relative-error weight.
+    Its detached teacher RMS is used only in this loss, never as model input or
+    prediction gain. Zero target RMS uses divisor one in these normalized units.
+    Float64 residuals and a scaled RMS keep finite float32 extremes representable.
+    No-context queries remain in both objectives.
+    """
+    if not isinstance(loss, str) or loss not in TRACE_GRAPH_TRAINING_LOSSES:
+        raise ValueError(f"loss must be one of {TRACE_GRAPH_TRAINING_LOSSES}")
+    if loss == "masked_mse":
+        errors = (prediction - target).square()
+        return errors, errors.mean()
+    for name, value in (("prediction", prediction), ("target", target)):
+        if not isinstance(value, torch.Tensor) or not value.is_floating_point():
+            raise TypeError(f"{name} must be a floating-point torch.Tensor")
+    if prediction.ndim != 2 or min(prediction.shape) < 1 or prediction.shape != target.shape:
+        raise ValueError("prediction and target must have matching positive [query, time] shape")
+    if prediction.device != target.device:
+        raise ValueError("prediction and target must share a device")
+    if not bool(torch.isfinite(prediction).all()) or not bool(torch.isfinite(target).all()):
+        raise ValueError("prediction and target must be finite")
+    teacher = target.detach().double()
+    peak = teacher.abs().amax(dim=1, keepdim=True)
+    safe_peak = torch.where(peak > 0, peak, torch.ones_like(peak))
+    rms = peak * (teacher / safe_peak).square().mean(dim=1, keepdim=True).sqrt()
+    divisor = torch.where(rms > 0, rms, torch.ones_like(rms))
+    residual = prediction.double() - target.double()
+    errors = residual.square()
+    return errors, (residual / divisor).square().mean()
 
 
 def masked_mean_square(

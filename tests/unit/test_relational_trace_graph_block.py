@@ -158,6 +158,53 @@ def test_gradients_flow_through_latents_and_shared_message_parameters() -> None:
         assert sum(parameter.grad.abs().sum() for parameter in module.parameters()) > 0
 
 
+def test_edge_lag_shifts_projected_values_before_relation_aggregation() -> None:
+    block = RelationalTraceGraphMessageBlock(8)
+    with torch.no_grad():
+        block.gamma[-1].weight.zero_()
+        block.gamma[-1].bias.zero_()  # gamma = 1 for every channel and edge.
+        block.value_projection.weight.copy_(torch.eye(8)[:, :, None])
+        block.value_projection.bias.fill_(2)
+    latents = torch.tensor([1.0, 2.0, 4.0])[None, None].expand(3, 8, -1).clone()
+    edges = torch.tensor([[0, 0], [1, 2]])
+    relations = torch.tensor([0, 1])
+    features = torch.zeros(2, 15)
+    shifts = torch.tensor([0.5, -0.5], requires_grad=True)
+    messages, valid = block._relation_messages(
+        latents, edges, relations, features, edge_time_shifts=shifts
+    )
+    # A single sender has attention 1. Projected sender is [3,4,6],
+    # including its bias; padding the shifted projection contributes zero.
+    assert torch.equal(messages[1, 0], torch.tensor([3.5, 5.0, 3.0]).expand(8, -1))
+    assert torch.equal(messages[2, 1], torch.tensor([1.5, 3.5, 5.0]).expand(8, -1))
+    assert torch.equal(messages[~valid], torch.zeros_like(messages[~valid]))
+    messages.sum().backward()
+    assert torch.isfinite(shifts.grad).all() and (shifts.grad != 0).all()
+
+
+@pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
+def test_zero_edge_lag_preserves_block_output_and_common_gradients(fusion) -> None:
+    torch.manual_seed(17)
+    block = RelationalTraceGraphMessageBlock(8, relation_fusion=fusion)
+    latents, edges, relations, features = _fixture()
+    latents.requires_grad_()
+    coverage = torch.zeros(5, 4, 2)
+    base = block(latents, edges, relations, features, coverage)
+    base.square().sum().backward()
+    parameter_gradients = {name: p.grad.clone() for name, p in block.named_parameters()}
+    latent_gradient = latents.grad.clone()
+    block.zero_grad()
+    latents.grad = None
+    shifts = torch.zeros(edges.shape[1], requires_grad=True)
+    shifted = block(latents, edges, relations, features, coverage, edge_time_shifts=shifts)
+    assert torch.equal(base, shifted)
+    shifted.square().sum().backward()
+    assert torch.equal(latents.grad, latent_gradient)
+    for name, parameter in block.named_parameters():
+        assert torch.equal(parameter.grad, parameter_gradients[name]), name
+    assert torch.isfinite(shifts.grad).all() and shifts.grad.abs().sum() > 0
+
+
 def test_zero_initialized_gate_matches_mean_and_masks_empty_relations() -> None:
     torch.manual_seed(2)
     mean = RelationalTraceGraphMessageBlock(8)

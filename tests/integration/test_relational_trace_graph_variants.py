@@ -30,6 +30,19 @@ VARIANTS = [
         for name in ("source", "receiver", "cmp", "offset_azimuth")
     ],
     ({"explicit_azimuth_features": False}, {}),
+    (
+        {"relation_fusion": "learned_gate", "amplitude_mode": "observed_trace_rms"},
+        {"neighbor_search": "exact_index"},
+    ),
+    ({"max_edge_time_shift_samples": 4}, {}),
+    (
+        {
+            "relation_fusion": "learned_gate",
+            "amplitude_mode": "observed_trace_rms",
+            "max_edge_time_shift_samples": 4,
+        },
+        {"neighbor_search": "exact_index"},
+    ),
 ]
 
 
@@ -63,6 +76,8 @@ def test_all_ablations_round_trip_nonzero_frozen_prediction(model_options, graph
     model, settings, _, validation, values, fixed = _setup(model_options, graph_options)
     with torch.no_grad():
         model.decoder.head[-1].weight.normal_(std=0.15)
+        if model_options.get("max_edge_time_shift_samples", 0):
+            model.edge_time_shift_weights.copy_(torch.tensor([0.125, -0.05, 0.1, -0.2]))
     before = predict_relational_trace_graph(
         model, validation, fixed, graph_settings=settings, amplitudes=values, query_batch_size=4
     )
@@ -136,3 +151,56 @@ def test_comparison_models_learn_in_existing_masked_trainer(method_variant):
     assert np.abs(prediction.prediction).max() > 1e-4
     assert model.encoder.stem.weight.grad.abs().sum() > 0
     assert model.decoder.head[-1].weight.abs().sum() > 0
+
+
+@pytest.mark.parametrize("max_shift", [0, 4])
+def test_observed_rms_model_trains_with_physical_mse_and_responds_to_visible_gain(max_shift):
+    histories = []
+    for amplitude_mode in ("train_global_rms", "observed_trace_rms"):
+        model, settings, train, validation, values, fixed = _setup(
+            {
+                "relation_fusion": "learned_gate",
+                "amplitude_mode": amplitude_mode,
+                "max_edge_time_shift_samples": max_shift,
+            },
+            {"neighbor_search": "exact_index"},
+        )
+        result = train_relational_trace_graph(
+            model,
+            train,
+            validation,
+            fixed,
+            graph_settings=settings,
+            episode_kind_probabilities={"random_trace": 1.0},
+            missing_fractions=[0.5],
+            random_seed=18,
+            max_steps=6,
+            query_batch_size=3,
+            validation_interval=3,
+            learning_rate=0.01,
+            weight_decay=0,
+            training_amplitudes=values,
+            validation_amplitudes=values,
+        )
+        histories.append(result.training_history)
+    # Both zero-initialized decoders start from the same global-normalized
+    # physical errors. The new mode does not replace the objective by unit RMS MSE.
+    assert histories[0][0]["batch_loss"] == histories[1][0]["batch_loss"]
+    assert model.encoder.stem.weight.grad.abs().sum() > 0
+    assert torch.isfinite(model.rounds[0].gamma[0].weight.grad).all()
+    if max_shift:
+        assert torch.isfinite(model.edge_time_shift_weights.grad).all()
+        assert model.edge_time_shift_weights.grad.abs().sum() > 0
+        assert model.edge_time_shift_weights.abs().sum() > 0
+    original = predict_relational_trace_graph(
+        model, validation, fixed, graph_settings=settings, amplitudes=values, query_batch_size=3
+    )
+    assert np.abs(original.prediction).max() > 1e-4
+    changed = values.copy()
+    changed[validation.array_rows[validation.observed_mask]] *= 3.0
+    changed[validation.array_rows[validation.query_mask]] = np.nan
+    scaled = predict_relational_trace_graph(
+        model, validation, fixed, graph_settings=settings, amplitudes=changed, query_batch_size=1
+    )
+    np.testing.assert_allclose(scaled.prediction, original.prediction * 3.0, atol=1e-6, rtol=1e-5)
+    np.testing.assert_array_equal(scaled.has_observed_context, original.has_observed_context)

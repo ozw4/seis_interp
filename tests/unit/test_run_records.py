@@ -300,8 +300,10 @@ def test_runtime_resource_metadata_on_cpu_has_no_cuda_keys() -> None:
     assert metadata["process_max_rss_kib"] > 0
 
 
+@pytest.mark.parametrize("benchmark", [True, False])
 def test_runtime_resource_metadata_on_cuda_records_device_and_numerical_mode(
     monkeypatch: pytest.MonkeyPatch,
+    benchmark: bool,
 ) -> None:
     import torch
 
@@ -320,7 +322,7 @@ def test_runtime_resource_metadata_on_cuda_records_device_and_numerical_mode(
         torch.backends,
         "cudnn",
         SimpleNamespace(
-            benchmark=True, deterministic=False, version=lambda: 90100, allow_tf32=True
+            benchmark=benchmark, deterministic=False, version=lambda: 90100, allow_tf32=True
         ),
     )
     monkeypatch.setattr(
@@ -331,7 +333,7 @@ def test_runtime_resource_metadata_on_cuda_records_device_and_numerical_mode(
 
     assert metadata == {
         "process_max_rss_kib": metadata["process_max_rss_kib"],
-        "cudnn_benchmark": True,
+        "cudnn_benchmark": benchmark,
         "cudnn_deterministic": False,
         "cuda_max_memory_allocated_bytes": 1024,
         "cuda_max_memory_reserved_bytes": 4096,
