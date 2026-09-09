@@ -1,0 +1,11 @@
+prediction:
+  device: cuda:0
+  core_shape:
+  - 32
+  - 4
+  - 8
+  - 4
+  - 16
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target

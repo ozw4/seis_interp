@@ -1,0 +1,78 @@
+study:
+  id: study_033_c3_ccnet_10db
+  status: qc_baseline_128_updates_declared
+  goal: strictly_greater_than_10_db_physical_global_target_snr
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 1800
+  preflight_timeout_seconds: 600
+  device: cuda:0
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  budget_extension: explicit_recorded_revision_only
+  source_snapshot: ../../runs/study_033_c3_ccnet_10db/20260909T125014530976Z_5df55f375e66_qc_baseline_preparation/source/src
+  source_manifest: ../../runs/study_033_c3_ccnet_10db/20260909T125014530976Z_5df55f375e66_qc_baseline_preparation/source_manifest.json
+  source_manifest_sha256: 70c61aba81550ccc64b4102a896a45876eee5d4705f0620db285b2c805c9aa4f
+  environment:
+    TORCH_ALLOW_TF32_CUBLAS_OVERRIDE: '0'
+    NVIDIA_TF32_OVERRIDE: '0'
+seeds:
+  partition: 42
+  training: 20260908
+  siren_sampler: 20260908
+  ccnet_patches: 20260908
+  gnn_episodes: 20260908
+methods:
+  ccnet-train:
+    native_fragment: methods/qc_baseline.yaml
+    preflight:
+      max_steps: 2
+      prediction_tiles: maximum_halo_and_edge
+    model_description: Study028 unchanged H8 R8 kernel3 linear 64 fixed fit patches
+      x2 epochs
+  ccnet-predict:
+    native_fragment: methods/qc_baseline_predict.yaml
+    checkpoint_role: final
+training_information:
+  allowed_pool: suite_canonical_train_rows_after_437_QC_exclusions
+  time_samples:
+  - 0
+  - 384
+  ccnet: original_Study028_disjoint_fit_and_selection_regions_within_allowed_train_pool
+  normalization: fit_region_complete_label_global_RMS
+  evaluation_truth_in_training: false
+  same_training_information_as_GNN_or_SIREN_claimed: false
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  context_free_targets: include
+  null_snr: preserve_native_status
+  target_amplitudes: evaluation_and_visualization_only
+  validation_metrics: selection_and_diagnosis_only_never_gradient_or_normalization
+  primary_checkpoint: final_after_declared_budget
+  best_checkpoint: auxiliary_only
+  zero_fill: sanity_baseline
+completion:
+  required_methods:
+  - ccnet5d
+  required_outputs:
+  - full_volume_predictions
+  - all_target_metrics
+  - resource_measurements
+  primary_checkpoint: final_128_updates
+  baseline_meeting_10db_required: false
+  automatic_quality_retries: false
+  test_execution: false
+baseline_reference:
+  study: study_028_c3_first_results
+  changes:
+  - QC suite binding and explicit allowed-row revalidation
+  - FP32 TF32 environment overrides both0
+  - physical GPU1 to GPU0
+  model_patch_optimizer_seed_budget_and_regions_unchanged: true
+  initialization: fresh_seeded_no_checkpoint_resume

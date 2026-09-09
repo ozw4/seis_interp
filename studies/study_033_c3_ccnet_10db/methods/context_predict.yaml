@@ -1,0 +1,12 @@
+# Halo4 is clipped to the real volume; fixed-volume maximum input is [72,9,20,8,20].
+prediction:
+  device: cuda:0
+  core_shape:
+  - 64
+  - 9
+  - 16
+  - 8
+  - 16
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target

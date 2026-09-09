@@ -1,0 +1,52 @@
+{
+  "decided_at_utc": "2026-09-09T13:22:13.401745+00:00",
+  "authorization": "User requests CCNet above10dB; parent authorizes adoption after complete fixed audit success.",
+  "model_adopted": true,
+  "goal_achieved": true,
+  "primary_role": "final",
+  "global_step": 2048,
+  "metrics": {
+    "error_energy": 152670691.37563488,
+    "reference_energy": 2237830414.4522877,
+    "relative_l2": 0.2611946337625756,
+    "rmse": 2.595911597220349,
+    "sample_count": 22655616,
+    "snr_db": 11.660714997498403,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "fixed_shear": false,
+  "scope": "This fixed QC validation case, all58999 physical target traces, final2048, no fixed shear; not a test-set generalization claim.",
+  "final_checkpoint": {
+    "path": "runs/study_033_c3_ccnet_10db/20260909T130443857538Z_5df55f375e66_ccnet-train/native/artifacts/final.pt",
+    "sha256": "b8fb3a07e7a9d4a5b3c5540667abbfff8d87f4e24a6358f8cc9cd5e6cfa48697"
+  },
+  "best_checkpoint": {
+    "path": "runs/study_033_c3_ccnet_10db/20260909T130443857538Z_5df55f375e66_ccnet-train/native/artifacts/best.pt",
+    "sha256": "5097e9c5822fa30d2bf1bdca97acc95d74bfe1c67d36781b50e625e4804d5c72",
+    "step": 2048
+  },
+  "physical_prediction": {
+    "path": "runs/study_033_c3_ccnet_10db/20260909T131457466479Z_f2dccac6d1e3_ccnet-predict/native/artifacts/prediction.npy",
+    "sha256": "673df6c5090dca6f8be6f6f2bb5df10da8f145402afa87c578e5486232ab9e35"
+  },
+  "audit_result": {
+    "path": "runs/study_033_c3_ccnet_10db/20260909T130443471844Z_5df55f375e66_context_2048_completion_handoff/verification/result.json",
+    "sha256": "4070c2e0962d822b189425931cbc3b917b25f9fdc21bf1f906e570ad0cd63ea5"
+  },
+  "training_source_manifest": {
+    "path": "runs/study_033_c3_ccnet_10db/20260909T130116490783Z_5df55f375e66_context_implementation_checks/source_manifest.json",
+    "sha256": "7bdc3bd80dda264163ec700cd89f7891155a98ca2be8884c9cd8ac500d3e71ee"
+  },
+  "source_publication_commit": {
+    "publication_commit": "f2dccac",
+    "training_time_commit": "5df55f375e66284bd2e0a5c2b62b908d92e63c4c",
+    "source_count": 183,
+    "all_committed_source_bytes_equal_training_snapshot": true,
+    "training_worktree_dirty_record_is_preserved": true
+  },
+  "native_nonformal_warning_preserved": [
+    "Training checkpoint was created from a dirty Git worktree; this inference run is nonformal."
+  ],
+  "adoption_meaning": "Audited research model for the declared validation contract; native dirty-worktree metadata retained, no claim of clean training worktree or architecture superiority."
+}

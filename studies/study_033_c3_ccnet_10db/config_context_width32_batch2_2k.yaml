@@ -1,0 +1,107 @@
+study:
+  id: study_033_c3_ccnet_10db
+  status: context_width32_batch2_2048_updates_declared
+  goal: strictly_greater_than_10_db_physical_global_target_snr
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 14400
+  preflight_timeout_seconds: 1800
+  device: cuda:0
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  budget_extension: explicit_recorded_revision_only
+  environment:
+    TORCH_ALLOW_TF32_CUBLAS_OVERRIDE: '0'
+    NVIDIA_TF32_OVERRIDE: '0'
+  source_freeze_status: frozen_before_preflight_and_training
+  source_snapshot: ../../runs/study_033_c3_ccnet_10db/20260909T130116490783Z_5df55f375e66_context_implementation_checks/source/src
+  source_manifest: ../../runs/study_033_c3_ccnet_10db/20260909T130116490783Z_5df55f375e66_context_implementation_checks/source_manifest.json
+  source_manifest_sha256: 7bdc3bd80dda264163ec700cd89f7891155a98ca2be8884c9cd8ac500d3e71ee
+seeds:
+  partition: 42
+  training: 20260908
+  siren_sampler: 20260908
+  ccnet_patches: 20260908
+  gnn_episodes: 20260908
+methods:
+  ccnet-train:
+    native_fragment: methods/context_width32_batch2_2k.yaml
+    preflight:
+      max_steps: 2
+      prediction_tiles: maximum_halo_and_edge
+    model_description: modified_CCNet_H32_R32_kernel3_linear_larger_context_not_original_kernel5_reproduction
+  ccnet-predict:
+    native_fragment: methods/context_predict.yaml
+    checkpoint_role: final
+training_information:
+  allowed_pool: suite_canonical_train_rows_after_437_QC_exclusions
+  time_samples:
+  - 0
+  - 384
+  ccnet: geometry_selected_disjoint_shot_halves_with_eight_source_lines_each
+  normalization: fit_region_complete_label_global_RMS
+  evaluation_truth_in_training: false
+  same_training_information_as_GNN_or_SIREN_claimed: false
+  fixed_time_shear: 0.0
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  context_free_targets: include
+  null_snr: preserve_native_status
+  target_amplitudes: evaluation_and_visualization_only
+  validation_metrics: selection_and_diagnosis_only_never_gradient_or_normalization
+  primary_checkpoint: final_after_declared_budget
+  best_checkpoint: auxiliary_only
+  zero_fill: sanity_baseline
+completion:
+  required_methods:
+  - ccnet5d
+  required_outputs:
+  - full_volume_predictions
+  - all_target_metrics
+  - resource_measurements
+  primary_checkpoint: final_2048_updates
+  automatic_quality_retries: false
+  test_execution: false
+  snr_threshold_db: 10.0
+  threshold_comparison: strictly_greater
+  source_freeze_and_resource_preflight_required: true
+context_candidate:
+  reference_condition: config_qc_baseline.yaml
+  inputs_file: inputs_context.yaml
+  geometry_evidence: ../../runs/study_033_c3_ccnet_10db/20260909T125002842211Z_5df55f375e66_training_region_feasibility/result.json
+  geometry_verification: ../../runs/study_033_c3_ccnet_10db/20260909T125002842211Z_5df55f375e66_training_region_feasibility/verification.json
+  geometry_selected_before_teacher_amplitudes: true
+  declared_optimizer_updates: 2048
+  fit_patch_presentations: 4096
+  complete_patch_sample_presentations: 4294967296
+  initialization: fresh_seeded_no_checkpoint_resume
+  kernel_correspondence: Four cross-convolution modules retained; kernel3 and H/R32
+    are declared modifications relative to the Study025 kernel5 H/R64 supplied-paper
+    candidate. No complete reproduction claim.
+  prediction_core_shape:
+  - 64
+  - 9
+  - 16
+  - 8
+  - 16
+  unclipped_halo_input_upper_bound:
+  - 72
+  - 9
+  - 24
+  - 8
+  - 24
+  clipped_input_maximum_for_fixed_volume:
+  - 72
+  - 9
+  - 20
+  - 8
+  - 20
+  expected_tile_count: 24
+  resource_measurement_status: pending
+  quality_retries: false

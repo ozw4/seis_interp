@@ -1,0 +1,441 @@
+{
+  "status": "completed_and_audited",
+  "primary_checkpoint_role": "final",
+  "model_adopted": true,
+  "goal_achieved": true,
+  "goal_scope": "This fixed QC validation case, all58999 physical target traces, final2048, no fixed shear; not a test-set generalization claim.",
+  "primary_metrics": {
+    "error_energy": 152670691.37563488,
+    "reference_energy": 2237830414.4522877,
+    "relative_l2": 0.2611946337625756,
+    "rmse": 2.595911597220349,
+    "sample_count": 22655616,
+    "snr_db": 11.660714997498403,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "zero_fill": {
+    "rmse": 9.938609992960336,
+    "snr_db": 0.0,
+    "snr_status": "finite"
+  },
+  "observed_model_rmse_before_reinsertion": 2.130316587515493,
+  "observed_reinsertion_max_abs_error": 0.0,
+  "final_step": 2048,
+  "best_step": 2048,
+  "best_final_same_update": true,
+  "internal_selection_final": {
+    "error_energy": 177369254.81937495,
+    "metric_scope": "selection_patch_instances_missing_only",
+    "missing_sample_count": 26843136,
+    "patch_count": 32,
+    "reference_energy": 1498957800.6950514,
+    "relative_squared_error": 0.11832838438622531,
+    "snr_db": 9.269110651465322,
+    "snr_status": "finite"
+  },
+  "internal_selection_domain_differs_from_fixed_validation": true,
+  "training": {
+    "batch_size": 2,
+    "cudnn_benchmark": false,
+    "decay_after_epochs": 6,
+    "decay_factor": 0.1,
+    "device": "cuda:0",
+    "epochs_completed": 8,
+    "input_dtype": "float32",
+    "learning_rate": 0.001,
+    "loss": "mse_complete_patch",
+    "max_epochs": 8,
+    "optimizer": "adam",
+    "random_seed": 20260908,
+    "report_every_steps": 32,
+    "steps_completed": 2048,
+    "target_dtype": "float32",
+    "validate_every_steps": 256
+  },
+  "model": {
+    "hidden_channels": 32,
+    "initialization": "pytorch_conv_default",
+    "intermediate_channels": 32,
+    "kernel_size": 3,
+    "module_count": 4,
+    "output_activation": "linear",
+    "padding": "same_zero",
+    "parameter_dtype": "float32"
+  },
+  "parameter_count": 111969,
+  "patches": {
+    "fit_count": 512,
+    "mask_kind": "random_trace",
+    "missing_fraction": 0.8,
+    "patch_plan_sha256": "db46856258e5b1b7da6b876f064795dee02451dfd199a66d4703b7774d2845df",
+    "random_seed": 20260908,
+    "selection_count": 32,
+    "shape": [
+      64,
+      8,
+      16,
+      8,
+      16
+    ]
+  },
+  "supervision": {
+    "amplitude_normalization": "fit_region_global_rms",
+    "fit_region": {
+      "relative_receiver_x": [
+        0,
+        8
+      ],
+      "relative_receiver_y": [
+        17,
+        49
+      ],
+      "shot_in_line": [
+        32,
+        48
+      ],
+      "source_line": [
+        0,
+        8
+      ],
+      "time": [
+        0,
+        384
+      ]
+    },
+    "partition": "train",
+    "selection_region": {
+      "relative_receiver_x": [
+        0,
+        8
+      ],
+      "relative_receiver_y": [
+        17,
+        49
+      ],
+      "shot_in_line": [
+        48,
+        64
+      ],
+      "source_line": [
+        0,
+        8
+      ],
+      "time": [
+        0,
+        384
+      ]
+    }
+  },
+  "amplitude": {
+    "amplitude_rms": 8.351643078934,
+    "scale_source": "fit_region_complete_labels"
+  },
+  "prediction": {
+    "artifact": "artifacts/prediction.npy",
+    "axis_order": [
+      "time",
+      "source_line",
+      "shot_in_line",
+      "relative_receiver_x",
+      "relative_receiver_y"
+    ],
+    "core_shape": [
+      64,
+      9,
+      16,
+      8,
+      16
+    ],
+    "dtype": "float32",
+    "halo_radius": 4,
+    "input_dtype": "float32",
+    "maximum_input_shape": [
+      72,
+      9,
+      20,
+      8,
+      20
+    ],
+    "observed_data_consistency": "hard_reinsertion_after_model_prediction",
+    "point_count": 28311552,
+    "shape": [
+      384,
+      9,
+      32,
+      8,
+      32
+    ],
+    "tile_count": 24
+  },
+  "complete_patch_sample_presentations": 4294967296,
+  "baseline_sample_presentations": 524288,
+  "sample_presentation_ratio_to_baseline": 8192,
+  "presentation_interpretation": "Observed and hidden complete-patch loss samples, includes repeated/overlapping patches; not unique coverage.",
+  "baseline_changes": [
+    "training geometry and fit RMS",
+    "H/R8 to32",
+    "patch32x2x4x2x8 to64x8x16x8x16",
+    "fixed fit descriptors64 to512; selection16 to32",
+    "batch1 to2",
+    "128 to2048updates",
+    "learning rate and decay schedule",
+    "training cudnn benchmark true tofalse",
+    "prediction core extent"
+  ],
+  "pure_ablation": false,
+  "fixed_shear": false,
+  "test_used": false,
+  "validation_teacher_used_for_training_or_scale": false,
+  "validation_truth_use": "post-training full-target scoring and previously fixed qualitative visualization only",
+  "QC_excluded_train_traces": 437,
+  "valid_zero_traces_retained_in_QC_pool": 1195,
+  "training_geometry_audit": {
+    "source": "runs/study_033_c3_ccnet_10db/20260909T125002842211Z_5df55f375e66_training_region_feasibility/result.json",
+    "fit_rows": 32768,
+    "selection_rows": 32768,
+    "each_shape": [
+      384,
+      8,
+      16,
+      8,
+      32
+    ],
+    "disjoint": true,
+    "all_QC_train_members": true
+  },
+  "audit": {
+    "status": "success",
+    "checks": {
+      "native_target_metrics_exact": true,
+      "full_target_coverage": true,
+      "native_counts_equal": true,
+      "observed_reinsertion_exact": true,
+      "CPU_restoration": true,
+      "reference_energy": true,
+      "error_energy": true,
+      "inputs_unchanged": true
+    },
+    "independent_saved_output_metrics": {
+      "evaluation_domain": "evaluation_target",
+      "amplitude_domain": "physical",
+      "evaluation_target": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 152670691.37563488,
+        "snr_db": 11.660714997498403,
+        "snr_status": "finite",
+        "rmse": 2.595911597220349,
+        "relative_l2": 0.2611946337625756
+      },
+      "zero_fill": {
+        "snr_db": 0.0,
+        "snr_status": "finite",
+        "rmse": 9.938609992960336
+      },
+      "observed_max_abs_error": 0.0
+    },
+    "CPU_restoration": {
+      "status": "passed",
+      "sample_count": 2838720,
+      "measured": {
+        "normalized_difference_rmse": 1.547515965415401e-07,
+        "normalized_difference_max_abs": 2.0554204164461943e-06,
+        "physical_relative_l2": 4.323204508814853e-07
+      },
+      "thresholds": {
+        "normalized_difference_rmse": 0.0001,
+        "normalized_difference_max_abs": 0.001,
+        "physical_relative_l2": 0.001
+      },
+      "checks": {
+        "normalized_difference_rmse": true,
+        "normalized_difference_max_abs": true,
+        "physical_relative_l2": true
+      },
+      "target_truth_read": false,
+      "normalization": "checkpoint_fit_region_global_rms"
+    },
+    "primary_checkpoint": "final",
+    "global_step": 2048,
+    "training_selection_scope": "held_out_train_partition_patch_instances",
+    "training_selection_compared_to_benchmark_score": false
+  },
+  "audit_fixed_native_tile_indices": [
+    0,
+    12,
+    23
+  ],
+  "energy_tolerances": {
+    "rtol": 1e-06,
+    "atol": 1e-12
+  },
+  "CPU_restore_scope": "First/middle/last complete native tiles; compare only hidden core samples; not all-target CPU bitwise restoration.",
+  "resources": {
+    "training": {
+      "native": {
+        "cuda_device_capability": [
+          9,
+          0
+        ],
+        "cuda_device_name": "NVIDIA H100 NVL",
+        "cuda_matmul_allow_tf32": false,
+        "cuda_max_memory_allocated_bytes": 4472780800,
+        "cuda_max_memory_reserved_bytes": 5551161344,
+        "cuda_total_memory_bytes": 99951706112,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": false,
+        "cudnn_version": 90400,
+        "float32_matmul_precision": "highest",
+        "load_and_verification_seconds": 11.101858676411211,
+        "process_max_rss_kib": 3559996,
+        "process_max_rss_scope": "whole_process",
+        "torch_cuda_version": "12.6",
+        "torch_num_threads": 1,
+        "training_and_selection_seconds": 580.4847260266542
+      },
+      "outer_action_elapsed_seconds": 613.5984656484798
+    },
+    "prediction": {
+      "native": {
+        "cuda_device_capability": [
+          9,
+          0
+        ],
+        "cuda_device_name": "NVIDIA H100 NVL",
+        "cuda_matmul_allow_tf32": false,
+        "cuda_max_memory_allocated_bytes": 1082393600,
+        "cuda_max_memory_reserved_bytes": 2346713088,
+        "cuda_total_memory_bytes": 99951706112,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": false,
+        "cudnn_version": 90400,
+        "evaluation_seconds": 0.2511974321678281,
+        "float32_matmul_precision": "highest",
+        "load_and_verification_seconds": 4.298371599987149,
+        "prediction_seconds": 2.3189607989042997,
+        "process_max_rss_kib": 1640548,
+        "process_max_rss_scope": "whole_process",
+        "torch_cuda_version": "12.6",
+        "torch_num_threads": 1
+      },
+      "outer_action_elapsed_seconds": 13.413517114706337
+    },
+    "CPU_audit_elapsed_seconds": 52.6413602354005
+  },
+  "runtime_environment_by_phase": {
+    "train": {
+      "PYTHONPATH": "runs/study_033_c3_ccnet_10db/20260909T130116490783Z_5df55f375e66_context_implementation_checks/source/src",
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+      "NVIDIA_TF32_OVERRIDE": "0"
+    },
+    "prediction": {
+      "PYTHONPATH": "runs/study_033_c3_ccnet_10db/20260909T130116490783Z_5df55f375e66_context_implementation_checks/source/src",
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+      "NVIDIA_TF32_OVERRIDE": "0"
+    },
+    "audit": {
+      "PYTHONPATH": "runs/study_033_c3_ccnet_10db/20260909T130116490783Z_5df55f375e66_context_implementation_checks/source/src",
+      "CUDA_VISIBLE_DEVICES": "",
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1"
+    }
+  },
+  "comparison": [
+    {
+      "condition": "CCNet QC baseline",
+      "snr_db": -0.0026961168358141663,
+      "rmse": 9.941695435440598,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 2239220099.490983,
+      "parameter_count": 7257,
+      "updates": 128,
+      "sample_presentations": 524288,
+      "presentation_scope": "complete_train_patch_samples",
+      "fixed_transform": "no_fixed_shear",
+      "architecture_superiority_claim": false,
+      "source_metrics": "runs/study_033_c3_ccnet_10db/20260909T125622438333Z_5df55f375e66_ccnet-predict/native/metrics.json"
+    },
+    {
+      "condition": "CCNet context2048",
+      "snr_db": 11.660714997498403,
+      "rmse": 2.595911597220349,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 152670691.37563488,
+      "parameter_count": 111969,
+      "updates": 2048,
+      "sample_presentations": 4294967296,
+      "presentation_scope": "complete_train_patch_samples",
+      "fixed_transform": "no_fixed_shear",
+      "architecture_superiority_claim": false,
+      "source_metrics": "runs/study_033_c3_ccnet_10db/20260909T131457466479Z_f2dccac6d1e3_ccnet-predict/native/metrics.json"
+    },
+    {
+      "condition": "Proposed GNN relativeMSE5000",
+      "snr_db": 11.93543824732025,
+      "rmse": 2.5150911911880325,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 143312260.84446973,
+      "parameter_count": 101701,
+      "updates": 5000,
+      "sample_presentations": 245760000,
+      "presentation_scope": "hidden_train_query_label_samples",
+      "fixed_transform": "no_fixed_shear",
+      "architecture_superiority_claim": false,
+      "source_metrics": "runs/study_032_c3_proposed_gnn_10db/20260909T104419208387Z_e39df16d563c_gnn-predict/native/metrics.json"
+    },
+    {
+      "condition": "SIREN omega30/time12 reference",
+      "snr_db": 11.342154102264281,
+      "rmse": 2.692885844540137,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 164290239.16707164,
+      "parameter_count": 199169,
+      "updates": 5000,
+      "sample_presentations": 28279680000,
+      "presentation_scope": "selected_volume_observed_samples",
+      "fixed_transform": "fixed_shear_0.0006_s_per_m",
+      "architecture_superiority_claim": false,
+      "source_metrics": "runs/study_031_c3_siren_10db/20260909T021337632365Z_1819109f28e1_siren/native/metrics.json"
+    }
+  ],
+  "comparison_interpretation": "Same physical validation target, different training information, exposure and transforms; no architecture-superiority claim.",
+  "training_git": {
+    "commit": "5df55f375e66284bd2e0a5c2b62b908d92e63c4c",
+    "worktree_dirty": true
+  },
+  "source_publication_commit": {
+    "publication_commit": "f2dccac",
+    "training_time_commit": "5df55f375e66284bd2e0a5c2b62b908d92e63c4c",
+    "source_count": 183,
+    "all_committed_source_bytes_equal_training_snapshot": true,
+    "training_worktree_dirty_record_is_preserved": true
+  },
+  "publication_git": "f2dccac6d1e33294156710dc688fc21667aff89a",
+  "native_warnings": [
+    "Training checkpoint was created from a dirty Git worktree; this inference run is nonformal."
+  ]
+}

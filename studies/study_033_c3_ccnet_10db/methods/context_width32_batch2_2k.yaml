@@ -1,0 +1,39 @@
+# Modified width32/kernel3 CCNet, linear signed output; not original kernel5 reproduction.
+# 512 fixed fit patches / batch2 * 8 epochs = 2048 fresh optimizer updates.
+model:
+  name: ccnet5d
+  hidden_channels: 32
+  intermediate_channels: 32
+  kernel_size: 3
+  output_activation: linear
+supervision:
+  partition: train
+  amplitude_normalization: fit_region_global_rms
+patches:
+  shape:
+  - 64
+  - 8
+  - 16
+  - 8
+  - 16
+  fit_count: 512
+  selection_count: 32
+  missing_fraction: 0.8
+  mask_kind: random_trace
+  random_seed: 20260908
+training:
+  optimizer: adam
+  loss: mse_complete_patch
+  random_seed: 20260908
+  batch_size: 2
+  max_epochs: 8
+  learning_rate: 0.001
+  decay_after_epochs: 6
+  decay_factor: 0.1
+  validate_every_steps: 256
+  report_every_steps: 32
+  device: cuda:0
+  cudnn_benchmark: false
+selection:
+  metric: missing_global_snr_db
+  domain: held_out_train_partition_patch_instances

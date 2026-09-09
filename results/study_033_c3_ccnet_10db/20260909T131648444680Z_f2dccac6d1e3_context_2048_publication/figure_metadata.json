@@ -1,0 +1,64 @@
+{
+  "status": "created",
+  "scope": "predeclared qualitative gather, not model selection",
+  "prediction_run": "runs/study_033_c3_ccnet_10db/20260909T131457466479Z_f2dccac6d1e3_ccnet-predict/native",
+  "audit_dir": "runs/study_033_c3_ccnet_10db/20260909T130443471844Z_5df55f375e66_context_2048_completion_handoff/verification",
+  "independent_full_target_metrics": {
+    "trace_count": 58999,
+    "sample_count": 22655616,
+    "reference_energy": 2237830414.4522877,
+    "error_energy": 152670691.37563488,
+    "snr_db": 11.660714997498403,
+    "snr_status": "finite",
+    "rmse": 2.595911597220349,
+    "relative_l2": 0.2611946337625756
+  },
+  "geometry_declaration_sha256": "007806c6321a32b6eda6157f6314dbcd7eb60d3a383f903a1f3b0db5302c606f",
+  "selected_geometry_sha256": "fa4fb51abeee686e10dfc644004d0d109f8220136d5a03f3938788311eedeed7",
+  "trace_ids_for_overlay": [
+    2093068,
+    2093081,
+    2093097
+  ],
+  "gather_fixed_display_clip": 56.368047637939256,
+  "gather_clip_counts": {
+    "truth": 123,
+    "ccnet": 78,
+    "residual": 0
+  },
+  "overlay_fixed_display_limit": 109.53060836791992,
+  "overlay_off_scale_counts": {
+    "2093068": {
+      "truth": 0,
+      "ccnet": 0,
+      "residual": 0
+    },
+    "2093081": {
+      "truth": 0,
+      "ccnet": 0,
+      "residual": 0
+    },
+    "2093097": {
+      "truth": 0,
+      "ccnet": 1,
+      "residual": 0
+    }
+  },
+  "observed_count": 8,
+  "held_out_count": 24,
+  "selected_truth_float64_sha256": "f32272030b7f4f180ab18752d61611ed2e5a9e535a8dfe06b1a589e8278e2652",
+  "selected_ccnet_float64_sha256": "69a1b0f63a34704c69c74d8b9ff7dcde88973a7cb4e482beeabe4010be29fa08",
+  "prior_truth_csv_sha256": "bff82fbe4c6c6a21c46ad228cde2308468e9ec30daed0758aca560c6c0e5da6e",
+  "prior_GNN_reconstruction_used": false,
+  "saved_CCNet_samples_selected": 12288,
+  "raw_SEG_Y_or_amplitude_source_reads": 0,
+  "selected_truth_CSV_reads": 1,
+  "model_forward_count": 0,
+  "GPU_used": false,
+  "amplitude_transformation": "none",
+  "time_alignment": "none",
+  "residual": "truth minus saved CCNet",
+  "matplotlib_version": "3.10.9",
+  "elapsed_seconds": 0.8146041724830866,
+  "finished_at_utc": "2026-09-09T13:19:45.896437+00:00"
+}

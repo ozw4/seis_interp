@@ -1,0 +1,105 @@
+{
+  "scope": "Exact existing bounded verification records; no combined unique-test count and no test rerun during publication.",
+  "batch_and_dependents": {
+    "command": [
+      "$REPOSITORY_ROOT/.venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/unit/test_ccnet5d_trainer.py",
+      "tests/integration/test_train_ccnet5d.py",
+      "tests/integration/test_interpolate_ccnet5d.py",
+      "tests/integration/test_c3_first_results_neural_preflight.py",
+      "tests/integration/test_c3_first_results_bridge.py",
+      "-q"
+    ],
+    "started_at_utc": "2026-09-09T12:55:29.001412+00:00",
+    "returncode": 0,
+    "elapsed_seconds": 40.5036937603727,
+    "summary": "146 passed in 39.33s",
+    "stdout": "pytest.stdout.log",
+    "stderr": "pytest.stderr.log"
+  },
+  "batch_default_equivalence": {
+    "status": "passed",
+    "checks_passed": 15,
+    "checks_total": 15,
+    "script": "default_equivalence.py",
+    "execution": "default_equivalence_execution.json",
+    "result": "default_equivalence.json",
+    "result_sha256": "31565272fd4703ff66c07e91905e4e3a0b71a8eb601fbdc1f3d30cff1122c6d9"
+  },
+  "frozen_audit_and_lint_commands": [
+    {
+      "command": [
+        "$REPOSITORY_ROOT/.venv/bin/ruff",
+        "check",
+        "."
+      ],
+      "cwd": "$REPOSITORY_ROOT",
+      "returncode": 0,
+      "elapsed_seconds": 0.03303547762334347,
+      "stdout": "check_0.stdout.log",
+      "stderr": "check_0.stderr.log"
+    },
+    {
+      "command": [
+        "$REPOSITORY_ROOT/.venv/bin/ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "cwd": "$REPOSITORY_ROOT",
+      "returncode": 0,
+      "elapsed_seconds": 0.03616365045309067,
+      "stdout": "check_1.stdout.log",
+      "stderr": "check_1.stderr.log"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "$REPOSITORY_ROOT",
+      "returncode": 0,
+      "elapsed_seconds": 0.007716025225818157,
+      "stdout": "check_2.stdout.log",
+      "stderr": "check_2.stderr.log"
+    },
+    {
+      "command": [
+        "$REPOSITORY_ROOT/.venv/bin/python",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/unit/test_ccnet5d_run_audit.py",
+        "-q",
+        "-p",
+        "no:cacheprovider"
+      ],
+      "cwd": "$REPOSITORY_ROOT",
+      "returncode": 0,
+      "elapsed_seconds": 6.683719533495605,
+      "stdout": "check_3.stdout.log",
+      "stderr": "check_3.stderr.log"
+    }
+  ],
+  "frozen_command_environment": {
+    "PYTHONPATH": "$REPOSITORY_ROOT/runs/study_033_c3_ccnet_10db/20260909T130116490783Z_5df55f375e66_context_implementation_checks/source/src",
+    "CUDA_VISIBLE_DEVICES": "",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "PYTHONDONTWRITEBYTECODE": "1"
+  },
+  "frozen_audit_stdout_summary": "Running 13 items in this shard\n.............                                                            [100%]\n13 passed in 5.36s",
+  "source_publication_commit": {
+    "publication_commit": "f2dccac",
+    "training_time_commit": "5df55f375e66284bd2e0a5c2b62b908d92e63c4c",
+    "source_count": 183,
+    "all_committed_source_bytes_equal_training_snapshot": true,
+    "training_worktree_dirty_record_is_preserved": true
+  },
+  "paths_export": "Repository-local command paths use $REPOSITORY_ROOT; original commands remain unchanged in hashed run records."
+}
