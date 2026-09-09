@@ -1,0 +1,160 @@
+{
+  "scope": "Focused implementation verification records; overlapping tests are not summed into a unique total; no tests rerun for publication.",
+  "path_export": "Exact argument order and result values retained. Environment-local executable/cwd/temp prefixes use declared logical placeholders; original unmodified commands remain in the hashed source records.",
+  "logical_path_roots": {
+    "$REPOSITORY_ROOT": "repository checkout root",
+    "$COMMIT_PREPARATION_ROOT": "separately materialized commit preparation scratch root"
+  },
+  "source_catalog": [
+    {
+      "path": "runs/study_032_c3_proposed_gnn_10db/20260909T063817031604Z_e39df16d563c_cached_training_implementation_checks/checks.json",
+      "sha256": "a99438e47fcd72afb12556b8d56cddcbd50cfc3d0cd67ac17eb1526ad00e9733"
+    },
+    {
+      "path": "runs/study_032_c3_proposed_gnn_10db/20260909T065803442266Z_e39df16d563c_amplitude_implementation_checks/checks.json",
+      "sha256": "aecb83de39cddcd730d0fbb238f3818647a511e197f6f686a27ab0e46d84ded0"
+    },
+    {
+      "path": "runs/study_032_c3_proposed_gnn_10db/20260909T075019798909Z_e39df16d563c_learned_time_shift_implementation_checks/checks.json",
+      "sha256": "a8dbc0e80417d780dd49a1792b58014126718a795e58af1c704c00e60938261c"
+    },
+    {
+      "path": "runs/study_032_c3_proposed_gnn_10db/20260909T082935150487Z_e39df16d563c_relative_mse_owned_checks/checks.json",
+      "sha256": "ca8637e6823b3e1f180b6658694222ee289ad330610d5d028d885f99527bc1e5"
+    },
+    {
+      "path": "runs/study_032_c3_proposed_gnn_10db/20260909T083053985610Z_e39df16d563c_relative_mse_implementation_checks/checks.json",
+      "sha256": "0e55d57f794cddbd16660ae7e202635624e7fc2a9204c1f8e7fa6aaacb50eda0"
+    },
+    {
+      "path": "runs/study_032_c3_proposed_gnn_10db/20260909T093306328729Z_e39df16d563c_cudnn_benchmark_owned_checks/checks.json",
+      "sha256": "f5f92b65d6e06b4cc79fcaa85138eda94d2ff21445e1fcf0554abc0ed6142dd9"
+    },
+    {
+      "path": "runs/study_032_c3_proposed_gnn_10db/20260909T093547080821Z_e39df16d563c_cudnn_benchmark_implementation_checks/checks.json",
+      "sha256": "5aa09f5292c62eeb44a3351d80ed85aa6b646061aff8f3321a38360a9ede3bf7"
+    }
+  ],
+  "current_implementation": {
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T093547080821Z_e39df16d563c_cudnn_benchmark_implementation_checks/checks.json",
+    "sha256": "5aa09f5292c62eeb44a3351d80ed85aa6b646061aff8f3321a38360a9ede3bf7",
+    "command": "$REPOSITORY_ROOT/.venv/bin/python -m pytest tests/unit/test_relational_trace_graph_config.py tests/unit/test_relational_trace_graph_trainer.py tests/unit/test_c3_first_results_neural_preflight.py tests/unit/test_run_records.py tests/integration/test_relational_trace_graph_runs.py tests/integration/test_relational_trace_graph_preflight_run.py tests/integration/test_c3_first_results_neural_preflight.py -q",
+    "exit_code": 0,
+    "result": "203 passed in 233.64s",
+    "source_count": 182,
+    "style_checks": [
+      {
+        "command": "ruff check .",
+        "exit_code": 0,
+        "output": "All checks passed!",
+        "elapsed_seconds": 0.064777362
+      },
+      {
+        "command": "ruff format --check .",
+        "exit_code": 0,
+        "output": "481 files already formatted",
+        "elapsed_seconds": 0.076254664
+      },
+      {
+        "command": "git diff --check",
+        "exit_code": 0,
+        "output": "",
+        "elapsed_seconds": 5.368e-06
+      }
+    ]
+  },
+  "intermediate_commit2": {
+    "scope": "Exact graph/cache/label-reader boundary; synthetic CPU tests on the 179-source frozen implementation.",
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T105511479095Z_00e9e555d9fb_relative_mse_final_publication/commit02_checks.source.json",
+    "source_sha256": "15cec37571a57645d5adc61d5b1f376f35d379c3af0bf20e512c9bb2cf63906e",
+    "command": [
+      "$REPOSITORY_ROOT/.venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/unit/test_trace_graph_spatial_index.py",
+      "tests/unit/test_trace_graph_episodes.py",
+      "tests/unit/test_relational_trace_graph_prediction.py",
+      "tests/unit/test_trace_graph_preflight.py",
+      "tests/unit/test_relational_trace_graph_trainer.py",
+      "tests/unit/test_relational_trace_graph_checkpoints.py",
+      "tests/unit/test_relational_trace_graph_config.py",
+      "tests/unit/test_c3_first_results_neural_preflight.py",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider",
+      "--basetemp",
+      "$COMMIT_PREPARATION_ROOT/pytest_temp"
+    ],
+    "exit_code": 0,
+    "result": "230 passed in 5.54s",
+    "cwd": "$COMMIT_PREPARATION_ROOT/commit_02_tree",
+    "environment": {
+      "PYTHONPATH": "$COMMIT_PREPARATION_ROOT/commit_02_tree/src",
+      "CUDA_VISIBLE_DEVICES": "",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    "lint_command": [
+      "$REPOSITORY_ROOT/.venv/bin/ruff",
+      "check",
+      "src/seis_interp/processing/trace_graph_neighbors.py",
+      "src/seis_interp/processing/trace_graph_settings.py",
+      "src/seis_interp/processing/trace_graph_subgraphs.py",
+      "src/seis_interp/relational_trace_graph_config.py",
+      "src/seis_interp/training/c3_first_results_neural_preflight.py",
+      "src/seis_interp/training/relational_trace_graph_checkpoints.py",
+      "src/seis_interp/training/relational_trace_graph_prediction.py",
+      "src/seis_interp/training/relational_trace_graph_trainer.py",
+      "src/seis_interp/training/trace_graph_episodes.py",
+      "src/seis_interp/training/trace_graph_preflight.py",
+      "tests/unit/test_trace_graph_spatial_index.py",
+      "tests/unit/test_trace_graph_episodes.py",
+      "tests/unit/test_relational_trace_graph_prediction.py",
+      "tests/unit/test_trace_graph_preflight.py",
+      "tests/unit/test_relational_trace_graph_trainer.py",
+      "tests/unit/test_relational_trace_graph_checkpoints.py",
+      "tests/unit/test_relational_trace_graph_config.py",
+      "tests/unit/test_c3_first_results_neural_preflight.py"
+    ],
+    "lint_exit_code": 0,
+    "final_format_check": {
+      "stage": 2,
+      "command": [
+        "$REPOSITORY_ROOT/.venv/bin/ruff",
+        "format",
+        "--check",
+        "src/seis_interp/processing/trace_graph_neighbors.py",
+        "src/seis_interp/processing/trace_graph_settings.py",
+        "src/seis_interp/processing/trace_graph_subgraphs.py",
+        "src/seis_interp/relational_trace_graph_config.py",
+        "src/seis_interp/training/c3_first_results_neural_preflight.py",
+        "src/seis_interp/training/relational_trace_graph_checkpoints.py",
+        "src/seis_interp/training/relational_trace_graph_prediction.py",
+        "src/seis_interp/training/relational_trace_graph_trainer.py",
+        "src/seis_interp/training/trace_graph_episodes.py",
+        "src/seis_interp/training/trace_graph_preflight.py",
+        "tests/unit/test_trace_graph_spatial_index.py",
+        "tests/unit/test_trace_graph_episodes.py",
+        "tests/unit/test_relational_trace_graph_prediction.py",
+        "tests/unit/test_trace_graph_preflight.py",
+        "tests/unit/test_relational_trace_graph_trainer.py",
+        "tests/unit/test_relational_trace_graph_checkpoints.py",
+        "tests/unit/test_relational_trace_graph_config.py",
+        "tests/unit/test_c3_first_results_neural_preflight.py"
+      ],
+      "exit_code": 0,
+      "stdout": "18 files already formatted\n",
+      "stderr": ""
+    },
+    "first_format_attempt": "Only trailing blank lines in three scratch intermediate tests; corrected with identical AST. Original failed formatting record retained.",
+    "verification_source": "runs/study_032_c3_proposed_gnn_10db/20260909T105511479095Z_00e9e555d9fb_relative_mse_final_publication/commit_boundaries.source.json",
+    "verification_source_sha256": "6fa94ddd71aa5ce449f9ca3b20b09a7ce51dc3bdcf35b44eebafebb4f95e0ec8"
+  },
+  "full_suite_run": false,
+  "no_aggregate_unique_test_count_claimed": true
+}

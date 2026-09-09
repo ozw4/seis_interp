@@ -472,4 +472,7 @@ GPU未使用時のCUDA memoryは未測定であり、0の実測値として扱�
 実測時間やmemoryが指定上限を超えた場合はblockerとして返す。radius拡張、近似探索、support切り捨てや本学習開始は行わない。
 artifact検証を含む実行例と固定比較条件は[study_026](../studies/study_026_grid_free_multi_relation_gnn/README.md)を参照する。
 CPUの解析的toyは任意座標で波形を再評価する入出力・学習試験であり、数値伝播やfield dataではない。
-実C3の学習、複数seed本実験、wide-azimuth/fieldへの汎化は未検証である。
+固定C3 validationでの現行採用条件は[Study032](../studies/study_032_c3_proposed_gnn_10db/README.md)に記載する。
+QCで437本を除外し、observed trace RMSと相対MSEを用いた最終5,000更新モデルは、固定shearなしで
+全58,999 targetの物理SNR 11.9354 dBを記録し、保存予測再採点と固定CPU復元監査を通過した。
+複数seedの本実験とwide-azimuth/fieldへの汎化は未検証である。

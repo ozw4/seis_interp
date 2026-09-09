@@ -1,0 +1,470 @@
+{
+  "created_at_utc": "2026-09-09T07:54:30.985167+00:00",
+  "publication_scope": "Completed global-RMS 5000-step investigation and direct IDW baselines; diagnostic artifacts only",
+  "model_adopted": false,
+  "gnn_10db_goal_achieved": false,
+  "suite": "data/processed/c3_na/study_029_c3_amplitude_qc/benchmark_suite.json",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "validation_observed_trace_count": 14729,
+  "validation_target_trace_count": 58999,
+  "time_sample_count": 384,
+  "training_pool_trace_count": 1146366,
+  "test_partition_used": false,
+  "shear_added_to_gnn": false,
+  "physical_comparison": [
+    {
+      "condition": "zero_fill",
+      "evaluation_scope": "all_fixed_validation_targets_physical",
+      "training_information": "none",
+      "training_steps": 0,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "snr_db": 0.0,
+      "rmse": 9.938609992960336,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 2237830414.4522877,
+      "cross_run_energy_audit": "not_applicable",
+      "cpu_checkpoint_audit": "not_applicable",
+      "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T070636656122Z_e39df16d563c_global5k_completion_handoff/verification/result.json"
+    },
+    {
+      "condition": "gnn_qc_baseline_200",
+      "evaluation_scope": "all_fixed_validation_targets_physical",
+      "training_information": "canonical_training_partition",
+      "training_steps": 200,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "snr_db": 0.014369424212006265,
+      "rmse": 9.922181734697567,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 2230438380.4858437,
+      "cross_run_energy_audit": "passed",
+      "cpu_checkpoint_audit": "passed",
+      "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T063224611091Z_e39df16d563c_qc_baseline_audit/verification/result.json"
+    },
+    {
+      "condition": "gnn_global_rms_5000_frozen_final",
+      "evaluation_scope": "all_fixed_validation_targets_physical",
+      "training_information": "canonical_training_partition",
+      "training_steps": 5000,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "snr_db": 7.400222038002973,
+      "rmse": 4.23949909235737,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 407197373.6982853,
+      "cross_run_energy_audit": "failed_tolerance",
+      "cpu_checkpoint_audit": "failed_tolerance",
+      "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T070636656122Z_e39df16d563c_global5k_completion_handoff/verification/result.json"
+    },
+    {
+      "condition": "direct_physical_idw",
+      "evaluation_scope": "all_fixed_validation_targets_physical",
+      "training_information": "none_observed_only_interpolation",
+      "training_steps": 0,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "snr_db": -0.7444132761633782,
+      "rmse": 10.827951761709114,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 2656247261.6988354,
+      "cross_run_energy_audit": "not_applicable",
+      "cpu_checkpoint_audit": "not_applicable",
+      "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T072919882594Z_e39df16d563c_direct_idw_waveform_cpu/physical_idw_metrics.json"
+    },
+    {
+      "condition": "direct_unit_waveform_idw_times_observed_idw_rms",
+      "evaluation_scope": "all_fixed_validation_targets_physical",
+      "training_information": "none_observed_only_interpolation",
+      "training_steps": 0,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "snr_db": -0.7434192901167513,
+      "rmse": 10.826712715669586,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 2655639386.005487,
+      "cross_run_energy_audit": "not_applicable",
+      "cpu_checkpoint_audit": "not_applicable",
+      "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T072919882594Z_e39df16d563c_direct_idw_waveform_cpu/unit_waveform_times_observed_idw_rms_metrics.json"
+    }
+  ],
+  "global_rms_5000": {
+    "training_native_run": "runs/study_032_c3_proposed_gnn_10db/20260909T064032733552Z_e39df16d563c_gnn-train/native",
+    "frozen_prediction_native_run": "runs/study_032_c3_proposed_gnn_10db/20260909T074134731321Z_e39df16d563c_gnn-predict/native",
+    "model": {
+      "attention_width": 32,
+      "message_passing_rounds": 2,
+      "relation_embedding_dim": 8,
+      "relation_fusion": "learned_gate",
+      "stem_kernel_size": 7,
+      "temporal_dilations": [
+        1,
+        2
+      ],
+      "temporal_kernel_size": 5,
+      "time_downsample_factor": 2,
+      "width": 64
+    },
+    "parameter_count": 101701,
+    "graph": {
+      "candidate_chunk_size": 4096,
+      "common_distance_scales_m": [
+        320.0,
+        320.0
+      ],
+      "neighbor_search": "exact_index",
+      "neighbors_per_relation": 2,
+      "radius": 1.0,
+      "relation_names": [
+        "source",
+        "receiver",
+        "cmp",
+        "offset_azimuth"
+      ],
+      "relation_scales_m": [
+        [
+          160.0,
+          640.0
+        ],
+        [
+          640.0,
+          160.0
+        ],
+        [
+          160.0,
+          640.0
+        ],
+        [
+          640.0,
+          160.0
+        ]
+      ]
+    },
+    "training": {
+      "device": "cuda:1",
+      "gradient_clip_norm": 1.0,
+      "learning_rate": 0.001,
+      "loss": "masked_mse",
+      "max_steps": 5000,
+      "query_batch_size": 128,
+      "random_seed": 20260908,
+      "steps_completed": 5000,
+      "validation_interval": 1000,
+      "weight_decay": 0.0
+    },
+    "amplitude": {
+      "amplitude_scale": 28.627922455065246,
+      "scale_source": "fixed_training_pool"
+    },
+    "training_query_exposure": 640000,
+    "training_sample_exposure": 245760000,
+    "completed_episodes": 0,
+    "final_episode_interrupted": true,
+    "training_episode": {
+      "completed": false,
+      "episode_id": 1,
+      "hidden_count": 917093,
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "query_count": 640000,
+      "visible_count": 229273
+    },
+    "learning_history": [
+      {
+        "step": 1000,
+        "cumulative_training_queries": 128000,
+        "cumulative_training_samples": 49152000,
+        "cumulative_normalized_training_mse": 0.3921543138470405,
+        "last_batch_normalized_training_mse": 0.32607842491817834,
+        "validation_target_snr_db": 2.8512272850237252,
+        "validation_target_rmse": 7.157548248839823,
+        "validation_target_reference_energy": 2237830414.4522996,
+        "validation_target_error_energy": 1160658466.0365298
+      },
+      {
+        "step": 2000,
+        "cumulative_training_queries": 256000,
+        "cumulative_training_samples": 98304000,
+        "cumulative_normalized_training_mse": 0.3065782492256769,
+        "last_batch_normalized_training_mse": 0.14323426967097444,
+        "validation_target_snr_db": 3.052411003816662,
+        "validation_target_rmse": 6.993669392708668,
+        "validation_target_reference_energy": 2237830414.4522996,
+        "validation_target_error_energy": 1108118158.6500547
+      },
+      {
+        "step": 3000,
+        "cumulative_training_queries": 384000,
+        "cumulative_training_samples": 147456000,
+        "cumulative_normalized_training_mse": 0.25599584412931553,
+        "last_batch_normalized_training_mse": 0.09067269847866433,
+        "validation_target_snr_db": 3.8284448581321584,
+        "validation_target_rmse": 6.39592563536596,
+        "validation_target_reference_energy": 2237830414.4522996,
+        "validation_target_error_energy": 926792874.7737689
+      },
+      {
+        "step": 4000,
+        "cumulative_training_queries": 512000,
+        "cumulative_training_samples": 196608000,
+        "cumulative_normalized_training_mse": 0.22564884517530068,
+        "last_batch_normalized_training_mse": 0.07951572762199868,
+        "validation_target_snr_db": 4.224540766746898,
+        "validation_target_rmse": 6.110807601383407,
+        "validation_target_reference_energy": 2237830414.4522996,
+        "validation_target_error_energy": 846005322.6074296
+      },
+      {
+        "step": 5000,
+        "cumulative_training_queries": 640000,
+        "cumulative_training_samples": 245760000,
+        "cumulative_normalized_training_mse": 0.19545893057225638,
+        "last_batch_normalized_training_mse": 0.03337067548010423,
+        "validation_target_snr_db": 7.400083722559927,
+        "validation_target_rmse": 4.23956660333075,
+        "validation_target_reference_energy": 2237830414.4522996,
+        "validation_target_error_energy": 407210342.4520644
+      }
+    ],
+    "history_semantics": "train_loss is cumulative normalized squared error / cumulative sample count; batch_loss is a single final batch, not a full-training rescore",
+    "final_validation_metrics": {
+      "error_energy": 407210342.4520644,
+      "reference_energy": 2237830414.4522996,
+      "relative_l2": 0.42657540705729335,
+      "rmse": 4.23956660333075,
+      "sample_count": 22655616,
+      "snr_db": 7.400083722559927,
+      "snr_status": "finite",
+      "trace_count": 58999
+    },
+    "best_validation_metrics": {
+      "error_energy": 407210342.4520644,
+      "reference_energy": 2237830414.4522996,
+      "relative_l2": 0.42657540705729335,
+      "rmse": 4.23956660333075,
+      "sample_count": 22655616,
+      "snr_db": 7.400083722559927,
+      "snr_status": "finite",
+      "trace_count": 58999
+    },
+    "best_step": 5000,
+    "frozen_final_metrics": {
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 407197373.6982853,
+      "snr_db": 7.400222038002973,
+      "snr_status": "finite",
+      "rmse": 4.23949909235737,
+      "relative_l2": 0.4265686142589616
+    },
+    "resources": {
+      "training": {
+        "native": {
+          "cuda_device_capability": [
+            9,
+            0
+          ],
+          "cuda_device_name": "NVIDIA H100 NVL",
+          "cuda_matmul_allow_tf32": true,
+          "cuda_max_memory_allocated_bytes": 47725349376,
+          "cuda_max_memory_reserved_bytes": 48083501056,
+          "cuda_total_memory_bytes": 99951706112,
+          "cudnn_allow_tf32": true,
+          "cudnn_benchmark": true,
+          "cudnn_deterministic": false,
+          "cudnn_version": 90400,
+          "elapsed_seconds": 3592.8192057684064,
+          "float32_matmul_precision": "high",
+          "process_max_rss_kib": 9413148,
+          "torch_cuda_version": "12.6"
+        },
+        "outer_elapsed_seconds": 3613.102514443919,
+        "scope": "whole_native_process_including_validation_and_auxiliary_best_prediction",
+        "gpu_GB_definition": "1 GB = 1e9 bytes",
+        "single_run": true
+      },
+      "frozen_prediction": {
+        "native": {
+          "cuda_device_capability": [
+            9,
+            0
+          ],
+          "cuda_device_name": "NVIDIA H100 NVL",
+          "cuda_matmul_allow_tf32": true,
+          "cuda_max_memory_allocated_bytes": 1447902720,
+          "cuda_max_memory_reserved_bytes": 8373927936,
+          "cuda_total_memory_bytes": 99951706112,
+          "cudnn_allow_tf32": true,
+          "cudnn_benchmark": false,
+          "cudnn_deterministic": false,
+          "cudnn_version": 90400,
+          "elapsed_seconds": 98.91558305267245,
+          "float32_matmul_precision": "high",
+          "process_max_rss_kib": 2496940,
+          "torch_cuda_version": "12.6"
+        },
+        "outer_elapsed_seconds": 105.55034559965134,
+        "scope": "whole_native_frozen_prediction_process",
+        "gpu_GB_definition": "1 GB = 1e9 bytes",
+        "single_run": true
+      }
+    },
+    "audit": {
+      "source": "runs/study_032_c3_proposed_gnn_10db/20260909T070636656122Z_e39df16d563c_global5k_completion_handoff/verification/result.json",
+      "status": "failed_checks",
+      "saved_full_target_rescore": {
+        "native_order_exact": "passed",
+        "dense_versus_native_order": "passed",
+        "all_prediction_samples_finite": true,
+        "query_index_matches_complete_domain": true,
+        "observed_reinsertion_max_abs_error": 0.0
+      },
+      "cross_run_energy": {
+        "status": "failed_tolerance",
+        "counts_equal": true,
+        "energy_checks": {
+          "reference_energy": true,
+          "error_energy": false
+        },
+        "rtol": 1e-06,
+        "atol": 1e-12,
+        "actual": {
+          "trace_count": 58999,
+          "sample_count": 22655616,
+          "reference_energy": 2237830414.4522996,
+          "error_energy": 407197373.6982853,
+          "snr_db": 7.400222038002973,
+          "snr_status": "finite",
+          "rmse": 4.23949909235737,
+          "relative_l2": 0.4265686142589616
+        },
+        "expected": {
+          "error_energy": 407210342.4520644,
+          "reference_energy": 2237830414.4522996,
+          "relative_l2": 0.42657540705729335,
+          "rmse": 4.23956660333075,
+          "sample_count": 22655616,
+          "snr_db": 7.400083722559927,
+          "snr_status": "finite",
+          "trace_count": 58999
+        }
+      },
+      "auxiliary_best_vs_training_best": "passed",
+      "checkpoint_integrity": {
+        "status": "passed",
+        "final_step": 5000,
+        "best_step": 5000,
+        "final_checkpoint_sha256": "ca36e51252a4a1da5d1296a127884240425e291346421e76ea62f1323864f4c9",
+        "training_provenance_and_fixed_preprocessing_verified": true,
+        "best_and_final_weights_equal": true,
+        "best_and_final_equality_required": false
+      },
+      "cpu_checkpoint_restoration": {
+        "status": "failed_tolerance",
+        "metrics": {
+          "normalized_difference_rmse": 0.0001303417155477728,
+          "normalized_difference_max_abs": 0.008969336571150432,
+          "physical_relative_l2": 0.0004943176838516647
+        },
+        "physical_relative_l2_null_reason": null,
+        "thresholds": {
+          "normalized_difference_rmse": 0.0001,
+          "normalized_difference_max_abs": 0.001,
+          "physical_relative_l2": 0.001
+        },
+        "normalized_difference_definition": "(CPU physical - saved physical) / checkpoint amplitude_scale",
+        "threshold_decisions": {
+          "normalized_difference_rmse": false,
+          "normalized_difference_max_abs": false,
+          "physical_relative_l2": true
+        },
+        "sample_count": 438912,
+        "query_count": 1143,
+        "device": "cpu",
+        "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+        "float32_matmul_precision": "high",
+        "torch_num_threads": 1,
+        "cuda_initialized": false,
+        "target_truth_passed_to_forward": false,
+        "saved_checkpoint_preprocessing_used_without_refit": true,
+        "diagnostic_scope": "CPU restoration on first/central/last complete native query batches; native GPU numerical execution differs. Fixed engineering criteria, not a full-target bit-equality guarantee or the separate cross-run energy tolerance."
+      },
+      "cpu_batch_indices": [
+        0,
+        58,
+        115
+      ],
+      "cpu_batch_query_counts": [
+        512,
+        512,
+        119
+      ],
+      "source_hashes_unchanged": true,
+      "request_unchanged": true,
+      "cross_run_error_energy_relative_difference": 3.184780057652867e-05
+    }
+  },
+  "idw": {
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T072919882594Z_e39df16d563c_direct_idw_waveform_cpu/result.json",
+    "graph": {
+      "neighbors_per_relation": 2,
+      "radius": 1.0,
+      "neighbor_search": "exact_index",
+      "dependency_rounds": 2,
+      "common_distance_scales_m": [
+        320.0,
+        320.0
+      ]
+    },
+    "physical_waveform_rule": "Public predict_trace_graph_idw: unique direct observed sender union across four relations; normalized weights 1/max(D0,1e-6)^2; original physical float32 waveforms",
+    "unit_waveform_rule": "Observed physical per-trace RMS in float64 over selected384 samples. Nonzero waveforms divided by own RMS, zero traces stayzero. Public IDW of float32 unit waveforms times public same-weight IDW of float32 observed RMS. No renormalization of averaged unit waveform. Product saved float32 physical units.",
+    "oracle_target_waveform_used": false,
+    "different_from_oracle_unit_target_waveform_amplitude_only_diagnostic": true,
+    "observed_read_calls": 1,
+    "observed_rows_read": 14729,
+    "observed_samples_read": 5655936,
+    "target_samples_read_during_interpolation": 0,
+    "predictions_sealed_before_scoring": true,
+    "zero_context_queries": 0,
+    "elapsed_seconds": 75.5410554278642,
+    "peak_rss_bytes": 1060728832,
+    "cpu_threads": 1,
+    "gpu_used": false
+  },
+  "external_siren_reference": {
+    "classification": "adopted_external_fixed_shear_reference",
+    "adoption_record": "results/study_031_c3_siren_10db/20260909T055026000000Z_e39df16d563c_shear_reference_adoption/adoption_decision.json",
+    "metrics": {
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 164290239.16707164,
+      "snr_db": 11.342154102264281,
+      "snr_status": "finite",
+      "rmse": 2.692885844540137,
+      "relative_l2": 0.27095195871933275
+    },
+    "shear_s_per_m": 0.0006,
+    "training_information": "same_validation_crop_observed_waveforms; observed_only_fitted_per_trace_scales_and_shear_diagnostic",
+    "same_training_information_or_preprocessing_claim": false,
+    "gnn_uses_shear": false
+  },
+  "numerical_discrepancy_investigation": {
+    "status_at_publication": "four_condition_numeric_diagnostic_pending",
+    "environment_observation": {
+      "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "1",
+      "NVIDIA_TF32_OVERRIDE": null,
+      "CUBLAS_WORKSPACE_CONFIG": null
+    },
+    "environment_observation_scope": "fresh CPU-only probe of current environment; not retroactive capture of historical training or prediction processes",
+    "evidence_source": "runs/study_032_c3_proposed_gnn_10db/20260909T075134169185Z_e39df16d563c_torch_numerical_environment/result.json",
+    "evidence_source_null_reason": null,
+    "root_cause_established": false,
+    "fixed_original_audit_failures_retained": true,
+    "no_tolerance_relaxation": true
+  },
+  "observed_trace_rms_training_included": false,
+  "scope_limit": "one seed, one fixed validation case; width/batch/learning-rate/budget differ from 200-step baseline; no isolated-factor causal claim"
+}

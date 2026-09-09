@@ -1,0 +1,451 @@
+{
+  "created_at_utc": "2026-09-09T09:34:03.276278+00:00",
+  "scope": "Completed observed_trace_rms FP32 physical-MSE 5000-step investigation; compact diagnostic tables only.",
+  "model_adopted": false,
+  "gnn_10db_goal_achieved": false,
+  "suite": "data/processed/c3_na/study_029_c3_amplitude_qc/benchmark_suite.json",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "training_trace_count": 1146366,
+  "validation_observed_trace_count": 14729,
+  "primary_metrics": {
+    "error_energy": 418655126.53998643,
+    "reference_energy": 2237830414.4522996,
+    "relative_l2": 0.43252839211183236,
+    "rmse": 4.298731000081735,
+    "sample_count": 22655616,
+    "snr_db": 7.279707584432451,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "training_final_metrics": {
+    "error_energy": 418655126.60035497,
+    "reference_energy": 2237830414.4522996,
+    "relative_l2": 0.43252839214301686,
+    "rmse": 4.2987310003916654,
+    "sample_count": 22655616,
+    "snr_db": 7.279707583806214,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "auxiliary_best_metrics": {
+    "trace_count": 58999,
+    "sample_count": 22655616,
+    "reference_energy": 2237830414.4522996,
+    "error_energy": 418655126.54978293,
+    "snr_db": 7.279707584330826,
+    "snr_status": "finite",
+    "rmse": 4.29873100013203,
+    "relative_l2": 0.4325283921168929
+  },
+  "best_and_final_step": 5000,
+  "best_and_final_weights_equal": true,
+  "model": {
+    "amplitude_mode": "observed_trace_rms",
+    "attention_width": 32,
+    "message_passing_rounds": 2,
+    "relation_embedding_dim": 8,
+    "relation_fusion": "learned_gate",
+    "stem_kernel_size": 7,
+    "temporal_dilations": [
+      1,
+      2
+    ],
+    "temporal_kernel_size": 5,
+    "time_downsample_factor": 2,
+    "width": 64
+  },
+  "parameter_count": 101701,
+  "graph": {
+    "candidate_chunk_size": 4096,
+    "common_distance_scales_m": [
+      320.0,
+      320.0
+    ],
+    "neighbor_search": "exact_index",
+    "neighbors_per_relation": 2,
+    "radius": 1.0,
+    "relation_names": [
+      "source",
+      "receiver",
+      "cmp",
+      "offset_azimuth"
+    ],
+    "relation_scales_m": [
+      [
+        160.0,
+        640.0
+      ],
+      [
+        640.0,
+        160.0
+      ],
+      [
+        160.0,
+        640.0
+      ],
+      [
+        640.0,
+        160.0
+      ]
+    ]
+  },
+  "training": {
+    "device": "cuda:1",
+    "gradient_clip_norm": 1.0,
+    "learning_rate": 0.001,
+    "loss": "masked_mse",
+    "max_steps": 5000,
+    "query_batch_size": 128,
+    "random_seed": 20260908,
+    "steps_completed": 5000,
+    "validation_interval": 1000,
+    "weight_decay": 0.0
+  },
+  "exposure": {
+    "query_count": 640000,
+    "sample_count": 245760000,
+    "episodes_completed": 0,
+    "final_episode_interrupted": true
+  },
+  "numeric_settings_by_phase": {
+    "training": {
+      "float32_matmul_precision": "highest",
+      "cuda_matmul_allow_tf32": false,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "environment": {
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+        "NVIDIA_TF32_OVERRIDE": "0"
+      }
+    },
+    "frozen_prediction": {
+      "float32_matmul_precision": "highest",
+      "cuda_matmul_allow_tf32": false,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": false,
+      "cudnn_deterministic": false,
+      "environment": {
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+        "NVIDIA_TF32_OVERRIDE": "0"
+      }
+    },
+    "cpu_restoration": {
+      "device": "cpu",
+      "float32_matmul_precision": "highest",
+      "torch_num_threads": 1,
+      "cuda_initialized": false,
+      "environment": {
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+        "NVIDIA_TF32_OVERRIDE": "0",
+        "CUDA_VISIBLE_DEVICES": ""
+      },
+      "cudnn_benchmark": null,
+      "cudnn_benchmark_null_reason": "not recorded by the CPU audit; GPU cuDNN execution not used"
+    }
+  },
+  "resources": {
+    "training": {
+      "native": {
+        "cuda_device_capability": [
+          9,
+          0
+        ],
+        "cuda_device_name": "NVIDIA H100 NVL",
+        "cuda_matmul_allow_tf32": false,
+        "cuda_max_memory_allocated_bytes": 47998435328,
+        "cuda_max_memory_reserved_bytes": 48179970048,
+        "cuda_total_memory_bytes": 99951706112,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": true,
+        "cudnn_deterministic": false,
+        "cudnn_version": 90400,
+        "elapsed_seconds": 4341.532759184018,
+        "float32_matmul_precision": "highest",
+        "process_max_rss_kib": 9256896,
+        "torch_cuda_version": "12.6"
+      },
+      "outer_elapsed_seconds": 4366.1023899279535,
+      "scope": "whole_native_process_including_validation_and_auxiliary_best_prediction"
+    },
+    "frozen_prediction": {
+      "native": {
+        "cuda_device_capability": [
+          9,
+          0
+        ],
+        "cuda_device_name": "NVIDIA H100 NVL",
+        "cuda_matmul_allow_tf32": false,
+        "cuda_max_memory_allocated_bytes": 1447972352,
+        "cuda_max_memory_reserved_bytes": 8654946304,
+        "cuda_total_memory_bytes": 99951706112,
+        "cudnn_allow_tf32": true,
+        "cudnn_benchmark": false,
+        "cudnn_deterministic": false,
+        "cudnn_version": 90400,
+        "elapsed_seconds": 103.46889164298773,
+        "float32_matmul_precision": "highest",
+        "process_max_rss_kib": 2490856,
+        "torch_cuda_version": "12.6"
+      },
+      "outer_elapsed_seconds": 109.93627768009901,
+      "scope": "whole_native_frozen_prediction_process"
+    }
+  },
+  "cpu_audit_process_seconds": 39.44943040702492,
+  "checkpoint": {
+    "path": "runs/study_032_c3_proposed_gnn_10db/20260909T080650653168Z_e39df16d563c_gnn-train/native/artifacts/final.pt",
+    "sha256": "14120809c38bd37f79db702c959249b98edeb8036104d33658a4373d6551f6d6",
+    "role": "final",
+    "step": 5000
+  },
+  "audit": {
+    "status": "success",
+    "native_order_exact_rescore": {
+      "status": "passed"
+    },
+    "dense_versus_native_order": {
+      "status": "passed",
+      "counts_equal": true,
+      "energy_checks": {
+        "reference_energy": true,
+        "error_energy": true
+      },
+      "rtol": 1e-06,
+      "atol": 1e-12,
+      "actual": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 418655126.5399848,
+        "snr_db": 7.279707584432451,
+        "snr_status": "finite",
+        "rmse": 4.298731000081727,
+        "relative_l2": 0.4325283921118327
+      },
+      "expected": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522996,
+        "error_energy": 418655126.53998643,
+        "snr_db": 7.279707584432451,
+        "snr_status": "finite",
+        "rmse": 4.298731000081735,
+        "relative_l2": 0.43252839211183236
+      }
+    },
+    "all_prediction_samples_finite": true,
+    "query_index_matches_complete_domain": true,
+    "observed_reinsertion_max_abs_error": 0.0,
+    "cross_run_energy": {
+      "status": "passed",
+      "counts_equal": true,
+      "energy_checks": {
+        "reference_energy": true,
+        "error_energy": true
+      },
+      "rtol": 1e-06,
+      "atol": 1e-12,
+      "actual": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522996,
+        "error_energy": 418655126.53998643,
+        "snr_db": 7.279707584432451,
+        "snr_status": "finite",
+        "rmse": 4.298731000081735,
+        "relative_l2": 0.43252839211183236
+      },
+      "expected": {
+        "error_energy": 418655126.60035497,
+        "reference_energy": 2237830414.4522996,
+        "relative_l2": 0.43252839214301686,
+        "rmse": 4.2987310003916654,
+        "sample_count": 22655616,
+        "snr_db": 7.279707583806214,
+        "snr_status": "finite",
+        "trace_count": 58999
+      }
+    },
+    "cross_run_error_energy_relative_difference": 1.441963422090359e-10,
+    "auxiliary_best_comparison": {
+      "status": "passed",
+      "counts_equal": true,
+      "energy_checks": {
+        "reference_energy": true,
+        "error_energy": true
+      },
+      "rtol": 1e-06,
+      "atol": 1e-12,
+      "actual": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522996,
+        "error_energy": 418655126.54978293,
+        "snr_db": 7.279707584330826,
+        "snr_status": "finite",
+        "rmse": 4.29873100013203,
+        "relative_l2": 0.4325283921168929
+      },
+      "expected": {
+        "error_energy": 418655126.60035497,
+        "reference_energy": 2237830414.4522996,
+        "relative_l2": 0.43252839214301686,
+        "rmse": 4.2987310003916654,
+        "sample_count": 22655616,
+        "snr_db": 7.279707583806214,
+        "snr_status": "finite",
+        "trace_count": 58999
+      }
+    },
+    "cpu_restoration": {
+      "status": "passed",
+      "metrics": {
+        "normalized_difference_rmse": 1.7837111475632537e-07,
+        "normalized_difference_max_abs": 9.79394328958121e-06,
+        "physical_relative_l2": 6.686605962611417e-07
+      },
+      "physical_relative_l2_null_reason": null,
+      "thresholds": {
+        "normalized_difference_rmse": 0.0001,
+        "normalized_difference_max_abs": 0.001,
+        "physical_relative_l2": 0.001
+      },
+      "normalized_difference_definition": "(CPU physical - saved physical) / checkpoint amplitude_scale",
+      "threshold_decisions": {
+        "normalized_difference_rmse": true,
+        "normalized_difference_max_abs": true,
+        "physical_relative_l2": true
+      },
+      "sample_count": 438912,
+      "query_count": 1143,
+      "device": "cpu",
+      "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+      "float32_matmul_precision": "highest",
+      "torch_num_threads": 1,
+      "cuda_initialized": false,
+      "target_truth_passed_to_forward": false,
+      "saved_checkpoint_preprocessing_used_without_refit": true,
+      "diagnostic_scope": "CPU restoration on first/central/last complete native query batches; native GPU numerical execution differs. Fixed engineering criteria, not a full-target bit-equality guarantee or the separate cross-run energy tolerance."
+    },
+    "cpu_native_batch_indices": [
+      0,
+      58,
+      115
+    ],
+    "cpu_native_batch_query_counts": [
+      512,
+      512,
+      119
+    ],
+    "source_hashes_unchanged": true,
+    "request_unchanged": true
+  },
+  "physical_comparison": [
+    {
+      "condition": "global_rms_tf32_5000",
+      "evaluation_scope": "all_fixed_validation_targets_physical",
+      "amplitude_mode": "train_global_rms",
+      "numerical_policy": "TF32 enabled",
+      "steps": 5000,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "snr_db": 7.400222038002973,
+      "rmse": 4.23949909235737,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 407197373.6982853,
+      "saved_native_order_rescore": "passed",
+      "cross_run_energy_audit": "failed_tolerance",
+      "cpu_restoration_audit": "failed_tolerance",
+      "model_adopted": false,
+      "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T070636656122Z_e39df16d563c_global5k_completion_handoff/verification/result.json"
+    },
+    {
+      "condition": "observed_trace_rms_fp32_5000",
+      "evaluation_scope": "all_fixed_validation_targets_physical",
+      "amplitude_mode": "observed_trace_rms",
+      "numerical_policy": "TF32 disabled",
+      "steps": 5000,
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "snr_db": 7.279707584432451,
+      "rmse": 4.298731000081735,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 418655126.53998643,
+      "saved_native_order_rescore": "passed",
+      "cross_run_energy_audit": "passed",
+      "cpu_restoration_audit": "passed",
+      "model_adopted": false,
+      "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T081425547636Z_e39df16d563c_observed_rms_fp32_completion_handoff/verification/result.json"
+    }
+  ],
+  "learning_progress": [
+    {
+      "step": 1000,
+      "cumulative_training_queries": 128000,
+      "cumulative_training_samples": 49152000,
+      "cumulative_global_normalized_training_mse": 0.4604302970792811,
+      "last_batch_global_normalized_mse": 0.14733634880181798,
+      "full_validation_target_snr_db": 2.832687750729619,
+      "full_validation_target_rmse": 7.172841941863404,
+      "full_validation_target_error_energy": 1165623774.7940385
+    },
+    {
+      "step": 2000,
+      "cumulative_training_queries": 256000,
+      "cumulative_training_samples": 98304000,
+      "cumulative_global_normalized_training_mse": 0.37623139890981777,
+      "last_batch_global_normalized_mse": 0.2726856288370904,
+      "full_validation_target_snr_db": 3.5275667764195795,
+      "full_validation_target_rmse": 6.6213616588857125,
+      "full_validation_target_error_energy": 993277263.5204067
+    },
+    {
+      "step": 3000,
+      "cumulative_training_queries": 384000,
+      "cumulative_training_samples": 147456000,
+      "cumulative_global_normalized_training_mse": 0.3188101096537913,
+      "last_batch_global_normalized_mse": 0.10250644540608926,
+      "full_validation_target_snr_db": 3.8075660141345224,
+      "full_validation_target_rmse": 6.411318435261971,
+      "full_validation_target_error_energy": 931259188.0770786
+    },
+    {
+      "step": 4000,
+      "cumulative_training_queries": 512000,
+      "cumulative_training_samples": 196608000,
+      "cumulative_global_normalized_training_mse": 0.28498073529387175,
+      "last_batch_global_normalized_mse": 0.09116619113593226,
+      "full_validation_target_snr_db": 5.141793956845913,
+      "full_validation_target_rmse": 5.498395186198559,
+      "full_validation_target_error_energy": 684932503.8502865
+    },
+    {
+      "step": 5000,
+      "cumulative_training_queries": 640000,
+      "cumulative_training_samples": 245760000,
+      "cumulative_global_normalized_training_mse": 0.2499979987238124,
+      "last_batch_global_normalized_mse": 0.04204254273703628,
+      "full_validation_target_snr_db": 7.279707583806214,
+      "full_validation_target_rmse": 4.2987310003916654,
+      "full_validation_target_error_energy": 418655126.60035497
+    }
+  ],
+  "comparison_limit": "Amplitude path and TF32 execution both differ from old global-RMS run; not a single-factor amplitude ablation. Old failed checks are retained.",
+  "fixed_four_training_loss_diagnostic": {
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T091758495983Z_e39df16d563c_relative_mse_fixed_training_fit/result.json",
+    "scope": "fixed_four_authorized_training_queries_loss_fit_only_not_full_target_selection_or_generalization",
+    "unique_training_queries": 4,
+    "steps": 1000,
+    "physical_mse_snr_db": 21.100294681514264,
+    "relative_mse_snr_db": 21.39899356739692,
+    "relative_mse_physical_rmse": 0.9768306499241263,
+    "delta_db": 0.2986988858826578,
+    "checkpoint_cpu_restoration_bitwise": true,
+    "full_target_or_generalization_evidence": false
+  },
+  "next_relative_loss_rationale": "Prior train energy concentration; teacher RMS only detached loss weighting. No next-candidate full-target results included.",
+  "training_and_evaluation_boundary": "Train-partition labels only during training; validation observed inputs only for prediction; target truth used only for scoring; test unused; no fixed shear.",
+  "new_model_execution_or_rescoring": false
+}

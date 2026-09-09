@@ -1,0 +1,54 @@
+{
+  "status": "adopted",
+  "model_adopted": true,
+  "no_shear_gnn_10db_goal_achieved": true,
+  "authority": "User-authorized proposed-GNN >10dB goal; root requests final5000 plus unchanged fixed audits.",
+  "provenance": {
+    "created_at_utc": "2026-09-09T10:55:11.479095+00:00",
+    "publication_git_head": "00e9e555d9fbc6fc2697dbde52cc134e0b6d2f93",
+    "publication_git_worktree_dirty": true,
+    "training_source_git_commit": "e39df16d563ca8fde2a1147f078f78548488595a",
+    "training_source_manifest": "runs/study_032_c3_proposed_gnn_10db/20260909T093547080821Z_e39df16d563c_cudnn_benchmark_implementation_checks/source_manifest.json",
+    "training_source_manifest_sha256": "e6898e235c139966be59697062872628f82f8d96343dd48e34bbd7ea2792541e",
+    "note": "Source code committed after training; publication HEAD is distinct from immutable training run provenance.",
+    "unpublished_predecessor": "runs/study_032_c3_proposed_gnn_10db/20260909T104927400071Z_00e9e555d9fb_relative_mse_final_publication",
+    "unpublished_predecessor_reason": "Awaiting a separately authorized layout-only correction to the qualitative gather figure; no results copy was adopted from that publication preparation."
+  },
+  "selection_rule": "Final5000 full-case physical SNR strictly greater than10 and all predeclared audits pass.",
+  "role": "final",
+  "step": 5000,
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "physical_target_metrics": {
+    "error_energy": 143312260.84446973,
+    "reference_energy": 2237830414.4522996,
+    "relative_l2": 0.2530626710344306,
+    "rmse": 2.5150911911880325,
+    "sample_count": 22655616,
+    "snr_db": 11.93543824732025,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "training_native": "runs/study_032_c3_proposed_gnn_10db/20260909T094605478732Z_e39df16d563c_gnn-train/native",
+  "prediction_native": "runs/study_032_c3_proposed_gnn_10db/20260909T104419208387Z_e39df16d563c_gnn-predict/native",
+  "checkpoint": {
+    "path": "runs/study_032_c3_proposed_gnn_10db/20260909T094605478732Z_e39df16d563c_gnn-train/native/artifacts/final.pt",
+    "sha256": "08760de6d26c09da271ee3f67c2a9c60950f6234a12e30c403fd502522ae07f0"
+  },
+  "saved_prediction": {
+    "path": "runs/study_032_c3_proposed_gnn_10db/20260909T104419208387Z_e39df16d563c_gnn-predict/native/artifacts/prediction.npy",
+    "sha256": "1328fc58d0ed55ccddf9d452d3d24c79321a07c0694baf0913edd8a92c39fa50"
+  },
+  "audit_result": {
+    "path": "runs/study_032_c3_proposed_gnn_10db/20260909T094810579105Z_e39df16d563c_relative_mse_no_benchmark_completion_handoff/verification/result.json",
+    "sha256": "6ef5cd1fed4860102c6c17a0a86a7af7977fd5dd34e2d153879505d93c2f8f16",
+    "status": "success"
+  },
+  "best_step": 3000,
+  "best_checkpoint_is_not_primary": true,
+  "fixed_shear_used": false,
+  "learned_edge_lag_used": false,
+  "validation_truth_used_for_training": false,
+  "test_partition_used": false,
+  "scope_limit": "One fixed validation case and seed; observed validation inputs only; no cross-dataset generalization claim."
+}

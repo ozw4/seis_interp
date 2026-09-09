@@ -1,0 +1,71 @@
+model:
+  name: relational_trace_graph
+  width: 64
+  message_passing_rounds: 2
+  time_downsample_factor: 2
+  stem_kernel_size: 7
+  temporal_kernel_size: 5
+  temporal_dilations:
+  - 1
+  - 2
+  attention_width: 32
+  relation_embedding_dim: 8
+  relation_fusion: learned_gate
+  method_variant: relational
+  explicit_azimuth_features: true
+  amplitude_mode: observed_trace_rms
+graph:
+  neighbors_per_relation: 2
+  max_normalized_distance: 1.0
+  candidate_chunk_size: 4096
+  topology: multi_relation
+  excluded_relation: null
+  common_distance_scales_m:
+  - 320.0
+  - 320.0
+  single_4d_neighbors: 32
+  relations:
+    source:
+      source_scale_m: 160.0
+      receiver_scale_m: 640.0
+    receiver:
+      source_scale_m: 640.0
+      receiver_scale_m: 160.0
+    cmp:
+      midpoint_scale_m: 160.0
+      offset_vector_scale_m: 640.0
+    offset_azimuth:
+      midpoint_scale_m: 640.0
+      offset_vector_scale_m: 160.0
+  neighbor_search: exact_index
+geometry_features:
+  position_scale_m: 1000.0
+  offset_scale_m: 1000.0
+  azimuth_min_offset_m: 1.0
+training_data:
+  pool: all_train_traces
+  time_samples:
+  - 0
+  - 384
+  max_abs_amplitude: 10000.0
+training_mask:
+  kinds:
+  - random_trace
+  kind_probabilities:
+  - 1.0
+  missing_fractions:
+  - 0.8
+training:
+  device: cuda:1
+  random_seed: 20260908
+  loss: masked_mse
+  max_steps: 5000
+  query_batch_size: 128
+  validation_interval: 1000
+  learning_rate: 0.001
+  weight_decay: 0.0
+  gradient_clip_norm: 1.0
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target
+  query_batch_size: 512

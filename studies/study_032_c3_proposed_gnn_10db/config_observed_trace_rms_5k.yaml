@@ -1,0 +1,139 @@
+study:
+  id: study_032_c3_proposed_gnn_10db
+  status: observed_trace_rms_width64_batch128_5k_declared_comparison
+  goal: strictly_greater_than_10_db_physical_global_target_snr
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 25200
+  preflight_timeout_seconds: 600
+  device: cuda:1
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  budget_extension: explicit_recorded_revision_only
+  source_snapshot: ../../runs/study_032_c3_proposed_gnn_10db/20260909T065803442266Z_e39df16d563c_amplitude_implementation_checks/source/src
+  source_manifest: ../../runs/study_032_c3_proposed_gnn_10db/20260909T065803442266Z_e39df16d563c_amplitude_implementation_checks/source_manifest.json
+  source_manifest_sha256: f1666a5e283f2a1a3b1764bc8416f3f2e1baab1aa3f808d43f7c55b0f52ee009
+seeds:
+  partition: 42
+  training: 20260908
+  siren_sampler: 20260908
+  ccnet_patches: 20260908
+  gnn_episodes: 20260908
+methods:
+  gnn-train:
+    native_fragment: methods/observed_trace_rms_width64_batch128_5k.yaml
+    model_description: proposed_observed_trace_rms_width64_k2_batch128_lr1e-3_5000_updates
+    preflight:
+      train_batches: 1
+      validation_query_counts:
+      - 32
+      - 128
+      - 512
+      evaluate_baselines: false
+  gnn-predict:
+    native_fragment: methods/gnn_predict512.yaml
+    checkpoint_role: final
+training_information:
+  allowed_pool: suite_canonical_train_rows_after_437_qc_exclusions
+  time_samples:
+  - 0
+  - 384
+  gnn: all_train_traces
+  normalization: train_global_RMS_with_model_internal_observed_trace_RMS_and_direct_sender_D0_IDW_gain
+  fixed_time_shear: 0.0
+  equal_actual_training_exposure_claimed: false
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  context_free_targets: include
+  null_snr: preserve_native_status
+  target_amplitudes: evaluation_and_visualization_only
+  validation_metrics: selection_and_diagnosis_only_never_gradient_or_normalization
+  primary_checkpoint: final_after_declared_budget
+  best_checkpoint: auxiliary_only
+  zero_fill: sanity_baseline
+completion:
+  required_methods:
+  - relational_trace_graph
+  required_outputs:
+  - full_volume_predictions
+  - all_target_metrics
+  - resource_measurements
+  - independent_saved_output_rescore
+  - checkpoint_restoration_audit
+  snr_threshold_db: 10.0
+  threshold_comparison: strictly_greater
+  automatic_quality_retries: false
+  budget_revision: declare_each_condition_before_execution_based_on_previous_evidence
+  test_execution: false
+resource_revisions:
+  prediction_batch512:
+    evidence_run: ../../runs/study_032_c3_proposed_gnn_10db/20260909T061247123392Z_e39df16d563c_gpu_batch_resource_audit
+    change:
+      validation_and_prediction_query_batch_size:
+        before: 32
+        after: 512
+    training_settings_unchanged: true
+    query_coverage_unchanged: true
+    preflight_cudnn_benchmark: false
+    native_training_cudnn_benchmark: true
+    preflight_peak_is_not_native_autotune_upper_bound: true
+    measured_prediction512_peak_allocated_bytes: 526134272
+    action_budget_seconds: 3600
+  training_budget_5k:
+    baseline_training_run: ../../runs/study_032_c3_proposed_gnn_10db/20260909T061757682539Z_e39df16d563c_gnn-train
+    baseline_saved_prediction_audit: ../../runs/study_032_c3_proposed_gnn_10db/20260909T063224611091Z_e39df16d563c_qc_baseline_audit/verification
+    fixed_training_fit: ../../runs/study_032_c3_proposed_gnn_10db/20260909T055522574642Z_e39df16d563c_fixed_training_fit
+    native_gpu_resource_audit: ../../runs/study_032_c3_proposed_gnn_10db/20260909T062359761092Z_e39df16d563c_width64_native_gpu_resource_audit
+    graph_cache_equivalence_audit: ../../runs/study_032_c3_proposed_gnn_10db/20260909T063419334180Z_e39df16d563c_observed_neighbor_cache_cpu_audit
+    changes:
+      width:
+      - 32
+      - 64
+      attention_width:
+      - 16
+      - 32
+      query_batch_size:
+      - 4
+      - 128
+      learning_rate:
+      - 0.0001
+      - 0.001
+      max_steps:
+      - 200
+      - 5000
+      validation_interval:
+      - 200
+      - 1000
+    normalization: unchanged_QC_train_global_RMS
+    fixed_time_shear: 0.0
+    primary_checkpoint: final_5000_updates
+    query_exposure: 640000
+    full_validation_queries: 58999
+    full_validation_time_samples: 384
+    action_budget_seconds: 25200
+    quality_retries: false
+    single_change_causal_attribution_claimed: false
+  observed_trace_rms_comparison:
+    reference_condition: config_global_rms_5k.yaml
+    changes:
+      model.amplitude_mode:
+      - train_global_rms
+      - observed_trace_rms
+    input_gain: unique direct observed sender RMS with D0-IDW p2 epsilon1e-6
+    target_rms_used_for_training_or_gain: false
+    physical_masked_mse_unchanged: true
+    optimizer_geometry_budget_seed_unchanged: true
+    source_checks: ../../runs/study_032_c3_proposed_gnn_10db/20260909T065803442266Z_e39df16d563c_amplitude_implementation_checks/checks.json
+    fixed_time_shear: 0.0
+    action_budget_seconds: 25200
+    primary_checkpoint: final_5000_updates
+    training_status: not_started
+    fixed_training_fit_evidence: ../../runs/study_032_c3_proposed_gnn_10db/20260909T065545217094Z_e39df16d563c_observed_trace_rms_fixed_training_fit/result.json
+    observed_only_query_rms_diagnostic: ../../runs/study_032_c3_proposed_gnn_10db/20260909T065820188571Z_e39df16d563c_observed_query_rms_audit/result.json
+    scale_response_reference: ../../runs/study_032_c3_proposed_gnn_10db/20260909T063032471309Z_e39df16d563c_scale_equivariance/result.json

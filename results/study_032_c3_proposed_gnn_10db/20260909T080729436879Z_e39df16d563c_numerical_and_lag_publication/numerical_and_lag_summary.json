@@ -1,0 +1,633 @@
+{
+  "publication_scope": "Three completed diagnostics with separate evaluation scopes; no GNN model adoption",
+  "model_adopted": false,
+  "gnn_10db_goal_achieved": false,
+  "tf32_numerical_diagnostic": {
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic/result.json",
+    "scope": "Controlled CPU/GPU checkpoint numerical-environment diagnostic on fixed geometry; no teacher reads, training, quality scoring, or tolerance revision",
+    "checkpoint_sha256": "ca36e51252a4a1da5d1296a127884240425e291346421e76ea62f1323864f4c9",
+    "checkpoint_step": 5000,
+    "query_count": 1143,
+    "sample_count": 438912,
+    "batches": [
+      {
+        "name": "first",
+        "batch_ordinal_zero_based": 0,
+        "query_start": 0,
+        "query_stop": 512,
+        "query_count": 512,
+        "query_ids_sha256": "dbce20690615f968a56eb531d3c02083e14fdb3c9735c7c5d3f6521fa5c5739f"
+      },
+      {
+        "name": "central",
+        "batch_ordinal_zero_based": 58,
+        "query_start": 29696,
+        "query_stop": 30208,
+        "query_count": 512,
+        "query_ids_sha256": "511f72111846d9e9e70171317e5fd6ec65366667f70e1ae182cad106dfd66762"
+      },
+      {
+        "name": "last",
+        "batch_ordinal_zero_based": 115,
+        "query_start": 58880,
+        "query_stop": 58999,
+        "query_count": 119,
+        "query_ids_sha256": "eb31fbcc91029e0ebe8747aa9225ccdaa7310a5702d945287eeb6b8517a36ee7"
+      }
+    ],
+    "workers": {
+      "cpu": {
+        "runtime": {
+          "variant": "cpu",
+          "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+          "cuda_version": "12.6",
+          "cudnn_version": 90400,
+          "torch_import_defaults": {
+            "float32_matmul_precision": "high",
+            "matmul_allow_tf32": true,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "cuda_initialized": false
+          },
+          "forward_settings": {
+            "float32_matmul_precision": "high",
+            "matmul_allow_tf32": true,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "1",
+            "NVIDIA_TF32_OVERRIDE": null,
+            "CUDA_VISIBLE_DEVICES": ""
+          },
+          "cpu_threads": 1,
+          "checkpoint_sha256": "ca36e51252a4a1da5d1296a127884240425e291346421e76ea62f1323864f4c9",
+          "random_seed": 20260908,
+          "explicit_matmul_precision_setter_called": false,
+          "validation_target_truth_read": false,
+          "gpu_device_name": null
+        },
+        "elapsed_seconds": 10.315720792859793,
+        "cuda_peak_allocated_bytes": null,
+        "peak_rss_bytes": 1883533312
+      },
+      "A": {
+        "runtime": {
+          "variant": "A",
+          "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+          "cuda_version": "12.6",
+          "cudnn_version": 90400,
+          "torch_import_defaults": {
+            "float32_matmul_precision": "high",
+            "matmul_allow_tf32": true,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "cuda_initialized": false
+          },
+          "forward_settings": {
+            "float32_matmul_precision": "high",
+            "matmul_allow_tf32": true,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": true,
+            "cudnn_deterministic": false,
+            "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "1",
+            "NVIDIA_TF32_OVERRIDE": null,
+            "CUDA_VISIBLE_DEVICES": "1"
+          },
+          "cpu_threads": 1,
+          "checkpoint_sha256": "ca36e51252a4a1da5d1296a127884240425e291346421e76ea62f1323864f4c9",
+          "random_seed": 20260908,
+          "explicit_matmul_precision_setter_called": false,
+          "validation_target_truth_read": false,
+          "gpu_device_name": "NVIDIA H100 NVL"
+        },
+        "elapsed_seconds": 2.6122528119012713,
+        "cuda_peak_allocated_bytes": 37526833664,
+        "peak_rss_bytes": 1473150976
+      },
+      "B": {
+        "runtime": {
+          "variant": "B",
+          "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+          "cuda_version": "12.6",
+          "cudnn_version": 90400,
+          "torch_import_defaults": {
+            "float32_matmul_precision": "high",
+            "matmul_allow_tf32": true,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "cuda_initialized": false
+          },
+          "forward_settings": {
+            "float32_matmul_precision": "high",
+            "matmul_allow_tf32": true,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "1",
+            "NVIDIA_TF32_OVERRIDE": null,
+            "CUDA_VISIBLE_DEVICES": "1"
+          },
+          "cpu_threads": 1,
+          "checkpoint_sha256": "ca36e51252a4a1da5d1296a127884240425e291346421e76ea62f1323864f4c9",
+          "random_seed": 20260908,
+          "explicit_matmul_precision_setter_called": false,
+          "validation_target_truth_read": false,
+          "gpu_device_name": "NVIDIA H100 NVL"
+        },
+        "elapsed_seconds": 1.9170008767396212,
+        "cuda_peak_allocated_bytes": 1389828608,
+        "peak_rss_bytes": 1356259328
+      },
+      "C": {
+        "runtime": {
+          "variant": "C",
+          "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+          "cuda_version": "12.6",
+          "cudnn_version": 90400,
+          "torch_import_defaults": {
+            "float32_matmul_precision": "highest",
+            "matmul_allow_tf32": false,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "cuda_initialized": false
+          },
+          "forward_settings": {
+            "float32_matmul_precision": "highest",
+            "matmul_allow_tf32": false,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": true,
+            "cudnn_deterministic": false,
+            "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+            "NVIDIA_TF32_OVERRIDE": "0",
+            "CUDA_VISIBLE_DEVICES": "1"
+          },
+          "cpu_threads": 1,
+          "checkpoint_sha256": "ca36e51252a4a1da5d1296a127884240425e291346421e76ea62f1323864f4c9",
+          "random_seed": 20260908,
+          "explicit_matmul_precision_setter_called": false,
+          "validation_target_truth_read": false,
+          "gpu_device_name": "NVIDIA H100 NVL"
+        },
+        "elapsed_seconds": 3.102563137188554,
+        "cuda_peak_allocated_bytes": 37526833664,
+        "peak_rss_bytes": 1359691776
+      },
+      "D": {
+        "runtime": {
+          "variant": "D",
+          "torch_version": "2.5.0a0+b465a5843b.nv24.09",
+          "cuda_version": "12.6",
+          "cudnn_version": 90400,
+          "torch_import_defaults": {
+            "float32_matmul_precision": "highest",
+            "matmul_allow_tf32": false,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "cuda_initialized": false
+          },
+          "forward_settings": {
+            "float32_matmul_precision": "highest",
+            "matmul_allow_tf32": false,
+            "cudnn_allow_tf32": true,
+            "cudnn_benchmark": false,
+            "cudnn_deterministic": false,
+            "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+            "NVIDIA_TF32_OVERRIDE": "0",
+            "CUDA_VISIBLE_DEVICES": "1"
+          },
+          "cpu_threads": 1,
+          "checkpoint_sha256": "ca36e51252a4a1da5d1296a127884240425e291346421e76ea62f1323864f4c9",
+          "random_seed": 20260908,
+          "explicit_matmul_precision_setter_called": false,
+          "validation_target_truth_read": false,
+          "gpu_device_name": "NVIDIA H100 NVL"
+        },
+        "elapsed_seconds": 1.702196767553687,
+        "cuda_peak_allocated_bytes": 1389828608,
+        "peak_rss_bytes": 1307918336
+      }
+    },
+    "comparisons": [
+      {
+        "comparison": "cpu_vs_A",
+        "evaluation_scope": "fixed_1143_query_checkpoint_outputs_no_teacher",
+        "query_count": 1143,
+        "sample_count": 438912,
+        "candidate_torch_tf32_override": "1",
+        "candidate_nvidia_tf32_override": "unset",
+        "candidate_cudnn_benchmark": true,
+        "candidate_float32_matmul_precision": "high",
+        "normalized_difference_rmse": 0.0002053981649580804,
+        "normalized_difference_max_abs": 0.007851198315620422,
+        "physical_relative_l2": 0.0007789254166230232,
+        "normalized_rmse_limit": 0.0001,
+        "normalized_max_limit": 0.001,
+        "physical_relative_l2_limit": 0.001,
+        "status": "failed_tolerance",
+        "physical_bitwise_equal": false,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic/cpu_vs_A.json"
+      },
+      {
+        "comparison": "cpu_vs_B",
+        "evaluation_scope": "fixed_1143_query_checkpoint_outputs_no_teacher",
+        "query_count": 1143,
+        "sample_count": 438912,
+        "candidate_torch_tf32_override": "1",
+        "candidate_nvidia_tf32_override": "unset",
+        "candidate_cudnn_benchmark": false,
+        "candidate_float32_matmul_precision": "high",
+        "normalized_difference_rmse": 0.0001303416996427612,
+        "normalized_difference_max_abs": 0.008969336748123169,
+        "physical_relative_l2": 0.0004942907785587829,
+        "normalized_rmse_limit": 0.0001,
+        "normalized_max_limit": 0.001,
+        "physical_relative_l2_limit": 0.001,
+        "status": "failed_tolerance",
+        "physical_bitwise_equal": false,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic/cpu_vs_B.json"
+      },
+      {
+        "comparison": "cpu_vs_C",
+        "evaluation_scope": "fixed_1143_query_checkpoint_outputs_no_teacher",
+        "query_count": 1143,
+        "sample_count": 438912,
+        "candidate_torch_tf32_override": "0",
+        "candidate_nvidia_tf32_override": "0",
+        "candidate_cudnn_benchmark": true,
+        "candidate_float32_matmul_precision": "highest",
+        "normalized_difference_rmse": 1.48612546362547e-07,
+        "normalized_difference_max_abs": 6.020069122314453e-06,
+        "physical_relative_l2": 5.644830466220954e-07,
+        "normalized_rmse_limit": 0.0001,
+        "normalized_max_limit": 0.001,
+        "physical_relative_l2_limit": 0.001,
+        "status": "within_fixed_tolerances",
+        "physical_bitwise_equal": false,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic/cpu_vs_C.json"
+      },
+      {
+        "comparison": "cpu_vs_D",
+        "evaluation_scope": "fixed_1143_query_checkpoint_outputs_no_teacher",
+        "query_count": 1143,
+        "sample_count": 438912,
+        "candidate_torch_tf32_override": "0",
+        "candidate_nvidia_tf32_override": "0",
+        "candidate_cudnn_benchmark": false,
+        "candidate_float32_matmul_precision": "highest",
+        "normalized_difference_rmse": 1.4499250547808865e-07,
+        "normalized_difference_max_abs": 6.020069122314453e-06,
+        "physical_relative_l2": 5.50729295559937e-07,
+        "normalized_rmse_limit": 0.0001,
+        "normalized_max_limit": 0.001,
+        "physical_relative_l2_limit": 0.001,
+        "status": "within_fixed_tolerances",
+        "physical_bitwise_equal": false,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic/cpu_vs_D.json"
+      },
+      {
+        "comparison": "A_vs_B",
+        "evaluation_scope": "fixed_1143_query_checkpoint_outputs_no_teacher",
+        "query_count": 1143,
+        "sample_count": 438912,
+        "candidate_torch_tf32_override": "1",
+        "candidate_nvidia_tf32_override": "unset",
+        "candidate_cudnn_benchmark": false,
+        "candidate_float32_matmul_precision": "high",
+        "normalized_difference_rmse": 0.00019070893790533818,
+        "normalized_difference_max_abs": 0.005564503371715546,
+        "physical_relative_l2": 0.0007232545528903698,
+        "normalized_rmse_limit": 0.0001,
+        "normalized_max_limit": 0.001,
+        "physical_relative_l2_limit": 0.001,
+        "status": "failed_tolerance",
+        "physical_bitwise_equal": false,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic/A_vs_B.json"
+      },
+      {
+        "comparison": "C_vs_D",
+        "evaluation_scope": "fixed_1143_query_checkpoint_outputs_no_teacher",
+        "query_count": 1143,
+        "sample_count": 438912,
+        "candidate_torch_tf32_override": "0",
+        "candidate_nvidia_tf32_override": "0",
+        "candidate_cudnn_benchmark": false,
+        "candidate_float32_matmul_precision": "highest",
+        "normalized_difference_rmse": 3.95366388433045e-08,
+        "normalized_difference_max_abs": 1.1920928955078125e-06,
+        "physical_relative_l2": 1.5003922076518798e-07,
+        "normalized_rmse_limit": 0.0001,
+        "normalized_max_limit": 0.001,
+        "physical_relative_l2_limit": 0.001,
+        "status": "within_fixed_tolerances",
+        "physical_bitwise_equal": false,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic/C_vs_D.json"
+      }
+    ],
+    "tolerances_unchanged": true,
+    "validation_target_truth_read": false,
+    "training": false,
+    "elapsed_seconds": 29.84115321561694,
+    "comparison_definition": "CPU is reference for each GPU. For A_vs_B and C_vs_D the first named variant is reference. Float64 accumulation of saved float32 normalized and physical arrays; include all1143x384 samples.",
+    "interpretation": "For this fixed checkpoint and input subset, disabling TF32 through the paired environment change reduces CPU/GPU differences below all fixed thresholds under either benchmark setting. This is not full-target rescoring or restoration, not historical environment capture, and does not isolate each environment variable or kernel contribution.",
+    "official_environment_reference": "https://docs.pytorch.org/docs/stable/cuda_environment_variables.html"
+  },
+  "fp32_resource_pilot": {
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T075825670757Z_e39df16d563c_observed_trace_rms_fp32_gpu_resource_audit/train_128.json",
+    "table": [
+      {
+        "condition": "observed_trace_rms_fp32_first_train_batch",
+        "evaluation_scope": "single_disposable_optimizer_update_not_quality_evaluation",
+        "query_count": 128,
+        "sample_count": 49152,
+        "optimizer_steps": 1,
+        "graph_build_seconds": 1.4458746863529086,
+        "observed_and_label_read_seconds": 0.41919626761227846,
+        "forward_seconds": 1.159574287943542,
+        "backward_and_optimizer_seconds": 2.1233774004504085,
+        "worker_elapsed_seconds": 9.200494861230254,
+        "driver_elapsed_seconds": 11.238337029702961,
+        "cuda_peak_allocated_bytes": 8258731520,
+        "cuda_peak_reserved_bytes": 8963227648,
+        "process_peak_rss_bytes": 3009167360,
+        "initial_weight_capture_seconds_included_in_forward": 0.0014889221638441086,
+        "normalized_training_loss_before_update": 1.9294331073760986,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T075825670757Z_e39df16d563c_observed_trace_rms_fp32_gpu_resource_audit/train_128.json"
+      }
+    ],
+    "scope": "One first batch including native autotune, graph/index construction, observed+training-label reads, forward, backward+optimizer, GPU peaks; not steady-state throughput",
+    "model": {
+      "width": 64,
+      "message_passing_rounds": 2,
+      "time_downsample_factor": 2,
+      "stem_kernel_size": 7,
+      "temporal_kernel_size": 5,
+      "temporal_dilations": [
+        1,
+        2
+      ],
+      "attention_width": 32,
+      "relation_embedding_dim": 8,
+      "relation_fusion": "learned_gate",
+      "method_variant": "relational",
+      "explicit_azimuth_features": true,
+      "amplitude_mode": "observed_trace_rms"
+    },
+    "numerical_mode": {
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "cudnn_allow_tf32": true,
+      "matmul_allow_tf32": false,
+      "float32_matmul_precision": "highest",
+      "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+      "NVIDIA_TF32_OVERRIDE": "0",
+      "torch_import_defaults": {
+        "float32_matmul_precision": "highest",
+        "matmul_allow_tf32": false,
+        "cudnn_allow_tf32": true,
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+        "NVIDIA_TF32_OVERRIDE": "0",
+        "cuda_initialized": false
+      },
+      "explicit_matmul_precision_setter_called": false
+    },
+    "initial_weights_verified": true,
+    "gradients": {
+      "all_finite": true,
+      "post_clip_global_l2_norm": 0.018581442990945538,
+      "parameter_tensors_with_gradient": 72,
+      "parameter_tensors_with_nonzero_gradient": 2,
+      "post_clip_gradient_file_sha256": "250f862fbfe9eff91043345344d04d79854f44753b0a60984e326b8eb4dbbf02",
+      "configured_clip_norm": 1.0,
+      "native_clip_enforces_finite_norm": true
+    },
+    "authorized_read_counters": {
+      "observed_calls": 1,
+      "observed_rows": 3300,
+      "training_hidden_label_calls": 1,
+      "training_hidden_label_rows": 128,
+      "validation_target_samples": 0,
+      "test_samples": 0
+    },
+    "states_reused_for_main_training": false,
+    "single_first_batch_includes_autotuning": true,
+    "steady_state_throughput_claim": false,
+    "full_run_peak_memory_or_quality_prediction": false
+  },
+  "learned_edge_lag_fixed_training_fit": {
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T075344685724Z_e39df16d563c_learned_edge_lag_fixed_training_fit/result.json",
+    "scope": "fixed_four_training_queries_fit_only_not_validation_or_generalization",
+    "comparison": [
+      {
+        "condition": "observed_trace_rms_without_lag",
+        "evaluation_scope": "same_four_training_queries_only_not_validation",
+        "trace_count": 4,
+        "sample_count": 1536,
+        "optimizer_steps": 1000,
+        "physical_snr_db": 21.100294681514264,
+        "physical_rmse": 1.0110071389705064,
+        "physical_reference_energy": 202268.90732491907,
+        "physical_error_energy": 1570.0000282357694,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T065545217094Z_e39df16d563c_observed_trace_rms_fixed_training_fit/result.json"
+      },
+      {
+        "condition": "observed_trace_rms_learned_edge_lag",
+        "evaluation_scope": "same_four_training_queries_only_not_validation",
+        "trace_count": 4,
+        "sample_count": 1536,
+        "optimizer_steps": 1000,
+        "physical_snr_db": 20.38534234408179,
+        "physical_rmse": 1.0977459389567195,
+        "physical_reference_energy": 202268.90732491907,
+        "physical_error_energy": 1850.9508810178097,
+        "source_result": "runs/study_032_c3_proposed_gnn_10db/20260909T075344685724Z_e39df16d563c_learned_edge_lag_fixed_training_fit/result.json"
+      }
+    ],
+    "lag_enabled_for_next_main_training": false,
+    "only_model_change": "max_edge_time_shift_samples=32; four shared zero-initialized lag coefficients",
+    "model": {
+      "width": 32,
+      "message_passing_rounds": 2,
+      "time_downsample_factor": 2,
+      "stem_kernel_size": 7,
+      "temporal_kernel_size": 5,
+      "temporal_dilations": [
+        1,
+        2
+      ],
+      "attention_width": 16,
+      "relation_embedding_dim": 8,
+      "relation_fusion": "learned_gate",
+      "amplitude_mode": "observed_trace_rms",
+      "max_edge_time_shift_samples": 32
+    },
+    "model_parameter_count": 27337,
+    "optimizer": "AdamW",
+    "learning_rate": 0.001,
+    "seed": 20260908,
+    "steps": 1000,
+    "training_seconds": 117.10281322989613,
+    "elapsed_seconds": 118.16831402853131,
+    "same_base_initial_weights_and_rng": true,
+    "same_graph_inputs_and_training_labels": true,
+    "lag_formula": "latent_lag=16*tanh(edge_features[:,:4] @ edge_time_shift_weights)",
+    "lag_sign": "output[f]=projected_sender_value[f+lag]; positive lag advances the sender waveform",
+    "lag_max_raw_samples": 32,
+    "lag_max_seconds": 0.256,
+    "final_lag_summary": {
+      "weights": [
+        -0.00030170439276844263,
+        0.050267837941646576,
+        0.002148894825950265,
+        -0.00022434552374761552
+      ],
+      "weight_l2": 0.05031515285372734,
+      "positive_shift_sign": "sample sender at f+lag; positive advances sender",
+      "scopes": {
+        "all_typed_edges": {
+          "count": 224,
+          "signed_raw_sample_quantiles": {
+            "min": -0.25736579298973083,
+            "p01": -0.25736579298973083,
+            "p05": -0.13143551349639893,
+            "p50": 0.00043074338464066386,
+            "p95": 0.19279131293296808,
+            "p99": 0.25729974269866945,
+            "max": 0.25736579298973083
+          },
+          "signed_seconds_quantiles": {
+            "min": -0.002058926343917847,
+            "p01": -0.002058926343917847,
+            "p05": -0.0010514841079711913,
+            "p50": 3.445947077125311e-06,
+            "p95": 0.0015423305034637446,
+            "p99": 0.0020583979415893555,
+            "max": 0.002058926343917847
+          },
+          "abs_raw_sample_mean": 0.06977749272118672,
+          "abs_raw_sample_max": 0.25736579298973083,
+          "saturation_abs_tanh_ge_095_count": 0,
+          "saturation_abs_tanh_ge_099_count": 0
+        },
+        "unique_pairs": {
+          "count": 158,
+          "signed_raw_sample_quantiles": {
+            "min": -0.25736579298973083,
+            "p01": -0.25736579298973083,
+            "p05": -0.18554459661245346,
+            "p50": 0.0005743245128542185,
+            "p95": 0.25621721148490906,
+            "p99": 0.25736579298973083,
+            "max": 0.25736579298973083
+          },
+          "signed_seconds_quantiles": {
+            "min": -0.002058926343917847,
+            "p01": -0.002058926343917847,
+            "p05": -0.0014843567728996276,
+            "p50": 4.594596102833748e-06,
+            "p95": 0.0020497376918792725,
+            "p99": 0.002058926343917847,
+            "max": 0.002058926343917847
+          },
+          "abs_raw_sample_mean": 0.0940550948563916,
+          "abs_raw_sample_max": 0.25736579298973083,
+          "saturation_abs_tanh_ge_095_count": 0,
+          "saturation_abs_tanh_ge_099_count": 0
+        },
+        "direct_query_typed_edges": {
+          "count": 32,
+          "signed_raw_sample_quantiles": {
+            "min": -0.25736579298973083,
+            "p01": -0.2570097327232361,
+            "p05": -0.2157868228852749,
+            "p50": -0.0024634231813251972,
+            "p95": 0.128972128033638,
+            "p99": 0.16604947537183767,
+            "max": 0.18270741403102875
+          },
+          "signed_seconds_quantiles": {
+            "min": -0.002058926343917847,
+            "p01": -0.0020560778617858886,
+            "p05": -0.0017262945830821992,
+            "p50": -1.9707385450601578e-05,
+            "p95": 0.001031777024269104,
+            "p99": 0.0013283958029747015,
+            "max": 0.00146165931224823
+          },
+          "abs_raw_sample_mean": 0.07237765548779862,
+          "abs_raw_sample_max": 0.25736579298973083,
+          "saturation_abs_tanh_ge_095_count": 0,
+          "saturation_abs_tanh_ge_099_count": 0
+        }
+      }
+    },
+    "physical_snr_delta_db": -0.7149523374324751,
+    "cpu_checkpoint_bitwise_equal": true,
+    "verification": {
+      "status": "passed",
+      "checks": {
+        "execution_exit_zero": true,
+        "completed_exact_planned_steps": true,
+        "history_is_exact_steps_1_through_1000": true,
+        "milestones_exact": true,
+        "all_recorded_losses_gradients_and_coefficients_finite": true,
+        "milestone_weights_gradients_and_predictions_finite": true,
+        "within_predeclared_time_caps": true,
+        "cpu_one_thread_cuda_uninitialized": true,
+        "model_has_four_additional_parameters": true,
+        "same_base_initial_weights_rng_and_zero_lag_output": true,
+        "lag_coefficients_changed_from_zero": true,
+        "all_model_weights_updated": true,
+        "lag_bounded_in_all_measured_scopes": true,
+        "lag_graph_scope_matches_original": true,
+        "inputs_and_labels_exact_original_sha256": true,
+        "fixed_training_queries_and_126_support": true,
+        "hidden_waveforms_stay_zero": true,
+        "no_raw_or_heldout_waveforms_read": true,
+        "normal_checkpoint_cpu_restoration_exact": true,
+        "checkpoint_hash_matches": true,
+        "checkpoint_constructor_contains_declared_lag_and_amplitude": true,
+        "five_predeclared_scale_responses": true,
+        "baseline_a1_response_equals_final_metric": true,
+        "source_and_script_seals_unchanged": true,
+        "old_artifacts_unchanged": true
+      },
+      "training_physical_snr_db": 20.38534234408179,
+      "baseline_training_physical_snr_db": 21.100294681514264,
+      "training_physical_snr_delta_db": -0.7149523374324751,
+      "max_recorded_gradient_norm": 0.8230754137039185,
+      "gradient_clip_update_count": 0,
+      "first_nonzero_lag_gradient_step": 2,
+      "scale_response_max_physical_relative_l2": 5.699990407117839e-07,
+      "scale_response_interpretation": "measurement only; no post-hoc pass threshold",
+      "scope": "four authorized training queries only; not validation, generalization, or 10dB target-goal evidence"
+    },
+    "validation_or_test_waveform_reads": false,
+    "scope_limit": "One seed and four repeated training labels; worse fixed fit does not prove all possible time-shift models are inferior."
+  },
+  "previous_global_rms_5000_audit": {
+    "source": "runs/study_032_c3_proposed_gnn_10db/20260909T070636656122Z_e39df16d563c_global5k_completion_handoff/verification/result.json",
+    "status": "failed_checks",
+    "frozen_full_target_metrics": {
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522996,
+      "error_energy": 407197373.6982853,
+      "snr_db": 7.400222038002973,
+      "snr_status": "finite",
+      "rmse": 4.23949909235737,
+      "relative_l2": 0.4265686142589616
+    },
+    "full_saved_output_native_reconciliation": "passed",
+    "cross_run_energy_status": "failed_tolerance",
+    "cpu_restoration_status": "failed_tolerance",
+    "previous_failures_superseded": false
+  },
+  "fp32_observed_trace_rms_full_training_metrics_included": false,
+  "publication_performed_training_or_forward": false,
+  "publication_gpu_used": false
+}

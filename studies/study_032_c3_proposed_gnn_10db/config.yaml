@@ -1,0 +1,145 @@
+study:
+  id: study_032_c3_proposed_gnn_10db
+  status: final_5000_adopted_10db_achieved
+  goal: strictly_greater_than_10_db_physical_global_target_snr
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 25200
+  preflight_timeout_seconds: 600
+  device: cuda:1
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  budget_extension: explicit_recorded_revision_only
+  source_snapshot: ../../runs/study_032_c3_proposed_gnn_10db/20260909T093547080821Z_e39df16d563c_cudnn_benchmark_implementation_checks/source/src
+  source_manifest: ../../runs/study_032_c3_proposed_gnn_10db/20260909T093547080821Z_e39df16d563c_cudnn_benchmark_implementation_checks/source_manifest.json
+  source_manifest_sha256: e6898e235c139966be59697062872628f82f8d96343dd48e34bbd7ea2792541e
+  environment:
+    TORCH_ALLOW_TF32_CUBLAS_OVERRIDE: '0'
+    NVIDIA_TF32_OVERRIDE: '0'
+seeds:
+  partition: 42
+  training: 20260908
+  siren_sampler: 20260908
+  ccnet_patches: 20260908
+  gnn_episodes: 20260908
+methods:
+  gnn-train:
+    native_fragment: methods/observed_trace_rms_relative_mse_no_benchmark_width64_batch128_5k.yaml
+    model_description: proposed_observed_trace_rms_relative_MSE_FP32_no_cudnn_benchmark_width64_k2_batch128_lr1e-3_5000_updates
+    preflight:
+      train_batches: 1
+      validation_query_counts:
+      - 32
+      - 128
+      - 512
+      evaluate_baselines: false
+  gnn-predict:
+    native_fragment: methods/gnn_predict512.yaml
+    checkpoint_role: final
+training_information:
+  allowed_pool: suite_canonical_train_rows_after_437_qc_exclusions
+  time_samples:
+  - 0
+  - 384
+  gnn: all_train_traces
+  normalization: train_global_RMS_with_model_internal_observed_trace_RMS_and_direct_sender_D0_IDW_gain
+  fixed_time_shear: 0.0
+  equal_actual_training_exposure_claimed: false
+  loss: training_teacher_trace_RMS_weighted_MSE_only_no_teacher_RMS_in_forward_or_prediction_gain
+  zero_teacher_RMS: divisor_one_in_fixed_global_normalized_units
+  positive_teacher_RMS_floor: null
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  context_free_targets: include
+  null_snr: preserve_native_status
+  target_amplitudes: evaluation_and_visualization_only
+  validation_metrics: selection_and_diagnosis_only_never_gradient_or_normalization
+  primary_checkpoint: final_after_declared_budget
+  best_checkpoint: auxiliary_only
+  zero_fill: sanity_baseline
+completion:
+  required_methods:
+  - relational_trace_graph
+  required_outputs:
+  - full_volume_predictions
+  - all_target_metrics
+  - resource_measurements
+  - independent_saved_output_rescore
+  - checkpoint_restoration_audit
+  snr_threshold_db: 10.0
+  threshold_comparison: strictly_greater
+  automatic_quality_retries: false
+  budget_revision: declare_each_condition_before_execution_based_on_previous_evidence
+  test_execution: false
+resource_revisions:
+  trace_relative_mse:
+    reference_condition: config_observed_trace_rms_fp32_5k.yaml
+    reference_training_run: ../../runs/study_032_c3_proposed_gnn_10db/20260909T080650653168Z_e39df16d563c_gnn-train
+    reference_completion_required_before_next_gpu_action: true
+    changes:
+      training.loss:
+      - masked_mse
+      - masked_trace_relative_mse
+    input_normalization_and_prediction_gain_unchanged: true
+    optimizer_geometry_budget_seed_precision_unchanged: true
+    default_no_lag_source_equivalence_verified: true
+    fixed_time_shear: 0.0
+    learned_edge_time_shift_samples: 0
+    canonical_train_energy_evidence: ../../runs/study_032_c3_proposed_gnn_10db/20260909T081013427411Z_e39df16d563c_training_energy_distribution/result.json
+    near_offset_waveform_source_verification: ../../runs/study_032_c3_proposed_gnn_10db/20260909T081542007059Z_e39df16d563c_training_energy_source_qc/result.json
+    source_checks: ../../runs/study_032_c3_proposed_gnn_10db/20260909T093547080821Z_e39df16d563c_cudnn_benchmark_implementation_checks/checks.json
+    prior_FP32_same_model_batch128_resource_pilot: ../../runs/study_032_c3_proposed_gnn_10db/20260909T075825670757Z_e39df16d563c_observed_trace_rms_fp32_gpu_resource_audit/train_128.json
+    prior_pilot_is_not_a_relative_loss_measurement_or_full_training_upper_bound: true
+    teacher_RMS_weight_scope: authorized hidden train labels only
+    teacher_RMS_provided_to_model_or_inference: false
+    primary_checkpoint: final_5000_updates
+    full_validation_queries: 58999
+    full_validation_time_samples: 384
+    query_exposure: 640000
+    action_budget_seconds: 25200
+    CPU_restoration_thresholds: unchanged_RMSE1e-4_max1e-3_relativeL2_1e-3
+    cross_run_energy_rtol: 1.0e-06
+    cross_run_energy_atol: 1.0e-12
+    training_status: completed_final_5000_independent_prediction_and_fixed_audit_passed
+    quality_retries: false
+    reference_frozen_prediction_run: ../../runs/study_032_c3_proposed_gnn_10db/20260909T091943454780Z_e39df16d563c_gnn-predict
+    reference_fixed_audit: ../../runs/study_032_c3_proposed_gnn_10db/20260909T081425547636Z_e39df16d563c_observed_rms_fp32_completion_handoff/verification/result.json
+    reference_audit_status: passed
+    reference_final_physical_snr_db: 7.279707584432451
+    same_loss_benchmark_true_pilot: ../../runs/study_032_c3_proposed_gnn_10db/20260909T083502333141Z_e39df16d563c_relative_mse_fp32_gpu_resource_audit/train_128.json
+    fixed_train_four_loss_comparison: ../../runs/study_032_c3_proposed_gnn_10db/20260909T091758495983Z_e39df16d563c_relative_mse_fixed_training_fit/result.json
+  cudnn_benchmark:
+    reason: shared_GPU_free_memory_varies_and_prior_native_lifetime_peak_leaves_little_headroom
+    reference_candidate: config_observed_trace_rms_relative_mse_fp32_5k.yaml
+    changes:
+      training.cudnn_benchmark:
+      - true
+      - false
+    network_parameters_data_geometry_seed_budget_and_loss_unchanged: true
+    numerical_equivalence_claim: fixed_checkpoint_FP32_inference_differences_within_existing_thresholds_not_bitwise_or_training_trajectory_equivalence
+    loss_only_causal_comparison_to_physical_mse_baseline_claimed: false
+    same_checkpoint_true_false_evidence: ../../runs/study_032_c3_proposed_gnn_10db/20260909T074804795328Z_e39df16d563c_tf32_environment_diagnostic
+    benchmark_true_fixed_inference_peak_reserved_bytes: 37564186624
+    benchmark_false_fixed_inference_peak_reserved_bytes: 2344615936
+    fixed_inference_pair_physical_relative_l2: 1.5003922076518798e-07
+    reference_native_lifetime_peak_reserved_bytes: 48179970048
+    lifetime_peak_scope: training_validation_and_auxiliary_prediction_phase_of_peak_not_identified
+    shared_GPU_free_MiB_at_092707_UTC: 46878
+    shared_GPU_free_MiB_at_093131_UTC: 62646
+    autotune_definition: https://docs.pytorch.org/docs/stable/backends
+    new_source_fixed_before_execution: true
+    new_benchmark_false_pilot_required_before_training: true
+    training_status: completed_final_5000_independent_prediction_and_fixed_audit_passed
+    resource_pilot: ../../runs/study_032_c3_proposed_gnn_10db/20260909T093919914603Z_e39df16d563c_relative_mse_fp32_no_benchmark_gpu_resource_audit
+    resource_pilot_verification: ../../runs/study_032_c3_proposed_gnn_10db/20260909T093919914603Z_e39df16d563c_relative_mse_fp32_no_benchmark_gpu_resource_audit/post_execution_verification.json
+    resource_pilot_verification_sha256: 9abe1d8336d4dc720499c8660fb74f8b79546cdc1f95094ccad27af70bee6c88
+    resource_pilot_peak_allocated_bytes: 8259517952
+    resource_pilot_peak_reserved_bytes: 8885633024
+    resource_pilot_status: passed_one_disposable_update_gpu_released
+    pilot_is_not_a_full_training_memory_upper_bound: true

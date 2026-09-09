@@ -1,0 +1,108 @@
+{
+  "status": "created",
+  "scope": "geometry-preselected qualitative fixed-validation final saved reconstruction; never training or model selection",
+  "gather": {
+    "file": "gather_truth_reconstruction_residual.png",
+    "clip_rule": "99th percentile absolute selected-gather truth; zero fallback1",
+    "clip_abs_amplitude": 56.368047637939256,
+    "display_limit_abs_amplitude": 56.368047637939256,
+    "saturation_counts": {
+      "truth": 123,
+      "reconstruction": 88,
+      "residual": 0
+    },
+    "x_axis": "receiver_y_m-source_y_m",
+    "time_samples": 384,
+    "time_s_first": 0.0,
+    "time_s_last": 3.064,
+    "amplitude_transformation": "none",
+    "residual_sign": "truth minus saved reconstruction",
+    "interpolation": "nearest",
+    "observed_dense_values_are_copied_input": true
+  },
+  "overlays": {
+    "file": "representative_heldout_traces.png",
+    "trace_ids": [
+      2093068,
+      2093081,
+      2093097
+    ],
+    "gather_columns": [
+      2,
+      15,
+      31
+    ],
+    "reference_max_abs_amplitude": 104.31486511230469,
+    "display_limit_abs_amplitude": 109.53060836791992,
+    "limit_rule": "1.05*maximum absolute truth of the three preselected traces; zero fallback1",
+    "off_scale_sample_counts": {
+      "2093068": {
+        "Truth": 0,
+        "Reconstruction": 0,
+        "Residual": 0
+      },
+      "2093081": {
+        "Truth": 0,
+        "Reconstruction": 0,
+        "Residual": 0
+      },
+      "2093097": {
+        "Truth": 0,
+        "Reconstruction": 0,
+        "Residual": 0
+      }
+    },
+    "amplitude_transformation": "none",
+    "time_alignment": "none",
+    "all_three_are_heldout": true
+  },
+  "selected_geometry_file": "selected_geometry.csv",
+  "waveforms_file": "selected_waveforms.csv",
+  "independent_full_target_metrics": {
+    "error_energy": 143312260.84446973,
+    "reference_energy": 2237830414.4522996,
+    "relative_l2": 0.2530626710344306,
+    "rmse": 2.5150911911880325,
+    "sample_count": 22655616,
+    "snr_db": 11.93543824732025,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "full_target_metrics_are_not_selection_criteria": true,
+  "observed_copied_values_bitwise_equal": true,
+  "validation_truth_rows_read": 32,
+  "validation_truth_samples_read": 12288,
+  "heldout_truth_rows_read": 24,
+  "observed_truth_rows_read": 8,
+  "truth_read_passes": 1,
+  "training_waveform_reads": 0,
+  "test_waveform_reads": 0,
+  "model_forward_count": 0,
+  "GPU_used": false,
+  "CPU_threads": 1,
+  "source_files_unchanged": true,
+  "selected_truth_float64_sha256": "f32272030b7f4f180ab18752d61611ed2e5a9e535a8dfe06b1a589e8278e2652",
+  "selected_reconstruction_float64_sha256": "07d7c3aa6cb7df1ca8ffa0e51c079d5427fbf62700a6ad5e92212d51df0b6618",
+  "request_sha256": "19e5fa80dbdb90a243bd46c10c45335c9545362b40df4f2995073090f6237a96",
+  "input_seal_sha256": "f913b27a44ace57e8b5ce7fc5b2bbc6ff34ece7b32eee9e8467b7ae124d51a0d",
+  "figure_sha256": {
+    "gather_truth_reconstruction_residual.png": "ddb17219571b7f1180c44380eff640443b216c43fb7cb641abddd1485faac534",
+    "representative_heldout_traces.png": "39e8fa89f18012eac9a76829d5947da58a53275a10732c517071e20f9a3482f6"
+  },
+  "matplotlib_version": "3.10.9",
+  "elapsed_seconds": 1.0348169011995196,
+  "peak_rss_bytes": 281591808,
+  "finished_at_utc": "2026-09-09T10:52:41.597069+00:00",
+  "original_run": "runs/study_032_c3_proposed_gnn_10db/20260909T103908170382Z_e39df16d563c_relative_mse_qualitative_figures",
+  "original_figure_metadata_sha256": "af2b0769aeaed537a0c8c8ebea929cc08f73d96c35949f1db15fd7506cf2e610",
+  "original_request_sha256": "ea236823995dc84beb94370b7fa4ac292db4f8a18e85790027205e1a72218395",
+  "original_input_seal_sha256": "5940de22971ad9c3f7d63dc17147c320854f99b9fe83941f091232b090201814",
+  "layout_only_derivative": true,
+  "derivative_raw_waveform_reads": 0,
+  "derivative_model_forward_count": 0,
+  "derivative_GPU_used": false,
+  "derivative_elapsed_seconds": 0.445223237387836,
+  "derivative_finished_at_utc": "2026-09-09T10:56:46.200083+00:00",
+  "layout_change": "Gather height7.0\u21927.8 inches; lower12% reserved; legend y.045 and footer y.01. Scientific values/scales and all original metadata preserved. Three-trace PNG copied byte-identically.",
+  "original_run_read_counters_retained_in_top_level": true
+}
