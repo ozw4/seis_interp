@@ -1,0 +1,9 @@
+{
+  "decided_at_utc": "2026-09-09T13:23:55.680983+00:00",
+  "comparison_figures_adopted": true,
+  "model_adopted": false,
+  "original_generation_results_adopted_field_is_historical": true,
+  "source_manifest": "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/manifest.json",
+  "source_manifest_sha256": "c29f3bb5648c5ea7ed9efd0ca57609db6d5e0496b4fd17cabcbb29a8d3d03392",
+  "reason": "Final2048 adoption report references the completed baseline diagnostics; old generated values and nonadoption-at-generation fields remain untouched."
+}

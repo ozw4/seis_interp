@@ -1,0 +1,36 @@
+{
+  "source_run": "runs/study_033_c3_ccnet_10db/20260909T132313213022Z_f2dccac6d1e3_baseline_diagnostics_adoption",
+  "source_generation_run": "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication",
+  "source_sha256": {
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/baseline_summary.json": "6133e5c84e72a2645b06f7819a4820e548f92a2e0a2220f6a819a8cc19c0b9d4",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/physical_comparison.csv": "2ffeaef8e30b27584e8f20bb5c516eb6c7a729c73d1db5ce7f5ea475bd55e5ea",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/learning_progress.csv": "050bf0cc03dd130290912a13fc9f95158e4704aefb5519d095fd4af1ff553993",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/internal_selection.csv": "bae18a7186c2b695253e76e15a8263151ed51d061df6ae17b4eda0f44871b9ef",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/learning_progress.png": "d2f5a1ed1c1b7801059af9344447f14e4b83b7a7eb7749f7b8bea171f47e8206",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/training_regions.csv": "023cec1b66580c9ddda7f143b1ac2e991ee3d1d7961542f33bd40a90173c56bc",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/time_window_energy.csv": "6d8822a79b16bd935abc002137d73d9097d8ee284079fdead4e1305ceb0207b9",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/region_energy.png": "7f8f497d669ec9a9d86112d25588c4d3a429f07bb5144f171ea41fce10f77512",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/patch_receptive_field.csv": "97cb8eb1c3e7f5a95f5b9b6710bfeaba0b7968e057e8bb4ad18837ecd0decae8",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/commands.json": "bef807747ddd6767d2029dd99c835a3a6d89d46a6df3a8d36df69ee2cda606f4",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/manifest.json": "c29f3bb5648c5ea7ed9efd0ca57609db6d5e0496b4fd17cabcbb29a8d3d03392",
+    "runs/study_033_c3_ccnet_10db/20260909T130454311906Z_5df55f375e66_baseline_diagnostics_publication/verification.json": "8dff228ddb2597a9e2026b38d3a83ad3bcefdb6c0cb2e800d768b5656c27c104"
+  },
+  "artifact_sha256": {
+    "baseline_summary.json": "6133e5c84e72a2645b06f7819a4820e548f92a2e0a2220f6a819a8cc19c0b9d4",
+    "physical_comparison.csv": "2ffeaef8e30b27584e8f20bb5c516eb6c7a729c73d1db5ce7f5ea475bd55e5ea",
+    "learning_progress.csv": "050bf0cc03dd130290912a13fc9f95158e4704aefb5519d095fd4af1ff553993",
+    "internal_selection.csv": "bae18a7186c2b695253e76e15a8263151ed51d061df6ae17b4eda0f44871b9ef",
+    "learning_progress.png": "d2f5a1ed1c1b7801059af9344447f14e4b83b7a7eb7749f7b8bea171f47e8206",
+    "training_regions.csv": "023cec1b66580c9ddda7f143b1ac2e991ee3d1d7961542f33bd40a90173c56bc",
+    "time_window_energy.csv": "6d8822a79b16bd935abc002137d73d9097d8ee284079fdead4e1305ceb0207b9",
+    "region_energy.png": "7f8f497d669ec9a9d86112d25588c4d3a429f07bb5144f171ea41fce10f77512",
+    "patch_receptive_field.csv": "97cb8eb1c3e7f5a95f5b9b6710bfeaba0b7968e057e8bb4ad18837ecd0decae8",
+    "commands.json": "bef807747ddd6767d2029dd99c835a3a6d89d46a6df3a8d36df69ee2cda606f4",
+    "adoption_decision.json": "3c30c3025d5b28a532b56074a8bf0965d03d139af8e9d63b67446dd2477253a3"
+  },
+  "comparison_figures_adopted": true,
+  "model_adopted": false,
+  "original_ten_artifacts_byte_identical": true,
+  "numeric_or_path_transformations_in_ten_artifacts": false,
+  "adoption_decision": "adoption_decision.json"
+}

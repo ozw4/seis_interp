@@ -1,0 +1,17 @@
+condition,epoch,learning_rate,step,train_loss,scope
+Study028 original,1,0.0001,16,0.8910087873227894,complete_patch_MSE_mean_over_previous16_updates
+Study028 original,1,0.0001,32,1.643555497546913,complete_patch_MSE_mean_over_previous16_updates
+Study028 original,1,0.0001,48,1.1318608362053055,complete_patch_MSE_mean_over_previous16_updates
+Study028 original,1,0.0001,64,0.5484961844049394,complete_patch_MSE_mean_over_previous16_updates
+Study028 original,2,0.0001,80,1.8695892133982852,complete_patch_MSE_mean_over_previous16_updates
+Study028 original,2,0.0001,96,1.0570678261719877,complete_patch_MSE_mean_over_previous16_updates
+Study028 original,2,0.0001,112,1.0593382255901815,complete_patch_MSE_mean_over_previous16_updates
+Study028 original,2,0.0001,128,0.22104841726832092,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,1,0.0001,16,0.8910087873227894,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,1,0.0001,32,1.643555497546913,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,1,0.0001,48,1.1318608326255344,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,1,0.0001,64,0.5484961850161199,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,2,0.0001,80,1.8695892131800065,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,2,0.0001,96,1.0570678287476767,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,2,0.0001,112,1.0593382361257682,complete_patch_MSE_mean_over_previous16_updates
+Study033 QC FP32,2,0.0001,128,0.22104811397730373,complete_patch_MSE_mean_over_previous16_updates

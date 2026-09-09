@@ -1,0 +1,5 @@
+condition,step,epoch,error_energy,metric_scope,missing_sample_count,patch_count,reference_energy,relative_squared_error,snr_db,snr_status
+Study028 original,64,1,6865766.1746263355,selection_patch_instances_missing_only,52224,16,6850717.862909428,1.002196603628706,-0.009529266165841932,finite
+Study028 original,128,2,6859012.869230069,selection_patch_instances_missing_only,52224,16,6850717.862909428,1.0012108229366081,-0.005255356188076377,finite
+Study033 QC FP32,64,1,6865766.177126042,selection_patch_instances_missing_only,52224,16,6850717.862909428,1.0021966039935883,-0.009529267747039327,finite
+Study033 QC FP32,128,2,6859010.959494477,selection_patch_instances_missing_only,52224,16,6850717.862909428,1.0012105441723047,-0.0052541469940425856,finite

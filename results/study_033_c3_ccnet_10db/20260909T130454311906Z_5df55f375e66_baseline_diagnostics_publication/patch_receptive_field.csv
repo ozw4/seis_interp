@@ -1,0 +1,11 @@
+condition,axis,patch_length,theoretical_receptive_field_samples,halo_radius,has_any_position_with_all9_real_samples_inside_patch,context_proposal_is_a_performance_result
+QC baseline,time,32,9,4,True,False
+QC baseline,source_line,2,9,4,False,False
+QC baseline,shot_in_line,4,9,4,False,False
+QC baseline,receiver_x,2,9,4,False,False
+QC baseline,receiver_y,8,9,4,False,False
+Context geometry proposal,time,64,9,4,True,False
+Context geometry proposal,source_line,8,9,4,False,False
+Context geometry proposal,shot_in_line,16,9,4,True,False
+Context geometry proposal,receiver_x,8,9,4,False,False
+Context geometry proposal,receiver_y,16,9,4,True,False

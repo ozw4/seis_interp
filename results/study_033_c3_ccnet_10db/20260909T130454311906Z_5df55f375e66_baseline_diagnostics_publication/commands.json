@@ -1,0 +1,103 @@
+{
+  "scope": "Existing exact verification commands and completed results; no new model tests or aggregate unique count.",
+  "baseline_checks": {
+    "status": "passed",
+    "recorded_at_utc": "2026-09-09T12:54:16.997533+00:00",
+    "scope": "frozen 182-python-file source and unchanged CCNet bridge native path",
+    "ruff_check": "passed",
+    "ruff_format": "passed",
+    "focused_cpu_test": "1 passed, 58 deselected in 6.58s",
+    "dry_run_seconds": 24.920255915261805,
+    "fit_trace_count": 65536,
+    "selection_trace_count": 16384,
+    "fit_and_selection_revalidated_against_QC_train_pool": true,
+    "global_initial_ruff_failures": "Live concurrent edits in ccnet5d_run_audit.py and train_ccnet5d.py; excluded from frozen baseline source; original logs retained",
+    "commands_file": "checks_commands.json",
+    "log_sha256": {
+      "ruff_check.stdout.log": "482708b4bc6003b040691eb375258f319e32c484b8c7e384bc7f720967f888b7",
+      "frozen_ruff_check.stdout.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "frozen_ruff_format.stdout.log": "e65898e2baba2c4f040a1dd77e92e960c83c8dd19b461f5ee55dcb165bf49ab8",
+      "frozen_ruff_check.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "frozen_ruff_format.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "ruff_check.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "ruff_format.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "ruff_format.stdout.log": "1896587e7c204dade69894c41c35fc18a5e926269d3c47743e2810b10c44370f",
+      "frozen_pytest.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "pytest.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "frozen_pytest.stdout.log": "d52c1b3ed87e31cea84b8eec8247ff1b36586df8da174a86bcbdfc7646fe2a6c",
+      "pytest.stdout.log": "afe8545520be2de0d2cd5b5e3130ca783b70db4dbad8175bb9b89ca7a5682749"
+    }
+  },
+  "baseline_commands": [
+    [
+      "frozen_ruff_check",
+      "$REPOSITORY_ROOT/.venv/bin/ruff check --no-respect-gitignore $REPOSITORY_ROOT/runs/study_033_c3_ccnet_10db/20260909T125014530976Z_5df55f375e66_qc_baseline_preparation/source/src"
+    ],
+    [
+      "frozen_ruff_format",
+      "$REPOSITORY_ROOT/.venv/bin/ruff format --check --no-respect-gitignore $REPOSITORY_ROOT/runs/study_033_c3_ccnet_10db/20260909T125014530976Z_5df55f375e66_qc_baseline_preparation/source/src"
+    ],
+    [
+      "frozen_pytest",
+      "PYTHONPATH=$REPOSITORY_ROOT/runs/study_033_c3_ccnet_10db/20260909T125014530976Z_5df55f375e66_qc_baseline_preparation/source/src CUDA_VISIBLE_DEVICES='' TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0 NVIDIA_TF32_OVERRIDE=0 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 $REPOSITORY_ROOT/.venv/bin/python -m pytest -o pythonpath=$REPOSITORY_ROOT/runs/study_033_c3_ccnet_10db/20260909T125014530976Z_5df55f375e66_qc_baseline_preparation/source/src tests/integration/test_c3_first_results_bridge.py -k 'tiny_neural_bridge_trains_and_predicts_native_final and ccnet' -q"
+    ]
+  ],
+  "region_geometry_and_amplitude_audit": {
+    "command": [
+      "$REPOSITORY_ROOT/.venv/bin/python",
+      "$REPOSITORY_ROOT/runs/study_033_c3_ccnet_10db/20260909T125002842211Z_5df55f375e66_training_region_feasibility/audit.py"
+    ],
+    "environment": {
+      "OMP_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "CUDA_VISIBLE_DEVICES": "",
+      "PYTHONPATH": "$REPOSITORY_ROOT/src"
+    },
+    "timeout_seconds": 600,
+    "script_sha256": "d8f589437c2bbc47ccfbc716c9c5075ea82a3b9e9ff9ace9254daa45d650254d",
+    "request_sha256": "b11c012416d0a4edf9e5eb966d6552758aa103d61d2fe968def77f5676558f3c"
+  },
+  "context_public_CPU_dry_run": {
+    "command": [
+      "$REPOSITORY_ROOT/.venv/bin/python",
+      "scripts/run_c3_first_results.py",
+      "--config",
+      "studies/study_033_c3_ccnet_10db/config_context_width32_batch2_2k.yaml",
+      "--inputs",
+      "studies/study_033_c3_ccnet_10db/inputs_context.yaml",
+      "--action",
+      "ccnet-train"
+    ],
+    "environment": {
+      "PYTHONPATH": "$REPOSITORY_ROOT/src",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "CUDA_VISIBLE_DEVICES": "",
+      "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+      "NVIDIA_TF32_OVERRIDE": "0"
+    },
+    "timeout_seconds": 600,
+    "configuration_sha256": {
+      "studies/study_033_c3_ccnet_10db/inputs_context.yaml": "21cac797cb7006b1db2f7da87edb88631d9ff71ecab921eb1b84d7c532a97903",
+      "studies/study_033_c3_ccnet_10db/config_context_width32_batch2_2k.yaml": "81b3f8f3189ad53135e24273c9ff97ee23731b3d16ccd913e9ffa82723615917",
+      "studies/study_033_c3_ccnet_10db/methods/context_width32_batch2_2k.yaml": "29d88ce222351008acec50a587f023493d09c944ec584d5bbf0cc9d841814a1a",
+      "studies/study_033_c3_ccnet_10db/methods/context_predict.yaml": "306dc1cca5cd6286a36575564f1469370977e6b967051cec34c7ef7a87ef9d0f"
+    },
+    "scope": "CPU public CLI dry-run only; no execute or GPU preflight; source freeze remains pending."
+  },
+  "audit_request_sources": [
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/artifact_sha256.json",
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/completion_summary.json",
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/source_manifest.json",
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/request.json",
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/execution_request.json",
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/execution.json",
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/verification/plan.json",
+    "runs/study_033_c3_ccnet_10db/20260909T130353922748Z_5df55f375e66_qc_baseline_cpu_audit/audit_tests.source.json"
+  ],
+  "command_path_export": "Repository-local paths use $REPOSITORY_ROOT in this command record; original unmodified commands remain in the hashed source records."
+}
