@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 
+from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
 from seis_interp.data.c3_benchmark_artifacts import read_benchmark_json
 from seis_interp.data.c3_benchmark_inputs import (
@@ -24,6 +25,7 @@ from seis_interp.data.c3_benchmark_suite import (
 )
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
+from seis_interp.processing.training_coordinates import coordinate_order_for_features
 
 
 @dataclass(frozen=True)
@@ -162,14 +164,27 @@ def build_c3_first_result_native_config(
     if action == "siren":
         if seeds["siren_sampler"] != seeds["training"]:
             raise ConfigurationError("native SIREN uses the training seed for its sampler")
-        if config["model"]["input_features"] != 6:
-            raise ConfigurationError("SIREN cmp_offset_azimuth requires six input features")
+        features = config["model"]["coordinate_features"]
+        if config["model"]["input_features"] != len(coordinate_order_for_features(features)):
+            if features == "cmp_offset_azimuth":
+                raise ConfigurationError("SIREN cmp_offset_azimuth requires six input features")
+            raise ConfigurationError("SIREN input_features must match coordinate_features")
     if action in ("gnn-train", "gnn-preflight"):
-        if config["training_data"] != {
+        training_data = config["training_data"]
+        expected_data = {
             "pool": "all_train_traces",
             "time_samples": binding.manifest["train_pool"]["time_samples"],
-        }:
+        }
+        if (
+            not isinstance(training_data, Mapping)
+            or set(training_data) - (set(expected_data) | {"max_abs_amplitude"})
+            or any(training_data.get(key) != value for key, value in expected_data.items())
+        ):
             raise ConfigurationError("GNN training must use the exact all_train_traces pool/time")
+        if "max_abs_amplitude" in training_data:
+            config_values.positive_float(
+                training_data["max_abs_amplitude"], "training_data.max_abs_amplitude"
+            )
         if seeds["gnn_episodes"] != seeds["training"]:
             raise ConfigurationError("native GNN uses the training seed for its episodes")
     if action == "ccnet-train":

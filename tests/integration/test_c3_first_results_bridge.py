@@ -106,7 +106,16 @@ def _plan(tmp_path, action, fragment):
 
 
 @pytest.mark.parametrize(
-    "action", ["pocs", "drr", "siren", "ccnet-predict", "gnn-train", "gnn-predict", "gnn-preflight"]
+    "action",
+    [
+        "pocs",
+        "drr",
+        "siren",
+        "ccnet-predict",
+        "gnn-train",
+        "gnn-predict",
+        "gnn-preflight",
+    ],
 )
 def test_native_seed_and_section_contracts(tmp_path, suite_inputs, action):
     binding = resolve_c3_first_result_inputs(
@@ -143,6 +152,52 @@ def test_native_evaluation_projects_only_required_metric_keys(tmp_path, suite_in
         seeds=SEEDS,
     )
     assert set(native["evaluation"]) == {"primary_metric", "domain"}
+
+
+@pytest.mark.parametrize("action", ["gnn-train", "gnn-preflight"])
+def test_gnn_native_fragment_keeps_explicit_physical_bound(tmp_path, suite_inputs, action):
+    binding = resolve_c3_first_result_inputs(
+        _write_inputs(tmp_path, suite_inputs), dimensions=DIMENSIONS
+    )
+    fragment = _fragment(action)
+    fragment["training_data"]["max_abs_amplitude"] = 10000.0
+
+    native = build_c3_first_result_native_config(
+        action, fragment=fragment, binding=binding, seeds=SEEDS
+    )
+
+    assert native["training_data"] == {
+        "pool": "all_train_traces",
+        "time_samples": [0, 4],
+        "max_abs_amplitude": 10000.0,
+    }
+    validate_relational_trace_graph_training_config(native)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"pool": "mask_observed"},
+        {"time_samples": [1, 4]},
+        {"clip": True},
+        {"max_abs_amplitude": True},
+        {"max_abs_amplitude": None},
+        {"max_abs_amplitude": 0},
+        {"max_abs_amplitude": float("inf")},
+    ],
+)
+def test_gnn_physical_bound_preserves_strict_pool_time_and_key_contract(
+    tmp_path, suite_inputs, changes
+):
+    binding = resolve_c3_first_result_inputs(
+        _write_inputs(tmp_path, suite_inputs), dimensions=DIMENSIONS
+    )
+    fragment = _fragment("gnn-train")
+    fragment["training_data"].update({"max_abs_amplitude": 10000.0, **changes})
+    with pytest.raises(ConfigurationError):
+        build_c3_first_result_native_config(
+            "gnn-train", fragment=fragment, binding=binding, seeds=SEEDS
+        )
 
 
 def test_ccnet_training_separates_partition_patch_and_model_seeds(tmp_path, suite_inputs):
@@ -261,6 +316,69 @@ def test_execute_records_input_failure_without_native_run(tmp_path, suite_inputs
     assert not Path(result["native_run_directory"]).exists()
 
 
+@pytest.mark.parametrize(
+    "shear,time_weight_scale,envelope",
+    [
+        (0.0, 1.0, False),
+        (0.0006, 1.0, False),
+        (0.0, 3.0, False),
+        (0.0, 1.0, True),
+        (0.0, 3.0, True),
+    ],
+)
+def test_siren_bridge_supports_cartesian_complete_trace_variant(
+    tmp_path, suite_inputs, shear, time_weight_scale, envelope
+):
+    fragment = _fragment("siren")
+    fragment["model"].update(
+        coordinate_features="cmp_cartesian_half_offset",
+        input_features=5,
+        hidden_width=8,
+        hidden_layers=1,
+        time_coordinate_scale=2.0,
+        relative_receiver_y_time_shear_s_per_m=shear,
+    )
+    fragment["training"].update(
+        max_steps=2,
+        report_interval=1,
+        batch_size=7,
+        batch_mode="random_complete_traces",
+        traces_per_step=None,
+        learning_rate_schedule="cosine",
+        minimum_learning_rate=1e-6,
+    )
+    if time_weight_scale != 1.0:
+        fragment["training"]["initial_time_weight_scale"] = time_weight_scale
+    if envelope:
+        fragment["training"]["envelope_loss"] = {
+            "weight": 1.0,
+            "sigma_samples": [0.25, 0.5],
+            "decay_steps": 2,
+        }
+    result = run_c3_first_results(
+        config_path=_cpu_plan(tmp_path, {"siren": fragment}),
+        inputs_path=_write_inputs(tmp_path, suite_inputs),
+        action="siren",
+        execute=True,
+        dimensions=DIMENSIONS,
+    )
+    assert result["status"] == "success", result
+    native = Path(result["native_run_directory"])
+    run = json.loads((native / "run.json").read_text())
+    assert run["coordinates"]["features"] == "cmp_cartesian_half_offset"
+    assert run["coordinates"]["time_coordinate_scale"] == 2.0
+    if shear:
+        assert run["coordinates"]["relative_receiver_y_time_shear_s_per_m"] == shear
+    assert run["training"]["batch_mode"] == "random_complete_traces"
+    if time_weight_scale != 1.0:
+        assert run["training"]["initial_time_weight_scale"] == time_weight_scale
+    if envelope:
+        assert run["training"]["envelope_loss"] == fragment["training"]["envelope_loss"]
+        history = json.loads((native / "metrics.json").read_text())["training"]["history"]
+        assert history[0]["envelope_weight"] == 1.0
+        assert history[-1]["envelope_weight"] == 0.0
+
+
 def test_native_failure_is_recorded(tmp_path, suite_inputs):
     fragment = _fragment("pocs")
     fragment["pocs"]["n_iterations"] = 0
@@ -296,7 +414,8 @@ def test_dispatch_gnn_training_passes_fixed_validation_only(tmp_path, suite_inpu
         return {}
 
     monkeypatch.setattr(
-        "seis_interp.pipelines.train_relational_trace_graph.train_relational_trace_graph_run", spy
+        "seis_interp.pipelines.train_relational_trace_graph.train_relational_trace_graph_run",
+        spy,
     )
     dispatch_c3_first_results_action(request)
     assert captured["validation_volume_dir"] == Path(request["paths"]["volume_dir"])
@@ -350,11 +469,21 @@ def _cpu_plan(tmp_path, fragments):
     return path
 
 
-def test_tiny_siren_bridge_trains_observed_and_scores_all_targets(tmp_path, suite_inputs):
+@pytest.mark.parametrize("amplitude_scaling", ["train_global_rms", "per_trace_rms"])
+def test_tiny_siren_bridge_trains_observed_and_scores_all_targets(
+    tmp_path, suite_inputs, amplitude_scaling
+):
     fragment = _fragment("siren")
     fragment["model"].update(hidden_width=8, hidden_layers=1)
     fragment["training"].update(max_steps=2, batch_size=8, report_interval=1)
     fragment["prediction"]["batch_size"] = 16
+    if amplitude_scaling == "per_trace_rms":
+        fragment["training"]["amplitude_scaling"] = amplitude_scaling
+        fragment["prediction"]["scale_interpolation"] = {
+            "neighbors": 2,
+            "power": 2.0,
+            "distance_scales_m": [1.0] * 4,
+        }
     result = run_c3_first_results(
         config_path=_cpu_plan(tmp_path, {"siren": fragment}),
         inputs_path=_write_inputs(tmp_path, suite_inputs),
@@ -368,6 +497,10 @@ def test_tiny_siren_bridge_trains_observed_and_scores_all_targets(tmp_path, suit
     assert (native / "artifacts/prediction.npy").is_file()
     run = json.loads((native / "run.json").read_text())
     assert run["random_seed"] == 142
+    assert run["amplitude"]["scaling"] == amplitude_scaling
+    if amplitude_scaling == "per_trace_rms":
+        assert (native / "artifacts/trace_amplitude_scales.npy").is_file()
+        assert not run["amplitude"]["target_amplitudes_used_for_scale"]
 
 
 @pytest.mark.parametrize("method", ["ccnet", "gnn"])

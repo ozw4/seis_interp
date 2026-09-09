@@ -42,6 +42,7 @@ def _write_config(
     *,
     device: str = "cpu",
     training_random_seed: int = 42,
+    amplitude_scaling: str = "train_global_rms",
 ) -> Path:
     case = json.loads((artifacts.case / "benchmark_case.json").read_text(encoding="utf-8"))
     config = {
@@ -84,6 +85,13 @@ def _write_config(
             "domain": "evaluation_target",
         },
     }
+    if amplitude_scaling == "per_trace_rms":
+        config["training"]["amplitude_scaling"] = amplitude_scaling
+        config["prediction"]["scale_interpolation"] = {
+            "neighbors": 2,
+            "power": 2.0,
+            "distance_scales_m": [1.0, 1.0, 1.0, 1.0],
+        }
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return path
 
@@ -250,7 +258,10 @@ def test_run_writes_only_final_artifacts_and_complete_matching_records(
     assert payload["checkpoint_role"] == "fixed_step_final"
     assert payload["method_variant"] == METHOD_VARIANT
     assert payload["training_domain"] == "benchmark_observed_samples"
-    assert payload["training"] == {"global_step": 3, "final_batch_loss": loaded.final_batch_loss}
+    assert payload["training"] == {
+        "global_step": 3,
+        "final_batch_loss": loaded.final_batch_loss,
+    }
     assert run["method"] == METHOD
     assert run["method_variant"] == METHOD_VARIANT
     assert run["case_id"] == "synthetic_case"
@@ -286,7 +297,14 @@ def test_run_writes_only_final_artifacts_and_complete_matching_records(
     }
     assert run["coordinates"] == {
         "features": "cmp_offset_azimuth",
-        "order": ["time_s", "cmp_x_m", "cmp_y_m", "offset_m", "azimuth_sin", "azimuth_cos"],
+        "order": [
+            "time_s",
+            "cmp_x_m",
+            "cmp_y_m",
+            "offset_m",
+            "azimuth_sin",
+            "azimuth_cos",
+        ],
         "scale_scope": "selected_volume_geometry",
         "coordinate_min": list(loaded.normalization.coordinate_min),
         "coordinate_max": list(loaded.normalization.coordinate_max),
@@ -324,7 +342,10 @@ def test_run_writes_only_final_artifacts_and_complete_matching_records(
         "dtype": prediction.dtype.name,
         "observed_data_consistency": "hard_reinsertion_after_model_prediction",
     }
-    assert run["checkpoint"] == {"artifact": "artifacts/final.pt", "role": "fixed_step_final"}
+    assert run["checkpoint"] == {
+        "artifact": "artifacts/final.pt",
+        "role": "fixed_step_final",
+    }
     for key in (
         "load_and_verification_seconds",
         "training_data_seconds",
@@ -357,13 +378,19 @@ def test_run_writes_only_final_artifacts_and_complete_matching_records(
     assert progress[4].startswith("siren_volume step 3/3:")
 
 
+@pytest.mark.parametrize("amplitude_scaling", ["train_global_rms", "per_trace_rms"])
 def test_target_truth_rebinding_does_not_change_training_and_cpu_runs_repeat(
     tmp_path: Path,
+    amplitude_scaling: str,
 ) -> None:
     first = prepare_c3_volume_run_artifacts(tmp_path / "first")
     changed = prepare_c3_volume_run_artifacts(tmp_path / "changed", target_offset=5000.0)
-    first_config = _write_config(tmp_path / "first.yaml", first)
-    changed_config = _write_config(tmp_path / "changed.yaml", changed)
+    first_config = _write_config(
+        tmp_path / "first.yaml", first, amplitude_scaling=amplitude_scaling
+    )
+    changed_config = _write_config(
+        tmp_path / "changed.yaml", changed, amplitude_scaling=amplitude_scaling
+    )
     outputs = [tmp_path / name for name in ("first-run", "repeat-run", "changed-run")]
     metrics = [
         _run(first, first_config, outputs[0]),
@@ -391,7 +418,10 @@ def test_target_truth_rebinding_does_not_change_training_and_cpu_runs_repeat(
         assert checkpoint.model_coordinates == checkpoints[0].model_coordinates
         for name, expected in checkpoints[0].model.state_dict().items():
             torch.testing.assert_close(
-                checkpoint.model.state_dict()[name].cpu(), expected.cpu(), rtol=1e-6, atol=1e-7
+                checkpoint.model.state_dict()[name].cpu(),
+                expected.cpu(),
+                rtol=1e-6,
+                atol=1e-7,
             )
         assert result["training"] == metrics[0]["training"]
         assert (
@@ -406,9 +436,101 @@ def test_target_truth_rebinding_does_not_change_training_and_cpu_runs_repeat(
     assert metrics[0]["evaluation_target"] != metrics[2]["evaluation_target"]
     assert locks[0] == locks[1]
     assert locks[0]["benchmark_case"]["sha256"] != locks[2]["benchmark_case"]["sha256"]
+    if amplitude_scaling == "per_trace_rms":
+        for output, checkpoint in zip(outputs, checkpoints, strict=True):
+            run = json.loads((output / "run.json").read_text())
+            scales = np.load(output / pipeline.TRACE_SCALES_RELATIVE_PATH, allow_pickle=False)
+            assert checkpoint.amplitude_scaling == "per_trace_rms"
+            assert run["amplitude"]["scaling"] == "per_trace_rms"
+            assert not run["amplitude"]["target_amplitudes_used_for_scale"]
+            assert "amplitude_rms" not in run["amplitude"]
+            np.testing.assert_array_equal(scales, checkpoint.trace_amplitude_scales)
+            np.testing.assert_array_equal(scales, checkpoints[0].trace_amplitude_scales)
+            np.testing.assert_array_equal(
+                checkpoint.trace_array_rows, checkpoints[0].trace_array_rows
+            )
 
 
-def test_changing_only_training_seed_changes_weights_not_benchmark_inputs(tmp_path: Path) -> None:
+def _enable_time_learning_variant(config, variant):
+    if variant in ("time_init3", "both"):
+        config["training"]["initial_time_weight_scale"] = 3.0
+    if variant in ("envelope", "both"):
+        config["training"].update(
+            batch_mode="random_complete_traces",
+            traces_per_step=None,
+            envelope_loss={"weight": 1.0, "sigma_samples": [0.25, 0.5], "decay_steps": 3},
+        )
+
+
+@pytest.mark.parametrize(
+    "shear,variant",
+    [(0.0, None), (0.0006, None), (0.0, "time_init3"), (0.0, "envelope"), (0.0, "both")],
+)
+def test_per_trace_checkpoint_restores_full_physical_prediction(
+    tmp_path: Path, shear, variant
+) -> None:
+    from dataclasses import replace
+
+    from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
+    from seis_interp.training.c3_volume_siren_data import build_c3_volume_siren_data
+    from seis_interp.training.c3_volume_siren_prediction import predict_c3_volume_siren
+
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
+    config_path = _write_config(
+        tmp_path / "per-trace.yaml", artifacts, amplitude_scaling="per_trace_rms"
+    )
+    config = yaml.safe_load(config_path.read_text())
+    if shear or variant:
+        config["model"].update(
+            coordinate_features="cmp_cartesian_half_offset",
+            input_features=5,
+            time_coordinate_scale=2.0,
+            relative_receiver_y_time_shear_s_per_m=shear,
+        )
+    _enable_time_learning_variant(config, variant)
+    config_path.write_text(yaml.safe_dump(config))
+    output = tmp_path / "per-trace-run"
+    _run(artifacts, config_path, output)
+    loaded = load_fixed_step_siren_checkpoint(output / CHECKPOINT_RELATIVE_PATH)
+    inputs = load_c3_volume_run_inputs(
+        config=yaml.safe_load(config_path.read_text()),
+        interim_dir=artifacts.interim,
+        processed_dir=artifacts.processed,
+        mask_dir=artifacts.mask,
+        case_dir=artifacts.case,
+        volume_dir=artifacts.volume,
+    )
+    data = build_c3_volume_siren_data(
+        inputs.observed_volume,
+        inputs.index_table,
+        coordinate_features=loaded.model_coordinates.coordinate_features,
+        time_coordinate_scale=loaded.model_coordinates.time_coordinate_scale,
+        relative_receiver_y_time_shear_s_per_m=shear,
+    )
+    np.testing.assert_array_equal(
+        loaded.trace_array_rows, inputs.observed_volume.array_rows.ravel()
+    )
+    restored_data = replace(
+        data,
+        normalization=loaded.normalization,
+        model_coordinates=loaded.model_coordinates,
+        amplitude_scaling=loaded.amplitude_scaling,
+        trace_amplitude_scales=loaded.trace_amplitude_scales,
+        trace_array_rows=loaded.trace_array_rows,
+        scale_interpolation=loaded.scale_interpolation,
+    )
+    reconstructed = predict_c3_volume_siren(
+        loaded.model, restored_data, inputs.observed_volume, batch_size=17, device="cpu"
+    )
+    np.testing.assert_array_equal(
+        reconstructed.values,
+        np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False),
+    )
+
+
+def test_changing_only_training_seed_changes_weights_not_benchmark_inputs(
+    tmp_path: Path,
+) -> None:
     artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     seeds = (42, 43)
     configs = [
@@ -553,6 +675,24 @@ def test_invalid_configurations_fail_before_loading_inputs_or_creating_output(
         ("model", "hidden_omega", -1.0, "model.hidden_omega"),
         ("model", "layer_omega_schedule", "linear", "model.layer_omega_schedule"),
         ("model", "skip_connections", "residual", "model.skip_connections"),
+        (
+            "model",
+            "relative_receiver_y_time_shear_s_per_m",
+            float("nan"),
+            "model.relative_receiver_y_time_shear_s_per_m",
+        ),
+        (
+            "model",
+            "relative_receiver_y_time_shear_s_per_m",
+            True,
+            "model.relative_receiver_y_time_shear_s_per_m",
+        ),
+        (
+            "model",
+            "relative_receiver_y_time_shear_s_per_m",
+            0.0006,
+            "model.relative_receiver_y_time_shear_s_per_m",
+        ),
         ("training", "optimizer", "sgd", "training.optimizer"),
         ("training", "loss", "l1", "training.loss"),
         ("training", "learning_rate", float("inf"), "training.learning_rate"),
@@ -587,16 +727,30 @@ def test_invalid_configurations_fail_before_loading_inputs_or_creating_output(
         assert not output.exists()
 
 
-def test_input_contradictions_and_broken_binding_create_no_output(tmp_path: Path) -> None:
+def test_input_contradictions_and_broken_binding_create_no_output(
+    tmp_path: Path,
+) -> None:
     artifacts = prepare_c3_volume_run_artifacts(tmp_path)
     base_path = _write_config(tmp_path / "base.yaml", artifacts)
     base = yaml.safe_load(base_path.read_text(encoding="utf-8"))
     contradictions = [
         (("benchmark_case", "id"), "wrong_case", "benchmark_case.id"),
         (("benchmark_volume", "id"), "wrong_volume", "benchmark_volume.id"),
-        (("benchmark_volume", "selection", "time"), [1, 4], "benchmark_volume.selection"),
-        (("interpolation_mask", "partition"), "validation", "interpolation_mask.partition"),
-        (("interpolation_mask", "kind"), RANDOM_WHOLE_FFID_MASK_KIND, "interpolation_mask.kind"),
+        (
+            ("benchmark_volume", "selection", "time"),
+            [1, 4],
+            "benchmark_volume.selection",
+        ),
+        (
+            ("interpolation_mask", "partition"),
+            "validation",
+            "interpolation_mask.partition",
+        ),
+        (
+            ("interpolation_mask", "kind"),
+            RANDOM_WHOLE_FFID_MASK_KIND,
+            "interpolation_mask.kind",
+        ),
         (("interpolation_mask", "missing_fraction"), 0.25, "missing_fraction"),
         (("project", "random_seed"), 7, "project.random_seed"),
     ]
@@ -693,3 +847,73 @@ def test_real_siren_cli_runs_pipeline_with_strict_json_stdout(
     assert load_fixed_step_siren_checkpoint(output / CHECKPOINT_RELATIVE_PATH).global_step == 3
     assert np.isfinite(np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)).all()
     assert json.loads((output / "run.json").read_text(encoding="utf-8"))["device"] == "cpu"
+
+
+@pytest.mark.parametrize(
+    "shear,batch_mode,variant",
+    [
+        (0.0, "random_complete_traces", None),
+        (0.0006, "random_complete_traces", None),
+        (0.0, "random_points", None),
+        (0.0006, "random_points", None),
+        (0.0, "random_complete_traces", "time_init3"),
+        (0.0, "random_complete_traces", "envelope"),
+        (0.0, "random_complete_traces", "both"),
+    ],
+)
+def test_cartesian_complete_trace_training_ignores_rebound_target_waveforms(
+    tmp_path: Path, shear, batch_mode, variant
+):
+    predictions, runs, metrics = [], [], []
+    for name, target_offset in (("first", 0.0), ("changed", 5000.0)):
+        artifacts = prepare_c3_volume_run_artifacts(tmp_path / name, target_offset=target_offset)
+        path = _write_config(
+            tmp_path / f"{name}.yaml", artifacts, amplitude_scaling="per_trace_rms"
+        )
+        config = yaml.safe_load(path.read_text())
+        config["model"].update(
+            coordinate_features="cmp_cartesian_half_offset",
+            input_features=5,
+            time_coordinate_scale=2.0,
+            relative_receiver_y_time_shear_s_per_m=shear,
+        )
+        config["training"].update(batch_mode=batch_mode, batch_size=7)
+        if batch_mode == "random_complete_traces":
+            config["training"].update(
+                traces_per_step=None,
+                learning_rate_schedule="cosine",
+                minimum_learning_rate=1e-5,
+            )
+        _enable_time_learning_variant(config, variant)
+        path.write_text(yaml.safe_dump(config))
+        output = tmp_path / f"{name}-run"
+        metrics.append(_run(artifacts, path, output))
+        predictions.append(np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False))
+        run = json.loads((output / "run.json").read_text())
+        loaded = load_fixed_step_siren_checkpoint(output / CHECKPOINT_RELATIVE_PATH)
+        assert loaded.model.input_features == 5
+        assert loaded.model_coordinates.coordinate_features == "cmp_cartesian_half_offset"
+        assert loaded.model_coordinates.time_coordinate_scale == 2.0
+        assert loaded.model_coordinates.relative_receiver_y_time_shear_s_per_m == shear
+        assert len(run["coordinates"]["coordinate_min"]) == 5
+        if shear:
+            assert run["coordinates"]["relative_receiver_y_time_shear_s_per_m"] == shear
+        else:
+            assert "relative_receiver_y_time_shear_s_per_m" not in run["coordinates"]
+        if batch_mode == "random_complete_traces":
+            assert run["training"]["traces_per_step"] is None
+            assert run["training"]["microbatch_size"] == 7
+            assert run["training"]["learning_rate_schedule"] == "cosine"
+        if variant in ("time_init3", "both"):
+            assert run["training"]["initial_time_weight_scale"] == 3.0
+        if variant in ("envelope", "both"):
+            assert run["training"]["envelope_loss"] == config["training"]["envelope_loss"]
+            history = metrics[-1]["training"]["history"]
+            assert history[-1]["envelope_weight"] == 0.0
+            assert history[-1]["weighted_envelope_mse"] == 0.0
+        assert metrics[-1]["observed_max_abs_error"] == 0.0
+        runs.append(run)
+    np.testing.assert_array_equal(predictions[0], predictions[1])
+    assert metrics[0]["training"] == metrics[1]["training"]
+    assert metrics[0]["evaluation_target"] != metrics[1]["evaluation_target"]
+    assert runs[0]["amplitude"] == runs[1]["amplitude"]

@@ -18,19 +18,33 @@ from seis_interp.configuration import (
     get_required_config_value,
     load_resolved_config,
 )
-from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs, load_c3_volume_run_inputs
+from seis_interp.data.c3_volume_run_inputs import (
+    C3VolumeRunInputs,
+    load_c3_volume_run_inputs,
+)
 from seis_interp.evaluation.c3_volume_metrics import (
     evaluate_c3_volume_prediction,
     validate_c3_volume_evaluation_config,
 )
 from seis_interp.models.siren import Siren
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
+from seis_interp.processing.training_coordinates import (
+    CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES,
+    coordinate_order_for_features,
+    validated_coordinate_features,
+    validated_time_coordinate_scale,
+)
 from seis_interp.training.c3_volume_siren_data import (
     VOLUME_AMPLITUDE_SCALE_SOURCE,
     VOLUME_COORDINATE_SCOPE,
     C3VolumeSirenData,
     build_c3_volume_siren_data,
     build_c3_volume_siren_sampler,
+    validate_c3_volume_siren_scaling,
+)
+from seis_interp.training.c3_volume_siren_options import (
+    complete_trace_training_options,
+    initial_time_weight_scale,
 )
 from seis_interp.training.c3_volume_siren_prediction import (
     C3VolumeSirenPrediction,
@@ -42,13 +56,19 @@ from seis_interp.training.checkpoints import (
     save_fixed_step_siren_checkpoint,
 )
 from seis_interp.training.devices import resolve_device as _resolve_device
-from seis_interp.training.fixed_step_siren import FixedStepSirenResult, train_siren_fixed_steps
+from seis_interp.training.fixed_step_siren import (
+    FixedStepSirenResult,
+    train_siren_complete_trace_steps,
+    train_siren_fixed_steps,
+)
 from seis_interp.training.randomness import seed_global_model_initialization
+from seis_interp.training.siren_initialization import apply_siren_time_weight_initialization
 
 METHOD = "siren_5d"
 METHOD_VARIANT = VOLUME_SIREN_METHOD_VARIANT
 PREDICTION_RELATIVE_PATH = Path("artifacts") / "prediction.npy"
 CHECKPOINT_RELATIVE_PATH = Path("artifacts") / "final.pt"
+TRACE_SCALES_RELATIVE_PATH = Path("artifacts") / "trace_amplitude_scales.npy"
 ProgressReporter = Callable[[str], None]
 
 
@@ -80,9 +100,17 @@ def interpolate_siren_run(
     config = load_resolved_config(Path(config_path))
     model_config = _model_constructor_config(config)
     settings = _training_settings(config)
-    prediction_settings = _exact_section(config, "prediction", {"batch_size"})
+    complete_options = complete_trace_training_options(config["training"])
+    time_weight_scale = initial_time_weight_scale(config["training"])
+    prediction_settings = _exact_section(
+        config, "prediction", {"batch_size"}, optional={"scale_interpolation"}
+    )
     prediction_batch_size = config_values.positive_integer(
         prediction_settings["batch_size"], "prediction.batch_size"
+    )
+    amplitude_scaling, scale_interpolation = validate_c3_volume_siren_scaling(
+        config["training"].get("amplitude_scaling", "train_global_rms"),
+        prediction_settings.get("scale_interpolation"),
     )
     validate_c3_volume_evaluation_config(config)
     benchmark_seed = config_values.nonnegative_integer(
@@ -108,30 +136,66 @@ def interpolate_siren_run(
     observed = inputs.observed_volume
 
     _report(
-        progress_reporter, "Building volume-local SIREN coordinates and observed training data."
+        progress_reporter,
+        "Building volume-local SIREN coordinates and observed training data.",
     )
     started = time.perf_counter()
-    data = build_c3_volume_siren_data(observed, inputs.index_table)
+    data = build_c3_volume_siren_data(
+        observed,
+        inputs.index_table,
+        amplitude_scaling=amplitude_scaling,
+        scale_interpolation=scale_interpolation,
+        coordinate_features=config["model"]["coordinate_features"],
+        time_coordinate_scale=config["model"].get("time_coordinate_scale", 1.0),
+        relative_receiver_y_time_shear_s_per_m=config["model"].get(
+            "relative_receiver_y_time_shear_s_per_m", 0.0
+        ),
+    )
     timings["training_data_seconds"] = time.perf_counter() - started
+    complete_options = complete_trace_training_options(
+        config["training"], time_count=len(data.normalized_time)
+    )
     seed_global_model_initialization(settings.random_seed, device=device)
     sampler = build_c3_volume_siren_sampler(data, random_seed=settings.random_seed)
     model = Siren(**model_config)
+    apply_siren_time_weight_initialization(model, time_weight_scale)
 
     _report(progress_reporter, "Training SIREN on observed benchmark samples.")
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
     started = time.perf_counter()
-    trained = train_siren_fixed_steps(
-        model,
-        sampler,
-        device=device,
-        learning_rate=settings.learning_rate,
-        batch_size=settings.batch_size,
-        max_steps=settings.max_steps,
-        report_interval=settings.report_interval,
-        reporter=progress_reporter,
-    )
+    if complete_options is None:
+        trained = train_siren_fixed_steps(
+            model,
+            sampler,
+            device=device,
+            learning_rate=settings.learning_rate,
+            batch_size=settings.batch_size,
+            max_steps=settings.max_steps,
+            report_interval=settings.report_interval,
+            reporter=progress_reporter,
+        )
+    else:
+        trained = train_siren_complete_trace_steps(
+            model,
+            data.normalized_time,
+            data.normalized_spatial[data.observed_flat_indices],
+            data.normalized_observed_amplitudes,
+            device=device,
+            learning_rate=settings.learning_rate,
+            microbatch_size=settings.batch_size,
+            max_steps=settings.max_steps,
+            report_interval=settings.report_interval,
+            random_seed=settings.random_seed,
+            reporter=progress_reporter,
+            normalized_time_offsets=(
+                None
+                if data.normalized_time_offsets is None
+                else data.normalized_time_offsets[data.observed_flat_indices]
+            ),
+            **complete_options,
+        )
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     timings["training_seconds"] = time.perf_counter() - started
@@ -177,9 +241,25 @@ def interpolate_siren_run(
         }
     )
 
-    _report(progress_reporter, "Writing final checkpoint, prediction, and immutable run records.")
+    _report(
+        progress_reporter,
+        "Writing final checkpoint, prediction, and immutable run records.",
+    )
     output.mkdir(parents=True, exist_ok=False)
     (output / "artifacts").mkdir(exist_ok=False)
+    checkpoint_scaling = {}
+    if data.amplitude_scaling == "per_trace_rms":
+        checkpoint_scaling = {
+            "amplitude_scaling": data.amplitude_scaling,
+            "trace_amplitude_scales": data.trace_amplitude_scales,
+            "trace_array_rows": data.trace_array_rows,
+            "scale_interpolation": data.scale_interpolation,
+        }
+        np.save(
+            output / TRACE_SCALES_RELATIVE_PATH,
+            data.trace_amplitude_scales,
+            allow_pickle=False,
+        )
     save_fixed_step_siren_checkpoint(
         output / CHECKPOINT_RELATIVE_PATH,
         model,
@@ -187,6 +267,7 @@ def interpolate_siren_run(
         data.model_coordinates,
         global_step=trained.steps_completed,
         final_batch_loss=trained.final_batch_loss,
+        **checkpoint_scaling,
     )
     np.save(output / PREDICTION_RELATIVE_PATH, predicted.values, allow_pickle=False)
     finished_at_utc = run_records.utc_timestamp()
@@ -206,13 +287,32 @@ def interpolate_siren_run(
         started_at_utc=started_at_utc,
         finished_at_utc=finished_at_utc,
     )
+    if complete_options is not None:
+        metadata["training"].update(
+            batch_mode="random_complete_traces",
+            sampling="complete_observed_traces_without_replacement_per_update",
+            microbatch_size=settings.batch_size,
+            **complete_options,
+        )
+    if "initial_time_weight_scale" in config["training"]:
+        metadata["training"]["initial_time_weight_scale"] = time_weight_scale
     run_records.write_run_outputs(output, deepcopy(config), inputs.inputs_lock, metrics, metadata)
     return metrics
 
 
-def _exact_section(config: Mapping[str, object], name: str, keys: set[str]) -> Mapping[str, object]:
+def _exact_section(
+    config: Mapping[str, object],
+    name: str,
+    keys: set[str],
+    *,
+    optional: set[str] | None = None,
+) -> Mapping[str, object]:
     section = config.get(name)
-    if not isinstance(section, Mapping) or set(section) != keys:
+    if (
+        not isinstance(section, Mapping)
+        or not keys.issubset(section)
+        or set(section) - keys - (optional or set())
+    ):
         raise ConfigurationError(f"{name} configuration must contain exactly {sorted(keys)}")
     return section
 
@@ -233,15 +333,41 @@ def _model_constructor_config(config: Mapping[str, object]) -> dict[str, object]
             "layer_omega_schedule",
             "skip_connections",
         },
+        optional={"time_coordinate_scale", "relative_receiver_y_time_shear_s_per_m"},
     )
     config_values.require_exact(config, "model.name", "siren")
-    config_values.require_exact(config, "model.coordinate_features", "cmp_offset_azimuth")
+    features = coordinate_order_for_features(
+        validated_coordinate_features(
+            section["coordinate_features"], name="model.coordinate_features"
+        )
+    )
+    validated_time_coordinate_scale(
+        section.get("time_coordinate_scale", 1.0), name="model.time_coordinate_scale"
+    )
+    shear = config_values.finite_float(
+        section.get("relative_receiver_y_time_shear_s_per_m", 0.0),
+        "model.relative_receiver_y_time_shear_s_per_m",
+    )
+    if (
+        shear != 0.0
+        and section["coordinate_features"] != CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES
+    ):
+        raise ConfigurationError(
+            "model.relative_receiver_y_time_shear_s_per_m requires cmp_cartesian_half_offset"
+        )
     constructor = {
         key: config_values.positive_integer(section[key], f"model.{key}")
-        for key in ("input_features", "hidden_width", "hidden_layers", "output_features")
+        for key in (
+            "input_features",
+            "hidden_width",
+            "hidden_layers",
+            "output_features",
+        )
     }
-    if constructor["input_features"] != 6 or constructor["output_features"] != 1:
-        raise ConfigurationError("model must have input_features=6 and output_features=1")
+    if constructor["input_features"] != len(features) or constructor["output_features"] != 1:
+        raise ConfigurationError(
+            f"model must have input_features={len(features)} and output_features=1"
+        )
     constructor.update(
         {
             key: config_values.positive_float(section[key], f"model.{key}")
@@ -271,6 +397,15 @@ def _training_settings(config: Mapping[str, object]) -> _TrainingSettings:
             "max_steps",
             "report_interval",
             "device",
+        },
+        optional={
+            "amplitude_scaling",
+            "batch_mode",
+            "traces_per_step",
+            "learning_rate_schedule",
+            "minimum_learning_rate",
+            "initial_time_weight_scale",
+            "envelope_loss",
         },
     )
     config_values.require_exact(config, "training.optimizer", "adam")
@@ -332,16 +467,20 @@ def _run_metadata(
             "features": data.model_coordinates.coordinate_features,
             "order": list(data.model_coordinates.coordinate_order),
             "scale_scope": VOLUME_COORDINATE_SCOPE,
-            "coordinate_min": list(data.normalization.coordinate_min),
-            "coordinate_max": list(data.normalization.coordinate_max),
+            "coordinate_min": list(data.model_coordinates.coordinate_scale_min),
+            "coordinate_max": list(data.model_coordinates.coordinate_scale_max),
             "time_coordinate_scale": data.model_coordinates.time_coordinate_scale,
+            **(
+                {
+                    "relative_receiver_y_time_shear_s_per_m": (
+                        data.model_coordinates.relative_receiver_y_time_shear_s_per_m
+                    )
+                }
+                if data.model_coordinates.relative_receiver_y_time_shear_s_per_m != 0.0
+                else {}
+            ),
         },
-        "amplitude": {
-            "scaling": "train_global_rms",
-            "training_domain": "benchmark_observed_samples",
-            "scale_source": VOLUME_AMPLITUDE_SCALE_SOURCE,
-            "amplitude_rms": data.normalization.amplitude_rms,
-        },
+        "amplitude": _amplitude_metadata(data),
         "model": {
             **model_config,
             "parameter_dtype": str(next(model.parameters()).dtype).removeprefix("torch."),
@@ -380,6 +519,41 @@ def _run_metadata(
             "torch_num_threads": torch.get_num_threads(),
         },
         "warnings": [],
+    }
+
+
+def _amplitude_metadata(data: C3VolumeSirenData) -> dict[str, object]:
+    if data.amplitude_scaling == "train_global_rms":
+        return {
+            "scaling": "train_global_rms",
+            "training_domain": "benchmark_observed_samples",
+            "scale_source": VOLUME_AMPLITUDE_SCALE_SOURCE,
+            "amplitude_rms": data.normalization.amplitude_rms,
+        }
+    scales = data.trace_amplitude_scales
+    observed_scales = scales[data.observed_flat_indices]
+    return {
+        "scaling": "per_trace_rms",
+        "training_domain": "benchmark_observed_samples",
+        "scale_source": "observed_trace_rms_with_idw_at_unobserved_traces",
+        "observed_global_rms_diagnostic_only": data.normalization.amplitude_rms,
+        "scale_interpolation": {
+            "method": "inverse_distance_weighting",
+            "coordinate_order": [
+                "source_x_m",
+                "source_y_m",
+                "relative_receiver_x_m",
+                "relative_receiver_y_m",
+            ],
+            **data.scale_interpolation,
+        },
+        "scale_artifact": TRACE_SCALES_RELATIVE_PATH.as_posix(),
+        "scale_order": "C_order_flat_volume",
+        "scale_dtype": scales.dtype.name,
+        "scale_min": float(scales.min()),
+        "scale_max": float(scales.max()),
+        "observed_zero_scale_trace_count": int(np.count_nonzero(observed_scales == 0)),
+        "target_amplitudes_used_for_scale": False,
     }
 
 

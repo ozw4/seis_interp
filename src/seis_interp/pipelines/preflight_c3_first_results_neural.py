@@ -10,7 +10,10 @@ import numpy as np
 import torch
 
 from seis_interp.configuration import load_resolved_config
-from seis_interp.data.c3_benchmark_artifacts import write_benchmark_json, write_benchmark_yaml
+from seis_interp.data.c3_benchmark_artifacts import (
+    write_benchmark_json,
+    write_benchmark_yaml,
+)
 from seis_interp.data.c3_benchmark_inputs import (
     load_c3_benchmark_supervised_source,
     load_c3_benchmark_training_graph_domain,
@@ -28,10 +31,17 @@ from seis_interp.pipelines.preflight_relational_trace_graph import (
     preflight_relational_trace_graph_run,
 )
 from seis_interp.pipelines.train_ccnet5d import train_ccnet5d_run
-from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
+from seis_interp.processing.c3_benchmark_contract import (
+    MAIN_C3_DIMENSIONS,
+    C3BenchmarkDimensions,
+)
 from seis_interp.processing.ccnet5d_tiles import iter_ccnet5d_tiles
-from seis_interp.processing.trace_graph_diagnostics import trace_graph_resource_measurements
-from seis_interp.processing.trace_graph_preprocessing import fit_trace_graph_preprocessing
+from seis_interp.processing.trace_graph_diagnostics import (
+    trace_graph_resource_measurements,
+)
+from seis_interp.processing.trace_graph_preprocessing import (
+    fit_trace_graph_preprocessing,
+)
 from seis_interp.relational_trace_graph_config import (
     validate_relational_trace_graph_training_config,
 )
@@ -43,12 +53,21 @@ from seis_interp.training.c3_first_results_neural_preflight import (
 from seis_interp.training.c3_volume_siren_data import (
     build_c3_volume_siren_data,
     build_c3_volume_siren_sampler,
+    validate_c3_volume_siren_scaling,
+)
+from seis_interp.training.c3_volume_siren_options import (
+    complete_trace_training_options,
+    initial_time_weight_scale,
 )
 from seis_interp.training.ccnet5d_checkpoints import load_ccnet5d_checkpoint
 from seis_interp.training.devices import resolve_device
-from seis_interp.training.fixed_step_siren import train_siren_fixed_steps
+from seis_interp.training.fixed_step_siren import (
+    train_siren_complete_trace_steps,
+    train_siren_fixed_steps,
+)
 from seis_interp.training.point_sampler import build_trace_coordinate_points
 from seis_interp.training.prediction import predict_points
+from seis_interp.training.siren_initialization import apply_siren_time_weight_initialization
 
 
 def run_c3_first_results_neural_preflight(
@@ -123,12 +142,20 @@ def run_c3_first_results_neural_preflight(
                     **arguments,
                 )
                 details = _ccnet_preflight(
-                    config, source, inputs, suite, suite_dir, output, device, prediction_config_path
+                    config,
+                    source,
+                    inputs,
+                    suite,
+                    suite_dir,
+                    output,
+                    device,
+                    prediction_config_path,
                 )
         report.update(status="success", device=str(device), **details)
     except (OSError, ValueError, RuntimeError, MemoryError) as error:
         report.update(
-            status="blocked", blockers=[{"type": type(error).__name__, "message": str(error)}]
+            status="blocked",
+            blockers=[{"type": type(error).__name__, "message": str(error)}],
         )
     report["elapsed_seconds"] = perf_counter() - started
     write_benchmark_json(output / "preflight.json", report)
@@ -137,38 +164,87 @@ def run_c3_first_results_neural_preflight(
 
 def _siren_preflight(config, inputs, device):
     started = perf_counter()
-    data = build_c3_volume_siren_data(inputs.observed_volume, inputs.index_table)
+    training = config["training"]
+    time_weight_scale = initial_time_weight_scale(training)
+    scaling, interpolation = validate_c3_volume_siren_scaling(
+        config["training"].get("amplitude_scaling", "train_global_rms"),
+        config["prediction"].get("scale_interpolation"),
+    )
+    data = build_c3_volume_siren_data(
+        inputs.observed_volume,
+        inputs.index_table,
+        amplitude_scaling=scaling,
+        scale_interpolation=interpolation,
+        coordinate_features=config["model"]["coordinate_features"],
+        time_coordinate_scale=config["model"].get("time_coordinate_scale", 1.0),
+        relative_receiver_y_time_shear_s_per_m=config["model"].get(
+            "relative_receiver_y_time_shear_s_per_m", 0.0
+        ),
+    )
     data_seconds = perf_counter() - started
     model_config = {
         name: value
         for name, value in config["model"].items()
-        if name not in ("name", "coordinate_features")
+        if name
+        not in (
+            "name",
+            "coordinate_features",
+            "time_coordinate_scale",
+            "relative_receiver_y_time_shear_s_per_m",
+        )
     }
-    training = config["training"]
+    complete_options = complete_trace_training_options(
+        training, time_count=len(data.normalized_time)
+    )
     devices = list(range(torch.cuda.device_count())) if device.type == "cuda" else []
     with torch.random.fork_rng(devices=devices):
         torch.manual_seed(training["random_seed"])
         model = Siren(**model_config)
+        apply_siren_time_weight_initialization(model, time_weight_scale)
         sampler = build_c3_volume_siren_sampler(data, random_seed=training["random_seed"])
         synchronize_preflight_device(device)
         started = perf_counter()
-        result = train_siren_fixed_steps(
-            model,
-            sampler,
-            device=device,
-            learning_rate=training["learning_rate"],
-            batch_size=training["batch_size"],
-            max_steps=10,
-            report_interval=10,
-        )
+        if complete_options is None:
+            result = train_siren_fixed_steps(
+                model,
+                sampler,
+                device=device,
+                learning_rate=training["learning_rate"],
+                batch_size=training["batch_size"],
+                max_steps=10,
+                report_interval=10,
+            )
+        else:
+            result = train_siren_complete_trace_steps(
+                model,
+                data.normalized_time,
+                data.normalized_spatial[data.observed_flat_indices],
+                data.normalized_observed_amplitudes,
+                device=device,
+                learning_rate=training["learning_rate"],
+                microbatch_size=training["batch_size"],
+                max_steps=10,
+                report_interval=10,
+                random_seed=training["random_seed"],
+                normalized_time_offsets=(
+                    None
+                    if data.normalized_time_offsets is None
+                    else data.normalized_time_offsets[data.observed_flat_indices]
+                ),
+                **complete_options,
+            )
         synchronize_preflight_device(device)
         train_seconds = perf_counter() - started
         point_batch = config["prediction"]["batch_size"]
         trace_count = min(
-            len(data.normalized_spatial), max(1, point_batch // len(data.normalized_time))
+            len(data.normalized_spatial),
+            max(1, point_batch // len(data.normalized_time)),
         )
         points = build_trace_coordinate_points(
-            data.normalized_time, data.normalized_spatial, np.arange(trace_count, dtype=np.int64)
+            data.normalized_time,
+            data.normalized_spatial,
+            np.arange(trace_count, dtype=np.int64),
+            normalized_time_offsets=data.normalized_time_offsets,
         )
         started = perf_counter()
         values = predict_points(model, points, batch_size=point_batch, device=device)
@@ -179,6 +255,31 @@ def _siren_preflight(config, inputs, device):
         resources = trace_graph_resource_measurements(device)
     return {
         "smoke_steps": result.steps_completed,
+        **(
+            {"initial_time_weight_scale": time_weight_scale}
+            if "initial_time_weight_scale" in training
+            else {}
+        ),
+        **(
+            {"training_history": [dict(record) for record in result.history]}
+            if complete_options is not None and "envelope_loss" in complete_options
+            else {}
+        ),
+        **(
+            {
+                "relative_receiver_y_time_shear_s_per_m": (
+                    data.model_coordinates.relative_receiver_y_time_shear_s_per_m
+                )
+            }
+            if data.model_coordinates.relative_receiver_y_time_shear_s_per_m != 0.0
+            else {}
+        ),
+        **({"complete_trace_training": complete_options} if complete_options is not None else {}),
+        **(
+            {"amplitude_scaling": scaling, "scale_interpolation": interpolation}
+            if scaling == "per_trace_rms"
+            else {}
+        ),
         "training_random_seed": training["random_seed"],
         "sampler_seed": training["random_seed"],
         "observed_trace_count": len(data.observed_flat_indices),
@@ -191,6 +292,11 @@ def _siren_preflight(config, inputs, device):
         },
         "estimates": {
             "kind": "linear_extrapolation_not_measured_full_run",
+            **(
+                {"training_scope": "envelope_active_smoke_extrapolated_to_all_updates"}
+                if complete_options is not None and "envelope_loss" in complete_options
+                else {}
+            ),
             "training_seconds": train_seconds * training["max_steps"] / 10,
             "prediction_seconds": prediction_seconds
             * inputs.observed_volume.values.size
@@ -309,10 +415,9 @@ def _graph_preflight(config_path, config, entry, suite, device, arguments, count
     ):
         raise ValueError("GNN query counts must increase uniquely within explicit limit <=32")
     model_config, graph, options = validate_relational_trace_graph_training_config(config)
-    if config["training_data"] != {
-        "pool": "all_train_traces",
-        "time_samples": list(arguments["dimensions"].time_range),
-    }:
+    if config["training_data"]["pool"] != "all_train_traces" or config["training_data"][
+        "time_samples"
+    ] != list(arguments["dimensions"].time_range):
         raise ValueError("GNN preflight requires the full suite train pool and authorized time")
     suite_dir = arguments["suite_dir"]
     paths = {
@@ -337,7 +442,11 @@ def _graph_preflight(config_path, config, entry, suite, device, arguments, count
             raise ValueError(f"GNN validation preflight blocked: {measured['blockers']}")
     started = perf_counter()
     domain = load_c3_benchmark_training_graph_domain(**arguments)
-    preprocessing = fit_trace_graph_preprocessing(domain, **config["geometry_features"])
+    preprocessing = fit_trace_graph_preprocessing(
+        domain,
+        **config["geometry_features"],
+        max_abs_amplitude=config["training_data"].get("max_abs_amplitude"),
+    )
     preparation_seconds = perf_counter() - started
     training = measure_c3_first_results_graph_training_batch(
         domain,

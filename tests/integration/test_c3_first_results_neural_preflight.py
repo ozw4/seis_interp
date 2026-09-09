@@ -10,7 +10,10 @@ import yaml
 
 from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
 from seis_interp.data.c3_benchmark_inputs import load_c3_benchmark_supervised_source
-from seis_interp.data.c3_benchmark_suite import c3_suite_case, load_c3_benchmark_input_manifest
+from seis_interp.data.c3_benchmark_suite import (
+    c3_suite_case,
+    load_c3_benchmark_input_manifest,
+)
 from seis_interp.data.c3_first_results_training_regions import (
     resolve_c3_first_results_ccnet_regions,
 )
@@ -58,9 +61,11 @@ def _regions(suite, **kwargs):
 
 
 def _config(suite, action):
-    filename = {"siren": "siren", "ccnet-train": "ccnet_train", "gnn-preflight": "gnn_train"}[
-        action
-    ]
+    filename = {
+        "siren": "siren",
+        "ccnet-train": "ccnet_train",
+        "gnn-preflight": "gnn_train",
+    }[action]
     config = load_resolved_config(METHODS / f"{filename}.yaml")
     config.update(project={"random_seed": 42}, data={"dataset_id": "synthetic_c3"})
     config["training"]["device"] = "cpu"
@@ -103,9 +108,28 @@ def test_regions_resolve_geometry_and_reject_nontrain_overlap_or_wrong_time(suit
         )
 
 
-@pytest.mark.parametrize("action", ["siren", "ccnet-train", "gnn-preflight"])
-def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(suite, tmp_path, action):
+@pytest.mark.parametrize(
+    "action,amplitude_scaling",
+    [
+        ("siren", "train_global_rms"),
+        ("siren", "per_trace_rms"),
+        ("ccnet-train", "train_global_rms"),
+        ("gnn-preflight", "train_global_rms"),
+    ],
+)
+def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(
+    suite, tmp_path, action, amplitude_scaling
+):
     config = _config(suite, action)
+    if amplitude_scaling == "per_trace_rms":
+        config["training"]["amplitude_scaling"] = amplitude_scaling
+        config["prediction"]["scale_interpolation"] = {
+            "neighbors": 2,
+            "power": 2.0,
+            "distance_scales_m": [1.0] * 4,
+        }
+    if action == "gnn-preflight":
+        config["training_data"]["max_abs_amplitude"] = 10000.0
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(config))
     prediction_path = tmp_path / "prediction.yaml"
@@ -146,7 +170,10 @@ def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(suite, t
         assert report["smoke_steps"] == 2
         assert report["halo_radius"] == 4
         assert report["measured_maximum_tile_shape"] == report["full_volume_shape"]
-        assert [tile["role"] for tile in report["tile_measurements"]] == ["maximum_halo", "edge"]
+        assert [tile["role"] for tile in report["tile_measurements"]] == [
+            "maximum_halo",
+            "edge",
+        ]
         for tile in report["tile_measurements"]:
             assert tile["input_shape"] == tile["output_shape"]
             assert tile["forward_seconds"] > 0
@@ -154,6 +181,9 @@ def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(suite, t
     else:
         assert report["smoke_steps"] == 10
         assert report["sampled_prediction_point_count"] == 8
+        if amplitude_scaling == "per_trace_rms":
+            assert report["amplitude_scaling"] == amplitude_scaling
+            assert report["scale_interpolation"] == config["prediction"]["scale_interpolation"]
 
 
 @pytest.mark.parametrize("problem", ["wrong_seed", "query_limit"])
@@ -176,3 +206,101 @@ def test_gnn_preflight_records_blocked_without_starting_pilot(suite, tmp_path, p
     assert report["status"] == "blocked"
     assert not report["training_started"]
     assert not report["full_validation_prediction_completed"]
+
+
+def test_gnn_training_batch_preflight_rechecks_physical_bound(suite, tmp_path, monkeypatch):
+    config = _config(suite, "gnn-preflight")
+    config["training_data"]["max_abs_amplitude"] = 1e-12
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(config))
+    monkeypatch.setattr(
+        "seis_interp.pipelines.preflight_c3_first_results_neural.preflight_relational_trace_graph_run",
+        lambda **kwargs: {"status": "success"},
+    )
+    monkeypatch.setattr(
+        "seis_interp.pipelines.preflight_c3_first_results_neural."
+        "measure_c3_first_results_graph_training_batch",
+        lambda *args, **kwargs: pytest.fail("invalid training amplitudes must block the batch"),
+    )
+
+    report = run_c3_first_results_neural_preflight(
+        "gnn-preflight",
+        config_path=path,
+        suite_dir=suite,
+        case_id="validation_random_trace",
+        output_dir=tmp_path / "smoke",
+        dimensions=DIMENSIONS,
+        query_counts=(1,),
+        query_limit=1,
+    )
+
+    assert report["status"] == "blocked"
+    assert not report["training_started"]
+    assert "max_abs_amplitude=1e-12" in report["blockers"][0]["message"]
+    assert "training_measurement" not in report
+
+
+@pytest.mark.parametrize(
+    "shear,time_weight_scale,envelope",
+    [
+        (0.0, 1.0, False),
+        (0.0006, 1.0, False),
+        (0.0, 3.0, False),
+        (0.0, 1.0, True),
+        (0.0, 3.0, True),
+    ],
+)
+def test_siren_preflight_uses_cartesian_complete_trace_training(
+    suite, tmp_path, shear, time_weight_scale, envelope
+):
+    config = _config(suite, "siren")
+    config["model"].update(
+        coordinate_features="cmp_cartesian_half_offset",
+        input_features=5,
+        time_coordinate_scale=2.0,
+        relative_receiver_y_time_shear_s_per_m=shear,
+    )
+    config["training"].update(
+        batch_mode="random_complete_traces",
+        traces_per_step=None,
+        learning_rate_schedule="cosine",
+        minimum_learning_rate=1e-6,
+    )
+    if time_weight_scale != 1.0:
+        config["training"]["initial_time_weight_scale"] = time_weight_scale
+    if envelope:
+        config["training"]["envelope_loss"] = {
+            "weight": 1.0,
+            "sigma_samples": [0.25, 0.5],
+            "decay_steps": 2500,
+        }
+    path = tmp_path / "complete.yaml"
+    path.write_text(yaml.safe_dump(config))
+    result = run_c3_first_results_neural_preflight(
+        "siren",
+        config_path=path,
+        suite_dir=suite,
+        case_id="validation_random_trace",
+        output_dir=tmp_path / "smoke",
+        dimensions=DIMENSIONS,
+    )
+    assert result["status"] == "success", result
+    assert result["smoke_steps"] == 10
+    assert result["complete_trace_training"] == {
+        "traces_per_step": None,
+        "learning_rate_schedule": "cosine",
+        "minimum_learning_rate": 1e-6,
+        **({"envelope_loss": config["training"]["envelope_loss"]} if envelope else {}),
+    }
+    assert not result["state_reused_by_pilot"]
+    if time_weight_scale != 1.0:
+        assert result["initial_time_weight_scale"] == time_weight_scale
+    if envelope:
+        assert result["training_history"][-1]["envelope_weight"] == pytest.approx(1 - 9 / 2499)
+        assert result["estimates"]["training_scope"] == (
+            "envelope_active_smoke_extrapolated_to_all_updates"
+        )
+    if shear:
+        assert result["relative_receiver_y_time_shear_s_per_m"] == shear
+    else:
+        assert "relative_receiver_y_time_shear_s_per_m" not in result
