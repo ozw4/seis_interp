@@ -12,10 +12,15 @@ from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.models.siren import Siren
 from seis_interp.processing.normalization import denormalize_amplitudes
 from seis_interp.processing.training_coordinates import (
-    CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
     model_coordinate_parameters,
+    normalize_training_time_coordinate,
+    normalize_training_trace_time_offsets,
 )
-from seis_interp.training.c3_volume_siren_data import C3VolumeSirenData
+from seis_interp.training.amplitude_scaling import PER_TRACE_RMS_SCALING
+from seis_interp.training.c3_volume_siren_data import (
+    C3VolumeSirenData,
+    validate_c3_volume_siren_scaling,
+)
 from seis_interp.training.point_sampler import build_trace_coordinate_points
 from seis_interp.training.prediction import predict_points
 
@@ -54,14 +59,24 @@ def predict_c3_volume_siren(
     observed_values = observed_volume.values.reshape(time_count, trace_count)
     observed_error_energy = 0.0
     observed_maximum_error = 0.0
+    time_offsets = {}
+    if data.normalized_time_offsets is not None:
+        time_offsets["normalized_time_offsets"] = data.normalized_time_offsets
     for start in range(0, trace_count, traces_per_chunk):
         stop = min(start + traces_per_chunk, trace_count)
         rows = np.arange(start, stop, dtype=np.int64)
         coordinates = build_trace_coordinate_points(
-            data.normalized_time, data.normalized_spatial, rows
+            data.normalized_time, data.normalized_spatial, rows, **time_offsets
         )
         normalized = predict_points(model, coordinates, batch_size=batch_size, device=device)
-        physical = denormalize_amplitudes(normalized, data.normalization)
+        if data.amplitude_scaling == PER_TRACE_RMS_SCALING:
+            assert data.trace_amplitude_scales is not None
+            physical = (
+                normalized.reshape(len(rows), time_count).astype(np.float64)
+                * data.trace_amplitude_scales[rows, None]
+            )
+        else:
+            physical = denormalize_amplitudes(normalized, data.normalization)
         chunk = np.asarray(physical.reshape(len(rows), time_count), dtype=trace_predictions.dtype)
         if not np.all(np.isfinite(chunk)):
             raise ValueError("physical prediction must contain only finite values")
@@ -115,7 +130,65 @@ def _validate_prediction_inputs(
     if model.input_features != data.normalized_spatial.shape[1] + 1:
         raise ValueError("model input width must match the normalized coordinate width")
     expected_coordinates = model_coordinate_parameters(
-        CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES, data.normalization, time_coordinate_scale=1.0
+        data.model_coordinates.coordinate_features,
+        data.normalization,
+        time_coordinate_scale=data.model_coordinates.time_coordinate_scale,
+        relative_receiver_y_time_shear_s_per_m=(
+            data.model_coordinates.relative_receiver_y_time_shear_s_per_m
+        ),
     )
-    if data.model_coordinates != expected_coordinates:
+    expected_time = normalize_training_time_coordinate(
+        observed_volume.time_s, data.normalization, expected_coordinates
+    )
+    if data.model_coordinates != expected_coordinates or not np.array_equal(
+        data.normalized_time, expected_time
+    ):
         raise ValueError("normalization and model coordinate parameters must be consistent")
+    expected_offsets = normalize_training_trace_time_offsets(
+        data.normalized_spatial, expected_coordinates
+    )
+    offsets = data.normalized_time_offsets
+    if expected_offsets is None:
+        if offsets is not None:
+            raise ValueError("normalized_time_offsets must be absent when coordinate shear is zero")
+    elif (
+        not isinstance(offsets, np.ndarray)
+        or offsets.dtype != np.float64
+        or offsets.shape != (trace_count,)
+        or not np.all(np.isfinite(offsets))
+        or not np.array_equal(offsets, expected_offsets)
+    ):
+        raise ValueError(
+            "normalized_time_offsets must match model coordinate shear and spatial rows"
+        )
+    mode, _ = validate_c3_volume_siren_scaling(data.amplitude_scaling, data.scale_interpolation)
+    if mode == PER_TRACE_RMS_SCALING:
+        scales = data.trace_amplitude_scales
+        if (
+            not isinstance(scales, np.ndarray)
+            or scales.shape != (trace_count,)
+            or scales.dtype != np.float64
+            or not np.all(np.isfinite(scales))
+            or np.any(scales < 0)
+        ):
+            raise ValueError(
+                "per_trace_rms trace_amplitude_scales must be a finite nonnegative "
+                "float64 vector matching volume traces"
+            )
+        rows = data.trace_array_rows
+        if (
+            not isinstance(rows, np.ndarray)
+            or rows.shape != (trace_count,)
+            or rows.dtype != np.int64
+            or len(np.unique(rows)) != trace_count
+            or np.any(rows < 0)
+            or not np.array_equal(rows, observed_volume.array_rows.reshape(-1))
+        ):
+            raise ValueError(
+                "per_trace_rms trace_array_rows must be unique nonnegative int64 rows "
+                "matching the volume order"
+            )
+    elif data.trace_amplitude_scales is not None:
+        raise ValueError("train_global_rms must not contain trace_amplitude_scales")
+    elif data.trace_array_rows is not None:
+        raise ValueError("train_global_rms must not contain trace_array_rows")

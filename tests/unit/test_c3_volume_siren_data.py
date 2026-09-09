@@ -12,6 +12,7 @@ from seis_interp.training.c3_volume_siren_data import (
     VOLUME_COORDINATE_SCOPE,
     build_c3_volume_siren_data,
     build_c3_volume_siren_sampler,
+    validate_c3_volume_siren_scaling,
 )
 from seis_interp.training.point_sampler import RandomPointSampler
 
@@ -76,6 +77,60 @@ def test_geometry_and_normalization_match_hand_calculated_four_direction_traces(
     )
     assert VOLUME_COORDINATE_SCOPE == "selected_volume_geometry"
     assert VOLUME_AMPLITUDE_SCALE_SOURCE == "observed_trace_samples_only"
+
+
+@pytest.mark.parametrize(
+    "coordinate_features", ["cmp_cartesian_half_offset", "cmp_cartesian_half_offset_radius"]
+)
+@pytest.mark.parametrize("time_scale", [1.0, 4.0])
+def test_cartesian_coordinates_and_time_scale_match_physical_hand_calculation(
+    coordinate_features: str, time_scale: float
+) -> None:
+    volume, index_table = _volume_and_index()
+    default = build_c3_volume_siren_data(volume, index_table)
+    data = build_c3_volume_siren_data(
+        volume,
+        index_table,
+        coordinate_features=coordinate_features,
+        time_coordinate_scale=time_scale,
+    )
+
+    # Half offsets are source-minus-receiver / 2, divided by max(offset) / 2 = 4.
+    expected = np.array(
+        [
+            [-0.6, -0.8, 0.0, -0.25],
+            [1.0, -1.0, -0.5, 0.0],
+            [-1.0, 1.0, 0.75, 0.0],
+            [11.0 / 15.0, 0.2, 0.0, 1.0],
+        ]
+    )
+    if coordinate_features == "cmp_cartesian_half_offset_radius":
+        expected = np.column_stack((expected, [-1.0, -1.0 / 3.0, 1.0 / 3.0, 1.0]))
+    np.testing.assert_allclose(data.normalized_spatial, expected, atol=1e-14)
+    np.testing.assert_array_equal(data.normalized_time, [-time_scale, 0.0, time_scale])
+    assert data.model_coordinates.input_features == expected.shape[1] + 1
+    assert data.model_coordinates.coordinate_features == coordinate_features
+    assert data.model_coordinates.time_coordinate_scale == time_scale
+    assert data.model_coordinates.half_offset_scale_m == 4.0
+    assert data.normalization == default.normalization
+    np.testing.assert_array_equal(
+        data.normalized_observed_amplitudes, default.normalized_observed_amplitudes
+    )
+
+
+@pytest.mark.parametrize(
+    "changes,message",
+    [
+        ({"coordinate_features": "unknown"}, "coordinate_features"),
+        ({"time_coordinate_scale": 0.0}, "time_coordinate_scale"),
+        ({"time_coordinate_scale": True}, "time_coordinate_scale"),
+        ({"time_coordinate_scale": np.inf}, "time_coordinate_scale"),
+    ],
+)
+def test_invalid_coordinate_options_use_existing_validation_contract(changes, message) -> None:
+    volume, index_table = _volume_and_index()
+    with pytest.raises(ValueError, match=message):
+        build_c3_volume_siren_data(volume, index_table, **changes)
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
@@ -267,3 +322,273 @@ def test_requires_an_observed_c3_volume() -> None:
 
     with pytest.raises(ValueError, match="ObservedC3Volume"):
         build_c3_volume_siren_data(object(), index_table)  # type: ignore[arg-type]
+
+
+_INTERPOLATION = {"neighbors": 8, "power": 2.0, "distance_scales_m": [10.0, 1.0, 1.0, 1.0]}
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_per_trace_scaling_fits_unit_rms_and_interpolates_in_declared_physical_metric(dtype):
+    volume, index_table = _volume_and_index(dtype)
+    default = build_c3_volume_siren_data(volume, index_table)
+    data = build_c3_volume_siren_data(
+        volume,
+        index_table,
+        amplitude_scaling="per_trace_rms",
+        scale_interpolation=_INTERPOLATION,
+    )
+    rms = np.array([5.0 / np.sqrt(3), 12.0 / np.sqrt(3)])
+    assert data.normalization == default.normalization
+    assert data.amplitude_scaling == "per_trace_rms"
+    assert data.scale_interpolation == _INTERPOLATION
+    assert data.scale_interpolation is not _INTERPOLATION
+    np.testing.assert_allclose(data.trace_amplitude_scales[[0, 2]], rms)
+    # Axis divisors [10,1,1,1] give these squared physical metric distances.
+    expected_targets = [
+        (rms[0] / 21 + rms[1] / 201) / (1 / 21 + 1 / 201),
+        (rms[0] / 201 + rms[1] / 101) / (1 / 201 + 1 / 101),
+    ]
+    np.testing.assert_allclose(data.trace_amplitude_scales[[1, 3]], expected_targets)
+    np.testing.assert_allclose(
+        np.mean(data.normalized_observed_amplitudes.astype(np.float64) ** 2, axis=1), 1.0, rtol=1e-7
+    )
+    np.testing.assert_allclose(
+        data.normalized_observed_amplitudes * rms[:, None],
+        volume.values[:, volume.observed_trace_mask].T,
+        rtol=1e-7,
+    )
+    assert data.normalized_observed_amplitudes.dtype == dtype
+    assert data.trace_amplitude_scales.dtype == np.float64
+    assert data.trace_amplitude_scales.flags.c_contiguous
+    np.testing.assert_array_equal(data.trace_array_rows, volume.array_rows.reshape(-1))
+    assert data.trace_array_rows.dtype == np.int64
+    assert not np.shares_memory(data.trace_array_rows, volume.array_rows)
+
+
+def test_per_trace_scaling_keeps_mixed_zero_observed_traces_with_physical_scale_zero():
+    volume, index_table = _volume_and_index()
+    volume.values[:, 0, 0, 0, 0] = 0
+    data = build_c3_volume_siren_data(
+        volume,
+        index_table,
+        amplitude_scaling="per_trace_rms",
+        scale_interpolation=_INTERPOLATION,
+    )
+    assert data.trace_amplitude_scales[0] == 0
+    np.testing.assert_array_equal(data.normalized_observed_amplitudes[0], 0)
+    assert np.isfinite(data.normalized_observed_amplitudes).all()
+    assert (data.trace_amplitude_scales[[1, 3]] > 0).all()
+    assert data.observed_flat_indices.tolist() == [0, 2]
+    volume.values[:, volume.observed_trace_mask] = 0
+    with pytest.raises(ValueError, match="observed amplitude RMS must be positive and finite"):
+        build_c3_volume_siren_data(
+            volume,
+            index_table,
+            amplitude_scaling="per_trace_rms",
+            scale_interpolation=_INTERPOLATION,
+        )
+
+
+@pytest.mark.parametrize(
+    "coordinate_features,time_scale",
+    [
+        ("cmp_offset_azimuth", 1.0),
+        ("cmp_cartesian_half_offset", 4.0),
+        ("cmp_cartesian_half_offset_radius", 2.0),
+    ],
+)
+def test_per_trace_scales_and_seeded_coordinates_never_depend_on_target_truth(
+    coordinate_features, time_scale
+):
+    volume, index_table = _volume_and_index(np.float64)
+    baseline = build_c3_volume_siren_data(
+        volume,
+        index_table,
+        coordinate_features=coordinate_features,
+        time_coordinate_scale=time_scale,
+    )
+    baseline_sampler = build_c3_volume_siren_sampler(baseline, random_seed=17)
+    expected = None
+    for target_value in [0.0, 1e300, np.nan]:
+        values = volume.values.copy()
+        values[:, volume.evaluation_target_trace_mask] = target_value
+        data = build_c3_volume_siren_data(
+            replace(volume, values=values),
+            index_table,
+            amplitude_scaling="per_trace_rms",
+            scale_interpolation=_INTERPOLATION,
+            coordinate_features=coordinate_features,
+            time_coordinate_scale=time_scale,
+        )
+        sampler = build_c3_volume_siren_sampler(data, random_seed=17)
+        assert sampler.amplitude_scaling == "per_trace_rms"
+        batches = [sampler.sample(50) for _ in range(3)]
+        if expected is None:
+            expected = (data, batches)
+            for coordinates, _ in batches:
+                np.testing.assert_array_equal(coordinates, baseline_sampler.sample(50)[0])
+        else:
+            np.testing.assert_array_equal(
+                data.trace_amplitude_scales, expected[0].trace_amplitude_scales
+            )
+            np.testing.assert_array_equal(
+                data.normalized_observed_amplitudes, expected[0].normalized_observed_amplitudes
+            )
+            for batch, first in zip(batches, expected[1], strict=True):
+                np.testing.assert_array_equal(batch[0], first[0])
+                np.testing.assert_array_equal(batch[1], first[1])
+
+
+def test_coordinate_representation_and_time_scale_do_not_change_observed_rms_or_idw_gains():
+    volume, index_table = _volume_and_index()
+    volume.values[:, 0, 0, 0, 0] = 0.0
+    baseline = build_c3_volume_siren_data(
+        volume,
+        index_table,
+        amplitude_scaling="per_trace_rms",
+        scale_interpolation=_INTERPOLATION,
+    )
+    for features in ("cmp_cartesian_half_offset", "cmp_cartesian_half_offset_radius"):
+        data = build_c3_volume_siren_data(
+            volume,
+            index_table,
+            amplitude_scaling="per_trace_rms",
+            scale_interpolation=_INTERPOLATION,
+            coordinate_features=features,
+            time_coordinate_scale=4.0,
+        )
+        np.testing.assert_array_equal(data.trace_amplitude_scales, baseline.trace_amplitude_scales)
+        np.testing.assert_array_equal(data.trace_array_rows, baseline.trace_array_rows)
+        np.testing.assert_array_equal(
+            data.normalized_observed_amplitudes, baseline.normalized_observed_amplitudes
+        )
+        assert data.normalization == baseline.normalization
+        assert data.scale_interpolation == baseline.scale_interpolation
+        assert data.trace_amplitude_scales[0] == 0.0
+
+
+@pytest.mark.parametrize("shear", [0.125, -0.125])
+def test_shear_uses_signed_relative_receiver_y_without_changing_amplitudes_or_sampler_rng(shear):
+    volume, index_table = _volume_and_index()
+    settings = {
+        "coordinate_features": "cmp_cartesian_half_offset",
+        "time_coordinate_scale": 4.0,
+        "amplitude_scaling": "per_trace_rms",
+        "scale_interpolation": _INTERPOLATION,
+    }
+    baseline = build_c3_volume_siren_data(volume, index_table, **settings)
+    data = build_c3_volume_siren_data(
+        volume, index_table, **settings, relative_receiver_y_time_shear_s_per_m=shear
+    )
+    # tau=t+s*relative_receiver_y; dt_normalized/dt=2*4/(0.75-0.25)=16.
+    expected_offsets = 16.0 * shear * np.array([2.0, 0.0, 0.0, -8.0])
+    np.testing.assert_array_equal(data.normalized_time_offsets, expected_offsets)
+    np.testing.assert_array_equal(data.normalized_time, [-4.0, 0.0, 4.0])
+    np.testing.assert_array_equal(data.normalized_spatial, baseline.normalized_spatial)
+    np.testing.assert_array_equal(data.trace_amplitude_scales, baseline.trace_amplitude_scales)
+    np.testing.assert_array_equal(
+        data.normalized_observed_amplitudes, baseline.normalized_observed_amplitudes
+    )
+    assert baseline.normalized_time_offsets is None
+    assert data.normalized_time_offsets.dtype == np.float64
+    assert data.normalized_time_offsets.flags.c_contiguous
+    points, targets = build_c3_volume_siren_sampler(data, random_seed=19).sample(100)
+    baseline_points, baseline_targets = build_c3_volume_siren_sampler(
+        baseline, random_seed=19
+    ).sample(100)
+    np.testing.assert_array_equal(points[:, 1:], baseline_points[:, 1:])
+    np.testing.assert_array_equal(targets, baseline_targets)
+    for point, original in zip(points, baseline_points, strict=True):
+        flat_row = int(np.flatnonzero(np.all(data.normalized_spatial == point[1:], axis=1))[0])
+        assert flat_row in data.observed_flat_indices
+        assert point[0] == original[0] + expected_offsets[flat_row]
+
+
+def test_sheared_training_coordinates_and_per_trace_scales_ignore_poisoned_target_waveforms():
+    volume, index_table = _volume_and_index(np.float64)
+    baseline = None
+    for poison in (0.0, 1e300, np.nan):
+        values = volume.values.copy()
+        values[:, volume.evaluation_target_trace_mask] = poison
+        data = build_c3_volume_siren_data(
+            replace(volume, values=values),
+            index_table,
+            coordinate_features="cmp_cartesian_half_offset",
+            time_coordinate_scale=4.0,
+            relative_receiver_y_time_shear_s_per_m=0.125,
+            amplitude_scaling="per_trace_rms",
+            scale_interpolation=_INTERPOLATION,
+        )
+        batch = build_c3_volume_siren_sampler(data, random_seed=3).sample(64)
+        if baseline is None:
+            baseline = data, batch
+        else:
+            np.testing.assert_array_equal(
+                data.normalized_time_offsets, baseline[0].normalized_time_offsets
+            )
+            np.testing.assert_array_equal(
+                data.trace_amplitude_scales, baseline[0].trace_amplitude_scales
+            )
+            np.testing.assert_array_equal(
+                data.normalized_observed_amplitudes, baseline[0].normalized_observed_amplitudes
+            )
+            np.testing.assert_array_equal(batch[0], baseline[1][0])
+            np.testing.assert_array_equal(batch[1], baseline[1][1])
+
+
+def test_explicit_global_default_preserves_arrays_and_has_no_trace_scale_metadata():
+    volume, index_table = _volume_and_index()
+    implicit = build_c3_volume_siren_data(volume, index_table)
+    explicit = build_c3_volume_siren_data(
+        volume,
+        index_table,
+        amplitude_scaling="train_global_rms",
+        coordinate_features="cmp_offset_azimuth",
+        time_coordinate_scale=1.0,
+        relative_receiver_y_time_shear_s_per_m=0.0,
+    )
+    assert explicit.trace_amplitude_scales is None and explicit.scale_interpolation is None
+    assert explicit.trace_array_rows is None
+    assert implicit.normalized_time_offsets is explicit.normalized_time_offsets is None
+    assert implicit.model_coordinates.to_dict() == explicit.model_coordinates.to_dict()
+    for name in [
+        "normalized_time",
+        "normalized_spatial",
+        "normalized_observed_amplitudes",
+        "observed_flat_indices",
+    ]:
+        np.testing.assert_array_equal(getattr(explicit, name), getattr(implicit, name))
+    for actual, expected in zip(
+        build_c3_volume_siren_sampler(explicit, random_seed=19).sample(100),
+        build_c3_volume_siren_sampler(implicit, random_seed=19).sample(100),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "mode,changes",
+    [
+        ("train_global_rms", {}),
+        ("unknown", {}),
+        ("per_trace_rms", {"neighbors": True}),
+        ("per_trace_rms", {"neighbors": 0}),
+        ("per_trace_rms", {"power": np.inf}),
+        ("per_trace_rms", {"power": True}),
+        ("per_trace_rms", {"unknown": 1}),
+        ("per_trace_rms", {"power": 10**400}),
+        ("per_trace_rms", {"distance_scales_m": [1, 2, 3]}),
+        ("per_trace_rms", {"distance_scales_m": [1, 2, 3, 0]}),
+        ("per_trace_rms", {"distance_scales_m": [1, 2, 3, np.nan]}),
+        ("per_trace_rms", {"distance_scales_m": [1, 2, 3, True]}),
+        ("per_trace_rms", {"distance_scales_m": [1, 2, 3, 10**400]}),
+    ],
+)
+def test_scaling_contract_rejects_invalid_interpolation_settings(mode, changes):
+    with pytest.raises(ValueError):
+        validate_c3_volume_siren_scaling(mode, {**_INTERPOLATION, **changes})
+
+
+def test_per_trace_scaling_requires_explicit_interpolation():
+    with pytest.raises(ValueError, match="scale_interpolation"):
+        validate_c3_volume_siren_scaling("per_trace_rms", None)

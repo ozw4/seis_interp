@@ -2,22 +2,33 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import isfinite
+from numbers import Integral, Real
 
 import numpy as np
 import pandas as pd
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.data.trace_schema import MODEL_COORDINATE_ORDER
+from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.processing.geometry import compute_trace_geometry
 from seis_interp.processing.model_coordinates import build_spatial_model_coordinates
 from seis_interp.processing.normalization import NormalizationParameters, normalize_amplitudes
+from seis_interp.processing.trace_rms_interpolation import interpolate_trace_rms
 from seis_interp.processing.training_coordinates import (
     CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
     ModelCoordinateParameters,
     model_coordinate_parameters,
     normalize_training_spatial_coordinates,
     normalize_training_time_coordinate,
+    normalize_training_trace_time_offsets,
+)
+from seis_interp.training.amplitude_scaling import (
+    PER_TRACE_RMS_SCALING,
+    TRAIN_GLOBAL_RMS_SCALING,
+    validated_amplitude_scaling,
 )
 from seis_interp.training.point_sampler import RandomPointSampler
 
@@ -47,13 +58,77 @@ class C3VolumeSirenData:
     normalized_observed_amplitudes: np.ndarray
     normalization: NormalizationParameters
     model_coordinates: ModelCoordinateParameters
+    amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING
+    trace_amplitude_scales: np.ndarray | None = None
+    trace_array_rows: np.ndarray | None = None
+    scale_interpolation: dict[str, object] | None = None
+    normalized_time_offsets: np.ndarray | None = None
+
+
+def validate_c3_volume_siren_scaling(
+    amplitude_scaling: object,
+    scale_interpolation: object,
+) -> tuple[str, dict[str, object] | None]:
+    """Validate the explicit observed-only scale interpolation contract."""
+    mode = validated_amplitude_scaling(amplitude_scaling)
+    if mode == TRAIN_GLOBAL_RMS_SCALING:
+        if scale_interpolation is not None:
+            raise ValueError("scale_interpolation must be absent for train_global_rms")
+        return mode, None
+    if not isinstance(scale_interpolation, Mapping) or set(scale_interpolation) != {
+        "neighbors",
+        "power",
+        "distance_scales_m",
+    }:
+        raise ValueError(
+            "per_trace_rms scale_interpolation requires exactly neighbors, power, distance_scales_m"
+        )
+    neighbors = scale_interpolation["neighbors"]
+    if isinstance(neighbors, bool) or not isinstance(neighbors, Integral) or neighbors <= 0:
+        raise ValueError("scale_interpolation.neighbors must be a positive integer")
+    power = _positive_scale(scale_interpolation["power"], "scale_interpolation.power")
+    distances = scale_interpolation["distance_scales_m"]
+    if (
+        isinstance(distances, (str, bytes))
+        or not isinstance(distances, Sequence)
+        or len(distances) != 4
+    ):
+        raise ValueError(
+            "scale_interpolation.distance_scales_m must contain four positive finite numbers"
+        )
+    return mode, {
+        "neighbors": int(neighbors),
+        "power": power,
+        "distance_scales_m": [
+            _positive_scale(value, "scale_interpolation.distance_scales_m") for value in distances
+        ],
+    }
+
+
+def _positive_scale(value, name):
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be positive and finite")
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as error:
+        raise ValueError(f"{name} must be positive and finite") from error
+    if not isfinite(number) or number <= 0:
+        raise ValueError(f"{name} must be positive and finite")
+    return number
 
 
 def build_c3_volume_siren_data(
     observed_volume: ObservedC3Volume,
     index_table: pd.DataFrame,
+    *,
+    amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
+    scale_interpolation: Mapping | None = None,
+    coordinate_features: str = CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES,
+    time_coordinate_scale: float = 1.0,
+    relative_receiver_y_time_shear_s_per_m: float = 0.0,
 ) -> C3VolumeSirenData:
     """Normalize known geometry and observed amplitudes without reading targets."""
+    mode, interpolation = validate_c3_volume_siren_scaling(amplitude_scaling, scale_interpolation)
     _validate_volume_alignment(observed_volume, index_table)
     indices = np.flatnonzero(observed_volume.observed_trace_mask.reshape(-1))
     if not len(indices):
@@ -86,24 +161,70 @@ def build_c3_volume_siren_data(
         amplitude_rms=amplitude_rms,
     )
     coordinates = model_coordinate_parameters(
-        CMP_OFFSET_AZIMUTH_COORDINATE_FEATURES, normalization, time_coordinate_scale=1.0
+        coordinate_features,
+        normalization,
+        time_coordinate_scale=time_coordinate_scale,
+        relative_receiver_y_time_shear_s_per_m=relative_receiver_y_time_shear_s_per_m,
+    )
+    trace_scales = None
+    trace_rows = None
+    if mode == PER_TRACE_RMS_SCALING:
+        assert interpolation is not None
+        trace_rows = np.array(validated_array_rows(index_table), dtype=np.int64, copy=True)
+        if np.any(trace_rows < 0):
+            raise ValueError("per_trace_rms array rows must be nonnegative")
+        normalized_amplitudes, trace_scales = _per_trace_amplitudes(
+            observed_amplitudes, indices, index_table, interpolation
+        )
+    else:
+        normalized_amplitudes = normalize_amplitudes(observed_amplitudes, normalization)
+    normalized_time = np.ascontiguousarray(
+        normalize_training_time_coordinate(observed_volume.time_s, normalization, coordinates),
+        dtype=np.float64,
+    )
+    normalized_spatial = np.ascontiguousarray(
+        normalize_training_spatial_coordinates(geometry, normalization, coordinates),
+        dtype=np.float64,
     )
     return C3VolumeSirenData(
-        normalized_time=np.ascontiguousarray(
-            normalize_training_time_coordinate(observed_volume.time_s, normalization, coordinates),
-            dtype=np.float64,
-        ),
-        normalized_spatial=np.ascontiguousarray(
-            normalize_training_spatial_coordinates(geometry, normalization, coordinates),
-            dtype=np.float64,
-        ),
+        normalized_time=normalized_time,
+        normalized_spatial=normalized_spatial,
         observed_flat_indices=np.ascontiguousarray(indices, dtype=np.int64),
-        normalized_observed_amplitudes=np.ascontiguousarray(
-            normalize_amplitudes(observed_amplitudes, normalization)
-        ),
+        normalized_observed_amplitudes=np.ascontiguousarray(normalized_amplitudes),
         normalization=normalization,
         model_coordinates=coordinates,
+        amplitude_scaling=mode,
+        trace_amplitude_scales=trace_scales,
+        trace_array_rows=trace_rows,
+        scale_interpolation=interpolation,
+        normalized_time_offsets=normalize_training_trace_time_offsets(
+            normalized_spatial, coordinates
+        ),
     )
+
+
+def _per_trace_amplitudes(amplitudes, observed_indices, index_table, interpolation):
+    observed_scales = np.sqrt(np.mean(np.square(amplitudes, dtype=np.float64), axis=1))
+    divisor = np.where(observed_scales == 0, 1.0, observed_scales)
+    normalized = (amplitudes / divisor[:, None]).astype(
+        np.result_type(amplitudes.dtype, np.float32)
+    )
+    coordinates = index_table[list(_GEOMETRY_COLUMNS)].to_numpy(dtype=np.float64)
+    with np.errstate(over="ignore", invalid="ignore"):
+        coordinates = coordinates / np.asarray(interpolation["distance_scales_m"])
+    targets = np.ones(len(index_table), dtype=bool)
+    targets[observed_indices] = False
+    scales = np.empty(len(index_table), dtype=np.float64)
+    scales[observed_indices] = observed_scales
+    scales[targets] = interpolate_trace_rms(
+        coordinates[observed_indices],
+        observed_scales,
+        coordinates[targets],
+        observed_array_rows=index_table["array_row"].to_numpy()[observed_indices],
+        neighbors=interpolation["neighbors"],
+        power=interpolation["power"],
+    )
+    return normalized, scales
 
 
 def build_c3_volume_siren_sampler(
@@ -112,12 +233,19 @@ def build_c3_volume_siren_sampler(
     random_seed: int,
 ) -> RandomPointSampler:
     """Sample compact observed trace/time points using the existing sampler."""
+    time_offsets = {}
+    if data.normalized_time_offsets is not None:
+        time_offsets["normalized_time_offsets"] = data.normalized_time_offsets[
+            data.observed_flat_indices
+        ]
     return RandomPointSampler(
         data.normalized_time,
         data.normalized_spatial[data.observed_flat_indices],
         data.normalized_observed_amplitudes,
         np.arange(len(data.observed_flat_indices), dtype=np.int64),
         random_seed=random_seed,
+        amplitude_scaling=data.amplitude_scaling,
+        **time_offsets,
     )
 
 
@@ -165,5 +293,14 @@ def _geometry_table(index_table: pd.DataFrame) -> pd.DataFrame:
         source_x, source_y, source_x + relative_x, source_y + relative_y
     )
     return pd.DataFrame(
-        {"cmp_x_m": cmp_x, "cmp_y_m": cmp_y, "offset_m": offset, "azimuth_deg": azimuth}
+        {
+            "cmp_x_m": cmp_x,
+            "cmp_y_m": cmp_y,
+            "offset_m": offset,
+            "azimuth_deg": azimuth,
+            "source_x_m": source_x,
+            "source_y_m": source_y,
+            "receiver_x_m": source_x + relative_x,
+            "receiver_y_m": source_y + relative_y,
+        }
     )

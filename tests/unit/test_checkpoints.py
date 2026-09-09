@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -116,12 +117,17 @@ def test_fixed_final_checkpoint_round_trip(
     assert loaded.model_coordinates == parameters
     assert loaded.global_step == 23
     assert loaded.final_batch_loss == 0.125
+    assert loaded.amplitude_scaling == "train_global_rms"
+    assert loaded.trace_amplitude_scales is None
+    assert loaded.trace_array_rows is None
+    assert loaded.scale_interpolation is None
     assert payload["model_type"] == "siren"
     assert payload["checkpoint_role"] == "fixed_step_final"
     assert payload["method_variant"] == "per_volume_internal_learning_fixed_steps"
     assert payload["amplitude_scaling"] == "train_global_rms"
     assert payload["training_domain"] == "benchmark_observed_samples"
     assert payload["training"] == {"global_step": 23, "final_batch_loss": 0.125}
+    assert "relative_receiver_y_time_shear_s_per_m" not in payload["model_coordinates"]
     assert set(payload) == {
         "model_type",
         "checkpoint_role",
@@ -151,6 +157,295 @@ def test_fixed_final_checkpoint_round_trip(
     assert loaded.model.layer_omega_schedule == schedule
     assert loaded.model.skip_connections == skip
     assert loaded.model.layer_omegas == model.layer_omegas
+
+
+def _fixed_trace_scaling() -> dict[str, object]:
+    return {
+        "amplitude_scaling": "per_trace_rms",
+        "trace_amplitude_scales": np.array([0.0, 1.25, 12.0], dtype=np.float64),
+        "trace_array_rows": np.array([21, 4, 15], dtype=np.int64),
+        "scale_interpolation": {
+            "neighbors": 8,
+            "power": 2.0,
+            "distance_scales_m": [160.0, 80.0, 40.0, 40.0],
+        },
+    }
+
+
+def _save_fixed_checkpoint(path: Path, **kwargs: object) -> None:
+    save_fixed_step_siren_checkpoint(
+        path,
+        Siren(hidden_width=4, hidden_layers=1),
+        _normalization(),
+        model_coordinate_parameters("cmp_offset_azimuth", _normalization()),
+        global_step=2,
+        final_batch_loss=0.5,
+        **kwargs,
+    )
+
+
+def test_fixed_final_per_trace_checkpoint_round_trip_retains_scale_row_alignment(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "final.pt"
+    scaling = _fixed_trace_scaling()
+    _save_fixed_checkpoint(path, **scaling)
+
+    payload = torch.load(path, map_location="cpu", weights_only=True)
+    loaded = load_fixed_step_siren_checkpoint(path)
+
+    assert loaded.amplitude_scaling == "per_trace_rms"
+    assert loaded.normalization.amplitude_rms == 2.5
+    assert loaded.trace_amplitude_scales.dtype == np.float64
+    assert loaded.trace_array_rows.dtype == np.int64
+    np.testing.assert_array_equal(loaded.trace_amplitude_scales, scaling["trace_amplitude_scales"])
+    np.testing.assert_array_equal(loaded.trace_array_rows, scaling["trace_array_rows"])
+    assert loaded.scale_interpolation == scaling["scale_interpolation"]
+    metadata = payload["trace_scaling"]
+    assert set(metadata) == {"amplitude_scales", "array_rows", "interpolation"}
+    assert metadata["amplitude_scales"].dtype == torch.float64
+    assert metadata["array_rows"].dtype == torch.int64
+    assert metadata["amplitude_scales"].device.type == "cpu"
+    assert metadata["array_rows"].device.type == "cpu"
+    assert metadata["interpolation"] == {
+        "method": "inverse_distance_weighting",
+        "coordinate_order": [
+            "source_x_m",
+            "source_y_m",
+            "relative_receiver_x_m",
+            "relative_receiver_y_m",
+        ],
+        "coordinate_units": "m",
+        "distance_metric": "euclidean_after_dividing_coordinates_by_distance_scales_m",
+        **scaling["scale_interpolation"],
+    }
+    inputs = torch.randn(3, 6)
+    stored_model = Siren(**payload["model_config"])
+    stored_model.load_state_dict(payload["model_state_dict"])
+    torch.testing.assert_close(loaded.model(inputs), stored_model(inputs), rtol=0, atol=0)
+
+
+def test_fixed_final_global_explicit_default_has_identical_serialized_payload(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "final.pt"
+    model = Siren(hidden_width=4, hidden_layers=1)
+    coordinates = model_coordinate_parameters("cmp_offset_azimuth", _normalization())
+    save_fixed_step_siren_checkpoint(
+        path, model, _normalization(), coordinates, global_step=1, final_batch_loss=0.5
+    )
+    original = path.read_bytes()
+    save_fixed_step_siren_checkpoint(
+        path,
+        model,
+        _normalization(),
+        coordinates,
+        global_step=1,
+        final_batch_loss=0.5,
+        amplitude_scaling="train_global_rms",
+        trace_amplitude_scales=None,
+        trace_array_rows=None,
+        scale_interpolation=None,
+    )
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("shear", [0.0, 0.0006, -0.0006])
+def test_fixed_final_checkpoint_preserves_optional_cartesian_shear_metadata(tmp_path: Path, shear):
+    path = tmp_path / "final.pt"
+    parameters = model_coordinate_parameters(
+        "cmp_cartesian_half_offset",
+        _normalization(),
+        time_coordinate_scale=4.0,
+        relative_receiver_y_time_shear_s_per_m=shear,
+    )
+    save_fixed_step_siren_checkpoint(
+        path,
+        Siren(input_features=5, hidden_width=4, hidden_layers=1),
+        _normalization(),
+        parameters,
+        global_step=2,
+        final_batch_loss=0.5,
+        **_fixed_trace_scaling(),
+    )
+    payload = torch.load(path, weights_only=True)
+    loaded = load_fixed_step_siren_checkpoint(path)
+    assert loaded.model_coordinates == parameters
+    assert loaded.model_coordinates.relative_receiver_y_time_shear_s_per_m == shear
+    field = "relative_receiver_y_time_shear_s_per_m"
+    if shear == 0.0:
+        assert field not in payload["model_coordinates"]
+    else:
+        assert payload["model_coordinates"][field] == shear
+    np.testing.assert_array_equal(
+        loaded.trace_amplitude_scales, _fixed_trace_scaling()["trace_amplitude_scales"]
+    )
+
+
+@pytest.mark.parametrize("shear", [True, float("nan"), float("inf")])
+def test_fixed_final_checkpoint_rejects_corrupt_shear_metadata(tmp_path: Path, shear):
+    path = tmp_path / "final.pt"
+    parameters = model_coordinate_parameters("cmp_cartesian_half_offset", _normalization())
+    save_fixed_step_siren_checkpoint(
+        path,
+        Siren(input_features=5, hidden_width=4, hidden_layers=1),
+        _normalization(),
+        parameters,
+        global_step=2,
+        final_batch_loss=0.5,
+    )
+    payload = torch.load(path, weights_only=True)
+    payload["model_coordinates"]["relative_receiver_y_time_shear_s_per_m"] = shear
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="shear"):
+        load_fixed_step_siren_checkpoint(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    [
+        ("amplitude_scaling", "unknown", "amplitude_scaling"),
+        ("trace_amplitude_scales", None, "trace_amplitude_scales"),
+        ("trace_amplitude_scales", np.array([], dtype=np.float64), "trace_amplitude_scales"),
+        ("trace_amplitude_scales", np.ones((1, 3)), "trace_amplitude_scales"),
+        ("trace_amplitude_scales", np.ones(3, dtype=np.float32), "trace_amplitude_scales"),
+        ("trace_amplitude_scales", np.array([1.0, -1.0, 1.0]), "trace_amplitude_scales"),
+        ("trace_amplitude_scales", np.array([1.0, np.nan, 1.0]), "trace_amplitude_scales"),
+        ("trace_amplitude_scales", np.array([1.0, np.inf, 1.0]), "trace_amplitude_scales"),
+        ("trace_array_rows", None, "trace_array_rows"),
+        ("trace_array_rows", np.array([1, 2], dtype=np.int64), "trace_array_rows"),
+        ("trace_array_rows", np.array([1, 1, 2], dtype=np.int64), "trace_array_rows"),
+        ("trace_array_rows", np.array([1, -1, 2], dtype=np.int64), "trace_array_rows"),
+        ("trace_array_rows", np.array([1, 2, 3], dtype=np.int32), "trace_array_rows"),
+        ("trace_array_rows", np.array([1.0, 2.0, 3.0]), "trace_array_rows"),
+        ("scale_interpolation", None, "scale_interpolation"),
+        ("scale_interpolation", {"neighbors": 8, "power": 2.0}, "scale_interpolation"),
+    ],
+)
+def test_fixed_final_per_trace_checkpoint_rejects_invalid_arrays_and_missing_parameters(
+    tmp_path: Path, field: str, replacement: object, message: str
+) -> None:
+    path = tmp_path / "final.pt"
+    kwargs = _fixed_trace_scaling()
+    kwargs[field] = replacement
+    with pytest.raises(ValueError, match=message):
+        _save_fixed_checkpoint(path, **kwargs)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("neighbors", 0),
+        ("neighbors", True),
+        ("neighbors", 1.5),
+        ("power", 0.0),
+        ("power", float("inf")),
+        ("power", float("nan")),
+        ("power", True),
+        ("power", 10**400),
+        ("distance_scales_m", [1.0, 2.0, 3.0]),
+        ("distance_scales_m", [1.0, 0.0, 3.0, 4.0]),
+        ("distance_scales_m", [1.0, float("nan"), 3.0, 4.0]),
+        ("distance_scales_m", [1.0, True, 3.0, 4.0]),
+        ("method", "inverse_distance_weighting"),
+    ],
+)
+def test_fixed_final_per_trace_checkpoint_rejects_invalid_interpolation_parameters(
+    tmp_path: Path, field: str, replacement: object
+) -> None:
+    kwargs = _fixed_trace_scaling()
+    kwargs["scale_interpolation"][field] = replacement
+    with pytest.raises(ValueError, match="scale_interpolation"):
+        _save_fixed_checkpoint(tmp_path / "final.pt", **kwargs)
+
+
+@pytest.mark.parametrize(
+    "field", ["trace_amplitude_scales", "trace_array_rows", "scale_interpolation"]
+)
+def test_fixed_final_global_checkpoint_rejects_per_trace_metadata_on_save(
+    tmp_path: Path, field: str
+) -> None:
+    with pytest.raises(ValueError, match="train_global_rms must not contain"):
+        _save_fixed_checkpoint(tmp_path / "final.pt", **{field: _fixed_trace_scaling()[field]})
+
+
+@pytest.mark.parametrize("field", ["amplitude_scales", "array_rows", "interpolation"])
+def test_fixed_final_per_trace_checkpoint_rejects_missing_trace_payload(
+    tmp_path: Path, field: str
+) -> None:
+    path = tmp_path / "final.pt"
+    _save_fixed_checkpoint(path, **_fixed_trace_scaling())
+    payload = torch.load(path, weights_only=True)
+    del payload["trace_scaling"][field]
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="requires complete trace_scaling"):
+        load_fixed_step_siren_checkpoint(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("amplitude_scales", torch.tensor([0.0, 1.25, 12.0], dtype=torch.float32)),
+        ("amplitude_scales", torch.tensor([0.0, float("nan"), 12.0], dtype=torch.float64)),
+        ("array_rows", torch.tensor([21, 4, 15], dtype=torch.int32)),
+        ("array_rows", torch.tensor([21, 4, 4], dtype=torch.int64)),
+        ("array_rows", torch.tensor([21, 4], dtype=torch.int64)),
+    ],
+)
+def test_fixed_final_per_trace_checkpoint_rejects_corrupt_trace_payload(
+    tmp_path: Path, field: str, replacement: object
+) -> None:
+    path = tmp_path / "final.pt"
+    _save_fixed_checkpoint(path, **_fixed_trace_scaling())
+    payload = torch.load(path, weights_only=True)
+    payload["trace_scaling"][field] = replacement
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="trace_amplitude_scales|trace_array_rows"):
+        load_fixed_step_siren_checkpoint(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("method", "nearest"),
+        (
+            "coordinate_order",
+            ["source_y_m", "source_x_m", "relative_receiver_x_m", "relative_receiver_y_m"],
+        ),
+        ("coordinate_units", "km"),
+        ("distance_metric", "euclidean"),
+        ("distance_scales_m", [1.0, 0.0, 1.0, 1.0]),
+        ("power", -1.0),
+        ("extra", "undeclared"),
+    ],
+)
+def test_fixed_final_per_trace_checkpoint_rejects_mislabeled_interpolation(
+    tmp_path: Path, field: str, replacement: object
+) -> None:
+    path = tmp_path / "final.pt"
+    _save_fixed_checkpoint(path, **_fixed_trace_scaling())
+    payload = torch.load(path, weights_only=True)
+    payload["trace_scaling"]["interpolation"][field] = replacement
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="scale_interpolation"):
+        load_fixed_step_siren_checkpoint(path)
+
+
+@pytest.mark.parametrize("original_scaling", ["train_global_rms", "per_trace_rms"])
+def test_fixed_final_checkpoint_rejects_mislabeled_scaling(
+    tmp_path: Path, original_scaling: str
+) -> None:
+    path = tmp_path / "final.pt"
+    kwargs = _fixed_trace_scaling() if original_scaling == "per_trace_rms" else {}
+    _save_fixed_checkpoint(path, **kwargs)
+    payload = torch.load(path, weights_only=True)
+    payload["amplitude_scaling"] = (
+        "train_global_rms" if original_scaling == "per_trace_rms" else "per_trace_rms"
+    )
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="trace_scaling|trace scaling"):
+        load_fixed_step_siren_checkpoint(path)
 
 
 @pytest.mark.parametrize(
