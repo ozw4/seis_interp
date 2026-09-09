@@ -397,3 +397,33 @@ or gain fitting, and the test partition remained unused. Preserve all runs,
 failed restoration checks, and the earlier shear-assisted diagnostic results.
 See the [final comparison report](../../reports/c3_siren_time_learning_20260909.md)
 and [published comparison records](../../results/study_031_c3_siren_10db/20260909T044151000000Z_1819109f28e1_time_learning_comparison).
+
+## 2026-09-09 — Adopt the existing SIREN reference with its fixed shear declared
+
+The latest user instruction accepts SIREN with its shear explicitly recorded
+as a reference condition. Adopt the existing final 5,000-step checkpoint from
+`20260909T021337632365Z_1819109f28e1_siren`: physical target SNR11.3422 dB,
+RMSE2.6929, on all58,999 validation targets and22,655,616 samples. Restore
+current `config.yaml` to the same native omega30/time12/shear0.0006 s/m
+configuration. Keep automatic quality retries disabled; do not retrain or
+repredict the existing model as part of this adoption decision.
+
+The full-target saved-output audit matched native metrics exactly. The
+previous CPU checkpoint-restoration audit passed its unchanged engineering
+thresholds on16 predetermined target traces x384 samples using saved gains;
+physical relative L2 was0.0010 and normalized maximum difference0.0116.
+That subset check does not establish full-target bit equality. Preserve the
+original checkpoints, arrays, audit outcomes and published figures by hash.
+
+This supersedes the current-adoption withdrawal in the earlier comparison
+classification, specifically for an explicitly transformed SIREN reference.
+It does not assert a no-shear 10 dB success or identical preprocessing across
+methods. The no-shear reference and A/B/AB remain unchanged and do not meet
+their goal. Observed-only transform fitting and fair common preprocessing
+remain distinct questions. Do not add fixed shear to GNN or other methods.
+
+The [new adoption decision](../../results/study_031_c3_siren_10db/20260909T055026000000Z_e39df16d563c_shear_reference_adoption/adoption_decision.json)
+records this scope, the superseded classification, source hashes, passing
+audits and an exact native-config comparison with the adopted run. Prior
+adoption and withdrawal records remain immutable history. Current reports
+and the study index use this latest decision; test amplitudes remain unused.

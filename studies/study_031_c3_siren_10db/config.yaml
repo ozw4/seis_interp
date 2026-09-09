@@ -26,8 +26,8 @@ execution:
   thread_count: 1
 methods:
   siren:
-    model_description: five_coordinate_siren_matched_omega30_time12_without_fixed_shear
-    native_fragment: methods/global_cartesian_time12_omega30_shear0_batch14729_5k.yaml
+    model_description: five_coordinate_siren_adopted_reference_with_declared_fixed_time_shear
+    native_fragment: methods/global_cartesian_time12_omega30_shear0006_batch14729_5k.yaml
     preflight:
       max_steps: 10
       prediction_scope: predetermined_coordinate_subset
@@ -37,7 +37,7 @@ seeds:
   training: 20260908
 study:
   id: study_031_c3_siren_10db
-  status: no_fixed_shear_10db_unmet
+  status: fixed_shear_reference_adopted_no_shear_10db_unmet
 training_information:
   checkpoint_initialization: fresh_seeded_model
   normalization: per_trace_rms_observed_only

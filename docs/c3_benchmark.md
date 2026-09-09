@@ -211,16 +211,19 @@ Without these options, existing random
 sequences, updates and checkpoint payloads are preserved. SIREN architecture,
 observed-only amplitude scales and the target-scoring boundary are unchanged.
 
-[Study 031](../studies/study_031_c3_siren_10db/README.md) evaluates whether these
-options can exceed 10 dB physical target SNR on the unchanged QC-derived case.
-The common-method comparison excludes an externally estimated fixed temporal
-shear supplied only to SIREN. Fitting a transform without target waveforms
-prevents that source of leakage, but does not establish comparable preprocessing
-across methods. The current SIREN condition uses Cartesian five-input coordinates,
+[Study 031](../studies/study_031_c3_siren_10db/README.md) adopts a SIREN reference
+with its fixed temporal shear explicitly recorded: Cartesian five-input coordinates,
 omega 30, time factor 12, per-trace RMS with observed IDW scales, all 14,729 observed
-traces per update, and 5,000 constant-rate updates with shear 0. It scores
--3.1486 dB. The shear-assisted 11.3422 dB result is diagnostic and does not meet
-the common-condition goal; that goal remains unmet. The prior
+traces per update, and 5,000 constant-rate updates with shear 0.0006 s/m.
+It scores 11.3422 dB physical target SNR, with RMSE 2.6929, on the unchanged
+QC-derived validation case. This adoption is for the declared transformed reference;
+the no-shear 10 dB goal remains unmet. The matched shear-0 reference scores
+-3.1486 dB, and the best of its three declared initialization/envelope additions
+scores -1.6301 dB. Fitting a transform without target waveforms avoids that source
+of leakage but does not establish identical preprocessing across methods.
+Fixed shear is not introduced into GNN or the other methods. See the
+[current adoption record](../results/study_031_c3_siren_10db/20260909T055026000000Z_e39df16d563c_shear_reference_adoption/adoption_decision.json).
+The prior
 10.6805 dB result cited in its [decision record](../studies/study_031_c3_siren_10db/decisions.md)
 used oracle unit-RMS scoring and 80% observed traces, whereas this case has
 approximately 20% observed traces and physical-amplitude scoring. Those results
@@ -258,6 +261,6 @@ C3 SIRENの5入力Cartesian条件では、`model.relative_receiver_y_time_shear_
 観測学習と全位置の予測に同じ可逆変換を用い、波形の再サンプリング・時刻範囲・RMS尺度は
 変えない。非zero係数はcheckpointの座標metadataへ保存され、復元時に同じ変換を再構成する。
 既定0では従来の座標演算・乱数・checkpoint payloadを維持する。
-この固定shearは補助変換の効果を調べる診断用とし、SIRENだけへ与えた結果は共通条件の
-手法比較および10 dB達成判定に採用しない。時間・空間の関係は主比較ではSIRENの
-学習対象とする。他手法の前処理へ固定shearを導入することは、現在の比較契約に含めない。
+現在のSIREN採用参照は、この固定shearを明記した補助変換付き条件である。
+shearなしの10 dB達成や手法間で同一前処理の比較を意味しない。shearなしの対照結果も
+保持し、GNNを含む他手法の前処理へ固定shearを導入しない。

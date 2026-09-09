@@ -4,23 +4,22 @@
 入力はStudy 029の437本除外済みsuite、比較基準はStudy 030のper-trace RMS＋IDW方式である。
 評価対象は同じ58,999本・22,655,616 sampleとし、cropやmaskは変えない。
 
-共通条件の手法比較では、SIRENだけに観測診断から求めた固定時間shearを与えない。
-時間と空間の関係はSIREN自体の学習対象とする。観測だけから係数を求めることと、
-他手法と前処理条件を揃えることは別の要件である。
-
-現在の比較構成はomega30・時間倍率12・shear 0で、run
-`20260909T030400486453Z_1819109f28e1_siren` の物理target SNRは
-**-3.1486 dB**、target RMSEは **14.2809**である。共通条件での10 dB超は**未達**である。
-固定shearありの **11.3422 dB**・RMSE **2.6929**は補助変換付きの診断結果に分類し、
-主比較の採用モデルまたは目標達成として扱わない。測定結果の採用区分は
-[比較分類記録](../../results/study_031_c3_siren_10db/20260909T033540186900Z_1819109f28e1_comparison_contract_revision/comparison_classification.json)
-を参照する。いずれも固定validation caseの結果であり、test partitionの精度を示さない。
+現在は固定shearを明記したSIREN参照モデルを採用する。採用run
+`20260909T021337632365Z_1819109f28e1_siren` はomega30・時間倍率12・
+shear 0.0006 s/mで、物理target SNR **11.3422 dB**、target RMSE **2.6929**である。
+これは補助変換付き条件での10 dB超であり、shearなしの10 dB目標は**未達**のままである。
+観測だけから係数を求めることと、他手法と前処理条件が同じであることは別の要件であり、
+同一前処理の優位性は主張しない。GNNを含む他手法へ固定shearを導入しない。
+[現在の採用判断](../../results/study_031_c3_siren_10db/20260909T055026000000Z_e39df16d563c_shear_reference_adoption/adoption_decision.json)
+に採用範囲と出典を記録する。全対象保存予測の再採点は元指標と一致し、事前固定16 targetの
+CPU checkpoint復元も所定閾値を満たした。全targetの復元bit一致を意味するものではない。
+固定validation caseの結果であり、test partitionの精度を示さない。
 
 固定shearなしの初期時間重み・観測envelope損失の追加3条件も比較を完了した。
 既存基準を含む4条件ではenvelopeのみのBが **-1.6301 dB**、target RMSE **11.9903**で
 最も良かったが、10 dB超は未達である。全対象保存予測の独立再採点は一致した一方、
 A/B/ABの通常CPU checkpoint復元は事前の誤差閾値を満たさなかった。
-モデルは採用せず、現在の`config.yaml`を維持する。
+この追加3モデルは採用しない。現在の`config.yaml`は上記の補助変換付き参照条件である。
 [時間方向学習の比較レポート](../../reports/c3_siren_time_learning_20260909.md)に結果と監査範囲を示す。
 
 観測14,729本だけから波形を学習する。各観測traceの384 sampleを自身のRMSで正規化し、
@@ -28,17 +27,18 @@ A/B/ABの通常CPU checkpoint復元は事前の誤差閾値を満たさなかっ
 `[160,80,40,40] m`、power2を維持する。真値波形は評価境界だけで読み、尺度・座標fitや
 学習batchへ渡さない。validation指標による構成選択は行うが、test partitionは使わない。
 
-現在の比較構成はCartesian CMP＋半オフセットの5入力、幅256・4層・omega30/30、
+現在の採用構成はCartesian CMP＋半オフセットの5入力、幅256・4層・omega30/30、
 観測全14,729本の完全波形を1更新に使うAdamである。5,000更新、学習率1e-4一定、
-時間座標倍率12、`relative_receiver_y_time_shear_s_per_m: 0.0`とする。
-元の384時刻で学習・予測し、波形の再サンプリングや時間shear補正を行わない。
-これは直近のshear有無比較で実測した条件であり、shearなし設定の最良値を意味しない。
+時間座標倍率12、`relative_receiver_y_time_shear_s_per_m: 0.0006`とする。
+座標に `tau = time_s + 0.0006 * relative_receiver_y_m` を用いるが、元の384時刻の
+物理波形を学習・予測し、波形の再サンプリングや評価窓の変更は行わない。
+係数は観測だけの事前診断から決め、checkpointへ座標metadataとして保存している。
 
 `training.batch_size=262144`は1forwardの最大point数である。完全trace batchが
 これを超える場合はsample数に応じて勾配を蓄積し、全14,729本につき1回だけ
 optimizerを更新する。予測forwardの上限は65,536点である。
 
-比較を完了した追加3条件は以下の通り。いずれも上記shear 0のモデル・入力・尺度を
+比較を完了した追加3条件は以下の通り。いずれもshear 0の対照モデル・入力・尺度を
 維持し、既存run `20260909T030400486453Z_1819109f28e1_siren` の
 target SNR -3.1486 dBを基準にする。条件は専用configに保持する。
 
@@ -65,8 +65,8 @@ microbatch分割と加算順の違いがあるため浮動小数点のbit一致�
 1 action最大7,200秒でCUDA1上を逐次実行した。各条件の累積point数は28,279,680,000。
 品質による自動再試行やtestの使用はない。全58,999 target・22,655,616 samplesを採点し、
 入力ハッシュ・行ID・尺度一致、有限予測、観測再挿入差0を確認した。結果は1 seed・
-固定validationに限られる。共通条件のSNRが10 dBを厳密に超え、監査も通った場合にのみ
-採用を見直す。実行前の詳細判断は[decisions](decisions.md#2026-09-09--predeclare-three-shear-free-initialization-and-envelope-loss-conditions)に記録する。
+固定validationに限られる。これらのshearなし追加条件は10 dB超・復元監査通過の
+採用基準を満たさなかった。実行前の詳細判断は[decisions](decisions.md#2026-09-09--predeclare-three-shear-free-initialization-and-envelope-loss-conditions)に記録する。
 
 ユーザーが10 dB超の改善を指定したため、Study 030の一回限り・2,000更新という診断条件は
 このstudyへ継承しない。各構成の条件と判断理由を実行前に記録し、失敗・未達のrunも保持する。
@@ -83,9 +83,10 @@ python scripts/run_c3_first_results.py \
   --action siren --execute
 ```
 
-ユーザー指定のshear有無の対照実験は完了している。上記の`config.yaml`と
-[対照実験の専用config](config_omega30_time12_shear0_batch14729_5k.yaml)は
-同じshear 0のnative設定を生成する。品質未達による自動再試行は設定していない。
+ユーザー指定のshear有無の対照実験は完了している。上記の`config.yaml`は
+採用runと同じshear 0.0006のnative設定を生成する。
+[shear 0の対照config](config_omega30_time12_shear0_batch14729_5k.yaml)も保持する。
+品質未達による自動再試行は設定していない。
 再実行時は1 actionを120分上限の別processで実行する。
 元のsuite、旧run、SEG-Y、interim配列を上書きしない。
 
@@ -99,8 +100,8 @@ python scripts/run_c3_first_results.py \
 | Cartesian5・435完全trace・5,000更新・時間倍率4 | -1.7051 | 12.0943 | 6.7069 | `20260909T011656120058Z_1819109f28e1_siren` |
 | Cartesian5・14,729完全trace・5,000更新・時間倍率4 | -2.9480 | 13.9549 | 5.0412 | `20260909T011832015888Z_1819109f28e1_siren` |
 | 同上＋receiver-y時間shear 0.0006 s/m（補助あり診断） | 7.8831 | 4.0102 | 3.3105 | `20260909T015011064447Z_1819109f28e1_siren` |
-| 同上＋omega30・時間倍率12（補助あり診断） | 11.3422 | 2.6929 | 2.3861 | `20260909T021337632365Z_1819109f28e1_siren` |
-| omega30・時間倍率12・14,729完全trace・5,000更新・shear 0（現在の主比較） | **-3.1486** | **14.2809** | 5.2413 | `20260909T030400486453Z_1819109f28e1_siren` |
+| 同上＋omega30・時間倍率12（補助変換付き採用参照） | **11.3422** | **2.6929** | 2.3861 | `20260909T021337632365Z_1819109f28e1_siren` |
+| omega30・時間倍率12・14,729完全trace・5,000更新・shear 0（対照） | -3.1486 | 14.2809 | 5.2413 | `20260909T030400486453Z_1819109f28e1_siren` |
 | 同条件・A: 初期時間重み3倍 | -3.0870 | 14.1799 | 5.2205 | `20260909T041346896156Z_1819109f28e1_siren` |
 | 同条件・B: 観測envelope損失 | -1.6301 | 11.9903 | 5.2220 | `20260909T043544755153Z_1819109f28e1_siren` |
 | 同条件・AB: 初期時間重み3倍＋観測envelope損失 | -2.7047 | 13.5693 | 5.5394 | `20260909T050203109381Z_1819109f28e1_siren` |
@@ -116,7 +117,7 @@ target SNR-2.9480 dBとなり、batch拡大だけでは補間精度を改善で�
 全対象の独立再採点でも一致し、targetのuncentered cosineは-0.0336から0.9153へ
 改善した。予測振幅の大きさはほぼ同じままで、波形の一致が改善したことを
 [座標調査レポート](../../reports/c3_siren_coordinate_investigation_20260909.md)にまとめた。
-補助あり診断のomega30・時間倍率12条件では、この時間shearを維持した。
+採用した補助変換付きomega30・時間倍率12条件では、この時間shearを維持した。
 targetのuncentered cosineは0.9626へ改善した。行IDと保存済み尺度ベクトルは
 比較条件間で同一であり、targetの波形一致がさらに改善した結果である。
 観測fitの改善を、そのまま欠測箇所の精度改善とは扱わない。

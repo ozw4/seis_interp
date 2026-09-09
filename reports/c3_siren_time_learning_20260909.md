@@ -1,6 +1,6 @@
 # C3 SIREN の時間方向学習比較 — 2026-09-09
 
-**固定 shear なしの4条件では、観測 envelope 損失のみを加えた B が target SNR −1.6301 dB、RMSE 11.9903 で最も良かった。10 dB 目標は未達であり、モデルは採用しない。** 現行設定と過去の run を維持し、今回の図表を診断成果として公開する。固定 shear 付きの結果はこの共通条件比較に含めない。
+**固定 shear なしの4条件では、観測 envelope 損失のみを加えた B が target SNR −1.6301 dB、RMSE 11.9903 で最も良かった。shear なしの10 dB目標は未達であり、この追加3モデルは採用しない。** 図表と元 run は診断成果として保持する。現在のSIREN採用参照は、別の [固定 shear を明記した11.3422 dBのモデル](../results/study_031_c3_siren_10db/20260909T055026000000Z_e39df16d563c_shear_reference_adoption/adoption_decision.json)であり、この4条件比較には含めない。
 
 同じ QC validation case `c3_benchmark_validation_random_trace_80_seed142` を用い、baseline に対して A は初層の時間入力重みを初期化時だけ3倍、B は観測波形の envelope 補助損失、AB は両方を加えた。モデルは Cartesian5・幅256・4層・omega30/30・time scale12・shear0。各条件とも seed20260908 で新規初期化し、観測全14,729本×384 samples を毎更新使用して、一定学習率10⁻⁴の Adam で5,000更新を完了した。累積提示点数は各 **28,279,680,000**。各 preflight のモデルは破棄し、途中 checkpoint や品質による再試行は選択していない。[宣言した条件と判断理由](../studies/study_031_c3_siren_10db/decisions.md#2026-09-09--predeclare-three-shear-free-initialization-and-envelope-loss-conditions)。
 
@@ -41,4 +41,4 @@ A の追加数値診断では、元の GPU `high` モードと元の予測 batch
 
 結論の範囲は1 seed・固定 validation・5,000更新である。envelope が有効な更新は682本×384 = 261,888点の完全トレース microbatch を使い、MSE のみの経路は従来の262,144点上限を使うため、損失項以外に batch 境界と加算順も変わる。数学的な損失の効果だけを完全に分離した実験ではなく、SIREN の表現能力や学習予算全般の限界も結論しない。時間は共有 GPU での実測値で、一般的な速度優劣を示さない。
 
-compact JSON・CSV・PNG は元解析 run から byte-identical に採用し、重みと大きな予測配列は元の `runs/` に保持する。[診断 manifest](../results/study_031_c3_siren_10db/20260909T044151000000Z_1819109f28e1_time_learning_comparison/manifest.json)は4条件の元 run、各監査・数値診断・実装検証記録のパスと SHA256 を記録し、`model_adopted=false`、`goal_achieved=false`とする。本文の数値は小数4桁、機械可読値は丸めず保持している。
+compact JSON・CSV・PNG は元解析 run から byte-identical に採用し、重みと大きな予測配列は元の `runs/` に保持する。[診断 manifest](../results/study_031_c3_siren_10db/20260909T044151000000Z_1819109f28e1_time_learning_comparison/manifest.json)は4条件の元 run、各監査・数値診断・実装検証記録のパスと SHA256 を記録する。この4条件についての `model_adopted=false`、`goal_achieved=false`は維持し、別条件の参照モデル採用とは区別する。本文の数値は小数4桁、機械可読値は丸めず保持している。
