@@ -41,7 +41,7 @@ def overlapping_patch_starts(
 
 
 class RandomPointSampler:
-    """Uniformly sample trace and time indices from training traces."""
+    """Sample training trace/time indices with optional offsets for all spatial rows."""
 
     def __init__(
         self,
@@ -52,6 +52,7 @@ class RandomPointSampler:
         *,
         random_seed: int,
         amplitude_scaling: str = TRAIN_GLOBAL_RMS_SCALING,
+        normalized_time_offsets: np.ndarray | None = None,
     ) -> None:
         time, spatial, amplitudes = _validated_point_arrays(
             normalized_time,
@@ -64,12 +65,14 @@ class RandomPointSampler:
         if int(random_seed) < 0:
             raise ValueError("random_seed must be non-negative")
         scaling = validated_amplitude_scaling(amplitude_scaling)
+        offsets = validated_normalized_time_offsets(normalized_time_offsets, len(spatial))
 
         self._time = time
         self._spatial = spatial
         self._amplitudes = amplitudes
         self._training_array_rows = rows
         self._amplitude_scaling = scaling
+        self._time_offsets = offsets
         self._rng = np.random.default_rng(int(random_seed))
 
     @property
@@ -85,6 +88,8 @@ class RandomPointSampler:
 
         coordinates = np.empty((size, self._spatial.shape[1] + 1), dtype=np.float64)
         coordinates[:, 0] = self._time[time_indices]
+        if self._time_offsets is not None:
+            coordinates[:, 0] += self._time_offsets[array_rows]
         coordinates[:, 1:] = self._spatial[array_rows]
         targets = self._amplitudes[array_rows, time_indices]
         return coordinates, targets
@@ -230,8 +235,10 @@ def build_trace_coordinate_points(
     normalized_time: np.ndarray,
     normalized_spatial_by_row: np.ndarray,
     rows: np.ndarray,
+    *,
+    normalized_time_offsets: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Expand selected traces in trace-major/time-minor order without targets."""
+    """Expand traces without targets, optionally adding a fixed offset per row."""
     time = np.asarray(normalized_time)
     spatial = np.asarray(normalized_spatial_by_row)
     if time.ndim != 1 or not time.size:
@@ -241,10 +248,32 @@ def build_trace_coordinate_points(
     if time.dtype != np.float64 or spatial.dtype != np.float64:
         raise ValueError("normalized time and spatial coordinates must have dtype float64")
     selected_rows = _validated_array_rows(rows, spatial.shape[0], "rows")
+    offsets = validated_normalized_time_offsets(normalized_time_offsets, len(spatial))
     coordinates = np.empty((len(selected_rows) * len(time), spatial.shape[1] + 1), dtype=np.float64)
     coordinates[:, 0] = np.tile(time, len(selected_rows))
+    if offsets is not None:
+        coordinates[:, 0] += np.repeat(offsets[selected_rows], len(time))
     coordinates[:, 1:] = np.repeat(spatial[selected_rows], len(time), axis=0)
     return coordinates
+
+
+def validated_normalized_time_offsets(
+    offsets: np.ndarray | None,
+    spatial_row_count: int,
+) -> np.ndarray | None:
+    """Validate optional offsets aligned with every spatial row, without copying."""
+    if offsets is None:
+        return None
+    if (
+        not isinstance(offsets, np.ndarray)
+        or offsets.dtype != np.float64
+        or offsets.shape != (spatial_row_count,)
+        or not np.all(np.isfinite(offsets))
+    ):
+        raise ValueError(
+            "normalized_time_offsets must be a finite float64 vector matching all spatial rows"
+        )
+    return offsets
 
 
 def _validated_point_arrays(

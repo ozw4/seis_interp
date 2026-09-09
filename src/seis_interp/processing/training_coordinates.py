@@ -64,7 +64,9 @@ _REQUIRED_PARAMETER_KEYS = frozenset(
         "half_offset_scale_m",
     )
 )
-_OPTIONAL_PARAMETER_KEYS = frozenset(("time_coordinate_scale",))
+_OPTIONAL_PARAMETER_KEYS = frozenset(
+    ("time_coordinate_scale", "relative_receiver_y_time_shear_s_per_m")
+)
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,7 @@ class ModelCoordinateParameters:
     coordinate_scale_min: tuple[float, ...]
     coordinate_scale_max: tuple[float, ...]
     time_coordinate_scale: float = 1.0
+    relative_receiver_y_time_shear_s_per_m: float = 0.0
 
     def __post_init__(self) -> None:
         mode = validated_coordinate_features(self.coordinate_features)
@@ -101,6 +104,18 @@ class ModelCoordinateParameters:
             self.time_coordinate_scale,
             name="time_coordinate_scale",
         )
+        shear = _validated_relative_receiver_y_time_shear(
+            self.relative_receiver_y_time_shear_s_per_m
+        )
+        if shear != 0.0:
+            if mode != CMP_CARTESIAN_HALF_OFFSET_COORDINATE_FEATURES:
+                raise ValueError(
+                    "nonzero relative_receiver_y_time_shear_s_per_m requires "
+                    "cmp_cartesian_half_offset coordinates"
+                )
+            time_span = maximum[0] - minimum[0]
+            if not np.isfinite(time_span) or time_span <= 0.0:
+                raise ValueError("nonzero time shear requires a positive finite time span")
         if mode in _CARTESIAN_COORDINATE_FEATURES:
             half_offset_min = minimum[3:5]
             half_offset_max = maximum[3:5]
@@ -118,6 +133,7 @@ class ModelCoordinateParameters:
         object.__setattr__(self, "coordinate_scale_min", minimum)
         object.__setattr__(self, "coordinate_scale_max", maximum)
         object.__setattr__(self, "time_coordinate_scale", time_coordinate_scale)
+        object.__setattr__(self, "relative_receiver_y_time_shear_s_per_m", shear)
 
     @property
     def input_features(self) -> int:
@@ -142,6 +158,10 @@ class ModelCoordinateParameters:
         }
         if self.time_coordinate_scale != 1.0:
             payload["time_coordinate_scale"] = self.time_coordinate_scale
+        if self.relative_receiver_y_time_shear_s_per_m != 0.0:
+            payload["relative_receiver_y_time_shear_s_per_m"] = (
+                self.relative_receiver_y_time_shear_s_per_m
+            )
         return payload
 
     @classmethod
@@ -169,6 +189,9 @@ class ModelCoordinateParameters:
                 "coordinate_scale_max",
             ),
             time_coordinate_scale=payload.get("time_coordinate_scale", 1.0),
+            relative_receiver_y_time_shear_s_per_m=payload.get(
+                "relative_receiver_y_time_shear_s_per_m", 0.0
+            ),
         )
         if payload["half_offset_scale_m"] != parameters.half_offset_scale_m:
             raise ValueError(
@@ -206,6 +229,19 @@ def validated_time_coordinate_scale(
     return converted
 
 
+def _validated_relative_receiver_y_time_shear(value: object) -> float:
+    error_message = "relative_receiver_y_time_shear_s_per_m must be a finite real number"
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(error_message)
+    try:
+        converted = float(value)
+    except OverflowError as error:
+        raise ValueError(error_message) from error
+    if not np.isfinite(converted):
+        raise ValueError(error_message)
+    return converted
+
+
 def coordinate_order_for_features(coordinate_features: str) -> tuple[str, ...]:
     """Return the authoritative model input order for one feature mode."""
     mode = validated_coordinate_features(coordinate_features)
@@ -221,6 +257,7 @@ def model_coordinate_parameters(
     normalization: NormalizationParameters,
     *,
     time_coordinate_scale: float = 1.0,
+    relative_receiver_y_time_shear_s_per_m: float = 0.0,
 ) -> ModelCoordinateParameters:
     """Derive training-time feature scales from prepared training parameters."""
     mode = validated_coordinate_features(coordinate_features)
@@ -231,6 +268,7 @@ def model_coordinate_parameters(
             coordinate_scale_min=normalization.coordinate_min,
             coordinate_scale_max=normalization.coordinate_max,
             time_coordinate_scale=time_coordinate_scale,
+            relative_receiver_y_time_shear_s_per_m=relative_receiver_y_time_shear_s_per_m,
         )
 
     prepared_max_offset_m = normalization.coordinate_max[3]
@@ -259,6 +297,7 @@ def model_coordinate_parameters(
         coordinate_scale_min=coordinate_scale_min,
         coordinate_scale_max=coordinate_scale_max,
         time_coordinate_scale=time_coordinate_scale,
+        relative_receiver_y_time_shear_s_per_m=relative_receiver_y_time_shear_s_per_m,
     )
 
 
@@ -272,6 +311,42 @@ def normalize_training_time_coordinate(
     if parameters.time_coordinate_scale == 1.0:
         return normalized
     return normalized * parameters.time_coordinate_scale
+
+
+def normalize_training_trace_time_offsets(
+    normalized_spatial: np.ndarray,
+    model_coordinates: ModelCoordinateParameters,
+) -> np.ndarray | None:
+    """Return per-trace offsets for ``tau = time + shear * relative_receiver_y``.
+
+    Add these offsets once to the existing normalized time coordinate. Half
+    offsets use ``(source - receiver) / 2``, so the shear has the opposite
+    sign to normalized half-offset y. A zero shear leaves the old path intact.
+    """
+    if not isinstance(model_coordinates, ModelCoordinateParameters):
+        raise TypeError("model_coordinates must be ModelCoordinateParameters")
+    shear = model_coordinates.relative_receiver_y_time_shear_s_per_m
+    if shear == 0.0:
+        return None
+    if not isinstance(normalized_spatial, np.ndarray):
+        raise TypeError("normalized_spatial must be a NumPy array")
+    if normalized_spatial.ndim != 2 or normalized_spatial.shape[1] != 4:
+        raise ValueError("normalized_spatial must have shape [trace_count, 4]")
+    if normalized_spatial.dtype.kind not in "fiu" or not np.all(np.isfinite(normalized_spatial)):
+        raise ValueError("normalized_spatial must contain finite real numeric coordinates")
+    half_offset_scale = model_coordinates.half_offset_scale_m
+    assert half_offset_scale is not None
+    time_span = (
+        model_coordinates.coordinate_scale_max[0] - model_coordinates.coordinate_scale_min[0]
+    )
+    coefficient = -(
+        4.0 * model_coordinates.time_coordinate_scale * shear * half_offset_scale / time_span
+    )
+    with np.errstate(over="ignore", invalid="ignore"):
+        offsets = coefficient * normalized_spatial[:, 3].astype(np.float64)
+    if not np.all(np.isfinite(offsets)):
+        raise ValueError("normalized trace time offsets must be finite")
+    return offsets
 
 
 def normalize_training_spatial_coordinates(

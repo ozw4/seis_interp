@@ -239,3 +239,102 @@ def test_random_trace_batch_rejects_duplicate_training_rows() -> None:
             np.array([0, 0, 2]),
             random_seed=1,
         )
+
+
+def test_point_time_offsets_use_full_spatial_row_domain_and_preserve_sampling() -> None:
+    time, spatial, amplitudes = _arrays()
+    offsets = np.array([0.25, -1.0, 0.75], dtype=np.float64)
+    rows = np.array([2, 0, 2], dtype=np.int64)
+    originals = [value.copy() for value in (time, spatial, amplitudes, offsets, rows)]
+    baseline = RandomPointSampler(time, spatial, amplitudes, rows, random_seed=13)
+    shifted = RandomPointSampler(
+        time, spatial, amplitudes, rows, random_seed=13, normalized_time_offsets=offsets
+    )
+    rng = np.random.default_rng(13)
+    global_state = np.random.get_state()
+
+    for count in (7, 19, 3):
+        expected_rows = rng.choice(rows, size=count, replace=True)
+        expected_times = rng.integers(0, len(time), size=count)
+        base_coordinates, base_targets = baseline.sample(count)
+        coordinates, targets = shifted.sample(count)
+        np.testing.assert_array_equal(
+            coordinates[:, 0], time[expected_times] + offsets[expected_rows]
+        )
+        np.testing.assert_array_equal(coordinates[:, 1:], base_coordinates[:, 1:])
+        np.testing.assert_array_equal(targets, base_targets)
+        np.testing.assert_array_equal(targets, amplitudes[expected_rows, expected_times])
+    current_state = np.random.get_state()
+    assert current_state[0] == global_state[0]
+    np.testing.assert_array_equal(current_state[1], global_state[1])
+    assert current_state[2:] == global_state[2:]
+    for actual, original in zip((time, spatial, amplitudes, offsets, rows), originals, strict=True):
+        np.testing.assert_array_equal(actual, original)
+
+
+def test_coordinate_time_offsets_match_physical_shear_with_reordered_repeated_rows() -> None:
+    physical_time = np.array([0.0, 0.008, 1.532, 3.064])
+    relative_y = np.array([-80.0, 40.0, 120.0])
+    scale, slope, half_scale = 4.0, 0.0006, 100.0
+    time = scale * (2.0 * physical_time / 3.064 - 1.0)
+    spatial = np.zeros((3, 4), dtype=np.float64)
+    spatial[:, 3] = -relative_y / (2.0 * half_scale)
+    offsets = -(4.0 * scale * slope * half_scale / 3.064) * spatial[:, 3]
+    rows = np.array([2, 0, 2], dtype=np.int64)
+
+    points = build_trace_coordinate_points(time, spatial, rows, normalized_time_offsets=offsets)
+
+    expected_time = scale * (
+        2.0 * (physical_time[None, :] + slope * relative_y[rows, None]) / 3.064 - 1.0
+    )
+    np.testing.assert_allclose(points[:, 0], expected_time.reshape(-1), rtol=0, atol=1e-15)
+    np.testing.assert_array_equal(points[:, 1:], np.repeat(spatial[rows], len(time), axis=0))
+    assert points.dtype == np.float64
+    assert points.flags.c_contiguous
+
+
+def test_explicit_none_time_offsets_preserve_coordinate_bits_and_sampler_sequence() -> None:
+    time, spatial, amplitudes = _arrays()
+    time[1] = -0.0
+    rows = np.array([2, 0])
+    default = build_trace_coordinate_points(time, spatial, rows)
+    explicit = build_trace_coordinate_points(time, spatial, rows, normalized_time_offsets=None)
+    assert default.tobytes() == explicit.tobytes()
+    assert np.signbit(explicit[[1, 5], 0]).all()
+    first = RandomPointSampler(time, spatial, amplitudes, rows, random_seed=11)
+    second = RandomPointSampler(
+        time, spatial, amplitudes, rows, random_seed=11, normalized_time_offsets=None
+    )
+    for count in (13, 8, 5):
+        first_points, first_targets = first.sample(count)
+        second_points, second_targets = second.sample(count)
+        assert first_points.tobytes() == second_points.tobytes()
+        assert first_targets.tobytes() == second_targets.tobytes()
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        [0.0, 0.0, 0.0],
+        np.zeros(3, dtype=np.float32),
+        np.zeros(3, dtype=np.int64),
+        np.zeros(3, dtype=bool),
+        np.zeros(2, dtype=np.float64),
+        np.zeros((3, 1), dtype=np.float64),
+        np.array(0.0, dtype=np.float64),
+        np.array([0.0, np.nan, 0.0]),
+        np.array([0.0, np.inf, 0.0]),
+        np.array([0.0, -np.inf, 0.0]),
+    ],
+)
+@pytest.mark.parametrize("entry", ["sampler", "coordinate_builder"])
+def test_time_offsets_require_finite_float64_values_for_every_spatial_row(invalid, entry) -> None:
+    time, spatial, amplitudes = _arrays()
+    rows = np.array([0, 2])
+    with pytest.raises(ValueError, match="normalized_time_offsets"):
+        if entry == "sampler":
+            RandomPointSampler(
+                time, spatial, amplitudes, rows, random_seed=1, normalized_time_offsets=invalid
+            )
+        else:
+            build_trace_coordinate_points(time, spatial, rows, normalized_time_offsets=invalid)
