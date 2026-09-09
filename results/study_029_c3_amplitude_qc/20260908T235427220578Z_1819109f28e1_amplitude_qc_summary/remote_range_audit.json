@@ -1,0 +1,18 @@
+{
+  "created_at_utc": "2026-09-08T23:40:29.266382+00:00",
+  "url": "https://s3.amazonaws.com/open.source.geoscience/open_data/seg_eage_salt/SEG_C3NA_ffid_1201-2400.sgy",
+  "http_request_range": "bytes=715143600-716634159",
+  "expected_content_range": "bytes 715143600-716634159/1579602640",
+  "expected_length_bytes": 1490560,
+  "file_trace_indices_inclusive": [
+    261000,
+    261543
+  ],
+  "ffid": 1746,
+  "received_body_bytes": 0,
+  "response_body_read_only_after_206_and_exact_range_and_length": true,
+  "status": "unavailable",
+  "error_type": "HTTPError",
+  "error": "HTTP Error 403: Forbidden",
+  "elapsed_seconds": 0.5271053025498986
+}

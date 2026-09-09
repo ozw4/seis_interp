@@ -1,0 +1,1649 @@
+{
+  "created_at_utc": "2026-09-08T23:39:12.735553+00:00",
+  "request": {
+    "action": "raw_segy_provenance_audit",
+    "git_commit": "1819109f28e11d88b3c2a2a6759d86269a410b4e",
+    "scope": "CPU read-only original files; full raw source hash; raw sample/header audit only FFIDs1742–1750; no data changes or training",
+    "source_file": "SEG_C3NA_ffid_1201-2400.sgy",
+    "target_samples": {
+      "835979": [
+        119,
+        219,
+        319,
+        369
+      ],
+      "836081": [
+        128,
+        328
+      ],
+      "836371": [
+        107
+      ]
+    },
+    "diagnostic_peak_threshold": 10000.0,
+    "threshold_origin": "Pre-existing Study016 decision, not chosen from Study027/028 validation results",
+    "time_limit_seconds": 600
+  },
+  "source_provenance": {
+    "path": "data/external/seg_c3_na/SEG_C3NA_ffid_1201-2400.sgy",
+    "url": "https://s3.amazonaws.com/open.source.geoscience/open_data/seg_eage_salt/SEG_C3NA_ffid_1201-2400.sgy",
+    "download_lock_created_at_utc": "2026-08-28T00:23:04.896612+00:00",
+    "sha256_actual_fresh_full_file": "50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7",
+    "sha256_download_lock": "50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7",
+    "sha256_interim_source_metadata": "50c4ea99349375fb8b0a400ec860b16db82583e3eb132accd405c42f266099c7",
+    "all_three_hashes_match": true,
+    "size_bytes": 1579602640,
+    "remote_source_bytes_checked": false
+  },
+  "binary_header": {
+    "endian": "big",
+    "sample_interval_microseconds": 8000,
+    "sample_count": 625,
+    "sample_format_code": 1,
+    "revision_word": 0,
+    "fixed_length_flag": 0,
+    "extended_textual_header_count": 0,
+    "little_endian_format_code_control": 256
+  },
+  "textual_header_nonempty_lines": [
+    "C 1 CLIENT                        COMPANY                       CREW NO",
+    "C 2 LINE            AREA                        MAP ID",
+    "C 3 REEL NO           DAY-START OF REEL     YEAR      OBSERVER",
+    "C 4 INSTRUMENT: MFG            MODEL            SERIAL NO",
+    "C 5 DATA TRACES/RECORD        AUXILIARY TRACES/RECORD         CDP FOLD",
+    "C 6 SAMPLE INTERNAL         SAMPLES/TRACE       BITS/IN      BYTES/SAMPLE",
+    "C 7 RECORDING FORMAT        FORMAT THIS REEL        MEASUREMENT SYSTEM",
+    "C 8 SAMPLE CODE: FLOATING PT     FIXED PT     FIXED PT-GAIN     CORRELATED",
+    "C 9 GAIN  TYPE: FIXED     BINARY     FLOATING POINT     OTHER",
+    "C10 FILTERS: ALIAS     HZ  NOTCH     HZ  BAND    -     HZ  SLOPE    -    DB/OCT",
+    "C11 SOURCE: TYPE            NUMBER/POINT        POINT INTERVAL",
+    "C12     PATTERN:                           LENGTH        WIDTH",
+    "C13 SWEEP: START     HZ  END     HZ  LENGTH      MS  CHANNEL NO     TYPE",
+    "C14 TAPER: START LENGTH       MS  END LENGTH       MS  TYPE",
+    "C15 SPREAD: OFFSET        MAX DISTANCE        GROUP INTERVAL",
+    "C16 GEOPHONES: PER GROUP     SPACING     FREQUENCY     MFG          MODEL",
+    "C17     PATTERN:                           LENGTH        WIDTH",
+    "C18 TRACES SORTED BY: RECORD     CDP     OTHER",
+    "C19 AMPLITUDE RECOVEY: NONE      SPHERICAL DIV       AGC    OTHER",
+    "C20 MAP PROJECTION                      ZONE ID       COORDINATE UNITS",
+    "C21 PROCESSING:",
+    "C22 PROMAX HEADER MAPPINGS:",
+    "C23 ILINE_NO,4I,,181/XLINE_NO,4I,,185/                                        C2",
+    "C40 END EBCDIC"
+  ],
+  "segyio_file": {
+    "format": "4-byte IBM float",
+    "trace_count": 576496,
+    "sample_count": 625,
+    "extended_textual_headers": 0,
+    "first_three_sample_times_ms": [
+      0.0,
+      8.0,
+      16.0
+    ]
+  },
+  "layout": {
+    "file_header_bytes": 3600,
+    "trace_header_bytes": 240,
+    "sample_bytes": 4,
+    "trace_stride_bytes": 2740,
+    "file_size_matches_layout": true,
+    "selected_raw_start_byte": 709181360,
+    "selected_raw_length_bytes": 13415040,
+    "selected_raw_sha256": "fbbf23f74ce8f037b3833699e5d2f037d2487b47c397c704fc2ee159eb1d5471",
+    "selected_header_ffids_match_interim": true,
+    "selected_header_ns_dt_match_binary": true
+  },
+  "decoder_comparison": {
+    "selected_traces": 4896,
+    "samples_per_trace": 625,
+    "existing_reader_equals_interim_all_selected_samples": true,
+    "direct_segyio_equals_existing_reader_selected_probes": true,
+    "independent_ibm_vs_segyio_mismatch_count": 159,
+    "mismatches_are_only_subnormal_values_flushed_to_signed_zero": true,
+    "max_abs_independent_mismatch": 5.877471754111438e-39,
+    "mismatch_counts_by_ffid": {
+      "1742": 24,
+      "1743": 26,
+      "1745": 22,
+      "1747": 26,
+      "1748": 21,
+      "1749": 20,
+      "1750": 20
+    },
+    "mismatch_example": {
+      "raw_word": "a1200000",
+      "independent_value": -5.877471754111438e-39,
+      "segyio_value": -0.0
+    }
+  },
+  "adjacent_ffid_header_fields": {
+    "1745": {
+      "ffid": {
+        "1745": 544
+      },
+      "trace_identification_code": {
+        "1": 544
+      },
+      "summed_traces": {
+        "0": 544
+      },
+      "stacked_traces": {
+        "0": 544
+      },
+      "data_use": {
+        "0": 544
+      },
+      "source_static_correction": {
+        "0": 544
+      },
+      "group_static_correction": {
+        "0": 544
+      },
+      "total_static_applied": {
+        "0": 544
+      },
+      "lag_time_a": {
+        "0": 544
+      },
+      "lag_time_b": {
+        "0": 544
+      },
+      "delay_recording_time": {
+        "0": 544
+      },
+      "mute_time_start": {
+        "0": 544
+      },
+      "mute_time_end": {
+        "0": 544
+      },
+      "sample_count": {
+        "625": 544
+      },
+      "sample_interval_microseconds": {
+        "8000": 544
+      },
+      "gain_type": {
+        "0": 544
+      },
+      "instrument_gain_constant": {
+        "0": 544
+      },
+      "instrument_initial_gain": {
+        "0": 544
+      },
+      "correlated": {
+        "0": 544
+      },
+      "trace_weighting_factor": {
+        "0": 544
+      }
+    },
+    "1746": {
+      "ffid": {
+        "1746": 544
+      },
+      "trace_identification_code": {
+        "1": 544
+      },
+      "summed_traces": {
+        "0": 544
+      },
+      "stacked_traces": {
+        "0": 544
+      },
+      "data_use": {
+        "0": 544
+      },
+      "source_static_correction": {
+        "0": 544
+      },
+      "group_static_correction": {
+        "0": 544
+      },
+      "total_static_applied": {
+        "0": 544
+      },
+      "lag_time_a": {
+        "0": 544
+      },
+      "lag_time_b": {
+        "0": 544
+      },
+      "delay_recording_time": {
+        "0": 544
+      },
+      "mute_time_start": {
+        "0": 544
+      },
+      "mute_time_end": {
+        "0": 544
+      },
+      "sample_count": {
+        "625": 544
+      },
+      "sample_interval_microseconds": {
+        "8000": 544
+      },
+      "gain_type": {
+        "0": 544
+      },
+      "instrument_gain_constant": {
+        "0": 544
+      },
+      "instrument_initial_gain": {
+        "0": 544
+      },
+      "correlated": {
+        "0": 544
+      },
+      "trace_weighting_factor": {
+        "0": 544
+      }
+    },
+    "1747": {
+      "ffid": {
+        "1747": 544
+      },
+      "trace_identification_code": {
+        "1": 544
+      },
+      "summed_traces": {
+        "0": 544
+      },
+      "stacked_traces": {
+        "0": 544
+      },
+      "data_use": {
+        "0": 544
+      },
+      "source_static_correction": {
+        "0": 544
+      },
+      "group_static_correction": {
+        "0": 544
+      },
+      "total_static_applied": {
+        "0": 544
+      },
+      "lag_time_a": {
+        "0": 544
+      },
+      "lag_time_b": {
+        "0": 544
+      },
+      "delay_recording_time": {
+        "0": 544
+      },
+      "mute_time_start": {
+        "0": 544
+      },
+      "mute_time_end": {
+        "0": 544
+      },
+      "sample_count": {
+        "625": 544
+      },
+      "sample_interval_microseconds": {
+        "8000": 544
+      },
+      "gain_type": {
+        "0": 544
+      },
+      "instrument_gain_constant": {
+        "0": 544
+      },
+      "instrument_initial_gain": {
+        "0": 544
+      },
+      "correlated": {
+        "0": 544
+      },
+      "trace_weighting_factor": {
+        "0": 544
+      }
+    }
+  },
+  "per_ffid_full_625_summary": [
+    {
+      "ffid": 1742,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        833752,
+        834295
+      ],
+      "file_trace_range_inclusive": [
+        258824,
+        259367
+      ],
+      "max_abs_amplitude": 4298.5546875,
+      "nonzero_trace_min_peak": 28.335403442382812,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 290327
+    },
+    {
+      "ffid": 1743,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        834296,
+        834839
+      ],
+      "file_trace_range_inclusive": [
+        259368,
+        259911
+      ],
+      "max_abs_amplitude": 4298.55078125,
+      "nonzero_trace_min_peak": 32.1146240234375,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 290290
+    },
+    {
+      "ffid": 1744,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        834840,
+        835383
+      ],
+      "file_trace_range_inclusive": [
+        259912,
+        260455
+      ],
+      "max_abs_amplitude": 3.177676200866699,
+      "nonzero_trace_min_peak": 0.41413867473602295,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 13600
+    },
+    {
+      "ffid": 1745,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        835384,
+        835927
+      ],
+      "file_trace_range_inclusive": [
+        260456,
+        260999
+      ],
+      "max_abs_amplitude": 4298.5546875,
+      "nonzero_trace_min_peak": 31.351898193359375,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 290283
+    },
+    {
+      "ffid": 1746,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        835928,
+        836471
+      ],
+      "file_trace_range_inclusive": [
+        261000,
+        261543
+      ],
+      "max_abs_amplitude": 3.3961258090859707e+38,
+      "nonzero_trace_min_peak": 115210.0,
+      "all_zero_traces": 107,
+      "traces_peak_gt_10000": 437,
+      "samples_abs_gt_10000": 2690,
+      "nonzero_samples": 2958
+    },
+    {
+      "ffid": 1747,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        836472,
+        837015
+      ],
+      "file_trace_range_inclusive": [
+        261544,
+        262087
+      ],
+      "max_abs_amplitude": 4298.55078125,
+      "nonzero_trace_min_peak": 31.891937255859375,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 290214
+    },
+    {
+      "ffid": 1748,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        837016,
+        837559
+      ],
+      "file_trace_range_inclusive": [
+        262088,
+        262631
+      ],
+      "max_abs_amplitude": 4298.5546875,
+      "nonzero_trace_min_peak": 35.32905578613281,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 290213
+    },
+    {
+      "ffid": 1749,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        837560,
+        838103
+      ],
+      "file_trace_range_inclusive": [
+        262632,
+        263175
+      ],
+      "max_abs_amplitude": 4298.5546875,
+      "nonzero_trace_min_peak": 36.573486328125,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 290208
+    },
+    {
+      "ffid": 1750,
+      "trace_count": 544,
+      "array_row_range_inclusive": [
+        838104,
+        838647
+      ],
+      "file_trace_range_inclusive": [
+        263176,
+        263719
+      ],
+      "max_abs_amplitude": 4298.61328125,
+      "nonzero_trace_min_peak": 37.83258056640625,
+      "all_zero_traces": 0,
+      "traces_peak_gt_10000": 0,
+      "samples_abs_gt_10000": 0,
+      "nonzero_samples": 290192
+    }
+  ],
+  "sample_byte_probes": [
+    {
+      "role": "requested_extreme",
+      "array_row": 835979,
+      "file_trace_index": 261051,
+      "ffid": 1746,
+      "trace_index_in_ffid": 51,
+      "sample_index": 119,
+      "time_from_record_start_s": 0.9520000000000001,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6600.0,
+        3180.0
+      ],
+      "raw_trace_header_byte_offset": 715283340,
+      "raw_sample_byte_offset": 715284056,
+      "raw_sample_hex": "60ff7f01",
+      "ibm_sign": 1,
+      "ibm_exponent": 96,
+      "ibm_fraction_integer": 16744193,
+      "independent_ibm_float64": 3.3961258090859707e+38,
+      "existing_reader_float32": 3.3961258090859707e+38,
+      "interim_float32": 3.3961258090859707e+38,
+      "wrong_ieee_big_endian_control": 1.4728347920980404e+20
+    },
+    {
+      "role": "requested_extreme",
+      "array_row": 835979,
+      "file_trace_index": 261051,
+      "ffid": 1746,
+      "trace_index_in_ffid": 51,
+      "sample_index": 219,
+      "time_from_record_start_s": 1.752,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6600.0,
+        3180.0
+      ],
+      "raw_trace_header_byte_offset": 715283340,
+      "raw_sample_byte_offset": 715284456,
+      "raw_sample_hex": "60ff7f01",
+      "ibm_sign": 1,
+      "ibm_exponent": 96,
+      "ibm_fraction_integer": 16744193,
+      "independent_ibm_float64": 3.3961258090859707e+38,
+      "existing_reader_float32": 3.3961258090859707e+38,
+      "interim_float32": 3.3961258090859707e+38,
+      "wrong_ieee_big_endian_control": 1.4728347920980404e+20
+    },
+    {
+      "role": "requested_extreme",
+      "array_row": 835979,
+      "file_trace_index": 261051,
+      "ffid": 1746,
+      "trace_index_in_ffid": 51,
+      "sample_index": 319,
+      "time_from_record_start_s": 2.552,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6600.0,
+        3180.0
+      ],
+      "raw_trace_header_byte_offset": 715283340,
+      "raw_sample_byte_offset": 715284856,
+      "raw_sample_hex": "60ff7f01",
+      "ibm_sign": 1,
+      "ibm_exponent": 96,
+      "ibm_fraction_integer": 16744193,
+      "independent_ibm_float64": 3.3961258090859707e+38,
+      "existing_reader_float32": 3.3961258090859707e+38,
+      "interim_float32": 3.3961258090859707e+38,
+      "wrong_ieee_big_endian_control": 1.4728347920980404e+20
+    },
+    {
+      "role": "requested_extreme",
+      "array_row": 835979,
+      "file_trace_index": 261051,
+      "ffid": 1746,
+      "trace_index_in_ffid": 51,
+      "sample_index": 369,
+      "time_from_record_start_s": 2.952,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6600.0,
+        3180.0
+      ],
+      "raw_trace_header_byte_offset": 715283340,
+      "raw_sample_byte_offset": 715285056,
+      "raw_sample_hex": "60ff7f01",
+      "ibm_sign": 1,
+      "ibm_exponent": 96,
+      "ibm_fraction_integer": 16744193,
+      "independent_ibm_float64": 3.3961258090859707e+38,
+      "existing_reader_float32": 3.3961258090859707e+38,
+      "interim_float32": 3.3961258090859707e+38,
+      "wrong_ieee_big_endian_control": 1.4728347920980404e+20
+    },
+    {
+      "role": "requested_extreme",
+      "array_row": 836081,
+      "file_trace_index": 261153,
+      "ffid": 1746,
+      "trace_index_in_ffid": 153,
+      "sample_index": 128,
+      "time_from_record_start_s": 1.024,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6680.0,
+        1820.0
+      ],
+      "raw_trace_header_byte_offset": 715562820,
+      "raw_sample_byte_offset": 715563572,
+      "raw_sample_hex": "60ff7f01",
+      "ibm_sign": 1,
+      "ibm_exponent": 96,
+      "ibm_fraction_integer": 16744193,
+      "independent_ibm_float64": 3.3961258090859707e+38,
+      "existing_reader_float32": 3.3961258090859707e+38,
+      "interim_float32": 3.3961258090859707e+38,
+      "wrong_ieee_big_endian_control": 1.4728347920980404e+20
+    },
+    {
+      "role": "requested_extreme",
+      "array_row": 836081,
+      "file_trace_index": 261153,
+      "ffid": 1746,
+      "trace_index_in_ffid": 153,
+      "sample_index": 328,
+      "time_from_record_start_s": 2.624,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6680.0,
+        1820.0
+      ],
+      "raw_trace_header_byte_offset": 715562820,
+      "raw_sample_byte_offset": 715564372,
+      "raw_sample_hex": "60ff7f01",
+      "ibm_sign": 1,
+      "ibm_exponent": 96,
+      "ibm_fraction_integer": 16744193,
+      "independent_ibm_float64": 3.3961258090859707e+38,
+      "existing_reader_float32": 3.3961258090859707e+38,
+      "interim_float32": 3.3961258090859707e+38,
+      "wrong_ieee_big_endian_control": 1.4728347920980404e+20
+    },
+    {
+      "role": "requested_extreme",
+      "array_row": 836371,
+      "file_trace_index": 261443,
+      "ffid": 1746,
+      "trace_index_in_ffid": 443,
+      "sample_index": 107,
+      "time_from_record_start_s": 0.856,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6840.0,
+        2540.0
+      ],
+      "raw_trace_header_byte_offset": 716357420,
+      "raw_sample_byte_offset": 716358088,
+      "raw_sample_hex": "dc10001e",
+      "ibm_sign": -1,
+      "ibm_exponent": 92,
+      "ibm_fraction_integer": 1048606,
+      "independent_ibm_float64": -3.245278382087214e+32,
+      "existing_reader_float32": -3.245278382087214e+32,
+      "interim_float32": -3.245278382087214e+32,
+      "wrong_ieee_big_endian_control": -1.6213010198141338e+17
+    },
+    {
+      "role": "adjacent_ffid_peak_control",
+      "array_row": 835655,
+      "file_trace_index": 260727,
+      "ffid": 1745,
+      "trace_index_in_ffid": 271,
+      "sample_index": 12,
+      "time_from_record_start_s": 0.096,
+      "source_xy_m": [
+        6740.0,
+        3740.0
+      ],
+      "receiver_xy_m": [
+        6720.0,
+        3740.0
+      ],
+      "raw_trace_header_byte_offset": 714395580,
+      "raw_sample_byte_offset": 714395868,
+      "raw_sample_hex": "4410ca8e",
+      "ibm_sign": 1,
+      "ibm_exponent": 68,
+      "ibm_fraction_integer": 1100430,
+      "independent_ibm_float64": 4298.5546875,
+      "existing_reader_float32": 4298.5546875,
+      "interim_float32": 4298.5546875,
+      "wrong_ieee_big_endian_control": 579.1649169921875
+    },
+    {
+      "role": "adjacent_ffid_peak_control",
+      "array_row": 836743,
+      "file_trace_index": 261815,
+      "ffid": 1747,
+      "trace_index_in_ffid": 271,
+      "sample_index": 12,
+      "time_from_record_start_s": 0.096,
+      "source_xy_m": [
+        6740.0,
+        3900.0
+      ],
+      "receiver_xy_m": [
+        6720.0,
+        3900.0
+      ],
+      "raw_trace_header_byte_offset": 717376700,
+      "raw_sample_byte_offset": 717376988,
+      "raw_sample_hex": "4410ca8d",
+      "ibm_sign": 1,
+      "ibm_exponent": 68,
+      "ibm_fraction_integer": 1100429,
+      "independent_ibm_float64": 4298.55078125,
+      "existing_reader_float32": 4298.55078125,
+      "interim_float32": 4298.55078125,
+      "wrong_ieee_big_endian_control": 579.1648559570312
+    },
+    {
+      "role": "adjacent_trace_same_sample_control",
+      "array_row": 835978,
+      "file_trace_index": 261050,
+      "ffid": 1746,
+      "trace_index_in_ffid": 50,
+      "sample_index": 119,
+      "time_from_record_start_s": 0.9520000000000001,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6600.0,
+        3140.0
+      ],
+      "raw_trace_header_byte_offset": 715280600,
+      "raw_sample_byte_offset": 715281316,
+      "raw_sample_hex": "00000000",
+      "ibm_sign": 1,
+      "ibm_exponent": 0,
+      "ibm_fraction_integer": 0,
+      "independent_ibm_float64": 0.0,
+      "existing_reader_float32": 0.0,
+      "interim_float32": 0.0,
+      "wrong_ieee_big_endian_control": 0.0
+    },
+    {
+      "role": "adjacent_trace_same_sample_control",
+      "array_row": 835980,
+      "file_trace_index": 261052,
+      "ffid": 1746,
+      "trace_index_in_ffid": 52,
+      "sample_index": 119,
+      "time_from_record_start_s": 0.9520000000000001,
+      "source_xy_m": [
+        6740.0,
+        3820.0
+      ],
+      "receiver_xy_m": [
+        6600.0,
+        3220.0
+      ],
+      "raw_trace_header_byte_offset": 715286080,
+      "raw_sample_byte_offset": 715286796,
+      "raw_sample_hex": "00000000",
+      "ibm_sign": 1,
+      "ibm_exponent": 0,
+      "ibm_fraction_integer": 0,
+      "independent_ibm_float64": 0.0,
+      "existing_reader_float32": 0.0,
+      "interim_float32": 0.0,
+      "wrong_ieee_big_endian_control": 0.0
+    },
+    {
+      "role": "adjacent_trace_same_sample_control",
+      "array_row": 835927,
+      "file_trace_index": 260999,
+      "ffid": 1745,
+      "trace_index_in_ffid": 543,
+      "sample_index": 119,
+      "time_from_record_start_s": 0.9520000000000001,
+      "source_xy_m": [
+        6740.0,
+        3740.0
+      ],
+      "receiver_xy_m": [
+        6880.0,
+        3740.0
+      ],
+      "raw_trace_header_byte_offset": 715140860,
+      "raw_sample_byte_offset": 715141576,
+      "raw_sample_hex": "414489f0",
+      "ibm_sign": 1,
+      "ibm_exponent": 65,
+      "ibm_fraction_integer": 4491760,
+      "independent_ibm_float64": 4.2836761474609375,
+      "existing_reader_float32": 4.2836761474609375,
+      "interim_float32": 4.2836761474609375,
+      "wrong_ieee_big_endian_control": 12.283676147460938
+    },
+    {
+      "role": "adjacent_trace_same_sample_control",
+      "array_row": 836472,
+      "file_trace_index": 261544,
+      "ffid": 1747,
+      "trace_index_in_ffid": 0,
+      "sample_index": 119,
+      "time_from_record_start_s": 0.9520000000000001,
+      "source_xy_m": [
+        6740.0,
+        3900.0
+      ],
+      "receiver_xy_m": [
+        6600.0,
+        1220.0
+      ],
+      "raw_trace_header_byte_offset": 716634160,
+      "raw_sample_byte_offset": 716634876,
+      "raw_sample_hex": "00000000",
+      "ibm_sign": 1,
+      "ibm_exponent": 0,
+      "ibm_fraction_integer": 0,
+      "independent_ibm_float64": 0.0,
+      "existing_reader_float32": 0.0,
+      "interim_float32": 0.0,
+      "wrong_ieee_big_endian_control": 0.0
+    }
+  ],
+  "ffid_1746_patterns": {
+    "repeated_nonzero_positions": [
+      {
+        "array_row": 835928,
+        "nonzero_sample_indices_full_625": [
+          116,
+          124,
+          128,
+          316,
+          324,
+          328,
+          466,
+          474,
+          478,
+          566,
+          574,
+          578
+        ],
+        "nonzero_sample_hex_in_order": [
+          "db27fffc",
+          "5af463b9",
+          "5930c0be",
+          "db27fffc",
+          "5af463b9",
+          "5930c0be",
+          "db27fffc",
+          "5af463b9",
+          "5930c0be",
+          "db27fffc",
+          "5af463b9",
+          "5930c0be"
+        ]
+      },
+      {
+        "array_row": 835929,
+        "nonzero_sample_indices_full_625": [
+          128,
+          328,
+          478,
+          578
+        ],
+        "nonzero_sample_hex_in_order": [
+          "5c2d4836",
+          "5c2d4836",
+          "5c2d4836",
+          "5c2d4836"
+        ]
+      },
+      {
+        "array_row": 835954,
+        "nonzero_sample_indices_full_625": [
+          107,
+          108,
+          118,
+          207,
+          208,
+          218,
+          307,
+          308,
+          318,
+          357,
+          358,
+          368,
+          457,
+          458,
+          468
+        ],
+        "nonzero_sample_hex_in_order": [
+          "d6a020b6",
+          "d4a070ee",
+          "58281b9b",
+          "d6a020b6",
+          "d4a070ee",
+          "58281b9b",
+          "d6a020b6",
+          "d4a070ee",
+          "58281b9b",
+          "d6a020b6",
+          "d4a070ee",
+          "58281b9b",
+          "d6a020b6",
+          "d4a070ee",
+          "58281b9b"
+        ]
+      },
+      {
+        "array_row": 835979,
+        "nonzero_sample_indices_full_625": [
+          119,
+          219,
+          319,
+          369,
+          469
+        ],
+        "nonzero_sample_hex_in_order": [
+          "60ff7f01",
+          "60ff7f01",
+          "60ff7f01",
+          "60ff7f01",
+          "60ff7f01"
+        ]
+      },
+      {
+        "array_row": 836081,
+        "nonzero_sample_indices_full_625": [
+          128,
+          328,
+          478,
+          578
+        ],
+        "nonzero_sample_hex_in_order": [
+          "60ff7f01",
+          "60ff7f01",
+          "60ff7f01",
+          "60ff7f01"
+        ]
+      },
+      {
+        "array_row": 836371,
+        "nonzero_sample_indices_full_625": [
+          107,
+          118,
+          407,
+          418
+        ],
+        "nonzero_sample_hex_in_order": [
+          "dc10001e",
+          "59380149",
+          "dc10001e",
+          "59380149"
+        ]
+      },
+      {
+        "array_row": 836471,
+        "nonzero_sample_indices_full_625": [
+          202,
+          218,
+          252,
+          268,
+          352,
+          368,
+          502,
+          518,
+          602,
+          618
+        ],
+        "nonzero_sample_hex_in_order": [
+          "db200034",
+          "59394142",
+          "db200034",
+          "59394142",
+          "db200034",
+          "59394142",
+          "db200034",
+          "59394142",
+          "db200034",
+          "59394142"
+        ]
+      }
+    ],
+    "zero_trace_array_rows": [
+      836200,
+      836201,
+      836202,
+      836203,
+      836204,
+      836205,
+      836206,
+      836207,
+      836208,
+      836209,
+      836210,
+      836211,
+      836212,
+      836213,
+      836214,
+      836215,
+      836216,
+      836217,
+      836218,
+      836219,
+      836220,
+      836221,
+      836222,
+      836223,
+      836224,
+      836225,
+      836230,
+      836268,
+      836269,
+      836270,
+      836271,
+      836272,
+      836273,
+      836274,
+      836275,
+      836276,
+      836277,
+      836278,
+      836279,
+      836280,
+      836281,
+      836282,
+      836283,
+      836284,
+      836285,
+      836286,
+      836287,
+      836288,
+      836289,
+      836290,
+      836291,
+      836292,
+      836293,
+      836321,
+      836336,
+      836337,
+      836338,
+      836339,
+      836340,
+      836341,
+      836342,
+      836343,
+      836344,
+      836345,
+      836346,
+      836347,
+      836348,
+      836349,
+      836350,
+      836351,
+      836352,
+      836353,
+      836354,
+      836355,
+      836356,
+      836357,
+      836358,
+      836359,
+      836360,
+      836361,
+      836366,
+      836404,
+      836405,
+      836406,
+      836407,
+      836408,
+      836409,
+      836410,
+      836411,
+      836412,
+      836413,
+      836414,
+      836415,
+      836416,
+      836417,
+      836418,
+      836419,
+      836420,
+      836421,
+      836422,
+      836423,
+      836424,
+      836425,
+      836426,
+      836427,
+      836428,
+      836429
+    ],
+    "excessive_trace_array_rows": [
+      835928,
+      835929,
+      835930,
+      835931,
+      835932,
+      835933,
+      835934,
+      835935,
+      835936,
+      835937,
+      835938,
+      835939,
+      835940,
+      835941,
+      835942,
+      835943,
+      835944,
+      835945,
+      835946,
+      835947,
+      835948,
+      835949,
+      835950,
+      835951,
+      835952,
+      835953,
+      835954,
+      835955,
+      835956,
+      835957,
+      835958,
+      835959,
+      835960,
+      835961,
+      835962,
+      835963,
+      835964,
+      835965,
+      835966,
+      835967,
+      835968,
+      835969,
+      835970,
+      835971,
+      835972,
+      835973,
+      835974,
+      835975,
+      835976,
+      835977,
+      835978,
+      835979,
+      835980,
+      835981,
+      835982,
+      835983,
+      835984,
+      835985,
+      835986,
+      835987,
+      835988,
+      835989,
+      835990,
+      835991,
+      835992,
+      835993,
+      835994,
+      835995,
+      835996,
+      835997,
+      835998,
+      835999,
+      836000,
+      836001,
+      836002,
+      836003,
+      836004,
+      836005,
+      836006,
+      836007,
+      836008,
+      836009,
+      836010,
+      836011,
+      836012,
+      836013,
+      836014,
+      836015,
+      836016,
+      836017,
+      836018,
+      836019,
+      836020,
+      836021,
+      836022,
+      836023,
+      836024,
+      836025,
+      836026,
+      836027,
+      836028,
+      836029,
+      836030,
+      836031,
+      836032,
+      836033,
+      836034,
+      836035,
+      836036,
+      836037,
+      836038,
+      836039,
+      836040,
+      836041,
+      836042,
+      836043,
+      836044,
+      836045,
+      836046,
+      836047,
+      836048,
+      836049,
+      836050,
+      836051,
+      836052,
+      836053,
+      836054,
+      836055,
+      836056,
+      836057,
+      836058,
+      836059,
+      836060,
+      836061,
+      836062,
+      836063,
+      836064,
+      836065,
+      836066,
+      836067,
+      836068,
+      836069,
+      836070,
+      836071,
+      836072,
+      836073,
+      836074,
+      836075,
+      836076,
+      836077,
+      836078,
+      836079,
+      836080,
+      836081,
+      836082,
+      836083,
+      836084,
+      836085,
+      836086,
+      836087,
+      836088,
+      836089,
+      836090,
+      836091,
+      836092,
+      836093,
+      836094,
+      836095,
+      836096,
+      836097,
+      836098,
+      836099,
+      836100,
+      836101,
+      836102,
+      836103,
+      836104,
+      836105,
+      836106,
+      836107,
+      836108,
+      836109,
+      836110,
+      836111,
+      836112,
+      836113,
+      836114,
+      836115,
+      836116,
+      836117,
+      836118,
+      836119,
+      836120,
+      836121,
+      836122,
+      836123,
+      836124,
+      836125,
+      836126,
+      836127,
+      836128,
+      836129,
+      836130,
+      836131,
+      836132,
+      836133,
+      836134,
+      836135,
+      836136,
+      836137,
+      836138,
+      836139,
+      836140,
+      836141,
+      836142,
+      836143,
+      836144,
+      836145,
+      836146,
+      836147,
+      836148,
+      836149,
+      836150,
+      836151,
+      836152,
+      836153,
+      836154,
+      836155,
+      836156,
+      836157,
+      836158,
+      836159,
+      836160,
+      836161,
+      836162,
+      836163,
+      836164,
+      836165,
+      836166,
+      836167,
+      836168,
+      836169,
+      836170,
+      836171,
+      836172,
+      836173,
+      836174,
+      836175,
+      836176,
+      836177,
+      836178,
+      836179,
+      836180,
+      836181,
+      836182,
+      836183,
+      836184,
+      836185,
+      836186,
+      836187,
+      836188,
+      836189,
+      836190,
+      836191,
+      836192,
+      836193,
+      836194,
+      836195,
+      836196,
+      836197,
+      836198,
+      836199,
+      836226,
+      836227,
+      836228,
+      836229,
+      836231,
+      836232,
+      836233,
+      836234,
+      836235,
+      836236,
+      836237,
+      836238,
+      836239,
+      836240,
+      836241,
+      836242,
+      836243,
+      836244,
+      836245,
+      836246,
+      836247,
+      836248,
+      836249,
+      836250,
+      836251,
+      836252,
+      836253,
+      836254,
+      836255,
+      836256,
+      836257,
+      836258,
+      836259,
+      836260,
+      836261,
+      836262,
+      836263,
+      836264,
+      836265,
+      836266,
+      836267,
+      836294,
+      836295,
+      836296,
+      836297,
+      836298,
+      836299,
+      836300,
+      836301,
+      836302,
+      836303,
+      836304,
+      836305,
+      836306,
+      836307,
+      836308,
+      836309,
+      836310,
+      836311,
+      836312,
+      836313,
+      836314,
+      836315,
+      836316,
+      836317,
+      836318,
+      836319,
+      836320,
+      836322,
+      836323,
+      836324,
+      836325,
+      836326,
+      836327,
+      836328,
+      836329,
+      836330,
+      836331,
+      836332,
+      836333,
+      836334,
+      836335,
+      836362,
+      836363,
+      836364,
+      836365,
+      836367,
+      836368,
+      836369,
+      836370,
+      836371,
+      836372,
+      836373,
+      836374,
+      836375,
+      836376,
+      836377,
+      836378,
+      836379,
+      836380,
+      836381,
+      836382,
+      836383,
+      836384,
+      836385,
+      836386,
+      836387,
+      836388,
+      836389,
+      836390,
+      836391,
+      836392,
+      836393,
+      836394,
+      836395,
+      836396,
+      836397,
+      836398,
+      836399,
+      836400,
+      836401,
+      836402,
+      836403,
+      836430,
+      836431,
+      836432,
+      836433,
+      836434,
+      836435,
+      836436,
+      836437,
+      836438,
+      836439,
+      836440,
+      836441,
+      836442,
+      836443,
+      836444,
+      836445,
+      836446,
+      836447,
+      836448,
+      836449,
+      836450,
+      836451,
+      836452,
+      836453,
+      836454,
+      836455,
+      836456,
+      836457,
+      836458,
+      836459,
+      836460,
+      836461,
+      836462,
+      836463,
+      836464,
+      836465,
+      836466,
+      836467,
+      836468,
+      836469,
+      836470,
+      836471
+    ],
+    "common_raw_sample_words": [
+      {
+        "word": "00000000",
+        "count": 337042
+      },
+      {
+        "word": "571f5000",
+        "count": 41
+      },
+      {
+        "word": "db200000",
+        "count": 31
+      },
+      {
+        "word": "593d9b57",
+        "count": 28
+      },
+      {
+        "word": "5da82920",
+        "count": 26
+      },
+      {
+        "word": "571c2800",
+        "count": 23
+      },
+      {
+        "word": "db200002",
+        "count": 22
+      },
+      {
+        "word": "db20001f",
+        "count": 20
+      },
+      {
+        "word": "db200005",
+        "count": 20
+      },
+      {
+        "word": "46a41739",
+        "count": 16
+      },
+      {
+        "word": "db200004",
+        "count": 16
+      },
+      {
+        "word": "43180078",
+        "count": 15
+      }
+    ]
+  },
+  "preparation_code_provenance": {
+    "src/seis_interp/data/segy_reader.py": "a80af94e215d03ebf1fd51e5aa00c09fd8fe90b86830d0321e56f8dd1457bc15",
+    "src/seis_interp/pipelines/prepare_c3.py": "5a93f3efad648043d74050f7678ef3fc17bb31d82c44306df071e0a5d0090e0f"
+  },
+  "interpretation": {
+    "confirmed": [
+      "The cited extreme values already exist in local raw IBM sample words.",
+      "Correct big-endian IBM decoding independently reproduces the extremes exactly.",
+      "The raw file matches the August28 download lock and all_ffids source digest.",
+      "The current preparation path copies segyio amplitudes without normalization or amplitude filtering.",
+      "Every nonzero FFID1746 trace exceeds the prior10000 diagnostic threshold."
+    ],
+    "inference": "An isolated malformed amplitude block in the locked source is strongly indicated; headers and repeat patterns do not establish whether its origin was accidental corruption or intentional source construction.",
+    "not_established": [
+      "Whether the current remote object contains the identical bytes.",
+      "The historical mechanism or intent that created the anomalous FFID1746 block.",
+      "A survey-wide absence of other issues from this bounded nine-FFID scan."
+    ]
+  },
+  "original_input_stats_before": [
+    {
+      "path": "data/external/seg_c3_na/SEG_C3NA_ffid_1201-2400.sgy",
+      "size_bytes": 1579602640,
+      "mtime_ns": 1787326156818920823
+    },
+    {
+      "path": "data/interim/c3_na/all_ffids/amplitudes.npy",
+      "size_bytes": 5760060128,
+      "mtime_ns": 1787876836932011559
+    },
+    {
+      "path": "data/interim/c3_na/all_ffids/traces.parquet",
+      "size_bytes": 21869487,
+      "mtime_ns": 1787876839327023020
+    },
+    {
+      "path": "data/interim/c3_na/all_ffids/time_s.npy",
+      "size_bytes": 5128,
+      "mtime_ns": 1787876839337023068
+    }
+  ],
+  "original_input_stats_after": [
+    {
+      "path": "data/external/seg_c3_na/SEG_C3NA_ffid_1201-2400.sgy",
+      "size_bytes": 1579602640,
+      "mtime_ns": 1787326156818920823
+    },
+    {
+      "path": "data/interim/c3_na/all_ffids/amplitudes.npy",
+      "size_bytes": 5760060128,
+      "mtime_ns": 1787876836932011559
+    },
+    {
+      "path": "data/interim/c3_na/all_ffids/traces.parquet",
+      "size_bytes": 21869487,
+      "mtime_ns": 1787876839327023020
+    },
+    {
+      "path": "data/interim/c3_na/all_ffids/time_s.npy",
+      "size_bytes": 5128,
+      "mtime_ns": 1787876839337023068
+    }
+  ],
+  "original_input_stats_unchanged": true,
+  "elapsed_seconds": 1.4832112854346633
+}

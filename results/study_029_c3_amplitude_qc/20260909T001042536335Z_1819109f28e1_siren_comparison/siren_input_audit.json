@@ -1,0 +1,666 @@
+{
+  "all_effective_siren_inputs_bitwise_equal": true,
+  "amplitude_rms_new": 9.941172801367607,
+  "amplitude_rms_old": 9.941172801367607,
+  "audit_script_sha256": "f41cac6d511686088845bed2e34c129b1f8648721759436e6c7f12f7e938bb2a",
+  "comparisons": {
+    "evaluation_target_array_rows": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "evaluation_target_mask": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "normalized_observed_amplitudes": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "normalized_spatial": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "normalized_time": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "observed_array_rows": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "observed_flat_indices": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "observed_mask": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "observed_physical_amplitudes": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "raw_geometry": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "time_s": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    },
+    "volume_array_rows": {
+      "bitwise_equal": true,
+      "exact_value_equal": true,
+      "max_absolute_difference": 0.0,
+      "mismatched_element_count": 0,
+      "same_shape_and_dtype": true
+    }
+  },
+  "elapsed_seconds": 16.205184999853373,
+  "finished_at_utc": "2026-09-09T00:12:10Z",
+  "interpretation": "Removing the 437 canonical training rows does not change this case's effective SIREN inputs. SIREN fits observed samples in the selected validation crop, with its own observed-only RMS.",
+  "model_coordinates_equal": true,
+  "new": {
+    "arrays": {
+      "evaluation_target_array_rows": {
+        "dtype": "int64",
+        "sha256": "a780e46468c28d7b264a07fb978177f7aa5e1de9ddfc6b3a212191b53d5b3f84",
+        "shape": [
+          58999
+        ]
+      },
+      "evaluation_target_mask": {
+        "dtype": "bool",
+        "sha256": "e0415bd2386996896e77c51e0e0a441e94a876ab4c724699f45c4420ef9411a3",
+        "shape": [
+          9,
+          32,
+          8,
+          32
+        ]
+      },
+      "normalized_observed_amplitudes": {
+        "dtype": "float32",
+        "sha256": "3be2f25f2ad456d01eff62d2e9489df1a59e5e71d3d8965cb8d84376f6529cc0",
+        "shape": [
+          14729,
+          384
+        ]
+      },
+      "normalized_spatial": {
+        "dtype": "float64",
+        "sha256": "5b0d0f342da09616f2551326d6b3a3d160e57b1f0049d29f7ba98c45bcc7d788",
+        "shape": [
+          73728,
+          5
+        ]
+      },
+      "normalized_time": {
+        "dtype": "float64",
+        "sha256": "7de5efea58f2bf0e1b09bf649c23ed558cc5a941f1bdbbd4cee1f48aaeeea6fb",
+        "shape": [
+          384
+        ]
+      },
+      "observed_array_rows": {
+        "dtype": "int64",
+        "sha256": "b60e1d8f184f0bf89948527fc6d8028f961eb0cc4165090331b9576aa15f05dd",
+        "shape": [
+          14729
+        ]
+      },
+      "observed_flat_indices": {
+        "dtype": "int64",
+        "sha256": "6181df01239854a59ba2aef5e09f6a390749f3bbb4126e5b74720b2f639530e6",
+        "shape": [
+          14729
+        ]
+      },
+      "observed_mask": {
+        "dtype": "bool",
+        "sha256": "bdf5a5fdbed9a7e8ace55e0b0e798ce1db4ebda6a6b79fc333b5c4a9e24606d4",
+        "shape": [
+          9,
+          32,
+          8,
+          32
+        ]
+      },
+      "observed_physical_amplitudes": {
+        "dtype": "float32",
+        "sha256": "22e96e2da3e7ec86e9c02168e467cfa91c64caa924909437779306c2b8f16270",
+        "shape": [
+          14729,
+          384
+        ]
+      },
+      "raw_geometry": {
+        "dtype": "float64",
+        "sha256": "d30b47ff164be1a0a6f0f676a6205bbf2de4b8bfbf55297cb45561dfab5ea7e3",
+        "shape": [
+          73728,
+          4
+        ]
+      },
+      "time_s": {
+        "dtype": "float64",
+        "sha256": "92889d81326ae6baf6b3799ca2c7caf381a0c9dad018062cd76e006ab3f47c68",
+        "shape": [
+          384
+        ]
+      },
+      "volume_array_rows": {
+        "dtype": "int64",
+        "sha256": "d0d266b87ba6b020cd28484d56f04f567a940e9df9b78a552e8cb16ff79ef7f7",
+        "shape": [
+          9,
+          32,
+          8,
+          32
+        ]
+      }
+    },
+    "case_mask": {
+      "candidate_ffid_count": 864,
+      "candidate_trace_count": 416664,
+      "counts": {
+        "evaluation_target": 333331,
+        "observed": 83333,
+        "total": 416664
+      },
+      "duplicate_physical_coordinates": {
+        "policy": "keep_lowest_array_row",
+        "removed_trace_count": 15
+      },
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "random_seed": 142
+    },
+    "dense_observed_input": {
+      "dtype": "float32",
+      "sha256": "f5b9bd7916c7527e8991e2270c5ef087751023a3f71aa845777cb84db9d4f9c2",
+      "shape": [
+        384,
+        9,
+        32,
+        8,
+        32
+      ]
+    },
+    "elapsed_seconds": 7.983457833528519,
+    "inputs_lock": {
+      "benchmark_case": {
+        "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+        "file": "benchmark_case.json",
+        "input_files": {
+          "interim": {
+            "amplitudes.npy": {
+              "sha256": "7037d750d227a6cfce5ade61d4bc0ca05ac846b294885b8c9d8d945cf2af6e92"
+            },
+            "dataset.json": {
+              "sha256": "c2a741d5af447b2f413334c047db11a3ef65e9915d3399bc553aa284d5bc187a"
+            },
+            "time_s.npy": {
+              "sha256": "35ffa4765a7e2877618451d961cdcccb7272ade8e084282754e8cc6c5af1181b"
+            },
+            "traces.parquet": {
+              "sha256": "cfb8ecb6310adeed54cc00a28c09da5cdb714ba0a064517cca5249879201ef6f"
+            }
+          },
+          "mask": {
+            "interpolation_mask.json": {
+              "sha256": "d92fb4c276f3b3ea58476dc42a0749bc7111bc5f04febd711a3eda676994a09d"
+            },
+            "observation_mask.parquet": {
+              "sha256": "e2b2a7f2c55b4b19dfe87052b8694a09d116d29466fa15904e659e10e80d703b"
+            }
+          },
+          "processed": {
+            "normalization.json": {
+              "sha256": "99bf3cb7b96f4446d92c63d0cafe9fbf5907f2302a7b6c663ebb62619fce24ba"
+            },
+            "preparation.json": {
+              "sha256": "10fdf0b2f312d701447c651ecf650e3fe6cc10aeec269e1cc79ca2a32fbcec97"
+            },
+            "trace_split.parquet": {
+              "sha256": "a1e9abc55cfc8e13ae7fef39bc459b86fa8ea82e25f88444b90c99d53fad801c"
+            }
+          }
+        },
+        "sha256": "e65b918bc159cd17d396fc1b1aa0b36f0c113fd624b8a7bb39b610b064a82daa"
+      },
+      "benchmark_volume": {
+        "files": {
+          "volume.json": {
+            "sha256": "04dd3d84528038f1d21d7a6ec939932a09f600ddb0dc24d33d14a1b6d37fabd6"
+          },
+          "volume_index.parquet": {
+            "sha256": "a7afaeed1512968b01e2fcc6498595b7a51314c96c6c485aa76e208a90c94a30"
+          }
+        },
+        "volume_id": "c3_benchmark_validation_random_trace_80_seed142_volume"
+      }
+    },
+    "manifest_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+    "model_coordinates": {
+      "coordinate_features": "cmp_offset_azimuth",
+      "coordinate_order": [
+        "time_s",
+        "cmp_x_m",
+        "cmp_y_m",
+        "offset_m",
+        "azimuth_sin",
+        "azimuth_cos"
+      ],
+      "coordinate_scale_max": [
+        3.064,
+        11770.0,
+        5740.0,
+        1964.993638666548,
+        1.0,
+        1.0
+      ],
+      "coordinate_scale_min": [
+        0.0,
+        10350.0,
+        2600.0,
+        720.2777242147642,
+        -1.0,
+        -1.0
+      ],
+      "time_coordinate_scale": 1.0
+    },
+    "normalization": {
+      "amplitude_rms": 9.941172801367607,
+      "coordinate_max": [
+        3.064,
+        11770.0,
+        5740.0,
+        1964.993638666548,
+        1.0,
+        1.0
+      ],
+      "coordinate_min": [
+        0.0,
+        10350.0,
+        2600.0,
+        720.2777242147642,
+        -1.0,
+        -1.0
+      ],
+      "coordinate_order": [
+        "time_s",
+        "cmp_x_m",
+        "cmp_y_m",
+        "offset_m",
+        "azimuth_sin",
+        "azimuth_cos"
+      ]
+    },
+    "observed_sample_count": 5655936,
+    "observed_trace_count": 14729,
+    "selection": {
+      "relative_receiver_x": [
+        0,
+        8
+      ],
+      "relative_receiver_y": [
+        18,
+        50
+      ],
+      "shot_in_line": [
+        32,
+        64
+      ],
+      "source_line": [
+        41,
+        50
+      ],
+      "time": [
+        0,
+        384
+      ]
+    },
+    "shape": [
+      384,
+      9,
+      32,
+      8,
+      32
+    ],
+    "suite_directory": "data/processed/c3_na/study_029_c3_amplitude_qc",
+    "target_input_fill_exact_zero": true,
+    "target_trace_count": 58999,
+    "target_waveforms_read": false
+  },
+  "normalization_equal": true,
+  "old": {
+    "arrays": {
+      "evaluation_target_array_rows": {
+        "dtype": "int64",
+        "sha256": "a780e46468c28d7b264a07fb978177f7aa5e1de9ddfc6b3a212191b53d5b3f84",
+        "shape": [
+          58999
+        ]
+      },
+      "evaluation_target_mask": {
+        "dtype": "bool",
+        "sha256": "e0415bd2386996896e77c51e0e0a441e94a876ab4c724699f45c4420ef9411a3",
+        "shape": [
+          9,
+          32,
+          8,
+          32
+        ]
+      },
+      "normalized_observed_amplitudes": {
+        "dtype": "float32",
+        "sha256": "3be2f25f2ad456d01eff62d2e9489df1a59e5e71d3d8965cb8d84376f6529cc0",
+        "shape": [
+          14729,
+          384
+        ]
+      },
+      "normalized_spatial": {
+        "dtype": "float64",
+        "sha256": "5b0d0f342da09616f2551326d6b3a3d160e57b1f0049d29f7ba98c45bcc7d788",
+        "shape": [
+          73728,
+          5
+        ]
+      },
+      "normalized_time": {
+        "dtype": "float64",
+        "sha256": "7de5efea58f2bf0e1b09bf649c23ed558cc5a941f1bdbbd4cee1f48aaeeea6fb",
+        "shape": [
+          384
+        ]
+      },
+      "observed_array_rows": {
+        "dtype": "int64",
+        "sha256": "b60e1d8f184f0bf89948527fc6d8028f961eb0cc4165090331b9576aa15f05dd",
+        "shape": [
+          14729
+        ]
+      },
+      "observed_flat_indices": {
+        "dtype": "int64",
+        "sha256": "6181df01239854a59ba2aef5e09f6a390749f3bbb4126e5b74720b2f639530e6",
+        "shape": [
+          14729
+        ]
+      },
+      "observed_mask": {
+        "dtype": "bool",
+        "sha256": "bdf5a5fdbed9a7e8ace55e0b0e798ce1db4ebda6a6b79fc333b5c4a9e24606d4",
+        "shape": [
+          9,
+          32,
+          8,
+          32
+        ]
+      },
+      "observed_physical_amplitudes": {
+        "dtype": "float32",
+        "sha256": "22e96e2da3e7ec86e9c02168e467cfa91c64caa924909437779306c2b8f16270",
+        "shape": [
+          14729,
+          384
+        ]
+      },
+      "raw_geometry": {
+        "dtype": "float64",
+        "sha256": "d30b47ff164be1a0a6f0f676a6205bbf2de4b8bfbf55297cb45561dfab5ea7e3",
+        "shape": [
+          73728,
+          4
+        ]
+      },
+      "time_s": {
+        "dtype": "float64",
+        "sha256": "92889d81326ae6baf6b3799ca2c7caf381a0c9dad018062cd76e006ab3f47c68",
+        "shape": [
+          384
+        ]
+      },
+      "volume_array_rows": {
+        "dtype": "int64",
+        "sha256": "d0d266b87ba6b020cd28484d56f04f567a940e9df9b78a552e8cb16ff79ef7f7",
+        "shape": [
+          9,
+          32,
+          8,
+          32
+        ]
+      }
+    },
+    "case_mask": {
+      "candidate_ffid_count": 864,
+      "candidate_trace_count": 416664,
+      "counts": {
+        "evaluation_target": 333331,
+        "observed": 83333,
+        "total": 416664
+      },
+      "duplicate_physical_coordinates": {
+        "policy": "keep_lowest_array_row",
+        "removed_trace_count": 15
+      },
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "random_seed": 142
+    },
+    "dense_observed_input": {
+      "dtype": "float32",
+      "sha256": "f5b9bd7916c7527e8991e2270c5ef087751023a3f71aa845777cb84db9d4f9c2",
+      "shape": [
+        384,
+        9,
+        32,
+        8,
+        32
+      ]
+    },
+    "elapsed_seconds": 8.137396099977195,
+    "inputs_lock": {
+      "benchmark_case": {
+        "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+        "file": "benchmark_case.json",
+        "input_files": {
+          "interim": {
+            "amplitudes.npy": {
+              "sha256": "7037d750d227a6cfce5ade61d4bc0ca05ac846b294885b8c9d8d945cf2af6e92"
+            },
+            "dataset.json": {
+              "sha256": "c2a741d5af447b2f413334c047db11a3ef65e9915d3399bc553aa284d5bc187a"
+            },
+            "time_s.npy": {
+              "sha256": "35ffa4765a7e2877618451d961cdcccb7272ade8e084282754e8cc6c5af1181b"
+            },
+            "traces.parquet": {
+              "sha256": "cfb8ecb6310adeed54cc00a28c09da5cdb714ba0a064517cca5249879201ef6f"
+            }
+          },
+          "mask": {
+            "interpolation_mask.json": {
+              "sha256": "b7e0612d45f098472f78d8e414d9cb06e2be9b2f12fb2ce95d01fc7bda43dddf"
+            },
+            "observation_mask.parquet": {
+              "sha256": "e2b2a7f2c55b4b19dfe87052b8694a09d116d29466fa15904e659e10e80d703b"
+            }
+          },
+          "processed": {
+            "normalization.json": {
+              "sha256": "fb1376a1d68e4aff6808dee1eb072439168861bd7e68da92d065ddfd82726c07"
+            },
+            "preparation.json": {
+              "sha256": "4381c97995c80b983a74a8684863c90dad04076cc0fee199b5cb6b1274b1b059"
+            },
+            "trace_split.parquet": {
+              "sha256": "50d413a945aefa1540373adb1bcafb376aa7197eefd8386d48a21cda3129ef80"
+            }
+          }
+        },
+        "sha256": "8ee5a728d11d2af5726280b86708f5161ca9540e4bae02afdc5d6e9c4d93d326"
+      },
+      "benchmark_volume": {
+        "files": {
+          "volume.json": {
+            "sha256": "b39f5beae5a70750f0a528c44cfccdf633e4eb9572b35bb43f208f041f80db06"
+          },
+          "volume_index.parquet": {
+            "sha256": "a7afaeed1512968b01e2fcc6498595b7a51314c96c6c485aa76e208a90c94a30"
+          }
+        },
+        "volume_id": "c3_benchmark_validation_random_trace_80_seed142_volume"
+      }
+    },
+    "manifest_sha256": "6447a35cc7d4de43532ee8e2e0de3245ac0e93d855efa7ff59c98a85e1631cab",
+    "model_coordinates": {
+      "coordinate_features": "cmp_offset_azimuth",
+      "coordinate_order": [
+        "time_s",
+        "cmp_x_m",
+        "cmp_y_m",
+        "offset_m",
+        "azimuth_sin",
+        "azimuth_cos"
+      ],
+      "coordinate_scale_max": [
+        3.064,
+        11770.0,
+        5740.0,
+        1964.993638666548,
+        1.0,
+        1.0
+      ],
+      "coordinate_scale_min": [
+        0.0,
+        10350.0,
+        2600.0,
+        720.2777242147642,
+        -1.0,
+        -1.0
+      ],
+      "time_coordinate_scale": 1.0
+    },
+    "normalization": {
+      "amplitude_rms": 9.941172801367607,
+      "coordinate_max": [
+        3.064,
+        11770.0,
+        5740.0,
+        1964.993638666548,
+        1.0,
+        1.0
+      ],
+      "coordinate_min": [
+        0.0,
+        10350.0,
+        2600.0,
+        720.2777242147642,
+        -1.0,
+        -1.0
+      ],
+      "coordinate_order": [
+        "time_s",
+        "cmp_x_m",
+        "cmp_y_m",
+        "offset_m",
+        "azimuth_sin",
+        "azimuth_cos"
+      ]
+    },
+    "observed_sample_count": 5655936,
+    "observed_trace_count": 14729,
+    "selection": {
+      "relative_receiver_x": [
+        0,
+        8
+      ],
+      "relative_receiver_y": [
+        18,
+        50
+      ],
+      "shot_in_line": [
+        32,
+        64
+      ],
+      "source_line": [
+        41,
+        50
+      ],
+      "time": [
+        0,
+        384
+      ]
+    },
+    "shape": [
+      384,
+      9,
+      32,
+      8,
+      32
+    ],
+    "suite_directory": "data/processed/c3_na/study_027_c3_na_benchmark",
+    "target_input_fill_exact_zero": true,
+    "target_trace_count": 58999,
+    "target_waveforms_read": false
+  },
+  "old_native_run_json_sha256": "e2f135e25577375d90b396e8e2a88b795c71ce091de3a8ad298c4d58655942fd",
+  "old_saved_run_amplitude_rms": 9.941172801367607,
+  "old_saved_run_coordinate_bounds_match": true,
+  "old_saved_run_observed_counts_match": true,
+  "old_saved_run_rms_matches_rebuilt": true,
+  "process_max_rss_bytes": 735297536,
+  "status": "success",
+  "train_pool": {
+    "added_trace_count": 0,
+    "new_trace_count": 1146366,
+    "old_trace_count": 1146803,
+    "removed_array_rows_sha256": {
+      "dtype": "int64",
+      "sha256": "b0964c76ceb05649a142a4a1fbea46bfb7a7399e9004d16b3b0bdaee7066061a",
+      "shape": [
+        437
+      ]
+    },
+    "removed_overlap_selected_volume": 0,
+    "removed_overlap_siren_observed": 0,
+    "removed_overlap_siren_targets": 0,
+    "removed_trace_count": 437
+  }
+}

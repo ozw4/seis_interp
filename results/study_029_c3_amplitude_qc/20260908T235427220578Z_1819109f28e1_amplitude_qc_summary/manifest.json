@@ -1,0 +1,59 @@
+{
+  "status": "qc_and_numerical_validation_complete",
+  "source_summary_run": "runs/study_029_c3_amplitude_qc/20260908T235427220578Z_1819109f28e1_amplitude_qc_summary",
+  "git_commit": "1819109f28e11d88b3c2a2a6759d86269a410b4e",
+  "source_records": {
+    "normalization.json": {
+      "path": "runs/study_029_c3_amplitude_qc/20260908T235036656837Z_1819109f28e1_normalization_probe/normalization.json",
+      "sha256": "f1aff6bca1a4607755d9d16ae0151e820a82d5b82439ac277519acda6c4c7074"
+    },
+    "training_probe.json": {
+      "path": "runs/study_029_c3_amplitude_qc/20260908T235036656837Z_1819109f28e1_normalization_probe/audit.json",
+      "sha256": "0ff2459abed78990fcd0349d84884cc0c3605c5bf6c614c0281da92fdb7ba0f0"
+    },
+    "training_numerical_probe.png": {
+      "path": "runs/study_029_c3_amplitude_qc/20260908T235036656837Z_1819109f28e1_normalization_probe/training_numerical_probe.png",
+      "sha256": "71333165101d10b4b54865093cb08b38ce4599f0935d78fd0db7f37fe43c307c"
+    },
+    "raw_segy_audit.json": {
+      "path": "runs/study_029_c3_amplitude_qc/20260908T233641417858Z_1819109f28e1_raw_segy_audit/audit.json",
+      "sha256": "ffe6b49a416dd2820b29c07f809287815a3eda077d75164f0483c3152b0e1c55"
+    },
+    "remote_range_audit.json": {
+      "path": "runs/study_029_c3_amplitude_qc/20260908T233641417858Z_1819109f28e1_raw_segy_audit/remote_range_audit.json",
+      "sha256": "e54cc5f584781c32f1acba0a615980c40bbe7ecbaa9ef31153a9a1cda3052574"
+    },
+    "suite_comparison.json": {
+      "path": "runs/study_029_c3_amplitude_qc/20260908T234531492341Z_1819109f28e1_suite_comparison/audit.json",
+      "sha256": "bede8f4aa91ad189668b62808edd889fd7308f87e59c6a9a2705f2bebb00e708"
+    },
+    "old_suite_verification.json": {
+      "path": "runs/study_029_c3_amplitude_qc/20260908T234531492341Z_1819109f28e1_suite_comparison/old_suite_verification.json",
+      "sha256": "1db5308c649a45e99f2fb6961aba66b73d37b8a438cf9a34c3c9a32bfa29d6aa"
+    }
+  },
+  "artifact_sha256": {
+    "normalization.json": "f1aff6bca1a4607755d9d16ae0151e820a82d5b82439ac277519acda6c4c7074",
+    "training_probe.json": "0ff2459abed78990fcd0349d84884cc0c3605c5bf6c614c0281da92fdb7ba0f0",
+    "training_numerical_probe.png": "71333165101d10b4b54865093cb08b38ce4599f0935d78fd0db7f37fe43c307c",
+    "raw_segy_audit.json": "a15c2b4513a21e6501d6ae64cd5dec098cbb037637fbf0d3e1c07f2788812c20",
+    "remote_range_audit.json": "e54cc5f584781c32f1acba0a615980c40bbe7ecbaa9ef31153a9a1cda3052574",
+    "suite_comparison.json": "bede8f4aa91ad189668b62808edd889fd7308f87e59c6a9a2705f2bebb00e708",
+    "old_suite_verification.json": "1db5308c649a45e99f2fb6961aba66b73d37b8a438cf9a34c3c9a32bfa29d6aa"
+  },
+  "publication_transform": {
+    "repository_relative_workspace_paths_only": [
+      "raw_segy_audit.json"
+    ],
+    "metrics_arrays_and_figures_changed": false
+  },
+  "original_suite_sha256": "6447a35cc7d4de43532ee8e2e0de3245ac0e93d855efa7ff59c98a85e1631cab",
+  "qc_suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "scope": "Raw source tracing, explicit data QC, fixed train RMS checks and one 100-step four-query CPU probe; no full-volume retraining or evaluation.",
+  "limitations": [
+    "Physical origin or intent of the anomalous raw FFID is unknown.",
+    "Remote S3 range request returned HTTP403; local raw matches locked download hash.",
+    "107 full-trace zeros in FFID1746 are retained, without proving their physical validity.",
+    "Four-query training improvement is not a held-out generalization result."
+  ]
+}

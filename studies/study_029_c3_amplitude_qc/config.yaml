@@ -1,0 +1,12 @@
+extends: ../study_027_c3_na_benchmark/config.yaml
+
+study:
+  id: study_029_c3_amplitude_qc
+  status: qc_and_numerical_validation_complete
+
+# Physical trace-integrity QC over the original 625 samples, before masks.
+# The threshold is inherited from Study 016, not fitted to held-out scores.
+sampling:
+  trace_amplitude_filter:
+    exclude_all_zero: false
+    max_abs_amplitude: 10000.0

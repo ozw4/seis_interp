@@ -1,0 +1,491 @@
+{
+  "status": "success",
+  "finished_at_utc": "2026-09-09T00:17:21.029800+00:00",
+  "elapsed_seconds": 9.05007083620876,
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "audit_run": "runs/study_029_c3_amplitude_qc/20260909T001042536335Z_1819109f28e1_siren_comparison",
+  "old_run": "runs/study_028_c3_first_results/20260908T140522881249Z_edda0ae6aa06_siren",
+  "new_run": "runs/study_029_c3_amplitude_qc/20260909T000855786328Z_1819109f28e1_siren",
+  "source_file_sha256": {
+    "old": {
+      "result.json": "db303c257f51be550bce1c0f6b8ed0a687c0deee3179a7c9b16cd124c1c8cec2",
+      "request.json": "292e8a03c8120bc4646f247137457fd9e360394453b4f11a4b48e40b0f3da1fb",
+      "config.generated.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/config.resolved.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/run.json": "e2f135e25577375d90b396e8e2a88b795c71ce091de3a8ad298c4d58655942fd",
+      "native/metrics.json": "e7b32c70b048cb67a9573622dcfdf2f49a746a709254389f068bc0d8c26ceca3",
+      "native/inputs.lock.json": "a4e8438ae5978d079192691b04e050645dac1d70a7ed14c89cc92559046a5501",
+      "native/artifacts/final.pt": "a888e894b43975b8a805955aabdb419393d654d05dad523330d1e10ad2821408",
+      "native/artifacts/prediction.npy": "d0bd3f3155a9e022e1ec81d3f461a71184dbf4318fa306cc207f7aea296adc7a"
+    },
+    "new": {
+      "result.json": "2e1020079cd5b4109e6125150d7db6b0d508c492d0fba510ea88978cf4b3f606",
+      "request.json": "3ea293ff2988e1a8ade7392119483257dbcd135e631127e10e4d11f6c2371016",
+      "config.generated.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/config.resolved.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/run.json": "6e2322606f459ee9cdc2c70723ae893c3c9640d0735fbef8a4bfe2c1c4964cfe",
+      "native/metrics.json": "e7b32c70b048cb67a9573622dcfdf2f49a746a709254389f068bc0d8c26ceca3",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/artifacts/final.pt": "a888e894b43975b8a805955aabdb419393d654d05dad523330d1e10ad2821408",
+      "native/artifacts/prediction.npy": "d0bd3f3155a9e022e1ec81d3f461a71184dbf4318fa306cc207f7aea296adc7a"
+    }
+  },
+  "script_sha256": "dcfbc04e7ac77b1129eab9ddf24fbaf23d2f6d3be3abf3932b7f7f32cd62317d",
+  "input_equality_basis": {
+    "suite_audit": "runs/study_029_c3_amplitude_qc/20260908T234531492341Z_1819109f28e1_suite_comparison/audit.json",
+    "suite_audit_sha256": "bede8f4aa91ad189668b62808edd889fd7308f87e59c6a9a2705f2bebb00e708",
+    "effective_input_audit": "runs/study_029_c3_amplitude_qc/20260909T001153627201Z_1819109f28e1_siren_input_qc_audit/audit.json",
+    "effective_input_audit_sha256": "d4f06c5a6fdf745b0da8cb2d5e914aa20cbff1e4d7e7780f22f23e8473dc0463",
+    "rule": "New public observed-volume loader used once for both predictions after independent direct bitwise comparison of all effective observed inputs, masks and coordinates."
+  },
+  "configurations": {
+    "config.generated.yaml": {
+      "exactly_equal_yaml_values": true,
+      "byte_identical": true,
+      "old_sha256": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "new_sha256": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f"
+    },
+    "native/config.resolved.yaml": {
+      "exactly_equal_yaml_values": true,
+      "byte_identical": true,
+      "old_sha256": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "new_sha256": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f"
+    }
+  },
+  "whole_prediction_comparison": {
+    "shape": [
+      384,
+      9,
+      32,
+      8,
+      32
+    ],
+    "dtype": "float32",
+    "compared_sample_count": 28311552,
+    "all_samples_finite": true,
+    "exactly_equal": true,
+    "different_sample_count": 0,
+    "max_absolute_difference": 0.0,
+    "rmse_difference": 0.0
+  },
+  "checkpoint_comparison": {
+    "role": "fixed_step_final",
+    "state_tensor_count": 10,
+    "parameter_count": 199425,
+    "all_model_state_tensors_exactly_equal": true,
+    "all_model_state_tensors_finite": true,
+    "tensors": {
+      "network.0.linear.weight": {
+        "shape": [
+          256,
+          6
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 1536,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.0.linear.bias": {
+        "shape": [
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 256,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.1.linear.weight": {
+        "shape": [
+          256,
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 65536,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.1.linear.bias": {
+        "shape": [
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 256,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.2.linear.weight": {
+        "shape": [
+          256,
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 65536,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.2.linear.bias": {
+        "shape": [
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 256,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.3.linear.weight": {
+        "shape": [
+          256,
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 65536,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.3.linear.bias": {
+        "shape": [
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 256,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.4.weight": {
+        "shape": [
+          1,
+          256
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 256,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      },
+      "network.4.bias": {
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "compared_sample_count": 1,
+        "all_samples_finite": true,
+        "exactly_equal": true,
+        "different_sample_count": 0,
+        "max_absolute_difference": 0.0,
+        "rmse_difference": 0.0
+      }
+    }
+  },
+  "recomputed_metrics": {
+    "old": {
+      "evaluation_domain": "evaluation_target",
+      "amplitude_domain": "physical",
+      "evaluation_target": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 2237985099.6359725,
+        "snr_db": -0.0003001862856955029,
+        "snr_status": "finite",
+        "rmse": 9.938953479476723,
+        "relative_l2": 1.0000345608205405
+      },
+      "zero_fill": {
+        "snr_db": 0.0,
+        "snr_status": "finite",
+        "rmse": 9.938609992960336
+      },
+      "observed_max_abs_error": 0.0
+    },
+    "new": {
+      "evaluation_domain": "evaluation_target",
+      "amplitude_domain": "physical",
+      "evaluation_target": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 2237985099.6359725,
+        "snr_db": -0.0003001862856955029,
+        "snr_status": "finite",
+        "rmse": 9.938953479476723,
+        "relative_l2": 1.0000345608205405
+      },
+      "zero_fill": {
+        "snr_db": 0.0,
+        "snr_status": "finite",
+        "rmse": 9.938609992960336
+      },
+      "observed_max_abs_error": 0.0
+    }
+  },
+  "each_recomputed_target_metric_exactly_matches_its_native_record": true,
+  "old_and_new_target_metrics_exactly_equal": true,
+  "histories": {
+    "old": [
+      {
+        "step": 100,
+        "train_loss": 1.0051892483234406
+      },
+      {
+        "step": 200,
+        "train_loss": 1.0027715253829956
+      },
+      {
+        "step": 300,
+        "train_loss": 1.0014355379343032
+      },
+      {
+        "step": 400,
+        "train_loss": 1.0063007003068924
+      },
+      {
+        "step": 500,
+        "train_loss": 1.0016438138484955
+      },
+      {
+        "step": 600,
+        "train_loss": 1.0019779020547868
+      },
+      {
+        "step": 700,
+        "train_loss": 1.0038044798374175
+      },
+      {
+        "step": 800,
+        "train_loss": 0.9988372701406479
+      },
+      {
+        "step": 900,
+        "train_loss": 0.9967342400550843
+      },
+      {
+        "step": 1000,
+        "train_loss": 1.0033827018737793
+      },
+      {
+        "step": 1100,
+        "train_loss": 1.0000589567422866
+      },
+      {
+        "step": 1200,
+        "train_loss": 1.0048433297872543
+      },
+      {
+        "step": 1300,
+        "train_loss": 0.9999471539258957
+      },
+      {
+        "step": 1400,
+        "train_loss": 1.0022977072000503
+      },
+      {
+        "step": 1500,
+        "train_loss": 0.9985791260004043
+      },
+      {
+        "step": 1600,
+        "train_loss": 1.000761272907257
+      },
+      {
+        "step": 1700,
+        "train_loss": 0.9969889694452285
+      },
+      {
+        "step": 1800,
+        "train_loss": 1.0061350494623185
+      },
+      {
+        "step": 1900,
+        "train_loss": 0.9998807317018509
+      },
+      {
+        "step": 2000,
+        "train_loss": 1.0026560753583909
+      }
+    ],
+    "new": [
+      {
+        "step": 100,
+        "train_loss": 1.0051892483234406
+      },
+      {
+        "step": 200,
+        "train_loss": 1.0027715253829956
+      },
+      {
+        "step": 300,
+        "train_loss": 1.0014355379343032
+      },
+      {
+        "step": 400,
+        "train_loss": 1.0063007003068924
+      },
+      {
+        "step": 500,
+        "train_loss": 1.0016438138484955
+      },
+      {
+        "step": 600,
+        "train_loss": 1.0019779020547868
+      },
+      {
+        "step": 700,
+        "train_loss": 1.0038044798374175
+      },
+      {
+        "step": 800,
+        "train_loss": 0.9988372701406479
+      },
+      {
+        "step": 900,
+        "train_loss": 0.9967342400550843
+      },
+      {
+        "step": 1000,
+        "train_loss": 1.0033827018737793
+      },
+      {
+        "step": 1100,
+        "train_loss": 1.0000589567422866
+      },
+      {
+        "step": 1200,
+        "train_loss": 1.0048433297872543
+      },
+      {
+        "step": 1300,
+        "train_loss": 0.9999471539258957
+      },
+      {
+        "step": 1400,
+        "train_loss": 1.0022977072000503
+      },
+      {
+        "step": 1500,
+        "train_loss": 0.9985791260004043
+      },
+      {
+        "step": 1600,
+        "train_loss": 1.000761272907257
+      },
+      {
+        "step": 1700,
+        "train_loss": 0.9969889694452285
+      },
+      {
+        "step": 1800,
+        "train_loss": 1.0061350494623185
+      },
+      {
+        "step": 1900,
+        "train_loss": 0.9998807317018509
+      },
+      {
+        "step": 2000,
+        "train_loss": 1.0026560753583909
+      }
+    ]
+  },
+  "training_history_exactly_equal": true,
+  "runs": [
+    {
+      "run": "old",
+      "native_run": "runs/study_028_c3_first_results/20260908T140522881249Z_edda0ae6aa06_siren/native",
+      "checkpoint_role": "fixed_step_final",
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 2237985099.6359725,
+      "snr_db": -0.0003001862856955029,
+      "snr_status": "finite",
+      "rmse": 9.938953479476723,
+      "relative_l2": 1.0000345608205405,
+      "steps_completed": 2000,
+      "parameter_count": 199425,
+      "observed_fit_amplitude_rms": 9.941172801367607,
+      "training_seconds": 37.4255568664521,
+      "prediction_seconds": 2.961052027530968,
+      "evaluation_seconds": 0.21818744577467442,
+      "outer_action_seconds": 51.1750467158854
+    },
+    {
+      "run": "new",
+      "native_run": "runs/study_029_c3_amplitude_qc/20260909T000855786328Z_1819109f28e1_siren/native",
+      "checkpoint_role": "fixed_step_final",
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 2237985099.6359725,
+      "snr_db": -0.0003001862856955029,
+      "snr_status": "finite",
+      "rmse": 9.938953479476723,
+      "relative_l2": 1.0000345608205405,
+      "steps_completed": 2000,
+      "parameter_count": 199425,
+      "observed_fit_amplitude_rms": 9.941172801367607,
+      "training_seconds": 4.088454372249544,
+      "prediction_seconds": 0.8827108405530453,
+      "evaluation_seconds": 0.2158965766429901,
+      "outer_action_seconds": 15.407120449468493
+    }
+  ],
+  "figure": {
+    "file": "siren_comparison.png",
+    "training_loss_source": "native metrics.training.history.train_loss",
+    "training_report_count": 20,
+    "training_history_exactly_equal": true,
+    "target_selection": "first true evaluation-target entry in fixed volume C-order, before reading amplitudes",
+    "target_flat_position": 0,
+    "array_row": 1898954,
+    "local_spatial_indices": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "physical_coordinates_m": {
+      "source_x_m": 10420.0,
+      "source_y_m": 3620.0,
+      "relative_receiver_x_m": -140.0,
+      "relative_receiver_y_m": -1960.0
+    },
+    "time_samples": [
+      0,
+      384
+    ],
+    "physical_amplitudes_unscaled": true,
+    "marker_stride": 16,
+    "marker_note": "Sparse hollow markers reveal overlap; full arrays compared numerically."
+  },
+  "all_source_run_files_unchanged": true,
+  "model_training_or_prediction_performed": false,
+  "execution_device": "cpu",
+  "interpretation": "SIREN fits same-crop observations only. Removing disjoint shared-train anomalies does not change its observed fit input. This audit compares one fixed-budget rerun and does not establish a speed ranking."
+}

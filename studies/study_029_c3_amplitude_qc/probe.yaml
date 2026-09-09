@@ -1,0 +1,23 @@
+scope: fixed_training_batch_numerical_diagnostic
+model_config: gnn_probe.yaml
+reference_suite: ../../data/processed/c3_na/study_027_c3_na_benchmark
+qc_suite: ../../data/processed/c3_na/study_029_c3_amplitude_qc
+training_time_samples: [0, 384]
+query_selection: first_batch_of_first_seeded_training_episode
+query_count: 4
+optimizer_steps: 100
+model_and_episode_seed: 20260908
+device: cpu
+thread_count: 1
+timeout_seconds: 600
+reference_normalization: initial_pilot_recorded_training_rms
+normalization_gate:
+  max_abs_amplitude: 10000.0
+  nonfinite_normalized_samples: 0
+  nonzero_traces_with_zero_float32_squared_energy: 0
+  traces_with_nonfinite_float32_squared_energy: 0
+encoder_constant_amplitudes: [1.0, 10.0, 1000.0]
+validation_or_test_waveform_read: false
+checkpoint_reuse: false
+full_volume_prediction: false
+quality_retries: false

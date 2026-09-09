@@ -1,0 +1,14 @@
+extends: ../study_028_c3_first_results/methods/gnn_train_resource_revision.yaml
+
+project:
+  random_seed: 42
+data:
+  dataset_id: seg_c3_na
+training_data:
+  max_abs_amplitude: 10000.0
+training:
+  device: cpu
+  max_steps: 100
+  validation_interval: 100
+# The numerical probe repeats the first four hidden training queries of one
+# seeded episode. It does not execute native whole-volume validation.

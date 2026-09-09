@@ -35,6 +35,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_026_grid_free_multi_relation_gnn](study_026_grid_free_multi_relation_gnn/README.md) | `draft` | masked train-partition trace GNN / arbitrary-coordinate queries | Do separate source, receiver, CMP and offset relations improve physical target reconstruction over matched graph controls? |
 | [study_027_c3_na_benchmark](study_027_c3_na_benchmark/README.md) | `materialized_locked` | fixed C3 cases and shared train pool | Which immutable data contract supports the five-method comparison? |
 | [study_028_c3_first_results](study_028_c3_first_results/README.md) | `first_results_complete` — GNN cross-run tolerance unmet | fixed validation / five-method pilot | What are the first full-volume results under finite declared budgets? |
+| [study_029_c3_amplitude_qc](study_029_c3_amplitude_qc/README.md) | `qc_and_numerical_validation_complete` | raw SEG-Y provenance / amplitude QC / GNN numerical probe / SIREN rerun | Does source-bound QC restore a meaningful fixed training scale while preserving the evaluation cases? |
 
 ## Scratch workspaces
 

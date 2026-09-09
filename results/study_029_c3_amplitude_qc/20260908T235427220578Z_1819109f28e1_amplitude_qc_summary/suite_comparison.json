@@ -1,0 +1,752 @@
+{
+  "status": "success",
+  "finished_at_utc": "2026-09-08T23:51:42.062990+00:00",
+  "elapsed_seconds": 77.38339070510119,
+  "old_suite": "data/processed/c3_na/study_027_c3_na_benchmark/benchmark_suite.json",
+  "old_suite_sha256": "6447a35cc7d4de43532ee8e2e0de3245ac0e93d855efa7ff59c98a85e1631cab",
+  "new_suite": "data/processed/c3_na/study_029_c3_amplitude_qc/benchmark_suite.json",
+  "new_suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "old_full_verification_record": "old_suite_verification.json",
+  "new_full_verification_passed": true,
+  "old_and_new_inventories_unchanged_after_comparison": true,
+  "raw_interim_input_hashes_unchanged": {
+    "amplitudes.npy": {
+      "sha256": "7037d750d227a6cfce5ade61d4bc0ca05ac846b294885b8c9d8d945cf2af6e92"
+    },
+    "dataset.json": {
+      "sha256": "c2a741d5af447b2f413334c047db11a3ef65e9915d3399bc553aa284d5bc187a"
+    },
+    "time_s.npy": {
+      "sha256": "35ffa4765a7e2877618451d961cdcccb7272ade8e084282754e8cc6c5af1181b"
+    },
+    "traces.parquet": {
+      "sha256": "cfb8ecb6310adeed54cc00a28c09da5cdb714ba0a064517cca5249879201ef6f"
+    }
+  },
+  "all_heldout_split_assignments_unchanged": true,
+  "changed_assignments": {
+    "from": "train",
+    "to": "excluded",
+    "count": 437,
+    "ffids": [
+      1746
+    ]
+  },
+  "canonical_train": {
+    "old_count": 1146803,
+    "new_count": 1146366,
+    "new_equals_old_minus_exact_exclusions": true,
+    "old_row_ids_sha256": "6d96915e2812664fe36c527cdc1d2646c82ee10d25a59d57818fea728a6e8298",
+    "new_row_ids_sha256": "ad6acbd5208f75f8773880a455ea68762ee5f23e1f748e4c4319f1c69480afab",
+    "excluded_row_ids_sha256": "b0964c76ceb05649a142a4a1fbea46bfb7a7399e9004d16b3b0bdaee7066061a",
+    "id_hash_encoding": "sorted little-endian int64 array_row bytes",
+    "raw_full625_zero_trace_count": 107,
+    "selected384_zero_trace_count": 1195,
+    "all_preexisting_zero_train_traces_retained": true
+  },
+  "case_count": 20,
+  "cases": [
+    {
+      "case_id": "c3_benchmark_test_random_trace_50_seed42",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.5,
+      "random_seed": 42,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 65796,
+        "target_trace_count": 65276,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.498016357421875
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "8e1bb7ca127e584d61992e967e7bff3d144e575a6252b8d36c868e6f4c5444ef",
+          "new_sha256": "608ff7916b276f488148c96a12813188fc53b2c23ba9cc7eecdbde54a97ee2bb"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "0c5142168b1dfd231b3d714ce78cc9a7aedd353ade8ed0a09c90999f80cb3b36",
+          "new_sha256": "39815031df75d811c91fdb8ed512c13f48882eff45d74248a331a7d838c14c07"
+        },
+        "volume.json": {
+          "old_sha256": "36739955cc4e2b697d0a0d66dc3fea192632e142d307ece6170bb053967784f1",
+          "new_sha256": "fa5843c3f24cc007ba436891582780d26db29d607c287656ad39fcbde4b3bfea"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_50_seed43",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.5,
+      "random_seed": 43,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 65638,
+        "target_trace_count": 65434,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.4992218017578125
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "ada1cfbfca13429fa43854120c38ad765aebd1801ce697c187fdc07c1a152921",
+          "new_sha256": "15e90c3d6031553599a8916ae234412c0d4ef39e88af8924f4b79439f1de7ed4"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "bbf827a908d8f62da08681743aeb394eed747607dd9bd3ae8c7d838da33c9946",
+          "new_sha256": "6211ecd70cc2437b32b56a42f09d9c2a909a4081ad00de578ed12d5faa9cab95"
+        },
+        "volume.json": {
+          "old_sha256": "8ad61695af842131c8cd078b5b2d076670bcc6692cb67710a48d14bc1578c2a4",
+          "new_sha256": "47b861820bafbefeef0c17b0b6c713a8449ddaaeaedfac690331c967cc63f9f6"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_50_seed44",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.5,
+      "random_seed": 44,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 65465,
+        "target_trace_count": 65607,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.5005416870117188
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "c6e93f4ff7c60e6a5c9294efd0674fc8929130f2664e2d2c1e3499e544180d6b",
+          "new_sha256": "269d7895221c593e1a82a327abf5c0ead936df72daa799dbb0a13c4630b97fb2"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "7cc408bc9369f905991f5bfe75471619c06545fc1153f3c25b43b351bdde71d8",
+          "new_sha256": "1420125ed0028a76f7662ca2cd29ca86ccb8761032ad326e454d1da69a8da602"
+        },
+        "volume.json": {
+          "old_sha256": "0172ee98e06a79cd8331249085802a2d16223f1fa115fa05a7591688c09af9bb",
+          "new_sha256": "a1900d5966858d7d136ad8543bdeb6b7cf1e75196ea25e6b57db492b89acb983"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_80_seed42",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "random_seed": 42,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 26362,
+        "target_trace_count": 104710,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.7988739013671875
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "324588da6b9e121da85eed5f71bce8af57f66830f3680cf0278032f4f9546285",
+          "new_sha256": "ce3c3965df75b0e18110902132d31b0c57ce91b3718bc6155f074c0a7408b926"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "0f40a1bd571004a20c1d72a99426eb8449e2321d840ee6271cad7327729fcf53",
+          "new_sha256": "25471937168b94d5f5bd4e47192526c7b1da85170b91a992dd8cf6eda5992835"
+        },
+        "volume.json": {
+          "old_sha256": "93d990c5da9806d9b7ad4836c6a3234024cc6169aa38d67669c285b67d0e5851",
+          "new_sha256": "7abf89a5c2846fbc0b929df4466d9eb0a0da4b86e73062b68117ca03ccabcf9a"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_80_seed43",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "random_seed": 43,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 26231,
+        "target_trace_count": 104841,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.7998733520507812
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "9d04611a5703c490a4ca44f1b4f710c5b6cdea70ec1a2c113da703543d73ff48",
+          "new_sha256": "5780c98ec0d2847ad430f045309fa69868aeb98744d4a8632599f1448075a3fb"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "dce3691cbc865ae628cf27208764fa603c742bd911cd4aa4f7df15c3d3d9361c",
+          "new_sha256": "1f8906f5ca60b57f9529af187be2e133aca8c26fa570fb4fbf11b56c67b1a45a"
+        },
+        "volume.json": {
+          "old_sha256": "ca4658b74416ae3776be31cff88df600186bbb7b975de7744fa61df889685575",
+          "new_sha256": "743ce223238760fd1e8ba7e44ee1831e0ad64451e8acac8184508f185937c1c7"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_80_seed44",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "random_seed": 44,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 26306,
+        "target_trace_count": 104766,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.7993011474609375
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "5e5eb068e3b1d93b2d13d1e515ee4c409353aaa3cd598a0a3b6dc91c14f29cf1",
+          "new_sha256": "8ee5c7b3e827f0290d7f2740674aa9a9e6a9406f2a5d1826572f5caf28babcc9"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "8883051d76a6eb7b45c4e3f6d9a1151b653ae724ffd0a7e60841c9c18b6a0375",
+          "new_sha256": "7ee2fb97fc2c8c34bd99b2bb85432d7c2723248c6160edecd2eba283fc19780b"
+        },
+        "volume.json": {
+          "old_sha256": "e874c107858cfc96eac00b0eecad1c49da0a652645f08ed2369da2584668588a",
+          "new_sha256": "72b5e566dfb117539f9e25c05229b4b7ca663a00a3adab46ed96689fc55f86e3"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_90_seed42",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.9,
+      "random_seed": 42,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 13195,
+        "target_trace_count": 117877,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.8993301391601562
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "542dcbf686da1f091d2b425737a1fc172e395c0dcfaef4f9e8d8ff7906d7df22",
+          "new_sha256": "ff779897266e0b187b9e6c3b059e5ea836ad35e90bfb870132ef5491ede100dc"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "8bd4c12eec1c0e61fdcefde79d6cefddc925cbcdc7343c9f00396e893a23b45e",
+          "new_sha256": "85fde014e7c4ea566c033a44ba05ac8a8f1d7827e040230ce796bff83a2da939"
+        },
+        "volume.json": {
+          "old_sha256": "8fc8d9fbdc8d4935216de30cfed78c8a10957c3b9cd1b773895219e42c73e104",
+          "new_sha256": "f95220762acbf8284e84e6e708b88cb669218470676ddb1c189385db423272e0"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_90_seed43",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.9,
+      "random_seed": 43,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 13160,
+        "target_trace_count": 117912,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.89959716796875
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "e4e8f7fbc6de77fb13592995081a950d8f5aef9a691ea6b3dfbd94260d927aeb",
+          "new_sha256": "850e65116d69fbc55596ee4bfa1698d05a3b5ff3ee5fe052f921ad4548b43ddd"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "240d887444fb4bb11db23d864d2969c0faf15b7adfcec4caca741435017c5062",
+          "new_sha256": "8c5dd20df5a05619b811cf3742c313ccc4cc24c2aa0972900d1c6aac3dd1d0fe"
+        },
+        "volume.json": {
+          "old_sha256": "6fdf525dbb3fd971ee1925b9286fffd744a39b4741a20f9b12a15224ad28b1e2",
+          "new_sha256": "0630df43aa0dd5065c6556f37a9987e11bf2113a3f3bbab80e9cb9c9663ebac3"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_trace_90_seed44",
+      "partition": "test",
+      "kind": "random_trace",
+      "missing_fraction": 0.9,
+      "random_seed": 44,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 13073,
+        "target_trace_count": 117999,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.9002609252929688
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "46c657dc87f5df35ee76f07be557fbf5517e506c0901c17987f20dca530f5df6",
+          "new_sha256": "e0f27e8882231a6d53aa30c1d5bd0c250325a8ef5df69e8b5bee8c407801385c"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "00f3f2f493345934cdb0ea9c2ab1177466d058232fa42bf7ed6e007004ac71a8",
+          "new_sha256": "3d4681a595d784b06bf31d79faff918ac8a886cd47d21fd61b98200f4505b5c3"
+        },
+        "volume.json": {
+          "old_sha256": "04b9906f5d42fdd6e94bc5fca1043cc1d7c25a8cf083fa8dabf5d6777f98bd2d",
+          "new_sha256": "ebaa2ddc3b92de6be4dd1274b78cffe65a7014cbefaa14f8669d5f87316428c2"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_whole_ffid_50_seed42",
+      "partition": "test",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.5,
+      "random_seed": 42,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 265,
+        "fully_missing_ffid_fraction": 0.517578125,
+        "observed_trace_count": 63232,
+        "target_trace_count": 67840,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.517578125
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "820cf4a7dc48dd67399e292071909d744e6c3206645377efeb328b039849d8af",
+          "new_sha256": "36fbf1febd0df2d79c3c7e0aa2d0c16a65ca9d5a8ef46d33ceec02220515d2d5"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "e6e5a9110f647aa8547a371501bb81c3d94ca39f417f441cdcb5edeed1ae56a4",
+          "new_sha256": "cca0c8aa65c947ae3079de81ac80b02a2545cd37747777f7594ac9c6bf022c38"
+        },
+        "volume.json": {
+          "old_sha256": "70260989247b2669e9b26804440137a8c7fdb4d3856e6878a5064890629b1471",
+          "new_sha256": "8a0ecb05312e74beb17aed74c6e780a49090888162ddaa24eece2808bcac8df2"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_whole_ffid_50_seed43",
+      "partition": "test",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.5,
+      "random_seed": 43,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 240,
+        "fully_missing_ffid_fraction": 0.46875,
+        "observed_trace_count": 69632,
+        "target_trace_count": 61440,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.46875
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "7e971f23ddc02d0126831f5546fe9a16df082315d2f4204adae529adbf12d6a8",
+          "new_sha256": "1dc25656a36da30b626da9d6f9ba082a754f92ecb0a7d10ecab0d1dd69ae90f3"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "15fb0b78d8f4ac38fe3b87d8880a0ed3815f46a99e987ebdfdebbb8b53ea4ce3",
+          "new_sha256": "2b42b063a723c19c24571dd0fafaf561c5baf529bb560c836704e92ff060e7f8"
+        },
+        "volume.json": {
+          "old_sha256": "f8c470048672e0814d92f4c71be02a9088584b56e4090676f8f974c1b8d78432",
+          "new_sha256": "be5455057a964d49f95e004ebafdd700a8b883147695d70d95da86c43b44d27e"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_whole_ffid_50_seed44",
+      "partition": "test",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.5,
+      "random_seed": 44,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 274,
+        "fully_missing_ffid_fraction": 0.53515625,
+        "observed_trace_count": 60928,
+        "target_trace_count": 70144,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.53515625
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "c61173f86e31c671034640a16ce2b54d0ee92e95ca2aa1030a614cb8640bd5ea",
+          "new_sha256": "aa6f570df5662af9338e96387c1cbd930252ff2751addf77327d9293bac75f8c"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "30fa4f6d8f9e110fdf7f70b0042b817086694b98575d17b5f07215b54a775559",
+          "new_sha256": "b5525fb574bd3ec431bb5a3cce8fd65ab34d6feb4a5363c0dffdd5a8169d3247"
+        },
+        "volume.json": {
+          "old_sha256": "290830369027bcdc093848aec0d6e119036c93c409c0a3194283e3e799bd6a67",
+          "new_sha256": "8f9e9917c1d27c4c5a3933aaff2224ac15071a57d5c73151cfbff4df115b8031"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_whole_ffid_80_seed42",
+      "partition": "test",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.8,
+      "random_seed": 42,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 409,
+        "fully_missing_ffid_fraction": 0.798828125,
+        "observed_trace_count": 26368,
+        "target_trace_count": 104704,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.798828125
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "d713f67bc9dd84abf6ac023d1ea7886d6f465cc6e09df4213994780b95283850",
+          "new_sha256": "c1cfa8de691332d08f7aba254f3a0daf1111e552e9e1670f068be3167dfedacb"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "e6637f208e56b7bfe62ecc0ded6b33813bd5594feed2977a2fe35fcf2fde6c96",
+          "new_sha256": "d9e8a60a24dee6f0e78133b93cd667af38b9cefa7ff0044621c23d56fdcda677"
+        },
+        "volume.json": {
+          "old_sha256": "9a5968a92b13fb34918f8804fa901681715059c68bc3476c3fa7fd4fa8617ae5",
+          "new_sha256": "26a1ccdcafac9208054327eaa8ffaa04362533118210e2d47fc7356b072b0263"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_whole_ffid_80_seed43",
+      "partition": "test",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.8,
+      "random_seed": 43,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 399,
+        "fully_missing_ffid_fraction": 0.779296875,
+        "observed_trace_count": 28928,
+        "target_trace_count": 102144,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.779296875
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "e367f9476c5711ff4e7f828c6566f29dc0a111ae6bc0a4df263760b5fa74625f",
+          "new_sha256": "0fa80d8155ee89b14816a3e920e7a8a84b8eef546363aa9e9287208ff556a2e4"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "562bba1e9b9e37cac1c6d66fb67b2d038b6af83e578bfe36e7fa424b88bcd557",
+          "new_sha256": "3b45262a4cbcb6ca855fbf003a98005e8e702de9c0af76f806334d10ff28d489"
+        },
+        "volume.json": {
+          "old_sha256": "dad8a0fe55330ed62ba31ecb9e3a4ff50f853c2d3b7eb9b44cb9cd2af6570265",
+          "new_sha256": "173d6e310d3eda4f54373b55033b0cc8032ffc955f8c5b942505d3832f28f7ab"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_test_random_whole_ffid_80_seed44",
+      "partition": "test",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.8,
+      "random_seed": 44,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 512,
+        "fully_missing_ffid_count": 421,
+        "fully_missing_ffid_fraction": 0.822265625,
+        "observed_trace_count": 23296,
+        "target_trace_count": 107776,
+        "trace_count": 131072,
+        "trace_missing_fraction": 0.822265625
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 740542,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 131072,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "bd0c3eb67eddb26f29448eca892c96a59c9bbe9e6fd3a7f4b3f7f7307de5147d",
+          "new_sha256": "c0cbc3c27e4dbb0345b379328cc176f77f8f6e14039d2df79f4da2ad38f1b668"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "7efdf8cdb08a40af2e4eec1dfa98b75697b445bf3700328350127f51d0fac92c",
+          "new_sha256": "876450fa00cbf68cce9b6bfad6f6a37682be7d494dea71b17d7027e4f833658d"
+        },
+        "volume.json": {
+          "old_sha256": "c7c5501763a8c95d8fdb3054fe05b9254b84a3306692ffa9156f1eadb3f93c4e",
+          "new_sha256": "076252d2581bb333abbdddf26bcd2870764280db65cff5bd7d9478cdefd9a717"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_validation_random_trace_50_seed142",
+      "partition": "validation",
+      "kind": "random_trace",
+      "missing_fraction": 0.5,
+      "random_seed": 142,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 288,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 37016,
+        "target_trace_count": 36712,
+        "trace_count": 73728,
+        "trace_missing_fraction": 0.4979383680555556
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 416664,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 73728,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "8d0381942f7be801be37c48d44fb4547a4b37a5a62a7f226719e336d5abf88ee",
+          "new_sha256": "456c7f69ad2fde1f4160267d6217f929ff1e2d6a0a7a55b29cd21889d06d4b76"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "567902c41b33e27c83601398318328f04ababd73b882ed732701c5a30d0cc0cf",
+          "new_sha256": "a17c7900e0b1868149c7f39deb10ef6cd8848f9db0a29c5a8d812fea47d3a448"
+        },
+        "volume.json": {
+          "old_sha256": "c6792f7685a6426b8687e4ab805d043fd9b0af9b029a01e6fd92b9d22ef8e5ee",
+          "new_sha256": "6d2df4e2a0cc14a91286cad2d95cd0b73dafba823ce756f264166cc6dd5a45b0"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+      "partition": "validation",
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "random_seed": 142,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 288,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 14729,
+        "target_trace_count": 58999,
+        "trace_count": 73728,
+        "trace_missing_fraction": 0.8002251519097222
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 416664,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 73728,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "b7e0612d45f098472f78d8e414d9cb06e2be9b2f12fb2ce95d01fc7bda43dddf",
+          "new_sha256": "d92fb4c276f3b3ea58476dc42a0749bc7111bc5f04febd711a3eda676994a09d"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "8ee5a728d11d2af5726280b86708f5161ca9540e4bae02afdc5d6e9c4d93d326",
+          "new_sha256": "e65b918bc159cd17d396fc1b1aa0b36f0c113fd624b8a7bb39b610b064a82daa"
+        },
+        "volume.json": {
+          "old_sha256": "b39f5beae5a70750f0a528c44cfccdf633e4eb9572b35bb43f208f041f80db06",
+          "new_sha256": "04dd3d84528038f1d21d7a6ec939932a09f600ddb0dc24d33d14a1b6d37fabd6"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_validation_random_trace_90_seed142",
+      "partition": "validation",
+      "kind": "random_trace",
+      "missing_fraction": 0.9,
+      "random_seed": 142,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 288,
+        "fully_missing_ffid_count": 0,
+        "fully_missing_ffid_fraction": 0.0,
+        "observed_trace_count": 7426,
+        "target_trace_count": 66302,
+        "trace_count": 73728,
+        "trace_missing_fraction": 0.8992784288194444
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 416664,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 73728,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "33b39beab936a0958452e8ab775127c2da2511ea64e38392569a147c0b9328a8",
+          "new_sha256": "1eb58b6d97f6f0a990fc5431782c24e22f5cef1ed16220fbe8c2d7a1b5c81910"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "030c301d009dbd559df0053c745271628d2194af7154455b85fe88748896d485",
+          "new_sha256": "f626b88d047f0838e01ef8f1a1f8b6b4132c40dc92d217ef3b4065c464469eb6"
+        },
+        "volume.json": {
+          "old_sha256": "d9fcf85a498433e2f81e2e8aa015447b16c06dc1e4e1a2418ad6497751eb8c9f",
+          "new_sha256": "a22227a6e226b82b152fe8b34a62ae3b33912e7039264783ca73a3f190f314f3"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_validation_random_whole_ffid_50_seed142",
+      "partition": "validation",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.5,
+      "random_seed": 142,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 288,
+        "fully_missing_ffid_count": 150,
+        "fully_missing_ffid_fraction": 0.5208333333333334,
+        "observed_trace_count": 35328,
+        "target_trace_count": 38400,
+        "trace_count": 73728,
+        "trace_missing_fraction": 0.5208333333333334
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 416664,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 73728,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "660524128e76e980f12e0c5ef1611b4d38a328254f622ff457bc954784c64e38",
+          "new_sha256": "6a93b56d2b4b8aab8be7eaf52fe6bac5ca0771180c3a2d968674952df1d88c78"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "d3272b1c8b716602b7ff51f79b3ff605ce75a5bbedf5a191358523cc0531aef0",
+          "new_sha256": "06c228e98186097fbcdb02434f55cd14a9b88076d15ddde4a2bda02a6bce9d03"
+        },
+        "volume.json": {
+          "old_sha256": "f885c24e747239dd313fc502f6432d6becd93cadf184ce885d5b603a0042c688",
+          "new_sha256": "a51281a4359d4fe586183db6413465009d976559d80e2d7c4c3d6fd63a7315bf"
+        }
+      }
+    },
+    {
+      "case_id": "c3_benchmark_validation_random_whole_ffid_80_seed142",
+      "partition": "validation",
+      "kind": "random_whole_ffid",
+      "missing_fraction": 0.8,
+      "random_seed": 142,
+      "recipe_and_order_unchanged": true,
+      "effective_mask_unchanged": {
+        "ffid_count": 288,
+        "fully_missing_ffid_count": 230,
+        "fully_missing_ffid_fraction": 0.7986111111111112,
+        "observed_trace_count": 14848,
+        "target_trace_count": 58880,
+        "trace_count": 73728,
+        "trace_missing_fraction": 0.7986111111111112
+      },
+      "whole_partition_mask_table_semantically_equal": true,
+      "whole_partition_mask_rows": 416664,
+      "crop_volume_index_semantically_equal": true,
+      "crop_volume_trace_count": 73728,
+      "binding_hashes": {
+        "interpolation_mask.json": {
+          "old_sha256": "9db47c3a6362d84d18333e7d602c653c2a9682f6d6b64815d491ad9ef329ca68",
+          "new_sha256": "41f1f5dc00cc480c65ed18bb6f7ed3abacf4d279bf539ce8b7e4bb540b2f8ad6"
+        },
+        "benchmark_case.json": {
+          "old_sha256": "8c3e62710c9566689b7ea161ec473e472e51170419da3fb3bb02744471d17754",
+          "new_sha256": "af1de54fb4f2a286f6710c38d004d8931f0dc0a44ab933e8cbdf1343c498c5d9"
+        },
+        "volume.json": {
+          "old_sha256": "5f9605cd3e1266cd43183c58a6fcd4e79181c1651b585f33d80e8141c52f9bb7",
+          "new_sha256": "9fb8e2032f0da49c694b06603354b955e0229f8a97b7fab54c5e11837d26910a"
+        }
+      }
+    }
+  ],
+  "binding_note": "All case/mask/volume JSON hashes change because they bind the newly prepared partition and normalization. All 20 held-out recipes, effective counts, complete mask-table semantics and crop indices are unchanged.",
+  "evaluation_boundary": "No training, model prediction, test scoring or threshold fitting performed. Full suite verification reads held-out crops only for the established fixed-source integrity checks. Zero retention scan reads old train rows only."
+}
