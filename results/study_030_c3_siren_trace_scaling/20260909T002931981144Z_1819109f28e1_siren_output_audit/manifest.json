@@ -1,0 +1,42 @@
+{
+  "source_audit_run": "runs/study_030_c3_siren_trace_scaling/20260909T002931981144Z_1819109f28e1_siren_output_audit",
+  "source_script_sha256": "dd7881a4c69b403705f49b748a3419e6b802953cf6f5304964bfafbf95a1e43b",
+  "source_model_runs": {
+    "old_global_rms": "runs/study_029_c3_amplitude_qc/20260909T000855786328Z_1819109f28e1_siren",
+    "new_per_trace_rms": "runs/study_030_c3_siren_trace_scaling/20260909T003230820286Z_1819109f28e1_siren"
+  },
+  "source_file_sha256": {
+    "old_global_rms": {
+      "request.json": "3ea293ff2988e1a8ade7392119483257dbcd135e631127e10e4d11f6c2371016",
+      "result.json": "2e1020079cd5b4109e6125150d7db6b0d508c492d0fba510ea88978cf4b3f606",
+      "config.generated.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/config.resolved.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/run.json": "6e2322606f459ee9cdc2c70723ae893c3c9640d0735fbef8a4bfe2c1c4964cfe",
+      "native/metrics.json": "e7b32c70b048cb67a9573622dcfdf2f49a746a709254389f068bc0d8c26ceca3",
+      "native/artifacts/final.pt": "a888e894b43975b8a805955aabdb419393d654d05dad523330d1e10ad2821408",
+      "native/artifacts/prediction.npy": "d0bd3f3155a9e022e1ec81d3f461a71184dbf4318fa306cc207f7aea296adc7a"
+    },
+    "new_per_trace_rms": {
+      "request.json": "9fd93d1d5e0f8fb9d82e79e5fc489d7b55afee57fea97c5d8736d752a0496307",
+      "result.json": "0f9465f668a2fe11dc78e54d0c5314ba362a090a7f851320c2e85ff5314d27ab",
+      "config.generated.yaml": "4d99f3d4089479c780c392d01197194b4a9edb2a9f70d6473572da47c9899b26",
+      "native/config.resolved.yaml": "4d99f3d4089479c780c392d01197194b4a9edb2a9f70d6473572da47c9899b26",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/run.json": "157de67d284bd84aade0b1a3f88ad151c564d3f9c22948307dcdf41731b76338",
+      "native/metrics.json": "23b556f6b1c7871c2f5a1a07f73dbb6d99557a74731266de7202492b59699c71",
+      "native/artifacts/final.pt": "1dd3e13aa53f299b4692d07a90a16762b9912e011f6fbf1c47d2e0c8f5221a1d",
+      "native/artifacts/prediction.npy": "8c0016f875a4fb1f1257782245fd11f4447c6bfc575f93a859358e4f84c40ef9",
+      "native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+    }
+  },
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "artifact_sha256": {
+    "siren_trace_scaling.json": "2ac1f48979d93577941898f95cbd9463f9506cada2056c621b94e04e818b8a05",
+    "siren_trace_scaling.csv": "6b0ec3ef18f76ebdd1caba5df32fba963815aaddf2ffa36f3bc0d163e606f5c0",
+    "siren_trace_scaling.png": "5ab82e6aba19d8a33509b7a7e9d1bf627dfbcb698c1a5043934ddd41c1a5c4f9"
+  },
+  "path_base": "repository_root",
+  "publication_export": "Audit tables were generated with repository-relative paths and copied byte-for-byte. Prediction, checkpoint and full scale arrays remain only in immutable native runs.",
+  "selection": "Both explicitly supplied fixed-budget runs; first waveform target and stride-32 scale scatter chosen by fixed index. Numeric evaluation uses all targets."
+}

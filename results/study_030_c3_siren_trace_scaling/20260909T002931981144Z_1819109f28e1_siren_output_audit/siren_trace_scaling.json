@@ -1,0 +1,385 @@
+{
+  "started_at_utc": "2026-09-09T00:33:53.027506+00:00",
+  "timeout_seconds": 600,
+  "runs": {
+    "old_global_rms": "runs/study_029_c3_amplitude_qc/20260909T000855786328Z_1819109f28e1_siren",
+    "new_per_trace_rms": "runs/study_030_c3_siren_trace_scaling/20260909T003230820286Z_1819109f28e1_siren"
+  },
+  "suite": "data/processed/c3_na/study_029_c3_amplitude_qc",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "script_sha256": "dd7881a4c69b403705f49b748a3419e6b802953cf6f5304964bfafbf95a1e43b",
+  "source_file_sha256": {
+    "old_global_rms": {
+      "request.json": "3ea293ff2988e1a8ade7392119483257dbcd135e631127e10e4d11f6c2371016",
+      "result.json": "2e1020079cd5b4109e6125150d7db6b0d508c492d0fba510ea88978cf4b3f606",
+      "config.generated.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/config.resolved.yaml": "19a509c321b4cb2982e6c925e26f4c8cb5961ae3ce3dde721b428a5ac413bb4f",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/run.json": "6e2322606f459ee9cdc2c70723ae893c3c9640d0735fbef8a4bfe2c1c4964cfe",
+      "native/metrics.json": "e7b32c70b048cb67a9573622dcfdf2f49a746a709254389f068bc0d8c26ceca3",
+      "native/artifacts/final.pt": "a888e894b43975b8a805955aabdb419393d654d05dad523330d1e10ad2821408",
+      "native/artifacts/prediction.npy": "d0bd3f3155a9e022e1ec81d3f461a71184dbf4318fa306cc207f7aea296adc7a"
+    },
+    "new_per_trace_rms": {
+      "request.json": "9fd93d1d5e0f8fb9d82e79e5fc489d7b55afee57fea97c5d8736d752a0496307",
+      "result.json": "0f9465f668a2fe11dc78e54d0c5314ba362a090a7f851320c2e85ff5314d27ab",
+      "config.generated.yaml": "4d99f3d4089479c780c392d01197194b4a9edb2a9f70d6473572da47c9899b26",
+      "native/config.resolved.yaml": "4d99f3d4089479c780c392d01197194b4a9edb2a9f70d6473572da47c9899b26",
+      "native/inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+      "native/run.json": "157de67d284bd84aade0b1a3f88ad151c564d3f9c22948307dcdf41731b76338",
+      "native/metrics.json": "23b556f6b1c7871c2f5a1a07f73dbb6d99557a74731266de7202492b59699c71",
+      "native/artifacts/final.pt": "1dd3e13aa53f299b4692d07a90a16762b9912e011f6fbf1c47d2e0c8f5221a1d",
+      "native/artifacts/prediction.npy": "8c0016f875a4fb1f1257782245fd11f4447c6bfc575f93a859358e4f84c40ef9",
+      "native/artifacts/trace_amplitude_scales.npy": "daa1d8ace975e8d8f1e5f2e34c9659ae97cdfd688cf660bbce9b477945cc6283"
+    }
+  },
+  "execution_device": "cpu",
+  "model_training_or_prediction_performed": false,
+  "target_rms_use": "post-training scale-estimator evaluation only; never physical restoration",
+  "status": "success",
+  "finished_at_utc": "2026-09-09T00:34:02.739919+00:00",
+  "elapsed_seconds": 9.875840835273266,
+  "configuration_difference": [
+    "training.amplitude_scaling=per_trace_rms",
+    "prediction.scale_interpolation={\"distance_scales_m\": [160.0, 80.0, 40.0, 40.0], \"neighbors\": 8, \"power\": 2.0}"
+  ],
+  "all_other_resolved_configuration_values_equal": true,
+  "whole_prediction_finiteness": {
+    "old_global_rms": {
+      "all_samples_finite": true,
+      "sample_count": 28311552,
+      "dtype": "float32",
+      "shape": [
+        384,
+        9,
+        32,
+        8,
+        32
+      ]
+    },
+    "new_per_trace_rms": {
+      "all_samples_finite": true,
+      "sample_count": 28311552,
+      "dtype": "float32",
+      "shape": [
+        384,
+        9,
+        32,
+        8,
+        32
+      ]
+    }
+  },
+  "recomputed_metrics": {
+    "old_global_rms": {
+      "evaluation_domain": "evaluation_target",
+      "amplitude_domain": "physical",
+      "evaluation_target": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 2237985099.6359725,
+        "snr_db": -0.0003001862856955029,
+        "snr_status": "finite",
+        "rmse": 9.938953479476723,
+        "relative_l2": 1.0000345608205405
+      },
+      "zero_fill": {
+        "snr_db": 0.0,
+        "snr_status": "finite",
+        "rmse": 9.938609992960336
+      },
+      "observed_max_abs_error": 0.0
+    },
+    "new_per_trace_rms": {
+      "evaluation_domain": "evaluation_target",
+      "amplitude_domain": "physical",
+      "evaluation_target": {
+        "trace_count": 58999,
+        "sample_count": 22655616,
+        "reference_energy": 2237830414.4522877,
+        "error_energy": 2237948845.6286945,
+        "snr_db": -0.00022983263214371163,
+        "snr_status": "finite",
+        "rmse": 9.938872976628174,
+        "relative_l2": 1.0000264608097134
+      },
+      "zero_fill": {
+        "snr_db": 0.0,
+        "snr_status": "finite",
+        "rmse": 9.938609992960336
+      },
+      "observed_max_abs_error": 0.0
+    }
+  },
+  "each_recomputed_target_metric_exactly_matches_native": true,
+  "observed_amplitudes_exactly_preserved_in_both_predictions": true,
+  "checkpoint": {
+    "role": "fixed_step_final",
+    "amplitude_scaling": "per_trace_rms",
+    "scale_interpolation": {
+      "neighbors": 8,
+      "power": 2.0,
+      "distance_scales_m": [
+        160.0,
+        80.0,
+        40.0,
+        40.0
+      ]
+    },
+    "scale_dtype": "float64",
+    "scale_count": 73728,
+    "scales_exactly_match_artifact": true,
+    "array_rows_exactly_match_volume_order": true,
+    "observed_scales_exactly_match_observed_rms": true,
+    "observed_zero_scale_count": 0,
+    "normalization_amplitude_rms_diagnostic_only": 9.941172801367607
+  },
+  "scale_estimator_evaluation": {
+    "domain": "all_evaluation_target_traces_after_completed_training",
+    "definition": "true RMS = sqrt(mean(reference physical amplitude squared over selected 384 samples)); relative error = abs(estimate-true)/true for nonzero true RMS",
+    "target_count": 58999,
+    "selected_time_sample_count": 384,
+    "true_zero_count": 0,
+    "estimated_zero_count": 0,
+    "nonzero_true_count": 58999,
+    "rmse": 0.5290251916959847,
+    "relative_l2": 0.05322929384196594,
+    "median_absolute_relative_error_nonzero_true": 0.01964740281917874,
+    "true_min": 5.48366055119136,
+    "true_max": 14.499533401819344,
+    "estimated_min": 6.493531107293606,
+    "estimated_max": 13.367609438390865,
+    "target_truth_used_only_for_post_training_evaluation": true,
+    "oracle_rescaled_prediction_computed": false
+  },
+  "histories": {
+    "old_global_rms": [
+      {
+        "step": 100,
+        "train_loss": 1.0051892483234406
+      },
+      {
+        "step": 200,
+        "train_loss": 1.0027715253829956
+      },
+      {
+        "step": 300,
+        "train_loss": 1.0014355379343032
+      },
+      {
+        "step": 400,
+        "train_loss": 1.0063007003068924
+      },
+      {
+        "step": 500,
+        "train_loss": 1.0016438138484955
+      },
+      {
+        "step": 600,
+        "train_loss": 1.0019779020547868
+      },
+      {
+        "step": 700,
+        "train_loss": 1.0038044798374175
+      },
+      {
+        "step": 800,
+        "train_loss": 0.9988372701406479
+      },
+      {
+        "step": 900,
+        "train_loss": 0.9967342400550843
+      },
+      {
+        "step": 1000,
+        "train_loss": 1.0033827018737793
+      },
+      {
+        "step": 1100,
+        "train_loss": 1.0000589567422866
+      },
+      {
+        "step": 1200,
+        "train_loss": 1.0048433297872543
+      },
+      {
+        "step": 1300,
+        "train_loss": 0.9999471539258957
+      },
+      {
+        "step": 1400,
+        "train_loss": 1.0022977072000503
+      },
+      {
+        "step": 1500,
+        "train_loss": 0.9985791260004043
+      },
+      {
+        "step": 1600,
+        "train_loss": 1.000761272907257
+      },
+      {
+        "step": 1700,
+        "train_loss": 0.9969889694452285
+      },
+      {
+        "step": 1800,
+        "train_loss": 1.0061350494623185
+      },
+      {
+        "step": 1900,
+        "train_loss": 0.9998807317018509
+      },
+      {
+        "step": 2000,
+        "train_loss": 1.0026560753583909
+      }
+    ],
+    "new_per_trace_rms": [
+      {
+        "step": 100,
+        "train_loss": 1.0032685136795043
+      },
+      {
+        "step": 200,
+        "train_loss": 1.003440621495247
+      },
+      {
+        "step": 300,
+        "train_loss": 1.0042344307899476
+      },
+      {
+        "step": 400,
+        "train_loss": 1.0063061702251435
+      },
+      {
+        "step": 500,
+        "train_loss": 1.0014101845026016
+      },
+      {
+        "step": 600,
+        "train_loss": 1.0020126926898956
+      },
+      {
+        "step": 700,
+        "train_loss": 1.003967633843422
+      },
+      {
+        "step": 800,
+        "train_loss": 0.9987472784519196
+      },
+      {
+        "step": 900,
+        "train_loss": 0.9975567615032196
+      },
+      {
+        "step": 1000,
+        "train_loss": 1.0040646600723266
+      },
+      {
+        "step": 1100,
+        "train_loss": 0.9992284440994262
+      },
+      {
+        "step": 1200,
+        "train_loss": 1.0040965920686722
+      },
+      {
+        "step": 1300,
+        "train_loss": 0.9983970057964325
+      },
+      {
+        "step": 1400,
+        "train_loss": 1.0035193544626235
+      },
+      {
+        "step": 1500,
+        "train_loss": 0.9970286649465561
+      },
+      {
+        "step": 1600,
+        "train_loss": 1.0006484454870224
+      },
+      {
+        "step": 1700,
+        "train_loss": 0.9952244138717652
+      },
+      {
+        "step": 1800,
+        "train_loss": 1.005263312458992
+      },
+      {
+        "step": 1900,
+        "train_loss": 0.998725934624672
+      },
+      {
+        "step": 2000,
+        "train_loss": 1.0023504477739333
+      }
+    ]
+  },
+  "run_rows": [
+    {
+      "run": "old_global_rms",
+      "native_run": "runs/study_029_c3_amplitude_qc/20260909T000855786328Z_1819109f28e1_siren/native",
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 2237985099.6359725,
+      "snr_db": -0.0003001862856955029,
+      "snr_status": "finite",
+      "rmse": 9.938953479476723,
+      "relative_l2": 1.0000345608205405,
+      "steps_completed": 2000,
+      "parameter_count": 199425,
+      "final_batch_loss": 0.9936274886131287,
+      "training_seconds": 4.088454372249544,
+      "prediction_seconds": 0.8827108405530453,
+      "evaluation_seconds": 0.2158965766429901,
+      "outer_action_seconds": 15.407120449468493
+    },
+    {
+      "run": "new_per_trace_rms",
+      "native_run": "runs/study_030_c3_siren_trace_scaling/20260909T003230820286Z_1819109f28e1_siren/native",
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 2237948845.6286945,
+      "snr_db": -0.00022983263214371163,
+      "snr_status": "finite",
+      "rmse": 9.938872976628174,
+      "relative_l2": 1.0000264608097134,
+      "steps_completed": 2000,
+      "parameter_count": 199425,
+      "final_batch_loss": 0.9971027374267578,
+      "training_seconds": 4.123985452577472,
+      "prediction_seconds": 0.9251156058162451,
+      "evaluation_seconds": 0.21570185385644436,
+      "outer_action_seconds": 30.44544478878379
+    }
+  ],
+  "figure": {
+    "file": "siren_trace_scaling.png",
+    "training_loss_source": "native metrics.training.history.train_loss",
+    "loss_domains_differ": true,
+    "waveform_selection": "first true target in fixed volume C-order, before reading reference amplitudes",
+    "target_flat_position": 0,
+    "array_row": 1898954,
+    "local_spatial_indices": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "waveform_physical_amplitudes_unscaled": true,
+    "scatter_selection": "every 32nd target in fixed volume C-order, starting at 0, for display only",
+    "scatter_stride": 32,
+    "scatter_point_count": 1844,
+    "scatter_identity_line": true,
+    "scale_metrics_use_all_targets": true
+  },
+  "all_source_files_unchanged": true,
+  "comparison_limits": "One fixed-budget run per normalization; reported training objectives differ. Timings are descriptive, not a speed ranking. Target RMS is used only after training to evaluate the observed-only scale estimator; no oracle-rescaled score is calculated."
+}

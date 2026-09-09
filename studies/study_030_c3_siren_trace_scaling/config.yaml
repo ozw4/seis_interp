@@ -1,0 +1,43 @@
+study:
+  id: study_030_c3_siren_trace_scaling
+  status: per_trace_scaling_evaluated
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 3600
+  preflight_timeout_seconds: 600
+  device: cuda:1
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  budget_extension: explicit_recorded_revision_only
+seeds:
+  partition: 42
+  training: 20260908
+  siren_sampler: 20260908
+methods:
+  siren:
+    native_fragment: methods/siren.yaml
+    preflight:
+      max_steps: 10
+      prediction_scope: predetermined_coordinate_subset
+    model_description: independent_6_feature_siren_5d
+training_information:
+  siren: validation_crop_observed_only
+  normalization: per_trace_rms_observed_only
+  checkpoint_initialization: fresh_seeded_model
+  prediction_scale: idw_of_observed_physical_trace_rms
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  target_amplitudes: evaluation_and_visualization_only
+  primary_checkpoint: final_after_declared_budget
+  zero_fill: sanity_baseline
+completion:
+  required_methods:
+  - siren
+  automatic_quality_retries: false
+  test_execution: false

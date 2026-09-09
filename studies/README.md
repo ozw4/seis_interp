@@ -36,6 +36,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_027_c3_na_benchmark](study_027_c3_na_benchmark/README.md) | `materialized_locked` | fixed C3 cases and shared train pool | Which immutable data contract supports the five-method comparison? |
 | [study_028_c3_first_results](study_028_c3_first_results/README.md) | `first_results_complete` — GNN cross-run tolerance unmet | fixed validation / five-method pilot | What are the first full-volume results under finite declared budgets? |
 | [study_029_c3_amplitude_qc](study_029_c3_amplitude_qc/README.md) | `qc_and_numerical_validation_complete` | raw SEG-Y provenance / amplitude QC / GNN numerical probe / SIREN rerun | Does source-bound QC restore a meaningful fixed training scale while preserving the evaluation cases? |
+| [study_030_c3_siren_trace_scaling](study_030_c3_siren_trace_scaling/README.md) | `per_trace_scaling_evaluated` | observed per-trace RMS / interpolated physical scale | Does observed-only scale interpolation make per-trace SIREN useful in physical amplitude? |
 
 ## Scratch workspaces
 
