@@ -73,6 +73,8 @@ def train_ccnet5d_run(
     )
     validate_ccnet5d_selection_targets(source, plan)
     seed_global_model_initialization(trainer_options["random_seed"], device=device)
+    if not trainer_options.get("cudnn_benchmark", True):
+        torch.backends.cudnn.benchmark = False
     model = CCNet5D(**model_config).float()
     variant = ccnet5d_method_variant(model.output_activation)
     output.mkdir(parents=True, exist_ok=False)
@@ -215,23 +217,22 @@ def _validate_config(config: Mapping[str, object]) -> tuple[dict[str, object], d
         "patches",
         {"shape", "fit_count", "selection_count", "missing_fraction", "mask_kind", "random_seed"},
     )
-    training = config_values.exact_section(
-        config,
-        "training",
-        {
-            "optimizer",
-            "loss",
-            "random_seed",
-            "batch_size",
-            "max_epochs",
-            "learning_rate",
-            "decay_after_epochs",
-            "decay_factor",
-            "validate_every_steps",
-            "report_every_steps",
-            "device",
-        },
-    )
+    training_keys = {
+        "optimizer",
+        "loss",
+        "random_seed",
+        "batch_size",
+        "max_epochs",
+        "learning_rate",
+        "decay_after_epochs",
+        "decay_factor",
+        "validate_every_steps",
+        "report_every_steps",
+        "device",
+    }
+    if isinstance(config.get("training"), Mapping) and "cudnn_benchmark" in config["training"]:
+        training_keys.add("cudnn_benchmark")
+    training = config_values.exact_section(config, "training", training_keys)
     config_values.exact_section(config, "selection", {"metric", "domain"})
     for key, value in {
         "model.name": METHOD,
@@ -240,12 +241,14 @@ def _validate_config(config: Mapping[str, object]) -> tuple[dict[str, object], d
         "patches.mask_kind": "random_trace",
         "training.optimizer": "adam",
         "training.loss": "mse_complete_patch",
-        "training.batch_size": 1,
         "selection.metric": "missing_global_snr_db",
         "selection.domain": "held_out_train_partition_patch_instances",
     }.items():
         config_values.require_exact(config, key, value)
-    config_values.positive_integer(training["batch_size"], "training.batch_size")
+    batch_size = config_values.positive_integer(training["batch_size"], "training.batch_size")
+    cudnn_benchmark = training.get("cudnn_benchmark", True)
+    if not isinstance(cudnn_benchmark, bool):
+        raise ConfigurationError("training.cudnn_benchmark must be a boolean")
     config_values.nonnegative_integer(patches["random_seed"], "patches.random_seed")
     constructor = {
         key: config_values.positive_integer(model[key], f"model.{key}")
@@ -272,4 +275,8 @@ def _validate_config(config: Mapping[str, object]) -> tuple[dict[str, object], d
         options[key] = config_values.positive_float(training[key], f"training.{key}")
     if options["decay_factor"] > 1:
         raise ConfigurationError("training.decay_factor must be at most 1")
+    if batch_size != 1:
+        options["batch_size"] = batch_size
+    if not cudnn_benchmark:
+        options["cudnn_benchmark"] = False
     return constructor, options

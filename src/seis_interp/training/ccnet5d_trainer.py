@@ -47,10 +47,21 @@ def train_ccnet5d(
     validate_every_steps: int,
     report_every_steps: int,
     reporter: Reporter | None = None,
+    batch_size: int = 1,
+    cudnn_benchmark: bool = True,
 ) -> CCNet5DTrainingResult:
-    """Run exact epochs of batch-one Adam/MSE and select by missing-trace RSE."""
+    """Run exact epochs of Adam/MSE and select by missing-trace RSE.
+
+    Each epoch partitions its seeded descriptor permutation into batches and
+    retains the final partial batch. With batch_size > 1, reported loss is
+    weighted by the number of samples in each batch; all patches have the same
+    shape. Batch one preserves the original arithmetic and history fields.
+    """
     if not isinstance(model, CCNet5D):
         raise TypeError("model must be a CCNet5D")
+    batch_count = _positive_integer(batch_size, "batch_size")
+    if not isinstance(cudnn_benchmark, bool):
+        raise ValueError("cudnn_benchmark must be a boolean")
     seed = _nonnegative_integer(random_seed, "random_seed")
     epoch_count = _positive_integer(max_epochs, "max_epochs")
     initial_learning_rate = _positive_finite_float(learning_rate, "learning_rate")
@@ -64,15 +75,18 @@ def train_ccnet5d(
     if fit_count == 0:
         raise ValueError("fit patch plan must not be empty")
 
+    if not cudnn_benchmark:
+        torch.backends.cudnn.benchmark = False
     device_value = torch.device(device)
     model.to(device_value)
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=initial_learning_rate)
     loss_function = torch.nn.MSELoss(reduction="mean")
     shuffle_rng = np.random.default_rng(seed)
-    total_steps = epoch_count * fit_count
+    total_steps = epoch_count * math.ceil(fit_count / batch_count)
     global_step = 0
     interval_losses: list[float] = []
+    interval_patch_counts: list[int] = []
     training_history: list[dict[str, object]] = []
     selection_history: list[dict[str, object]] = []
     best_selection_metrics: dict[str, object] | None = None
@@ -91,21 +105,27 @@ def train_ccnet5d(
             parameter_group["lr"] = current_learning_rate
         descriptor_order = shuffle_rng.permutation(fit_count)
 
-        for raw_index in descriptor_order:
+        for start in range(0, fit_count, batch_count):
+            batch_indices = descriptor_order[start : start + batch_count]
             global_step += 1
-            inputs, labels, _ = load_ccnet_patch(
-                source,
-                plan,
-                region="fit",
-                index=int(raw_index),
-            )
-            inputs, labels = _validated_training_patch(
-                inputs,
-                labels,
-                patch_shape=plan.patch_shape,
-            )
-            input_tensor = torch.from_numpy(inputs[None, None]).to(device_value)
-            target_tensor = torch.from_numpy(labels[None, None]).to(device_value)
+            if batch_count == 1:
+                inputs, labels, _ = load_ccnet_patch(
+                    source,
+                    plan,
+                    region="fit",
+                    index=int(batch_indices[0]),
+                )
+                inputs, labels = _validated_training_patch(
+                    inputs,
+                    labels,
+                    patch_shape=plan.patch_shape,
+                )
+                input_tensor = torch.from_numpy(inputs[None, None]).to(device_value)
+                target_tensor = torch.from_numpy(labels[None, None]).to(device_value)
+            else:
+                inputs, labels = _load_training_batch(source, plan, batch_indices)
+                input_tensor = torch.from_numpy(inputs[:, None]).to(device_value)
+                target_tensor = torch.from_numpy(labels[:, None]).to(device_value)
 
             model.train()
             optimizer.zero_grad(set_to_none=True)
@@ -119,17 +139,30 @@ def train_ccnet5d(
             loss.backward()
             optimizer.step()
             interval_losses.append(batch_loss)
+            if batch_count > 1:
+                interval_patch_counts.append(len(batch_indices))
 
             if global_step % report_interval == 0 or global_step == total_steps:
-                interval_mean = float(np.mean(interval_losses, dtype=np.float64))
+                if batch_count == 1:
+                    interval_mean = float(np.mean(interval_losses, dtype=np.float64))
+                else:
+                    interval_mean = float(
+                        np.average(interval_losses, weights=interval_patch_counts)
+                    )
                 history_row: dict[str, object] = {
                     "epoch": epoch,
                     "step": global_step,
                     "train_loss": interval_mean,
                     "learning_rate": current_learning_rate,
                 }
+                if batch_count > 1:
+                    history_row["sample_count"] = sum(interval_patch_counts) * math.prod(
+                        plan.patch_shape
+                    )
+                    history_row["loss_aggregation"] = "sample_weighted_mean"
                 training_history.append(history_row)
                 interval_losses.clear()
+                interval_patch_counts.clear()
                 if reporter is not None:
                     reporter(
                         f"ccnet5d epoch {epoch}/{epoch_count} "
@@ -172,6 +205,18 @@ def train_ccnet5d(
         selection_history=tuple(selection_history),
         best_state_dict=best_state_dict,
     )
+
+
+def _load_training_batch(
+    source: C3SupervisedSource,
+    plan: CCNetPatchPlan,
+    indices: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    patches = []
+    for index in indices:
+        inputs, labels, _ = load_ccnet_patch(source, plan, region="fit", index=int(index))
+        patches.append(_validated_training_patch(inputs, labels, patch_shape=plan.patch_shape))
+    return np.stack([patch[0] for patch in patches]), np.stack([patch[1] for patch in patches])
 
 
 def _validated_training_patch(

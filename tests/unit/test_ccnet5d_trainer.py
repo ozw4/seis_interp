@@ -404,3 +404,138 @@ def test_interval_history_and_reporter_use_float64_means_and_silent_default(
     _train(_model(), _plan(1), report_every_steps=1, reporter=messages.append)
     assert len(messages) == 1
     assert messages[0].startswith("ccnet5d epoch 1/1 step 1/1:")
+
+
+@pytest.mark.parametrize("batch_size", [2, 4, 8])
+def test_batches_match_independent_adam_keep_partial_batch_and_weight_history(
+    monkeypatch: pytest.MonkeyPatch, batch_size: int
+) -> None:
+    fit_count = 5
+    model = _model()
+    reference = copy.deepcopy(model)
+    optimizer = torch.optim.Adam(reference.parameters(), lr=1e-3)
+    rng = np.random.default_rng(13)
+    expected_order = []
+    expected_sizes = []
+    expected_losses = []
+    for _ in range(2):
+        order = rng.permutation(fit_count)
+        expected_order.extend(order.tolist())
+        for start in range(0, fit_count, batch_size):
+            indices = order[start : start + batch_size]
+            patches = [_patch(int(index)) for index in indices]
+            inputs = torch.from_numpy(np.stack([patch[0] for patch in patches])[:, None])
+            labels = torch.from_numpy(np.stack([patch[1] for patch in patches])[:, None])
+            optimizer.zero_grad(set_to_none=True)
+            loss = torch.nn.functional.mse_loss(reference(inputs), labels)
+            expected_losses.append(float(loss.detach()))
+            expected_sizes.append(len(indices))
+            loss.backward()
+            optimizer.step()
+
+    seen_order = []
+    seen_sizes = []
+
+    def load(source, plan, *, region, index):
+        assert region == "fit"
+        seen_order.append(index)
+        return _patch(index)
+
+    def record_forward(module, args):
+        values = args[0]
+        seen_sizes.append(values.shape[0])
+        assert torch.count_nonzero(values[:, :, :, ~OBSERVED_MASK]) == 0
+
+    monkeypatch.setattr(ccnet5d_trainer, "load_ccnet_patch", load)
+    monkeypatch.setattr(
+        ccnet5d_trainer, "evaluate_ccnet5d_selection", lambda *args, **kwargs: _metrics()
+    )
+    handle = model.register_forward_pre_hook(record_forward)
+    result = _train(
+        model,
+        _plan(fit_count),
+        batch_size=batch_size,
+        max_epochs=2,
+        report_every_steps=100,
+        validate_every_steps=2,
+    )
+    handle.remove()
+
+    assert seen_order == expected_order
+    assert seen_sizes == expected_sizes
+    expected_steps = 2 * math.ceil(fit_count / batch_size)
+    assert result.steps_completed == expected_steps
+    assert [row["step"] for row in result.selection_history] == list(
+        range(2, expected_steps + 1, 2)
+    )
+    assert result.training_history == (
+        {
+            "epoch": 2,
+            "step": expected_steps,
+            "train_loss": float(np.average(expected_losses, weights=expected_sizes)),
+            "learning_rate": 1e-3,
+            "sample_count": 2 * fit_count * math.prod(PATCH_SHAPE),
+            "loss_aggregation": "sample_weighted_mean",
+        },
+    )
+    for name, tensor in reference.state_dict().items():
+        torch.testing.assert_close(model.state_dict()[name], tensor, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("batch_size", [0, -1, True, False, 1.5, None, "2"])
+def test_invalid_batch_size_fails_before_patch_or_optimizer(monkeypatch, batch_size):
+    monkeypatch.setattr(
+        ccnet5d_trainer, "load_ccnet_patch", lambda *a, **kw: pytest.fail("must not read patches")
+    )
+    monkeypatch.setattr(
+        torch.optim, "Adam", lambda *a, **kw: pytest.fail("must not initialize optimizer")
+    )
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        _train(_model(), _plan(1), batch_size=batch_size)
+
+
+@pytest.mark.parametrize("benchmark", [None, 0, 1, "false", [], np.bool_(False)])
+def test_invalid_benchmark_fails_before_patch_or_optimizer(monkeypatch, benchmark):
+    monkeypatch.setattr(
+        ccnet5d_trainer, "load_ccnet_patch", lambda *a, **kw: pytest.fail("must not read patches")
+    )
+    monkeypatch.setattr(
+        torch.optim, "Adam", lambda *a, **kw: pytest.fail("must not initialize optimizer")
+    )
+    with pytest.raises(ValueError, match="cudnn_benchmark must be a boolean"):
+        _train(_model(), _plan(1), cudnn_benchmark=benchmark)
+
+
+@pytest.mark.parametrize("ambient", [True, False])
+def test_default_batch_and_benchmark_preserve_weights_history_rng_and_ambient(monkeypatch, ambient):
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", ambient)
+    monkeypatch.setattr(ccnet5d_trainer, "load_ccnet_patch", lambda *a, **kw: _patch(kw["index"]))
+    monkeypatch.setattr(ccnet5d_trainer, "evaluate_ccnet5d_selection", lambda *a, **kw: _metrics())
+    records = []
+    for options in ({}, {"batch_size": 1, "cudnn_benchmark": True}):
+        model = _model()
+        before = torch.get_rng_state().clone()
+        result = _train(model, _plan(3), max_epochs=2, **options)
+        assert torch.equal(before, torch.get_rng_state())
+        assert torch.backends.cudnn.benchmark is ambient
+        records.append((model.state_dict(), result))
+    left, right = records
+    assert left[1].training_history == right[1].training_history
+    assert left[1].selection_history == right[1].selection_history
+    assert left[1].steps_completed == right[1].steps_completed == 6
+    for name, tensor in left[0].items():
+        assert torch.equal(tensor, right[0][name])
+
+
+def test_false_benchmark_applies_before_any_forward(monkeypatch):
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", True)
+    monkeypatch.setattr(ccnet5d_trainer, "load_ccnet_patch", lambda *a, **kw: _patch())
+    monkeypatch.setattr(ccnet5d_trainer, "evaluate_ccnet5d_selection", lambda *a, **kw: _metrics())
+    model = _model()
+    modes = []
+    handle = model.register_forward_pre_hook(
+        lambda module, args: modes.append(torch.backends.cudnn.benchmark)
+    )
+    _train(model, _plan(3), cudnn_benchmark=False, batch_size=2)
+    handle.remove()
+    assert modes == [False, False]

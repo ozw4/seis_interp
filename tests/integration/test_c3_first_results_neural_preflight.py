@@ -6,6 +6,7 @@ import json
 from copy import deepcopy
 
 import pytest
+import torch
 import yaml
 
 from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
@@ -17,6 +18,7 @@ from seis_interp.data.c3_benchmark_suite import (
 from seis_interp.data.c3_first_results_training_regions import (
     resolve_c3_first_results_ccnet_regions,
 )
+from seis_interp.pipelines import train_ccnet5d as ccnet_pipeline
 from seis_interp.pipelines.preflight_c3_first_results_neural import (
     run_c3_first_results_neural_preflight,
 )
@@ -304,3 +306,53 @@ def test_siren_preflight_uses_cartesian_complete_trace_training(
         assert result["relative_receiver_y_time_shear_s_per_m"] == shear
     else:
         assert "relative_receiver_y_time_shear_s_per_m" not in result
+
+
+def test_ccnet_preflight_measures_two_full_batches_and_propagates_benchmark_false(
+    suite, tmp_path, monkeypatch
+):
+    config = _config(suite, "ccnet-train")
+    config["patches"]["fit_count"] = 5
+    config["training"].update(batch_size=3, max_epochs=2, cudnn_benchmark=False)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    prediction_path = tmp_path / "prediction.yaml"
+    prediction_path.write_text(yaml.safe_dump({"prediction": {"core_shape": [2, 1, 1, 2, 2]}}))
+    seed = ccnet_pipeline.seed_global_model_initialization
+    constructor = ccnet_pipeline.CCNet5D
+    modes = []
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", False)
+
+    def seed_with_cuda_behavior(*args, **kwargs):
+        seed(*args, **kwargs)
+        torch.backends.cudnn.benchmark = True
+
+    def construct(*args, **kwargs):
+        modes.append(torch.backends.cudnn.benchmark)
+        return constructor(*args, **kwargs)
+
+    monkeypatch.setattr(ccnet_pipeline, "seed_global_model_initialization", seed_with_cuda_behavior)
+    monkeypatch.setattr(ccnet_pipeline, "CCNet5D", construct)
+    output = tmp_path / "smoke"
+    report = run_c3_first_results_neural_preflight(
+        "ccnet-train",
+        config_path=config_path,
+        suite_dir=suite,
+        case_id="validation_random_trace",
+        output_dir=output,
+        dimensions=DIMENSIONS,
+        prediction_config_path=prediction_path,
+    )
+    assert report["status"] == "success", report
+    assert report["smoke_steps"] == 2
+    assert modes == [False]
+    smoke_config = yaml.safe_load((output / "smoke_config.yaml").read_text())
+    assert smoke_config["patches"]["fit_count"] == 6
+    assert smoke_config["training"]["batch_size"] == 3
+    assert smoke_config["training"]["cudnn_benchmark"] is False
+    metrics = json.loads((output / "smoke_native/metrics.json").read_text())
+    assert [row["sample_count"] for row in metrics["training_history"]] == [24, 24]
+    assert report["estimates"]["training_seconds"] == pytest.approx(
+        report["timings"]["smoke_training_and_selection_seconds"] * 4 / 2
+    )
+    assert load_resolved_config(config_path) == config

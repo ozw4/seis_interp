@@ -310,9 +310,10 @@ def _siren_preflight(config, inputs, device):
 def _ccnet_preflight(config, source, inputs, suite, suite_dir, output, device, prediction_path):
     if prediction_path is None:
         raise ValueError("CCNet preflight requires its explicit prediction config")
+    batch_size = config["training"]["batch_size"]
     smoke = {
         **config,
-        "patches": {**config["patches"], "fit_count": 2},
+        "patches": {**config["patches"], "fit_count": 2 * batch_size},
         "training": {
             **config["training"],
             "max_epochs": 1,
@@ -349,7 +350,9 @@ def _ccnet_preflight(config, source, inputs, suite, suite_dir, output, device, p
         for role, selected in (("maximum_halo", tile), ("edge", tiles[0]))
     ]
     tile_seconds = max(measured["forward_seconds"] for measured in measurements)
-    total_steps = config["training"]["max_epochs"] * config["patches"]["fit_count"]
+    total_steps = config["training"]["max_epochs"] * math.ceil(
+        config["patches"]["fit_count"] / batch_size
+    )
     return {
         "smoke_steps": metrics["steps_completed"],
         "smoke_native_run": str(output / "smoke_native"),

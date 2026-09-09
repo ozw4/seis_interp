@@ -143,13 +143,14 @@ def test_reproducible_training_seed_separate_from_fixed_source_and_plan(tmp_path
         ).read_bytes()
 
 
-def test_nontrain_amplitudes_cannot_change_labels_rms_weights_or_history(tmp_path):
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_nontrain_amplitudes_cannot_change_labels_rms_weights_or_history(tmp_path, batch_size):
     runs = []
     for index, value in enumerate((None, -99999.0)):
         artifacts = prepare_ccnet5d_artifacts(tmp_path / f"data{index}", nontrain_value=value)
-        path = write_ccnet5d_config(
-            tmp_path / f"config{index}.yaml", ccnet5d_training_config(artifacts)
-        )
+        config = ccnet5d_training_config(artifacts)
+        config["training"]["batch_size"] = batch_size
+        path = write_ccnet5d_config(tmp_path / f"config{index}.yaml", config)
         output = tmp_path / f"run{index}"
         runs.append((_run(artifacts, path, output), output))
     assert runs[0][0] == runs[1][0]
@@ -247,3 +248,98 @@ def test_train_cli_end_to_end_json_and_progress(tmp_path, capsys):
     assert summary["steps_completed"] == 4
     assert captured.err
     assert (output / "artifacts/best.pt").is_file()
+
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+@pytest.mark.parametrize("benchmark_option", ["missing", True, False])
+def test_batch_checkpoint_and_benchmark_after_seed_keep_default_kwargs(
+    tmp_path, monkeypatch, batch_size, benchmark_option
+):
+    artifacts = prepare_ccnet5d_artifacts(tmp_path / "data")
+    config = ccnet5d_training_config(artifacts)
+    config["patches"]["fit_count"] = 3
+    config["training"]["batch_size"] = batch_size
+    if benchmark_option != "missing":
+        config["training"]["cudnn_benchmark"] = benchmark_option
+    path = write_ccnet5d_config(tmp_path / "training.yaml", config)
+    seed = train_ccnet5d_pipeline.seed_global_model_initialization
+    train = train_ccnet5d_pipeline.train_ccnet5d
+    constructor = train_ccnet5d_pipeline.CCNet5D
+    resources = run_records.runtime_resource_metadata
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", False)
+    modes = []
+    options = []
+
+    def seed_with_cuda_behavior(*args, **kwargs):
+        seed(*args, **kwargs)
+        torch.backends.cudnn.benchmark = True
+
+    def construct(*args, **kwargs):
+        modes.append(torch.backends.cudnn.benchmark)
+        return constructor(*args, **kwargs)
+
+    def record_training(*args, **kwargs):
+        options.append(kwargs.copy())
+        return train(*args, **kwargs)
+
+    def record_resources(device):
+        modes.append(torch.backends.cudnn.benchmark)
+        return resources(device)
+
+    monkeypatch.setattr(
+        train_ccnet5d_pipeline, "seed_global_model_initialization", seed_with_cuda_behavior
+    )
+    monkeypatch.setattr(train_ccnet5d_pipeline, "CCNet5D", construct)
+    monkeypatch.setattr(train_ccnet5d_pipeline, "train_ccnet5d", record_training)
+    monkeypatch.setattr(run_records, "runtime_resource_metadata", record_resources)
+    output = tmp_path / "run"
+    result = _run(artifacts, path, output)
+    expected_steps = 2 * ((3 + batch_size - 1) // batch_size)
+    assert result["steps_completed"] == expected_steps
+    assert [row["step"] for row in result["selection_history"]] == [3, expected_steps]
+    assert modes and all(value is (benchmark_option is not False) for value in modes)
+    assert len(options) == 1
+    assert options[0].get("batch_size", 1) == batch_size
+    assert ("batch_size" in options[0]) is (batch_size > 1)
+    assert ("cudnn_benchmark" in options[0]) is (benchmark_option is False)
+    run = json.loads((output / "run.json").read_text())
+    if benchmark_option == "missing":
+        assert "cudnn_benchmark" not in run["training"]
+    else:
+        assert run["training"]["cudnn_benchmark"] is benchmark_option
+    loaded = load_ccnet5d_checkpoint(output / "artifacts/final.pt")
+    assert loaded.global_step == expected_steps
+    assert loaded.checkpoint_role == "final"
+    assert "batch_size" not in loaded.model.constructor_config()
+    assert "cudnn_benchmark" not in loaded.model.constructor_config()
+    assert loaded.training_provenance == json.loads((output / "inputs.lock.json").read_text())
+    assert yaml.safe_load((output / "config.resolved.yaml").read_text()) == config
+    if batch_size > 1:
+        assert [row["sample_count"] for row in result["training_history"]] == [16, 8, 16, 8]
+        assert all(
+            row["loss_aggregation"] == "sample_weighted_mean" for row in result["training_history"]
+        )
+    else:
+        assert all("sample_count" not in row for row in result["training_history"])
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [("batch_size", value) for value in (0, -1, True, 1.5, None, "2")]
+    + [("cudnn_benchmark", value) for value in (None, 0, 1, "false", [])],
+)
+def test_invalid_training_resource_options_reject_before_source_read(
+    tmp_path, monkeypatch, key, value
+):
+    artifacts = prepare_ccnet5d_artifacts(tmp_path / "data")
+    config = ccnet5d_training_config(artifacts)
+    config["training"][key] = value
+    path = write_ccnet5d_config(tmp_path / "config.yaml", config)
+    monkeypatch.setattr(
+        train_ccnet5d_pipeline,
+        "load_c3_supervised_source",
+        lambda **kwargs: pytest.fail("invalid configuration must fail before source reads"),
+    )
+    with pytest.raises(ValueError, match=key):
+        _run(artifacts, path, tmp_path / "run")
+    assert not (tmp_path / "run").exists()
