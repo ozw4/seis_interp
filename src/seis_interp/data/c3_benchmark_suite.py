@@ -38,6 +38,7 @@ from seis_interp.processing.c3_benchmark_masks import (
 from seis_interp.processing.c3_benchmark_partition import (
     audit_c3_benchmark_partition,
     c3_benchmark_partition_ranges,
+    validated_c3_benchmark_amplitude_filter,
 )
 from seis_interp.processing.c3_crop_signal_qc import summarize_c3_crop_signal
 from seis_interp.processing.c3_geometry_qc import summarize_c3_geometry
@@ -156,6 +157,7 @@ def verify_c3_benchmark_suite(
         "processed": {name: hashes[(processed / name).resolve()] for name in PARTITION_FILES},
     }
     preparation = read_benchmark_json(processed / "preparation.json")
+    amplitude_filter = validated_c3_benchmark_amplitude_filter(config["sampling"], preparation)
     dataset = read_benchmark_json(interim / "dataset.json")
     validate_benchmark_preparation(dataset, preparation, interim_hashes=input_hashes["interim"])
     if dataset["dataset_id"] != config["data"]["dataset_id"]:
@@ -191,7 +193,17 @@ def verify_c3_benchmark_suite(
         raise ValueError("suite requires test and validation crops")
     split = pd.read_parquet(processed / "trace_split.parquet")
     pool, summary = audit_c3_benchmark_partition(
-        table, split, preparation, crops, time_range=dimensions.time_range
+        table,
+        split,
+        preparation,
+        crops,
+        time_range=dimensions.time_range,
+        sampling=config["sampling"],
+        amplitudes=(
+            np.load(interim / "amplitudes.npy", mmap_mode="r", allow_pickle=False)
+            if amplitude_filter is not None
+            else None
+        ),
     )
     if (
         summary != read_benchmark_json(directory / "partition_summary.json")
@@ -327,6 +339,15 @@ def _validate_input_partition(directory, suite, config, dimensions):
     preparation = read_benchmark_json(
         suite_path(directory, suite["processed"]) / "preparation.json"
     )
+    amplitude_filter = validated_c3_benchmark_amplitude_filter(config["sampling"], preparation)
+    if amplitude_filter is not None:
+        quality = summary.get("amplitude_qc", {})
+        if quality.get("policy") != amplitude_filter.to_dict() or any(
+            quality.get(key) != value for key, value in preparation.get("trace_quality", {}).items()
+        ):
+            raise ValueError("input amplitude QC summary differs from the prepared filter")
+    elif "amplitude_qc" in summary:
+        raise ValueError("unfiltered benchmark must not declare amplitude QC exclusions")
     if any(
         value != expected
         for value in (

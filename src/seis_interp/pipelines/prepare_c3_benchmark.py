@@ -37,6 +37,7 @@ from seis_interp.processing.c3_benchmark_masks import (
 from seis_interp.processing.c3_benchmark_partition import (
     audit_c3_benchmark_partition,
     c3_benchmark_partition_ranges,
+    validated_c3_benchmark_amplitude_filter,
 )
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 
@@ -185,7 +186,12 @@ def prepare_c3_benchmark_artifacts(
                 "sha256": benchmark_file_record(output / "partition.config.yaml", output)["sha256"],
             }
         )
-        report("Preparing the unfiltered source-line partition once for all cases.")
+        amplitude_filter = validated_c3_benchmark_amplitude_filter(config["sampling"])
+        report(
+            "Preparing the unfiltered source-line partition once for all cases."
+            if amplitude_filter is None
+            else "Preparing the source-line partition with the explicit raw-trace amplitude QC."
+        )
         preparation = prepare_baseline_dataset(
             interim_dir,
             output / "partition",
@@ -196,6 +202,7 @@ def prepare_c3_benchmark_artifacts(
             source_line_ranges=ranges,
             coordinate_normalization=config["normalization"]["coordinates"],
             amplitude_normalization=config["normalization"]["amplitude"],
+            trace_amplitude_filter=amplitude_filter,
         )
         table, _ = load_c3_geometry_inputs(interim_dir)
         crops = {
@@ -208,6 +215,12 @@ def prepare_c3_benchmark_artifacts(
             preparation,
             crops,
             time_range=dimensions.time_range,
+            sampling=config["sampling"],
+            amplitudes=(
+                np.load(interim_dir / "amplitudes.npy", mmap_mode="r", allow_pickle=False)
+                if amplitude_filter is not None
+                else None
+            ),
         )
         np.save(output / "train_pool.npy", pool, allow_pickle=False)
         write_benchmark_json(output / "partition_summary.json", partition_summary)
@@ -273,11 +286,9 @@ def _validate_preparation_contract(
     validate_c3_volume_evaluation_config(config)
     if config["c3_benchmark"]["inference"] != INFERENCE_CONTRACT:
         raise ValueError("benchmark inference must use only same-crop observed amplitudes")
-    if (
-        config["sampling"]["split_scope"] != "c3_source_line_blocks"
-        or "trace_amplitude_filter" in config["sampling"]
-    ):
-        raise ValueError("benchmark requires unfiltered c3_source_line_blocks partitions")
+    if config["sampling"]["split_scope"] != "c3_source_line_blocks":
+        raise ValueError("benchmark requires c3_source_line_blocks partitions")
+    validated_c3_benchmark_amplitude_filter(config["sampling"])
     validated_benchmark_cases(inputs["cases"])
 
 

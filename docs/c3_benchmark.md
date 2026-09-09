@@ -69,6 +69,22 @@ CCNet's existing scale is fitted on its chosen fit-region subset of the allowed
 train pool, and the graph scale is fitted on its allowed unmasked training pool.
 The suite readers check the selected training time explicitly.
 
+An explicit `sampling.trace_amplitude_filter` can apply physical trace QC before
+partition normalization and mask generation. It uses the existing
+`exclude_all_zero` and `max_abs_amplitude` settings and scans every original
+sample of each trace. A sample strictly beyond the bound excludes its whole
+trace; an exact boundary value remains eligible. Study 029 uses a bound of
+10000 and retains zero traces. This source-integrity check is separate from
+model normalization on the authorized training time range.
+
+The partition keeps excluded rows and records the policy and exclusion counts.
+Full verification recomputes those exclusions from the original amplitudes and
+checks every declared count and row. QC cannot silently promote a duplicate
+physical-cell alias or remove a member of a fixed evaluation crop. Such cases
+fail preparation. Without an explicit filter the strict unfiltered contract
+remains in force. A QC revision requires a new output directory and suite;
+existing frozen inputs and experiment results remain unchanged.
+
 The public functions in `data/c3_benchmark_inputs.py` check the common input
 hashes, partition/time contract, and files needed by the requested reader.
 A case read also checks its recipe, config, binding, and fixed crop mapping.
