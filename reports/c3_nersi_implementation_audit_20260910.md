@@ -139,7 +139,7 @@ Result: **pass**.
 The full repository pytest suite was not run, in accordance with the repository instruction
 to use focused tests unless a full run is explicitly requested.
 
-## Real-data dry-runs and deferred execution
+## Real-data dry-runs and deferred execution at audit time
 
 The real suite manifest and two CUDA devices were present. The preflight plan and all four
 candidate plans were resolved read-only. Each returned `status=dry_run` and `writes=false`;
@@ -147,13 +147,13 @@ Candidates A–D resolved respectively to `(width, latent, lr)` values
 `(256,64,1e-3)`, `(256,64,3e-4)`, `(384,96,1e-3)`, and `(384,96,3e-4)`, all with 5,000
 updates.
 
-The disposable GPU preflight and four full validation candidates were **not executed**.
-Although data and GPUs are available, the request authorized implementation, not the
-Task 10 long-running `--execute` sequence. Consequently there is no measured Study 034
-timing, memory, validation score, selected candidate, result artifact, or adoption decision,
-and none is inferred here.
+At the time of this implementation audit, the disposable GPU preflight and four full
+validation candidates had **not** been executed. The subsequent explicitly authorized
+execution is recorded separately in
+[`c3_nersi_validation_20260910.md`](c3_nersi_validation_20260910.md); this historical audit
+statement is retained to distinguish implementation evidence from later experiment results.
 
-When explicitly authorized, run in this order:
+The later execution used this order:
 
 ```bash
 python -m seis_interp.pipelines.c3_first_results \
@@ -169,7 +169,7 @@ for candidate in a b c d; do
 done
 ```
 
-Before candidate execution, record the successful preflight hashes, timing, memory, and
-linear estimates in `decisions.md` and confirm they fit the declared timeout. After all four
-immutable runs, independently re-score each saved prediction before applying the
-predeclared validation selection rule. Do not run the test partition.
+The successful preflight hashes, timing, memory, and linear estimates were recorded in
+`decisions.md` before candidate execution. All four immutable runs were independently
+re-scored before the predeclared validation selection rule was applied. The test partition
+was not run.

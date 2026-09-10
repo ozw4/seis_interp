@@ -1,0 +1,48 @@
+{
+  "status": "validation_complete_candidate_c_selected",
+  "created_at_utc": "2026-09-10T03:21:00+00:00",
+  "study_id": "study_034_c3_nersi_baseline",
+  "method": "NeRSI (repository reimplementation)",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "volume_id": "c3_benchmark_validation_random_trace_80_seed142_volume",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "selection_rule": "Highest final 5000-update physical target SNR after all four predeclared candidates complete and their saved predictions are independently re-scored.",
+  "selected_candidate": "C",
+  "selected_metrics": {
+    "trace_count": 58999,
+    "sample_count": 22655616,
+    "reference_energy": 2237830414.4522877,
+    "error_energy": 57271077.15618885,
+    "snr_db": 15.918918206538635,
+    "snr_status": "finite",
+    "rmse": 1.5899363487517189,
+    "relative_l2": 0.15997572596951629,
+    "observed_max_abs_error": 0.0,
+    "observed_model_rmse_before_reinsertion": 1.040673425895829,
+    "observed_model_max_abs_error_before_reinsertion": 25.59372043609619
+  },
+  "selected_resources": {
+    "parameter_count": 7728697,
+    "volume_fit_seconds": 169.00974654220045,
+    "prediction_seconds": 1.0666490579023957,
+    "total_method_seconds": 170.07639560010284,
+    "frozen_inference_seconds": null,
+    "frozen_inference_seconds_reason": "Not applicable: model is optimized on the target volume.",
+    "cuda_max_memory_allocated_bytes": 4307159552,
+    "cuda_max_memory_reserved_bytes": 4406116352,
+    "process_max_rss_kib": 2451872
+  },
+  "selected_run": "runs/study_034_c3_nersi_baseline/20260910T030016062994Z_890eee8e2863_nersi/native",
+  "selected_checkpoint_sha256": "041d331685bc7d096c97a7b58491b733af959377cc7db56821a19fca3b4d7940",
+  "selected_prediction_sha256": "c5715ae665da90ac85654818660ff5c900f63bdebd361a964c902dcc25d633cf",
+  "selected_audit": "results/study_034_c3_nersi_baseline/20260910T031200000000Z_d8568ae_candidate_c_audit/result.json",
+  "optional_comparison": {
+    "status": "partial_results",
+    "reason": "Only NeRSI is supplied on the current QC suite; old POCS/DRR runs bind a different suite and are not mixed.",
+    "first_results_json": "results/study_034_c3_nersi_baseline/20260910T032100000000Z_d8568ae_candidate_selection/first_results.json"
+  },
+  "candidate_d_restoration_note": "The first fresh-CUDA audit selected a different cuDNN algorithm and failed the 1e-6 restoration tolerance (RMSE 3.130490148173468e-05, max 0.006476402282714844). A recorded-settings repeat was bitwise identical. Both audit records are retained; no candidate was retrained.",
+  "validation_truth_used_for_training": false,
+  "test_partition_used": false,
+  "paper_value_reproduction_claimed": false
+}

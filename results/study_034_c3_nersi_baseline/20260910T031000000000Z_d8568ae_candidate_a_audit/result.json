@@ -1,0 +1,64 @@
+{
+  "status": "success",
+  "created_at_utc": "2026-09-10T03:14:43.997022+00:00",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "volume_id": "c3_benchmark_validation_random_trace_80_seed142_volume",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "run_directory": "runs/study_034_c3_nersi_baseline/20260910T025353761652Z_890eee8e2863_nersi/native",
+  "checkpoint": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T025353761652Z_890eee8e2863_nersi/native/artifacts/final.pt",
+    "sha256": "a1c0edacb9388f514884d4615b94ae1edeff2ad1249ae8cfe536f4055a1c747a"
+  },
+  "prediction": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T025353761652Z_890eee8e2863_nersi/native/artifacts/prediction.npy",
+    "sha256": "5ef724d29d64fe7e4a703b380feae61ada6c07cb05dd3156c91f18675f961fb2"
+  },
+  "checks": {
+    "saved_metrics_match_independent_rescore": true,
+    "full_target_coverage": true,
+    "observed_reinsertion_exact": true,
+    "checkpoint_restoration": true,
+    "run_artifacts_unchanged": true
+  },
+  "independent_saved_output_metrics": {
+    "evaluation_domain": "evaluation_target",
+    "amplitude_domain": "physical",
+    "evaluation_target": {
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 60237287.92733534,
+      "snr_db": 15.699617617423867,
+      "snr_status": "finite",
+      "rmse": 1.630589973995751,
+      "relative_l2": 0.16406619991635873
+    },
+    "zero_fill": {
+      "snr_db": 0.0,
+      "snr_status": "finite",
+      "rmse": 9.938609992960336
+    },
+    "observed_max_abs_error": 0.0
+  },
+  "checkpoint_restoration": {
+    "status": "passed",
+    "device": "cuda:0",
+    "rmse": 0.0,
+    "max_abs_error": 0.0,
+    "physical_relative_l2": 0.0,
+    "rtol": 1e-06,
+    "atol": 1e-06,
+    "observed_model_rmse_before_reinsertion": 1.2170053214356424,
+    "observed_model_max_abs_error_before_reinsertion": 35.082176208496094
+  },
+  "run_artifact_sha256": {
+    "run.json": "191eb3796b5405262d82e251765fdbc05617282795c545eb2a52d5782fccc934",
+    "metrics.json": "871d08faa4a87c3ed433def333a0788a4450d3c9e55acb7ceb401264c34b63f0",
+    "config.resolved.yaml": "8ac31afe4b4bbc23a001383113011255b0699cb9f437a374b77d88e7477a35e1",
+    "inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "artifacts/final.pt": "a1c0edacb9388f514884d4615b94ae1edeff2ad1249ae8cfe536f4055a1c747a",
+    "artifacts/prediction.npy": "5ef724d29d64fe7e4a703b380feae61ada6c07cb05dd3156c91f18675f961fb2"
+  },
+  "target_truth_used_for_restoration": false,
+  "test_partition_used": false
+}

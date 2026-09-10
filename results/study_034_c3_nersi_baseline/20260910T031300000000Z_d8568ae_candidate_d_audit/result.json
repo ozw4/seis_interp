@@ -1,0 +1,64 @@
+{
+  "status": "failed_verification",
+  "created_at_utc": "2026-09-10T03:16:24.677048+00:00",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "volume_id": "c3_benchmark_validation_random_trace_80_seed142_volume",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "run_directory": "runs/study_034_c3_nersi_baseline/20260910T030327693669Z_890eee8e2863_nersi/native",
+  "checkpoint": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T030327693669Z_890eee8e2863_nersi/native/artifacts/final.pt",
+    "sha256": "122802a645ade46e3db274864dde242e9a567b23ade2328c6d64863b15fb34af"
+  },
+  "prediction": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T030327693669Z_890eee8e2863_nersi/native/artifacts/prediction.npy",
+    "sha256": "c85f94d7801821a0190fe369eb2743cd6c6e6c1d143b729f7ebc5baa33b6533a"
+  },
+  "checks": {
+    "saved_metrics_match_independent_rescore": true,
+    "full_target_coverage": true,
+    "observed_reinsertion_exact": true,
+    "checkpoint_restoration": false,
+    "run_artifacts_unchanged": true
+  },
+  "independent_saved_output_metrics": {
+    "evaluation_domain": "evaluation_target",
+    "amplitude_domain": "physical",
+    "evaluation_target": {
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 77286422.01977412,
+      "snr_db": 14.61723969997677,
+      "snr_status": "finite",
+      "rmse": 1.8469862551132328,
+      "relative_l2": 0.18583949429764127
+    },
+    "zero_fill": {
+      "snr_db": 0.0,
+      "snr_status": "finite",
+      "rmse": 9.938609992960336
+    },
+    "observed_max_abs_error": 0.0
+  },
+  "checkpoint_restoration": {
+    "status": "failed_tolerance",
+    "device": "cuda:0",
+    "rmse": 3.130490148173468e-05,
+    "max_abs_error": 0.006476402282714844,
+    "physical_relative_l2": 3.1956980326139873e-06,
+    "rtol": 1e-06,
+    "atol": 1e-06,
+    "observed_model_rmse_before_reinsertion": 1.3130737896897158,
+    "observed_model_max_abs_error_before_reinsertion": 35.73560905456543
+  },
+  "run_artifact_sha256": {
+    "run.json": "36f191519f61e8a0c1efaa2e15e8c7a1fc183eb8acc12991fe2e3ebd0652c3b6",
+    "metrics.json": "d6ddb411f0b8cbf8f412415cb1ba067f20c3c5ff5be8bfe7976eecdd6a35a312",
+    "config.resolved.yaml": "cd2b301047210bf4a8b0b23e6bd1ead970ab674784d2a815197640ba1713194e",
+    "inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "artifacts/final.pt": "122802a645ade46e3db274864dde242e9a567b23ade2328c6d64863b15fb34af",
+    "artifacts/prediction.npy": "c85f94d7801821a0190fe369eb2743cd6c6e6c1d143b729f7ebc5baa33b6533a"
+  },
+  "target_truth_used_for_restoration": false,
+  "test_partition_used": false
+}

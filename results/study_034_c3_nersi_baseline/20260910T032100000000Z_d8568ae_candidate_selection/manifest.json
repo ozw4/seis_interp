@@ -1,0 +1,49 @@
+{
+  "status": "validation_complete_candidate_c_selected",
+  "study_id": "study_034_c3_nersi_baseline",
+  "publication_git_head": "d8568ae59172570bf63fd724b25198abdf0ddb2d",
+  "training_source_git_commit": "890eee8e2863a1c4a755b7a1ec766cbd58479e92",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "selected_candidate": "C",
+  "artifact_sha256": {
+    "adoption_decision.json": "cb1dac6a0e8e435ecdced83d8f49b2a6162b8c73c1e5a42995f2a4032bf5ecdb",
+    "candidate_comparison.csv": "eb8a2dc5205aeda37236d7d5d4c98b83f0b01ef4c36a1c1a7326cdc9d1ec4400",
+    "first_results.csv": "f89baaf747530004c7f54147dd688325b386bb80400c69fea0cd9a28a1af2f19",
+    "first_results.json": "5ea012ef00af70c9d88f960b371b7411f624557d4f160fa510b3b6b75a57a945",
+    "learning_curve_nersi.png": "2585bb136225fd93f362b894325515b5faa64be3c8c1f2861ac570d4374ef1ca",
+    "section_time_relative_receiver_y.png": "e7d7a46b6a40687133723c3fecb6d723234512e179c8eff8f9fcc02b87022f7c",
+    "section_time_shot_in_line.png": "31f568f3d70fa85d6fb0808c11fac22fa0f3dcfa4ac1c497a9e17f5c97246155",
+    "section_time_source_line.png": "126d93aa58e0ea22407cbf49cd0f14c9c2f75a857df3bc74b684c2885737e004",
+    "summary.json": "69a988aa2e96acfe2e7843ae3c9b7064844533deeed6405d802abf3f6e597ade",
+    "target_traces.png": "dc6e8c0a402cc111eeb70d7cdd0c740c39b347c0f35c0dedb20630863283bac7"
+  },
+  "audit_results": {
+    "candidate_a": {
+      "path": "results/study_034_c3_nersi_baseline/20260910T031000000000Z_d8568ae_candidate_a_audit/result.json",
+      "sha256": "3a2b91cd30658a70e0a88abf4047f06c927756a29a6a8f9848bc03f139e982f8",
+      "status": "success"
+    },
+    "candidate_b": {
+      "path": "results/study_034_c3_nersi_baseline/20260910T031100000000Z_d8568ae_candidate_b_audit/result.json",
+      "sha256": "fc8f6a9db1cd1134935b555de5bdcd1e428e93daa5868fd2301e1e3b7d69ed82",
+      "status": "success"
+    },
+    "candidate_c": {
+      "path": "results/study_034_c3_nersi_baseline/20260910T031200000000Z_d8568ae_candidate_c_audit/result.json",
+      "sha256": "02ecb67d62aa56a35de3d4a4320546ee504513afd46ac1137a31c1e5ec1eff0d",
+      "status": "success"
+    },
+    "candidate_d_first": {
+      "path": "results/study_034_c3_nersi_baseline/20260910T031300000000Z_d8568ae_candidate_d_audit/result.json",
+      "sha256": "1c2ab9e72e6ae83bba254fab26ce5732433cda8bdcbeb88bc95e382ef5dadfb7",
+      "status": "failed_verification"
+    },
+    "candidate_d_recorded_settings_repeat": {
+      "path": "results/study_034_c3_nersi_baseline/20260910T031400000000Z_d8568ae_candidate_d_audit_repeat/result.json",
+      "sha256": "80cde21fb3a5c737ac1627e148d40442cba5d2d0bf21a6c0929a240856bec14b",
+      "status": "success"
+    }
+  },
+  "large_artifacts": "Final checkpoints and dense predictions remain in immutable native run directories and are referenced by path and SHA-256.",
+  "test_partition_used": false
+}

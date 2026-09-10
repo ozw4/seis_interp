@@ -1,0 +1,43 @@
+{
+  "status": "selected_validation_primary",
+  "model_adopted": true,
+  "candidate": "C",
+  "authority": "Predeclared Study 034 four-candidate validation selection rule.",
+  "role": "fixed_step_final",
+  "step": 5000,
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "physical_target_metrics": {
+    "trace_count": 58999,
+    "sample_count": 22655616,
+    "reference_energy": 2237830414.4522877,
+    "error_energy": 57271077.15618885,
+    "snr_db": 15.918918206538635,
+    "snr_status": "finite",
+    "rmse": 1.5899363487517189,
+    "relative_l2": 0.15997572596951629
+  },
+  "native_run": "runs/study_034_c3_nersi_baseline/20260910T030016062994Z_890eee8e2863_nersi/native",
+  "checkpoint": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T030016062994Z_890eee8e2863_nersi/native/artifacts/final.pt",
+    "sha256": "041d331685bc7d096c97a7b58491b733af959377cc7db56821a19fca3b4d7940"
+  },
+  "saved_prediction": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T030016062994Z_890eee8e2863_nersi/native/artifacts/prediction.npy",
+    "sha256": "c5715ae665da90ac85654818660ff5c900f63bdebd361a964c902dcc25d633cf"
+  },
+  "audit_result": {
+    "path": "results/study_034_c3_nersi_baseline/20260910T031200000000Z_d8568ae_candidate_c_audit/result.json",
+    "sha256": "02ecb67d62aa56a35de3d4a4320546ee504513afd46ac1137a31c1e5ec1eff0d",
+    "status": "success"
+  },
+  "selection_margin_over_candidate_a_db": 0.21930058911476813,
+  "training_regime": "per-volume observed-only internal learning",
+  "additional_supervised_training_data": false,
+  "target_volume_model_optimization": true,
+  "fixed_shear_used": false,
+  "nuclear_norm_used": false,
+  "validation_truth_used_for_training": false,
+  "test_partition_used": false,
+  "scope_limit": "One fixed validation case and one training seed; not an official implementation, paper-value reproduction, test result, or broad generalization claim."
+}

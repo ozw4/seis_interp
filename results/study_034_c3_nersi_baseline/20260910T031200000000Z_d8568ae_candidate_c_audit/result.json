@@ -1,0 +1,64 @@
+{
+  "status": "success",
+  "created_at_utc": "2026-09-10T03:15:42.077949+00:00",
+  "case_id": "c3_benchmark_validation_random_trace_80_seed142",
+  "volume_id": "c3_benchmark_validation_random_trace_80_seed142_volume",
+  "suite_sha256": "f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee",
+  "run_directory": "runs/study_034_c3_nersi_baseline/20260910T030016062994Z_890eee8e2863_nersi/native",
+  "checkpoint": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T030016062994Z_890eee8e2863_nersi/native/artifacts/final.pt",
+    "sha256": "041d331685bc7d096c97a7b58491b733af959377cc7db56821a19fca3b4d7940"
+  },
+  "prediction": {
+    "path": "runs/study_034_c3_nersi_baseline/20260910T030016062994Z_890eee8e2863_nersi/native/artifacts/prediction.npy",
+    "sha256": "c5715ae665da90ac85654818660ff5c900f63bdebd361a964c902dcc25d633cf"
+  },
+  "checks": {
+    "saved_metrics_match_independent_rescore": true,
+    "full_target_coverage": true,
+    "observed_reinsertion_exact": true,
+    "checkpoint_restoration": true,
+    "run_artifacts_unchanged": true
+  },
+  "independent_saved_output_metrics": {
+    "evaluation_domain": "evaluation_target",
+    "amplitude_domain": "physical",
+    "evaluation_target": {
+      "trace_count": 58999,
+      "sample_count": 22655616,
+      "reference_energy": 2237830414.4522877,
+      "error_energy": 57271077.15618885,
+      "snr_db": 15.918918206538635,
+      "snr_status": "finite",
+      "rmse": 1.5899363487517189,
+      "relative_l2": 0.15997572596951629
+    },
+    "zero_fill": {
+      "snr_db": 0.0,
+      "snr_status": "finite",
+      "rmse": 9.938609992960336
+    },
+    "observed_max_abs_error": 0.0
+  },
+  "checkpoint_restoration": {
+    "status": "passed",
+    "device": "cuda:0",
+    "rmse": 0.0,
+    "max_abs_error": 0.0,
+    "physical_relative_l2": 0.0,
+    "rtol": 1e-06,
+    "atol": 1e-06,
+    "observed_model_rmse_before_reinsertion": 1.040673425895829,
+    "observed_model_max_abs_error_before_reinsertion": 25.59372043609619
+  },
+  "run_artifact_sha256": {
+    "run.json": "3d44f18edb75f1972e50e5db86c157d7d3c283ee9f0aac8827bb496fbc27b083",
+    "metrics.json": "595bcda36e7064c52d63d3d4ec426c89991e45d2c45dcfe4c74eaef3bc5f2ca0",
+    "config.resolved.yaml": "8d7bd13099e359f55e6998531117921c8b497bce5e03b70ea1a284dc3da4c482",
+    "inputs.lock.json": "b972f44005a3f0a80f7005373db95301238f7bcbf47367211fb10cdbdf18310d",
+    "artifacts/final.pt": "041d331685bc7d096c97a7b58491b733af959377cc7db56821a19fca3b4d7940",
+    "artifacts/prediction.npy": "c5715ae665da90ac85654818660ff5c900f63bdebd361a964c902dcc25d633cf"
+  },
+  "target_truth_used_for_restoration": false,
+  "test_partition_used": false
+}
