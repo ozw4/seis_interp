@@ -8,6 +8,8 @@ from numbers import Integral, Real
 import torch
 from torch.nn import functional as F
 
+from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
+
 DEFAULT_SPECTRUM_EPSILON = 1.0e-8
 DEFAULT_SLOPE_EPSILON = 1.0e-4
 DEFAULT_SLOPE_SMOOTHING_RECEIVER_SPAN = 3
@@ -28,11 +30,8 @@ def trace_graph_training_errors_and_loss(
     training labels, already in the same global-normalized amplitude units.
     The default preserves the original subtraction, square and mean arithmetic.
 
-    Relative MSE gives every nonzero target trace equal relative-error weight.
-    Its detached teacher RMS is used only in this loss, never as model input or
-    prediction gain. Zero target RMS uses divisor one in these normalized units.
-    Float64 residuals and a scaled RMS keep finite float32 extremes representable.
-    No-context queries remain in both objectives.
+    Relative MSE delegates to the shared neural-training loss. No-context queries
+    remain in both objectives.
     """
     if not isinstance(loss, str) or loss not in TRACE_GRAPH_TRAINING_LOSSES:
         raise ValueError(f"loss must be one of {TRACE_GRAPH_TRAINING_LOSSES}")
@@ -48,14 +47,9 @@ def trace_graph_training_errors_and_loss(
         raise ValueError("prediction and target must share a device")
     if not bool(torch.isfinite(prediction).all()) or not bool(torch.isfinite(target).all()):
         raise ValueError("prediction and target must be finite")
-    teacher = target.detach().double()
-    peak = teacher.abs().amax(dim=1, keepdim=True)
-    safe_peak = torch.where(peak > 0, peak, torch.ones_like(peak))
-    rms = peak * (teacher / safe_peak).square().mean(dim=1, keepdim=True).sqrt()
-    divisor = torch.where(rms > 0, rms, torch.ones_like(rms))
     residual = prediction.double() - target.double()
     errors = residual.square()
-    return errors, (residual / divisor).square().mean()
+    return errors, masked_trace_relative_mse(prediction, target)
 
 
 def masked_mean_square(
