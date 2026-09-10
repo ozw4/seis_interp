@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from numbers import Real
+
 import numpy as np
 
 TRAIN_GLOBAL_RMS_SCALING = "train_global_rms"
@@ -11,6 +13,53 @@ TRAIN_GLOBAL_RMS_VALIDATION_DOMAIN = "train_global_rms"
 ORACLE_PER_TRACE_RMS_VALIDATION_DOMAIN = "oracle_per_trace_unit_rms"
 
 _ROW_CHUNK_SIZE = 4096
+
+
+def compute_observed_global_rms(
+    values: np.ndarray,
+    observed_mask: np.ndarray,
+) -> float:
+    """Return the float64 RMS over observed traces in a time-first volume."""
+    value_array = _validated_time_first_volume(values)
+    mask = _validated_observed_mask(observed_mask, spatial_shape=value_array.shape[1:])
+    if not np.any(mask):
+        raise ValueError("observed_mask must select at least one trace")
+
+    observed_values = value_array[:, mask]
+    if not np.all(np.isfinite(observed_values)):
+        raise ValueError("observed values must contain only finite values")
+
+    with np.errstate(over="ignore", invalid="ignore"):
+        energy = np.sum(
+            np.square(observed_values, dtype=np.float64),
+            dtype=np.float64,
+        )
+        scale = float(np.sqrt(energy / observed_values.size))
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError("observed global RMS must be positive and finite")
+    return scale
+
+
+def normalize_by_global_rms(values: np.ndarray, scale: float) -> np.ndarray:
+    """Return finite amplitudes divided by one positive global RMS scale."""
+    value_array = _validated_scaling_values(values)
+    scale_value = _positive_finite_scale(scale)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        normalized = value_array / scale_value
+    if not np.all(np.isfinite(normalized)):
+        raise ValueError("global RMS normalization produced non-finite values")
+    return normalized
+
+
+def restore_physical_amplitude(values: np.ndarray, scale: float) -> np.ndarray:
+    """Return finite normalized amplitudes restored to physical amplitude."""
+    value_array = _validated_scaling_values(values)
+    scale_value = _positive_finite_scale(scale)
+    with np.errstate(over="ignore", invalid="ignore"):
+        restored = value_array * scale_value
+    if not np.all(np.isfinite(restored)):
+        raise ValueError("global RMS amplitude restoration produced non-finite values")
+    return restored
 
 
 def validated_amplitude_scaling(
@@ -110,6 +159,46 @@ def extract_per_trace_rms_scaled_rows(
             array_rows=rows,
         )
     return scaled
+
+
+def _validated_time_first_volume(values: np.ndarray) -> np.ndarray:
+    array = np.asarray(values)
+    if array.ndim < 2 or array.size == 0:
+        raise ValueError("values must be a non-empty time-first amplitude volume")
+    if array.dtype.kind not in "iuf" or array.dtype.kind == "b":
+        raise ValueError("values must contain real numeric amplitudes")
+    return array
+
+
+def _validated_observed_mask(
+    values: np.ndarray,
+    *,
+    spatial_shape: tuple[int, ...],
+) -> np.ndarray:
+    mask = np.asarray(values)
+    if mask.dtype != np.bool_ or mask.shape != spatial_shape:
+        raise ValueError("observed_mask must be boolean and match the volume spatial shape")
+    return mask
+
+
+def _validated_scaling_values(values: np.ndarray) -> np.ndarray:
+    array = np.asarray(values)
+    if array.size == 0:
+        raise ValueError("values must not be empty")
+    if array.dtype.kind not in "iuf" or array.dtype.kind == "b":
+        raise ValueError("values must contain real numeric amplitudes")
+    if not np.all(np.isfinite(array)):
+        raise ValueError("values must contain only finite amplitudes")
+    return array
+
+
+def _positive_finite_scale(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError("scale must be positive and finite")
+    scale = float(value)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError("scale must be positive and finite")
+    return scale
 
 
 def _validated_amplitude_array(values: np.ndarray) -> np.ndarray:
