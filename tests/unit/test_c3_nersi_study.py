@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from copy import deepcopy
 
 from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.nersi_config import validate_nersi_config
 
 STUDY = REPOSITORY_ROOT / "studies/study_034_c3_nersi_baseline"
+RESULT = (
+    REPOSITORY_ROOT / "results/study_034_c3_nersi_baseline/"
+    "20260910T032100000000Z_d8568ae_candidate_selection"
+)
 REFERENCE_INPUTS = REPOSITORY_ROOT / "studies/study_032_c3_proposed_gnn_10db/inputs.yaml"
 CANDIDATES = ("a", "b", "c", "d")
 
@@ -178,4 +185,29 @@ def test_contract_labels_out_of_scope_work_and_index_status_once() -> None:
         line for line in index.splitlines() if line.startswith("| [study_034_c3_nersi_baseline]")
     ]
     assert len(matching_rows) == 1
-    assert "| `planned` |" in matching_rows[0]
+    assert "| `validation_complete_candidate_c_selected` " in matching_rows[0]
+    assert "Candidate C 15.9189 dB" in matching_rows[0]
+
+
+def test_validation_result_selects_highest_final_snr_and_fixes_artifact_hashes() -> None:
+    summary = json.loads((RESULT / "summary.json").read_text(encoding="utf-8"))
+    decision = json.loads((RESULT / "adoption_decision.json").read_text(encoding="utf-8"))
+    manifest = json.loads((RESULT / "manifest.json").read_text(encoding="utf-8"))
+    with (RESULT / "candidate_comparison.csv").open(newline="", encoding="utf-8") as stream:
+        candidates = list(csv.DictReader(stream))
+
+    assert summary["status"] == "validation_complete_candidate_c_selected"
+    assert summary["selected_candidate"] == decision["candidate"] == "C"
+    assert len(candidates) == 4
+    assert [row["candidate"] for row in candidates] == [
+        candidate.upper() for candidate in CANDIDATES
+    ]
+    selected = [row for row in candidates if row["selected"] == "true"]
+    assert len(selected) == 1 and selected[0]["candidate"] == "C"
+    assert float(selected[0]["snr_db"]) == max(float(row["snr_db"]) for row in candidates)
+    assert float(selected[0]["snr_db"]) == decision["physical_target_metrics"]["snr_db"]
+    assert decision["test_partition_used"] is False
+    for name, digest in manifest["artifact_sha256"].items():
+        assert file_sha256(RESULT / name) == digest
+    assert manifest["audit_results"]["candidate_d_first"]["status"] == "failed_verification"
+    assert manifest["audit_results"]["candidate_d_recorded_settings_repeat"]["status"] == "success"

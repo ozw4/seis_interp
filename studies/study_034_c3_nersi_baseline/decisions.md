@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-09-10 — Select Candidate C after all fixed validation runs
+
+All four predeclared candidates completed exactly 5,000 updates on the same fixed validation
+case. Independent saved-prediction re-scoring gave final physical target S/N values A
+15.6996176, B 13.8712221, C 15.9189182, and D 14.6172397 dB. Select Candidate C under the
+predeclared highest-final-S/N rule; its margin over A is 0.2193006 dB. Do not add or rerun a
+candidate and do not evaluate the test partition.
+
+Candidate C's saved output, hard observed-data consistency, exact input binding, artifact
+hashes, and fresh recorded-settings CUDA restoration all passed. Candidate D's first CUDA
+restoration audit differed by RMSE `3.13049e-05` and maximum `0.0064764`, while an unchanged
+recorded-settings repeat was bitwise identical. Retain both audit records as a cuDNN
+algorithm-selection reproducibility caveat; it did not affect candidate selection or cause
+model retraining.
+
 ## 2026-09-10 — Accept the measured Candidate C resource preflight
 
 The disposable maximum-capacity preflight completed successfully on `cuda:0` in outer run

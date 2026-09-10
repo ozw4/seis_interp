@@ -2,10 +2,11 @@
 
 ## Status
 
-`planned`
+`validation_complete_candidate_c_selected`
 
-The repository reimplementation and its finite validation plan are specified, but no
-Study 034 preflight, candidate run, or test-partition evaluation has been executed.
+The maximum-capacity resource preflight and all four predeclared validation candidates are
+complete. Candidate C is the selected fixed-final validation model at 15.9189 dB physical
+target S/N. The test partition has not been evaluated.
 
 ## Research question
 
@@ -101,6 +102,29 @@ python -m seis_interp.pipelines.c3_first_results \
 
 Add `--execute` only when starting the corresponding immutable full validation run. Run all
 four candidates once before selecting a primary candidate.
+
+The commands above describe the completed run protocol. Do not rerun them as part of the
+adopted result. The exact immutable paths and hashes are recorded in the result artifacts.
+
+## Validation results
+
+| Candidate | Encoder / latent | Learning rate | Target S/N (dB) | RMSE | Fit + prediction (s) |
+|---|---:|---:|---:|---:|---:|
+| A | 256 / 64 | `1e-3` | 15.6996 | 1.6306 | 160.4926 |
+| B | 256 / 64 | `3e-4` | 13.8712 | 2.0126 | 166.5564 |
+| **C (selected)** | **384 / 96** | **`1e-3`** | **15.9189** | **1.5899** | **170.0764** |
+| D | 384 / 96 | `3e-4` | 14.6172 | 1.8470 | 160.1146 |
+
+All rows cover 58,999 target traces and 22,655,616 samples. Their saved predictions were
+independently re-scored, had zero hard observed-data error, and were bound to their exact
+final checkpoints. Candidate C wins the predeclared final-S/N rule by 0.2193 dB over A.
+See the [machine-readable selection](../../results/study_034_c3_nersi_baseline/20260910T032100000000Z_d8568ae_candidate_selection/summary.json)
+and [short report](../../reports/c3_nersi_validation_20260910.md).
+
+The optional first-results collector produced `partial_results` for the current QC suite:
+it validates and visualizes Candidate C, but does not substitute POCS/DRR runs from the
+older, differently hashed suite. This partial status does not mean the four-candidate
+Study 034 matrix is incomplete.
 
 ## Expected outputs
 
