@@ -1,4 +1,4 @@
-# Explicit experiment plan for a disposable Candidate A resource preflight.
+# Explicit experiment plan for a disposable Candidate C resource preflight.
 study:
   id: study_034_c3_nersi_baseline
   status: planned
@@ -19,7 +19,7 @@ seeds:
 methods:
   nersi:
     native_fragment: methods/nersi_preflight.yaml
-    model_description: repository_nersi_candidate_a_disposable_resource_preflight
+    model_description: repository_nersi_candidate_c_disposable_resource_preflight
     preflight:
       smoke_steps: 10
       prediction_scope: one_configured_profile_batch_or_fewer

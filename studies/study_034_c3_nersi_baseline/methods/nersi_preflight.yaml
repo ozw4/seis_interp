@@ -1,13 +1,13 @@
-# Candidate A architecture with the full declared budget; preflight executes only 10 steps.
+# Candidate C maximum-capacity architecture; preflight executes only 10 steps.
 model:
   name: nersi
   coordinate_order: [source_line, shot_in_line, relative_receiver_x]
   fourier_components: 40
   frequency_schedule: exponential
   frequency_base: 1.25
-  encoder_width: 256
-  latent_channels: 64
-  decoder_channels: [64, 32, 16]
+  encoder_width: 384
+  latent_channels: 96
+  decoder_channels: [96, 48, 24]
   upsample_scales: [2, 2, 2]
   kernel_size: 3
   activation: gelu

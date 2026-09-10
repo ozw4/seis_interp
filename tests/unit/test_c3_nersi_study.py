@@ -143,14 +143,14 @@ def test_candidates_differ_only_in_declared_capacity_and_learning_rate() -> None
         assert not _contains_key(fragment, "nuclear_norm")
 
 
-def test_preflight_uses_candidate_a_without_changing_the_full_budget() -> None:
+def test_preflight_uses_maximum_capacity_candidate_c_without_changing_full_budget() -> None:
     plan = load_resolved_config(STUDY / "config_preflight.yaml")
     fragment = load_resolved_config(STUDY / plan["methods"]["nersi"]["native_fragment"])
-    candidate_a = _candidate_fragment("a")
+    candidate_c = _candidate_fragment("c")
     preflight = plan["methods"]["nersi"]["preflight"]
 
     assert "extends" not in plan
-    assert fragment == candidate_a
+    assert fragment == candidate_c
     assert fragment["training"]["max_steps"] == 5000
     assert preflight == {
         "smoke_steps": 10,

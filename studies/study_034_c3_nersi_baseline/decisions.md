@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-09-10 — Measure the maximum-capacity candidate in resource preflight
+
+Use Candidate C rather than Candidate A for the single disposable resource preflight.
+Candidate C has the larger encoder, latent, and decoder widths shared with Candidate D,
+while its learning rate matches Candidate A and does not materially change activation
+memory. This one preflight therefore covers the maximum declared model capacity without
+adding another resource action or consulting validation metrics.
+
 ## 2026-09-10 — Fix the minibatch loss denominator before candidate execution
 
 Divide sampled observed squared-error energy by `B * N_total / P`, where `P` is the
@@ -52,10 +60,10 @@ quality retry and do not add a fifth candidate after inspecting the four results
 
 ## 2026-09-10 — Separate disposable resource preflight from validation
 
-Use Candidate A architecture for a disposable ten-update smoke measurement and predict at
-most one configured batch. Do not complete a full validation prediction or target scoring,
-and do not reuse preflight state in a candidate run. Extrapolated training and prediction
-costs are estimates rather than full-run measurements.
+Use the maximum-capacity Candidate C architecture for a disposable ten-update smoke
+measurement and predict at most one configured batch. Do not complete a full validation
+prediction or target scoring, and do not reuse preflight state in a candidate run.
+Extrapolated training and prediction costs are estimates rather than full-run measurements.
 
 If the estimate exceeds the declared timeout or memory budget, do not let code silently
 change channels, batch size, or update count. Record the evidence run and before/after values

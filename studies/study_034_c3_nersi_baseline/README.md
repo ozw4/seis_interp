@@ -69,7 +69,7 @@ score within this study.
 
 ## Reproduction
 
-Resolve Candidate A preflight without writing a run:
+Resolve the maximum-capacity Candidate C preflight without writing a run:
 
 ```bash
 python -m seis_interp.pipelines.c3_first_results \
@@ -104,9 +104,11 @@ four candidates once before selecting a primary candidate.
 
 ## Expected outputs
 
-The preflight records ten disposable optimizer updates, one prediction batch or less,
-timings, peak resources, and linear full-run estimates. It performs no target scoring or
-full-volume prediction, and its model state is not reused.
+The preflight uses Candidate C because its encoder, latent, and decoder widths cover the
+maximum capacity in the fixed candidate matrix. It records ten disposable optimizer
+updates, one prediction batch or less, timings, peak resources, and linear full-run
+estimates. It performs no target scoring or full-volume prediction, and its model state is
+not reused.
 
 Each completed candidate produces the native immutable run records, full physical-amplitude
 prediction, and fixed-final checkpoint. Comparison metadata must include the 2,304 profile
