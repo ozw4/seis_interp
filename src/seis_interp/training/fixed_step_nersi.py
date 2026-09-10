@@ -29,8 +29,14 @@ def observed_profile_mse(
     prediction: torch.Tensor,
     target: torch.Tensor,
     observed_trace_mask: torch.Tensor,
+    *,
+    expected_batch_observed_sample_count: float,
 ) -> torch.Tensor:
-    """Return MSE over observed trace samples, weighted equally per sample.
+    """Return sampled observed SSE over a fixed expected sample count.
+
+    The denominator is fixed across profile batches at ``B * N_total / P``.
+    Under uniform profile sampling, this makes the loss an unbiased estimator
+    of the global observed-sample MSE while retaining its usual scale.
 
     Boolean selection is intentionally performed before subtraction. This keeps
     masked NaN targets out of both the forward value and the backward graph;
@@ -58,11 +64,15 @@ def observed_profile_mse(
         )
     if not bool(torch.any(observed_trace_mask)):
         raise ValueError("observed_profile_mse requires at least one observed trace")
+    denominator = _positive_finite_float(
+        expected_batch_observed_sample_count,
+        "expected_batch_observed_sample_count",
+    )
 
     sample_mask = observed_trace_mask[:, None, None, :].expand_as(prediction)
     observed_prediction = torch.masked_select(prediction, sample_mask)
     observed_target = torch.masked_select(target, sample_mask)
-    return torch.mean(torch.square(observed_prediction - observed_target))
+    return torch.sum(torch.square(observed_prediction - observed_target)) / denominator
 
 
 def train_nersi_fixed_steps(
@@ -95,6 +105,10 @@ def train_nersi_fixed_steps(
     candidates = data.training_profile_indices
     if batch_count > len(candidates):
         raise ValueError("profiles_per_step must not exceed the available training profile count")
+    total_observed_samples = data.profile_shape[0] * int(
+        np.count_nonzero(data.observed_trace_mask[candidates])
+    )
+    expected_batch_observed_samples = batch_count * total_observed_samples / len(candidates)
 
     rng = np.random.default_rng(seed)
     model.to(device)
@@ -127,7 +141,12 @@ def train_nersi_fixed_steps(
 
         optimizer.zero_grad(set_to_none=True)
         prediction = model(coordinates)
-        loss = observed_profile_mse(prediction, targets, mask)
+        loss = observed_profile_mse(
+            prediction,
+            targets,
+            mask,
+            expected_batch_observed_sample_count=expected_batch_observed_samples,
+        )
         final_batch_loss = float(loss.detach().cpu())
         if not math.isfinite(final_batch_loss):
             raise RuntimeError(f"non-finite training loss at step {step}")

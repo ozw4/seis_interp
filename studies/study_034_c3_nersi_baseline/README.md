@@ -41,9 +41,11 @@ The method is explicitly identified as `NeRSI (repository reimplementation)`, no
 official implementation or a complete paper reproduction. Each profile key generates one
 `(384, 32)` profile, giving `9 * 32 * 8 = 2304` profile keys. The key indices are normalized
 independently to `[0, 1]`; amplitudes use one global RMS computed from observed samples in
-the selected volume. Training uses observed-sample-weighted masked MSE and exactly 5,000
-Adam updates, with 16 profiles per update. This is 80,000 profile presentations, not a claim
-of equal sample exposure or equal compute relative to another method.
+the selected volume. Training divides each sampled observed SSE by the fixed expected batch
+observed-sample count `B * N_total / P`; uniform profile sampling therefore gives an unbiased
+estimate of global observed-sample MSE without a random denominator. Training uses exactly
+5,000 Adam updates with 16 profiles per update. This is 80,000 profile presentations, not a
+claim of equal sample exposure or equal compute relative to another method.
 
 The paper-aligned core is an exponential Fourier mapping with `K=40`, a two-layer fully
 connected encoder, and three convolution/PixelShuffle/activation blocks that each upsample

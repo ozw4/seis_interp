@@ -31,7 +31,7 @@ paper reproduction is claimed.
 | Fourier frequencies | `omega_i = pi * beta**i` for `i=1..K`, with baseline `beta=1.25`. Beta is not represented as a paper-complete-reproduction value. |
 | Network details | GELU hidden activation, kernel size 3, linear signed-amplitude output, and PyTorch default Linear/Conv2d initialization. |
 | Amplitude scaling | One global RMS accumulated in float64 from all time samples of observed traces in the selected volume only. |
-| Objective | Adam with observed-sample-weighted masked MSE; unobserved samples are absent from numerator and denominator. |
+| Objective | Adam with sampled observed SSE divided by the fixed expected batch observed-sample count `B * N_total / P`. Under uniform profile sampling this is an unbiased estimator of global observed-sample MSE; unobserved samples are absent from the numerator. |
 | Stopping and checkpoint | Exactly the declared optimizer updates and a fixed-final checkpoint bound to the verified case and volume hashes; no early stopping, best selection, or cross-volume reuse. |
 | Initial finite plan | Candidates A–D fix capacity and learning rate in their native fragments; all use 16 profiles per step, 5,000 updates, and seed `20260908`. |
 | Evaluation boundary | Evaluation-target physical amplitudes are read only after the full prediction exists, by the existing target-only evaluator. |

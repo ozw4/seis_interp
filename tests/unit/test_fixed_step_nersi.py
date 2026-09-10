@@ -71,7 +71,7 @@ def _train(model: Nersi, data: C3VolumeNersiData, **changes):
     return train_nersi_fixed_steps(model, data, **arguments)
 
 
-def test_observed_profile_mse_uses_observed_sample_weighting() -> None:
+def test_observed_profile_mse_uses_fixed_expected_sample_denominator() -> None:
     prediction = torch.zeros((2, 1, 2, 3))
     target = torch.tensor(
         [
@@ -81,11 +81,44 @@ def test_observed_profile_mse_uses_observed_sample_weighting() -> None:
     )
     mask = torch.tensor([[True, False, False], [True, True, False]])
 
-    loss = observed_profile_mse(prediction, target, mask)
+    loss = observed_profile_mse(
+        prediction,
+        target,
+        mask,
+        expected_batch_observed_sample_count=8.0,
+    )
 
-    # Six observed samples contribute equally. The two profiles have unequal
-    # trace counts, so an equal mean of per-profile losses would differ.
-    assert loss.item() == pytest.approx((1 + 4 + 9 + 16 + 25 + 36) / 6)
+    # The sampled batch contains six observed samples, but the fixed expected
+    # count is eight and therefore does not vary with the sampled profiles.
+    assert loss.item() == pytest.approx((1 + 4 + 9 + 16 + 25 + 36) / 8)
+
+
+def test_uniform_profile_loss_expectation_equals_global_observed_mse() -> None:
+    prediction = torch.zeros((3, 1, 2, 3))
+    target = torch.tensor(
+        [
+            [[[1.0, 20.0, 30.0], [2.0, 40.0, 50.0]]],
+            [[[3.0, 4.0, 60.0], [5.0, 6.0, 70.0]]],
+            [[[7.0, 80.0, 90.0], [8.0, 100.0, 110.0]]],
+        ]
+    )
+    mask = torch.tensor([[True, False, False], [True, True, False], [True, False, False]])
+    total_observed_samples = int(mask.sum()) * target.shape[2]
+    expected_batch_observed_samples = total_observed_samples / len(mask)
+
+    profile_estimators = [
+        observed_profile_mse(
+            prediction[index : index + 1],
+            target[index : index + 1],
+            mask[index : index + 1],
+            expected_batch_observed_sample_count=expected_batch_observed_samples,
+        )
+        for index in range(len(mask))
+    ]
+    sample_mask = mask[:, None, None, :].expand_as(target)
+    global_mse = torch.mean(torch.square(torch.masked_select(target, sample_mask)))
+
+    torch.testing.assert_close(torch.mean(torch.stack(profile_estimators)), global_mse)
 
 
 def test_masked_targets_do_not_affect_loss_or_gradient_even_when_nan() -> None:
@@ -99,7 +132,12 @@ def test_masked_targets_do_not_affect_loss_or_gradient_even_when_nan() -> None:
     gradients = []
     for target in (baseline_target, poisoned_target):
         prediction = base_prediction.clone().requires_grad_()
-        loss = observed_profile_mse(prediction, target, mask)
+        loss = observed_profile_mse(
+            prediction,
+            target,
+            mask,
+            expected_batch_observed_sample_count=4.0,
+        )
         loss.backward()
         losses.append(loss.detach())
         gradients.append(prediction.grad.detach().clone())
@@ -132,6 +170,30 @@ def test_fixed_steps_history_reporting_and_cpu_reproducibility() -> None:
         assert torch.equal(second_model.state_dict()[name], expected), name
     assert first_model.training
     assert all(parameter.device.type == "cpu" for parameter in first_model.parameters())
+
+
+def test_fixed_steps_use_constant_expected_batch_observed_sample_count(monkeypatch) -> None:
+    data = _data()
+    denominators: list[float] = []
+    original = training_module.observed_profile_mse
+
+    def recording_loss(*args, expected_batch_observed_sample_count, **kwargs):
+        denominators.append(expected_batch_observed_sample_count)
+        return original(
+            *args,
+            expected_batch_observed_sample_count=expected_batch_observed_sample_count,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(training_module, "observed_profile_mse", recording_loss)
+
+    _train(_model(), data, profiles_per_step=2, max_steps=4)
+
+    total_observed_samples = data.profile_shape[0] * int(
+        data.observed_trace_mask[data.training_profile_indices].sum()
+    )
+    expected = 2 * total_observed_samples / len(data.training_profile_indices)
+    assert denominators == pytest.approx([expected] * 4)
 
 
 def test_different_sampling_seed_changes_a_partial_profile_update() -> None:

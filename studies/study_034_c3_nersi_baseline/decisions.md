@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-09-10 — Fix the minibatch loss denominator before candidate execution
+
+Divide sampled observed squared-error energy by `B * N_total / P`, where `P` is the
+number of training profiles, `N_total` is their total observed-sample count, and `B` is
+the configured profiles per update. Keep this denominator fixed across sampled batches.
+With uniform profile sampling, the resulting loss is an unbiased estimator of the global
+observed-sample MSE, keeps the usual MSE scale, and avoids weighting an update through its
+random realized observation count. No Study 034 candidate had been executed when this
+contract correction was made.
+
 ## 2026-09-10 — Define the initial C3 NeRSI reimplementation boundary
 
 Use the profile-wise C3 structure stated by Gao et al. while naming the method
