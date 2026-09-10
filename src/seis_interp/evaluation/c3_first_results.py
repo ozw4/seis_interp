@@ -22,6 +22,7 @@ from seis_interp.data.c3_benchmark_suite import (
 from seis_interp.data.c3_benchmark_suite import (
     suite_path as resolve_suite_path,
 )
+from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
@@ -47,6 +48,7 @@ _METRIC_FIELDS = (
     "relative_l2",
     "reference_energy",
     "error_energy",
+    "observed_max_abs_error",
 )
 
 
@@ -92,12 +94,13 @@ def summarize_c3_first_results(
     interim = resolve_suite_path(manifest_path.parent, suite["interim"])
     binding = _binding(inputs, file_sha256(manifest_path))
     baseline_started = time.perf_counter()
-    baseline_metrics = evaluate_c3_volume_prediction(
+    baseline_evaluation = evaluate_c3_volume_prediction(
         inputs.observed_volume.values,
         inputs.observed_volume,
         interim_dir=interim,
         volume_metadata=inputs.volume_metadata,
-    )["evaluation_target"]
+    )
+    baseline_metrics = baseline_evaluation["evaluation_target"]
     include_training_context = method_runs.get("nersi") is not None
     baseline = _empty_row(
         "zero_fill",
@@ -106,7 +109,11 @@ def summarize_c3_first_results(
         include_training_context=include_training_context,
     )
     baseline.update(
-        status="success", reason=None, method_variant="sanity_zero_fill", **baseline_metrics
+        status="success",
+        reason=None,
+        method_variant="sanity_zero_fill",
+        observed_max_abs_error=baseline_evaluation["observed_max_abs_error"],
+        **baseline_metrics,
     )
     baseline["summary_re_evaluation_seconds"] = time.perf_counter() - baseline_started
     baseline["snr_gain_over_zero_fill_db"] = 0.0 if baseline_metrics["snr_db"] is not None else None
@@ -309,6 +316,8 @@ def _empty_row(
         "cuda_max_memory_allocated_bytes": None,
         "uncovered_sample_count": None,
         "no_context_query_count": None,
+        "observed_model_rmse_before_reinsertion": None,
+        "observed_model_max_abs_error_before_reinsertion": None,
         "null_reasons": {},
         "measurement_scopes": {},
         "metric_comparison": None,
@@ -337,6 +346,15 @@ def _empty_row(
             row["null_reasons"][key] = "Not applicable to this CPU baseline or classical method."
     if method != "relational_trace_graph":
         row["null_reasons"]["no_context_query_count"] = "Only defined for graph queries."
+    if method not in ("siren5d", "nersi", "ccnet5d"):
+        for key in (
+            "observed_model_rmse_before_reinsertion",
+            "observed_model_max_abs_error_before_reinsertion",
+        ):
+            row["null_reasons"][key] = (
+                "Not applicable because this method does not report a model output "
+                "before observed-data reinsertion."
+            )
     return row
 
 
@@ -443,15 +461,22 @@ def _collect_run(
     if method == "relational_trace_graph":
         no_context = _validate_query_coverage(native, inputs, metrics)
     started = time.perf_counter()
-    rescored = evaluate_c3_volume_prediction(
+    _validate_hard_observed_consistency(prediction, inputs.observed_volume)
+    evaluation = evaluate_c3_volume_prediction(
         prediction,
         inputs.observed_volume,
         interim_dir=interim,
         volume_metadata=inputs.volume_metadata,
-    )["evaluation_target"]
+    )
+    rescored = evaluation["evaluation_target"]
     row["summary_re_evaluation_seconds"] = time.perf_counter() - started
     comparison = _compare_metrics(metrics, rescored, prediction.dtype)
-    row.update(**rescored, metric_comparison=comparison, no_context_query_count=no_context)
+    row.update(
+        **rescored,
+        observed_max_abs_error=evaluation["observed_max_abs_error"],
+        metric_comparison=comparison,
+        no_context_query_count=no_context,
+    )
     row["prediction_sha256"] = prediction_digest
     history = _measurements(method, native, metadata, metrics, checkpoint_path, row)
     row.update(status="success", reason=None)
@@ -459,6 +484,15 @@ def _collect_run(
         key: reason for key, reason in row["null_reasons"].items() if row.get(key) is None
     }
     return prediction, history
+
+
+def _validate_hard_observed_consistency(
+    prediction: np.ndarray, observed_volume: ObservedC3Volume
+) -> None:
+    mask = observed_volume.observed_trace_mask
+    expected = observed_volume.values[:, mask].astype(prediction.dtype, copy=False)
+    if not np.array_equal(prediction[:, mask], expected):
+        raise ValueError("saved prediction does not preserve hard observed-data consistency")
 
 
 def _validate_binding(
@@ -585,6 +619,12 @@ def _measurements(
     }
     row["amplitude"] = metadata.get("amplitude")
     row["uncovered_sample_count"] = metrics.get("uncovered_sample_count")
+    row["observed_model_rmse_before_reinsertion"] = metrics.get(
+        "observed_model_rmse_before_reinsertion"
+    )
+    row["observed_model_max_abs_error_before_reinsertion"] = metrics.get(
+        "observed_model_max_abs_error_before_reinsertion"
+    )
     row["git_and_numerical_mode"] = {
         key: metadata[key]
         for key in (
@@ -613,14 +653,15 @@ def _measurements(
                 if not key.endswith("seconds")
                 else f"native {key.removesuffix('_seconds')} stage"
             )
-    row["frozen_inference_seconds"] = resources.get("prediction_seconds")
     if "prediction_seconds" in row:
         row["prediction_seconds"] = resources.get("prediction_seconds")
+    row["frozen_inference_seconds"] = resources.get("prediction_seconds")
     row["measurement_scopes"]["frozen_inference_seconds"] = (
         "native prediction stage including assembly and observed reinsertion when measured"
     )
     row["measurement_scopes"]["summary_re_evaluation_seconds"] = (
-        "collector dense target-only evaluation, including reference reads"
+        "collector dense target evaluation and observed-data consistency checks, "
+        "including reference reads"
     )
     row["training_exposure"] = metadata.get("training", {})
     if method in ("siren5d", "nersi"):
@@ -758,16 +799,21 @@ def _collect_baseline(
             "saved zero-fill prediction differs from verified zero-filled observed input"
         )
     started = time.perf_counter()
-    actual = evaluate_c3_volume_prediction(
+    evaluation = evaluate_c3_volume_prediction(
         prediction, observed, interim_dir=interim, volume_metadata=inputs.volume_metadata
-    )["evaluation_target"]
+    )
+    actual = evaluation["evaluation_target"]
     row["summary_re_evaluation_seconds"] += time.perf_counter() - started
     row["metric_comparison"] = _compare_metrics(metrics, actual, prediction.dtype)
-    row.update(**actual, prediction_sha256=file_sha256(prediction_path))
+    row.update(
+        **actual,
+        observed_max_abs_error=evaluation["observed_max_abs_error"],
+        prediction_sha256=file_sha256(prediction_path),
+    )
     row["native_run_path"] = str(native.resolve())
     row["run_metadata_sha256"] = file_sha256(native / "run.json")
     row["inputs_lock_sha256"] = file_sha256(native / "inputs.lock.json")
     _measurements("zero_fill", native, metadata, metrics, None, row)
     row["measurement_scopes"]["summary_re_evaluation_seconds"] = (
-        "collector independent zero-fill and saved baseline target-only evaluations"
+        "collector independent zero-fill and saved baseline target/observed evaluations"
     )

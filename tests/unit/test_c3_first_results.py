@@ -150,6 +150,10 @@ def _native(
         }
     if method == "nersi":
         metadata["prediction"]["sha256"] = file_sha256(native / "artifacts" / "prediction.npy")
+        metrics.update(
+            observed_model_rmse_before_reinsertion=0.125,
+            observed_model_max_abs_error_before_reinsertion=0.25,
+        )
     if method == "relational_trace_graph":
         targets = inputs.observed_volume.array_rows[
             inputs.observed_volume.evaluation_target_trace_mask
@@ -244,6 +248,30 @@ def test_optional_nersi_adds_one_validated_internal_learning_row(pilot: dict) ->
     assert row["volume_fit_seconds"] == 0.25
     assert row["prediction_seconds"] == row["frozen_inference_seconds"] == 0.05
     assert row["total_method_seconds"] == 0.3
+    assert row["observed_max_abs_error"] == 0.0
+    assert row["observed_model_rmse_before_reinsertion"] == 0.125
+    assert row["observed_model_max_abs_error_before_reinsertion"] == 0.25
+
+
+def test_optional_nersi_rejects_observed_data_change_with_updated_prediction_hash(
+    pilot: dict,
+) -> None:
+    native = _native(pilot, "nersi")
+    prediction_path = native / "artifacts" / "prediction.npy"
+    prediction = np.load(prediction_path, allow_pickle=False)
+    observed_mask = pilot["inputs"].observed_volume.observed_trace_mask
+    prediction[:, observed_mask] += np.float32(0.25)
+    np.save(prediction_path, prediction, allow_pickle=False)
+    run_path = native / "run.json"
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+    run["prediction"]["sha256"] = file_sha256(prediction_path)
+    _json(run_path, run)
+
+    result = _summarize(pilot, {"nersi": native}, suffix="_changed_observed_data")
+
+    row = result["rows"][-1]
+    assert row["status"] == "invalid_result"
+    assert "hard observed-data consistency" in row["reason"]
 
 
 def test_optional_nersi_rejects_a_run_bound_to_another_volume(pilot: dict) -> None:
