@@ -346,6 +346,10 @@ def _empty_row(
             row["null_reasons"][key] = "Not applicable to this CPU baseline or classical method."
     if method != "relational_trace_graph":
         row["null_reasons"]["no_context_query_count"] = "Only defined for graph queries."
+    if method in ("siren5d", "nersi"):
+        row["null_reasons"]["frozen_inference_seconds"] = (
+            "Not applicable: model is optimized on the target volume."
+        )
     if method not in ("siren5d", "nersi", "ccnet5d"):
         for key in (
             "observed_model_rmse_before_reinsertion",
@@ -655,10 +659,10 @@ def _measurements(
             )
     if "prediction_seconds" in row:
         row["prediction_seconds"] = resources.get("prediction_seconds")
-    row["frozen_inference_seconds"] = resources.get("prediction_seconds")
-    row["measurement_scopes"]["frozen_inference_seconds"] = (
-        "native prediction stage including assembly and observed reinsertion when measured"
-    )
+        if row["prediction_seconds"] is not None:
+            row["measurement_scopes"]["prediction_seconds"] = (
+                "native full-volume prediction including assembly and observed reinsertion"
+            )
     row["measurement_scopes"]["summary_re_evaluation_seconds"] = (
         "collector dense target evaluation and observed-data consistency checks, "
         "including reference reads"
@@ -680,6 +684,11 @@ def _measurements(
             )
         return metrics.get("training", {}).get("history", [])
     if method in ("ccnet5d", "relational_trace_graph") and checkpoint is not None:
+        row["frozen_inference_seconds"] = resources.get("prediction_seconds")
+        if row["frozen_inference_seconds"] is not None:
+            row["measurement_scopes"]["frozen_inference_seconds"] = (
+                "native frozen-checkpoint prediction including assembly and observed reinsertion"
+            )
         training = checkpoint.parent.parent
         row["training_run_path"] = str(training.resolve())
         if (training / "run.json").is_file() and (training / "metrics.json").is_file():

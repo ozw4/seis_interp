@@ -148,6 +148,8 @@ def _native(
         metrics["training"] = {
             "history": [{"step": 1, "train_loss": 2.0}, {"step": 2, "train_loss": 1.0}]
         }
+    if method in ("ccnet5d", "relational_trace_graph"):
+        metadata["resources"] = {"prediction_seconds": 0.05}
     if method == "nersi":
         metadata["prediction"]["sha256"] = file_sha256(native / "artifacts" / "prediction.npy")
         metrics.update(
@@ -213,7 +215,13 @@ def test_five_native_formats_reconcile_and_keep_unmeasured_null(pilot: dict) -> 
     assert methods[0]["null_reasons"]["pretraining_seconds"]
     assert methods[0]["process_max_rss_kib"] is None
     assert methods[2]["checkpoint_role"] == "fixed_step_final"
+    assert methods[2]["frozen_inference_seconds"] is None
+    assert methods[2]["null_reasons"]["frozen_inference_seconds"] == (
+        "Not applicable: model is optimized on the target volume."
+    )
     assert methods[3]["checkpoint_role"] == "final"
+    assert methods[3]["frozen_inference_seconds"] == 0.05
+    assert methods[4]["frozen_inference_seconds"] == 0.05
     assert (
         json.loads((pilot["root"] / "summary/first_results.json").read_text())["rows"]
         == result["rows"]
@@ -246,7 +254,11 @@ def test_optional_nersi_adds_one_validated_internal_learning_row(pilot: dict) ->
     assert row["expected_target_count"] == row["trace_count"]
     assert row["expected_sample_count"] == row["sample_count"]
     assert row["volume_fit_seconds"] == 0.25
-    assert row["prediction_seconds"] == row["frozen_inference_seconds"] == 0.05
+    assert row["prediction_seconds"] == 0.05
+    assert row["frozen_inference_seconds"] is None
+    assert row["null_reasons"]["frozen_inference_seconds"] == (
+        "Not applicable: model is optimized on the target volume."
+    )
     assert row["total_method_seconds"] == 0.3
     assert row["observed_max_abs_error"] == 0.0
     assert row["observed_model_rmse_before_reinsertion"] == 0.125
