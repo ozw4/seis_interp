@@ -82,7 +82,11 @@ def test_disposable_training_batch_uses_episode_support_and_restores_rng(
     assert reports[0]["geometry"] == reports[1]["geometry"]
     assert reports[0]["visible_trace_count"] == 1
     assert reports[0]["sample_count"] == 10
-    assert not reports[0]["state_reused_by_pilot"]
+    assert not reports[0]["full_run_started"]
+    assert reports[0]["smoke_training_started"]
+    assert reports[0]["smoke_training_completed"]
+    assert reports[0]["smoke_optimizer_steps"] == 1
+    assert not reports[0]["state_reused_by_full_run"]
     if loss == "masked_trace_relative_mse":
         assert reports[0]["loss"] == loss
         assert reports[0]["batch_objective_loss"] == pytest.approx(1.0)

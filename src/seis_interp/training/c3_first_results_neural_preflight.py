@@ -142,7 +142,9 @@ def measure_c3_first_results_graph_training_batch(
         backward_seconds = perf_counter() - started
         report = {
             "scope": "first_batch_of_one_disposable_full_train_pool_episode",
-            "training_started": False,
+            "full_run_started": False,
+            "smoke_training_started": True,
+            "smoke_training_completed": True,
             "smoke_optimizer_steps": 1,
             "training_seed": options["random_seed"],
             "episode_seed": options["random_seed"],
@@ -167,7 +169,7 @@ def measure_c3_first_results_graph_training_batch(
                 "backward_and_optimizer_seconds": backward_seconds,
             },
             "resources": trace_graph_resource_measurements(device),
-            "state_reused_by_pilot": False,
+            "state_reused_by_full_run": False,
         }
         if loss_name != "masked_mse":
             report.update(

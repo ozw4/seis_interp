@@ -201,9 +201,13 @@ def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(
         query_limit=2,
     )
     assert report["status"] == "success", report
-    assert not report["training_started"]
+    assert not report["full_run_started"]
+    assert report["smoke_training_started"]
+    assert report["smoke_training_completed"]
+    assert report["smoke_optimizer_steps"] > 0
     assert not report["full_validation_prediction_completed"]
-    assert not report["state_reused_by_pilot"]
+    assert not report["state_reused_by_full_run"]
+    assert not {"training_started", "smoke_steps", "state_reused_by_pilot"} & report.keys()
     assert json.loads((output / "preflight.json").read_text()) == report
     assert load_resolved_config(config_path) == config
     if action == "gnn-preflight":
@@ -221,7 +225,7 @@ def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(
         assert report["estimates"]["trainer_validation_passes"] == 1
         assert "model_metrics" not in report["validation_measurements"][-1]
     elif action == "ccnet-train":
-        assert report["smoke_steps"] == 2
+        assert report["smoke_optimizer_steps"] == 2
         assert report["halo_radius"] == 4
         assert report["measured_maximum_tile_shape"] == report["full_volume_shape"]
         assert [tile["role"] for tile in report["tile_measurements"]] == [
@@ -233,7 +237,7 @@ def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(
             assert tile["forward_seconds"] > 0
             assert tile["resources"]["process_max_rss_bytes"] > 0
     else:
-        assert report["smoke_steps"] == 10
+        assert report["smoke_optimizer_steps"] == 10
         assert report["sampled_prediction_point_count"] == 8
         if amplitude_scaling == "per_trace_rms":
             assert report["amplitude_scaling"] == amplitude_scaling
@@ -259,7 +263,10 @@ def test_nersi_preflight_runs_ten_observed_only_steps_without_target_metrics(ner
     assert report["status"] == "success", report
     assert report["action"] == "nersi"
     assert report["scope"] == "disposable_neural_preflight"
-    assert report["smoke_steps"] == 10
+    assert not report["full_run_started"]
+    assert report["smoke_training_started"]
+    assert report["smoke_training_completed"]
+    assert report["smoke_optimizer_steps"] == 10
     assert report["training_random_seed"] == 20260908
     assert report["profile_shape"] == [8, 8]
     # The synthetic validation partition has one source line, two shots, and
@@ -272,9 +279,8 @@ def test_nersi_preflight_runs_ten_observed_only_steps_without_target_metrics(ner
     assert report["model_config"]["profile_shape"] == (8, 8)
     assert report["model_config"]["fourier_components"] == 2
     assert report["parameter_count"] > 0
-    assert not report["training_started"]
     assert not report["full_validation_prediction_completed"]
-    assert not report["state_reused_by_pilot"]
+    assert not report["state_reused_by_full_run"]
     forbidden_metric_keys = {
         "evaluation_target",
         "snr_db",
@@ -318,8 +324,12 @@ def test_gnn_preflight_records_blocked_without_starting_pilot(suite, tmp_path, p
         query_limit=33 if problem == "query_limit" else 2,
     )
     assert report["status"] == "blocked"
-    assert not report["training_started"]
+    assert not report["full_run_started"]
+    assert not report["smoke_training_started"]
+    assert not report["smoke_training_completed"]
+    assert report["smoke_optimizer_steps"] == 0
     assert not report["full_validation_prediction_completed"]
+    assert not report["state_reused_by_full_run"]
 
 
 def test_gnn_training_batch_preflight_rechecks_physical_bound(suite, tmp_path, monkeypatch):
@@ -349,7 +359,11 @@ def test_gnn_training_batch_preflight_rechecks_physical_bound(suite, tmp_path, m
     )
 
     assert report["status"] == "blocked"
-    assert not report["training_started"]
+    assert not report["full_run_started"]
+    assert not report["smoke_training_started"]
+    assert not report["smoke_training_completed"]
+    assert report["smoke_optimizer_steps"] == 0
+    assert not report["state_reused_by_full_run"]
     assert "max_abs_amplitude=1e-12" in report["blockers"][0]["message"]
     assert "training_measurement" not in report
 
@@ -399,14 +413,14 @@ def test_siren_preflight_uses_cartesian_complete_trace_training(
         dimensions=DIMENSIONS,
     )
     assert result["status"] == "success", result
-    assert result["smoke_steps"] == 10
+    assert result["smoke_optimizer_steps"] == 10
     assert result["complete_trace_training"] == {
         "traces_per_step": None,
         "learning_rate_schedule": "cosine",
         "minimum_learning_rate": 1e-6,
         **({"envelope_loss": config["training"]["envelope_loss"]} if envelope else {}),
     }
-    assert not result["state_reused_by_pilot"]
+    assert not result["state_reused_by_full_run"]
     if time_weight_scale != 1.0:
         assert result["initial_time_weight_scale"] == time_weight_scale
     if envelope:
@@ -456,7 +470,7 @@ def test_ccnet_preflight_measures_two_full_batches_and_propagates_benchmark_fals
         prediction_config_path=prediction_path,
     )
     assert report["status"] == "success", report
-    assert report["smoke_steps"] == 2
+    assert report["smoke_optimizer_steps"] == 2
     assert modes == [False]
     smoke_config = yaml.safe_load((output / "smoke_config.yaml").read_text())
     assert smoke_config["patches"]["fit_count"] == 6

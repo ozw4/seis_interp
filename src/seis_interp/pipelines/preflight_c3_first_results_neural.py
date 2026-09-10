@@ -111,8 +111,12 @@ def run_c3_first_results_neural_preflight(
         "status": "running",
         "action": action,
         "scope": "disposable_neural_preflight",
-        "training_started": False,
+        "full_run_started": False,
+        "smoke_training_started": False,
+        "smoke_training_completed": False,
+        "smoke_optimizer_steps": 0,
         "full_validation_prediction_completed": False,
+        "state_reused_by_full_run": False,
         "configuration_sha256": file_sha256(config_path),
         "case_id": case_id,
     }
@@ -253,7 +257,9 @@ def _nersi_preflight(
         resources = trace_graph_resource_measurements(device)
     observed_trace_count = int(np.count_nonzero(data.observed_trace_mask))
     return {
-        "smoke_steps": trained.steps_completed,
+        "smoke_training_started": True,
+        "smoke_training_completed": True,
+        "smoke_optimizer_steps": trained.steps_completed,
         "training_random_seed": settings.training.random_seed,
         "profile_count": int(len(data.normalized_coordinates)),
         "training_profile_count": int(len(data.training_profile_indices)),
@@ -286,7 +292,7 @@ def _nersi_preflight(
         },
         "resources": resources,
         "full_validation_prediction_completed": False,
-        "state_reused_by_pilot": False,
+        "state_reused_by_full_run": False,
     }
 
 
@@ -382,7 +388,9 @@ def _siren_preflight(config, inputs, device):
             raise ValueError("SIREN smoke predictions must be finite")
         resources = trace_graph_resource_measurements(device)
     return {
-        "smoke_steps": result.steps_completed,
+        "smoke_training_started": True,
+        "smoke_training_completed": True,
+        "smoke_optimizer_steps": result.steps_completed,
         **(
             {"initial_time_weight_scale": time_weight_scale}
             if "initial_time_weight_scale" in training
@@ -431,7 +439,7 @@ def _siren_preflight(config, inputs, device):
             / len(points),
         },
         "resources": resources,
-        "state_reused_by_pilot": False,
+        "state_reused_by_full_run": False,
     }
 
 
@@ -509,7 +517,9 @@ def _ccnet_preflight(
         config["patches"]["fit_count"] / batch_size
     )
     return {
-        "smoke_steps": metrics["steps_completed"],
+        "smoke_training_started": True,
+        "smoke_training_completed": True,
+        "smoke_optimizer_steps": metrics["steps_completed"],
         "smoke_native_run": str(output / "smoke_native"),
         "source_inputs_lock": source.inputs_lock,
         "training_random_seed": config["training"]["random_seed"],
@@ -537,7 +547,7 @@ def _ccnet_preflight(
             ),
         },
         "resources": trace_graph_resource_measurements(device),
-        "state_reused_by_pilot": False,
+        "state_reused_by_full_run": False,
         **(
             {"full_patch_plan_diagnostics": full_plan_diagnostics}
             if full_plan_diagnostics is not None
@@ -629,11 +639,14 @@ def _graph_preflight(config_path, config, entry, suite, device, arguments, count
         diagnostic_baselines="diagnostics" in config,
     )
     return {
+        "smoke_training_started": True,
+        "smoke_training_completed": True,
+        "smoke_optimizer_steps": training["smoke_optimizer_steps"],
         "validation_query_selection": "leading_target_trace_ids_in_sorted_order",
         "sample_coverage_scope": "sampled_queries_only",
         "validation_measurements": validations,
         "training_measurement": training,
         "training_pool_preparation_seconds": preparation_seconds,
         "estimates": estimates,
-        "state_reused_by_pilot": False,
+        "state_reused_by_full_run": False,
     }
