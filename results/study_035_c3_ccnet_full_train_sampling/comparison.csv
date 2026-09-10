@@ -1,0 +1,21 @@
+item,Study 033 Control A,Candidate B
+training sampling domain,limited fit region,QC training dataset
+model parameters,111969,111969
+patch shape,"[64,8,16,8,16]","[64,8,16,8,16]"
+fit patch count,512,512
+unique fit patches,489,512
+unique trace coverage,"32768 / 1146366 (0.028584239239475003)","976504 / 1146366 (0.8518256821992278)"
+batch size,2,2
+epochs,8,8
+optimizer updates,2048,2048
+loss,complete-patch MSE,complete-patch MSE
+normalization RMS,8.351643078934,8.351643078934
+final validation SNR dB,11.660714997498403,6.799564182932958
+final validation RMSE,2.595911597220349,4.543049192081227
+training and selection seconds,580.4847260266542,549.8549307193607
+frozen prediction seconds,2.3189607989042997,4.0335583705455065
+training GPU peak allocated bytes,4472780800,4472780800
+training GPU peak reserved bytes,5551161344,5551161344
+frozen prediction GPU peak allocated bytes,1082393600,1082393600
+frozen prediction GPU peak reserved bytes,2346713088,2346713088
+SNR delta from control dB,0.0,-4.861150814565445

@@ -1,0 +1,7 @@
+# Frozen final-checkpoint validation configuration.
+prediction:
+  device: cuda:0
+  core_shape: [64, 9, 16, 8, 16]
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target

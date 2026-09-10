@@ -1,0 +1,32 @@
+frozen_suite:
+  manifest: ../../data/processed/c3_na/study_029_c3_amplitude_qc/benchmark_suite.json
+  expected_sha256: f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee
+required_cases:
+- c3_benchmark_validation_random_trace_80_seed142
+validation_contract:
+  partition: validation
+  shape: [384, 9, 32, 8, 32]
+  selection:
+    time: [0, 384]
+    source_line: [41, 50]
+    shot_in_line: [32, 64]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [18, 50]
+ccnet_regions:
+  selection:
+    time: [0, 384]
+    source_line: [0, 8]
+    shot_in_line: [48, 64]
+    relative_receiver_x: [0, 8]
+    relative_receiver_y: [17, 49]
+  time_samples: [0, 384]
+normalization:
+  checkpoint: ../../runs/study_033_c3_ccnet_10db/20260909T130443857538Z_5df55f375e66_ccnet-train/native/artifacts/final.pt
+  expected_sha256: b8fb3a07e7a9d4a5b3c5540667abbfff8d87f4e24a6358f8cc9cd5e6cfa48697
+  source_study: study_033_c3_ccnet_10db
+  source_role: final_2048_updates
+outputs:
+  runs: ../../runs/study_035_c3_ccnet_full_train_sampling
+  results: ../../results/study_035_c3_ccnet_full_train_sampling
+  existing_directory_policy: reject
+  run_selection: explicit_paths_only

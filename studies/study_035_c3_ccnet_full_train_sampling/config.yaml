@@ -1,0 +1,64 @@
+study:
+  id: study_035_c3_ccnet_full_train_sampling
+  status: completed_degraded
+  question: effect_of_qc_training_dataset_spatial_patch_diversity
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 14400
+  preflight_timeout_seconds: 1800
+  device: cuda:0
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  environment:
+    TORCH_ALLOW_TF32_CUBLAS_OVERRIDE: '0'
+    NVIDIA_TF32_OVERRIDE: '0'
+seeds:
+  partition: 42
+  training: 20260908
+  siren_sampler: 20260908
+  ccnet_patches: 20260908
+  gnn_episodes: 20260908
+methods:
+  ccnet-train:
+    native_fragment: methods/full_train_fixed512.yaml
+    preflight:
+      max_steps: 2
+      prediction_tiles: maximum_halo_and_edge
+    model_description: modified_CCNet_H32_R32_kernel3_linear
+  ccnet-predict:
+    native_fragment: methods/predict.yaml
+    checkpoint_role: final
+training_information:
+  sampling_domain: qc_training_dataset
+  time_samples: [0, 384]
+  fit_patch_descriptors: fixed_for_all_epochs
+  normalization: fixed_Study033_fit_region_global_RMS
+  evaluation_truth_in_training: false
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  target_amplitudes: evaluation_and_visualization_only
+  primary_checkpoint: final_after_declared_budget
+  best_checkpoint: auxiliary_only
+  test_execution: false
+control:
+  study: study_033_c3_ccnet_10db
+  physical_global_target_snr_db: 11.660714997498403
+  physical_target_rmse: 2.595911597220349
+  model_parameter_count: 111969
+  final_checkpoint_sha256: b8fb3a07e7a9d4a5b3c5540667abbfff8d87f4e24a6358f8cc9cd5e6cfa48697
+result:
+  primary_training_run: ../../runs/study_035_c3_ccnet_full_train_sampling/20260910T005038246114Z_6ad390c8b005_ccnet-train/native
+  frozen_prediction_run: ../../runs/study_035_c3_ccnet_full_train_sampling/20260910T010106155131Z_6ad390c8b005_ccnet-predict/native
+  final_checkpoint_sha256: 52dc24d8436fca20bd9ed6f04394f6413673689d9adc051c3acac3f960eafa91
+  prediction_sha256: 0f4c97ffe23f32b1a8484ba057c221daa7edf2c4f263bbf91e070c064ada51b6
+  physical_global_target_snr_db: 6.799564182932958
+  physical_target_rmse: 4.543049192081227
+  snr_delta_from_control_db: -4.861150814565445
+  interpretation: degraded_for_this_seed_and_fixed_validation_case
+  automatic_follow_on_experiment: false
