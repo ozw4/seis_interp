@@ -1,35 +1,27 @@
-# study_001_c3_na_baseline
+# Study 001: C3 NA baseline
 
-## Status
+Status: `draft`
 
-`draft`
+## Purpose
 
-## Research question
+- Compare a coordinate SIREN with nearest-neighbor and inverse-distance trace interpolation on held-out traces.
 
-Can a sinusoidal coordinate MLP trained on observed SEG C3 Narrow-Azimuth traces reconstruct complete held-out traces more accurately than simple nearest-neighbor and inverse-distance-weighted trace interpolation?
+## Conditions
 
-## Hypothesis
+- dataset: SEG C3 Narrow-Azimuth, `SEG_C3NA_ffid_1201-2400.sgy`, FFID 2348
+- data: 544 traces, 625 samples per trace, 8 ms sampling, no time window
+- split: complete-trace train/validation/test; random and structured masks are separate conditions
+- model: six-feature SIREN input derived from the stored five-dimensional physical mapping
+- normalization: coordinate bounds and amplitude RMS fitted from training traces only
+- inputs: [`inputs.yaml`](inputs.yaml)
+- config: [`config.yaml`](config.yaml)
 
-The INR model will improve held-out-trace S/N or NRMSE over the simple physical-coordinate baselines while preserving the principal event spectrum.
+## Results
 
-## Inputs
+- No accepted comparison result or metric is recorded.
+- preliminary runs: `20260825T053620Z_09d01f2_baseline` (L1) and `20260825T070226Z_73694b8_l2_baseline` (L2)
 
-The study uses a controlled subset of SEG C3 Narrow-Azimuth. Raw SEG-Y files remain outside Git. `inputs.yaml` locks the source file and its SHA-256 together with the selected shot: FFID 2348 of `SEG_C3NA_ffid_1201-2400.sgy`, 544 traces of 625 samples at 8 ms, no time window. Header conventions are in [`docs/coordinate_conventions.md`](../../docs/coordinate_conventions.md).
+## Decision
 
-## Method
-
-The POC treats SEG-Y as a trace table, audits SEG-Y headers, derives CMP/offset/azimuth coordinates, assigns complete traces to train/validation/test splits, and fits coordinate ranges and amplitude RMS from training traces only. It trains a SIREN-style MLP and compares predictions with the original held-out traces. The stored physical mapping remains 5D with `azimuth_deg`; model inputs contain six features and trace-baseline spatial inputs contain five because azimuth is encoded on demand as dimensionless sine and cosine components. Random and structured trace masks are separate evaluation conditions.
-
-## Expected outputs
-
-The initial accepted output set is a metrics JSON file, trace-level metrics table, reconstruction comparison figure, residual figure, and amplitude-spectrum comparison.
-
-## Acceptance criteria
-
-For the random holdout experiment, the provisional go/no-go criterion is either at least 2 dB higher global S/N than inverse-distance weighting or at least 10% lower NRMSE, with no dominant coherent event leakage in the residual. Structured holdout performance must be no worse than the baseline under the same qualitative checks.
-
-## Limitations
-
-SEG C3 NA has narrow azimuth coverage and is synthetic. A successful POC does not establish performance for wide-azimuth or noisy field surveys. The paper's architecture and training details are not completely specified, so repository choices must be documented as POC-specific decisions.
-
-Historical rationale is recorded in [`decisions.md`](decisions.md).
+- Keep complete-trace splits, train-only normalization, physical `azimuth_deg` in interim data, and sine/cosine azimuth model features.
+- Use `config.yaml` as the source of the current L2 and learning-rate settings.

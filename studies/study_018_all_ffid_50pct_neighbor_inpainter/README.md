@@ -1,75 +1,34 @@
-# study_018_all_ffid_50pct_neighbor_inpainter
+# Study 018: 50% within-FFID neighbor inpainter
 
-## Status
+Status: `completed`
 
-`completed`
+## Purpose
 
-## Research question
+- Exceed 20 dB oracle unit-RMS validation S/N with 50% of traces in every eligible FFID assigned to training.
 
-Can a leakage-safe geometry-conditioned trace inpainter exceed
-`oracle_per_trace_unit_rms_global_snr_db > 20 dB` when exactly half of the
-amplitude-eligible traces in every FFID are assigned to training?
+## Conditions
 
-## Split contract
+- dataset: all four SEG C3 NA sources, 4,780 eligible FFIDs; FFID 1746 excluded
+- split: seed 42; 50% train, 12.5% validation, 37.5% test within each FFID
+- prepared counts: 1,151,740 / 287,935 / 863,805; effective canonical counts: 1,151,731 / 287,933 / 863,801
+- model: K274 same-source-line aperture, four target coordinates, width 384, full-trace temporal receptive field, FiLM, target-coordinate neighbor gate, identity-initialized 31-tap depthwise alignment FIR
+- training: 50,000 updates with the replacement sampler; only train amplitudes enter neighbor inputs
+- metric: `oracle_per_trace_unit_rms_global_snr_db` on raw validation predictions
+- config / variants: [`config.yaml`](config.yaml), [`variants/`](variants/)
 
-"50% FFID" is operationalized as a deterministic whole-trace split inside every
-eligible FFID. Seed 42 assigns 50% to train. The remaining 50% retains Study 017's
-holdout allocation rule: 25% of holdout (12.5% overall) is validation and 75% of
-holdout (37.5% overall) is test. Every canonical trace belongs to one split only;
-no samples from a trace cross splits.
+## Results
 
-All four locked SEG C3 Narrow-Azimuth sources and all 4,780 amplitude-eligible
-FFIDs remain in scope. FFID 1746 is wholly excluded by amplitude QC. The 15
-repeated physical cells are canonicalized globally by retaining the lowest
-`array_row`, without consulting split or amplitude values.
+- Stage 09 diagnostic: 18.2484 dB at 10,000 updates
+- width 384 + neighbor gate + FIR at 2,500 updates: 16.8037 dB; +0.4371 dB over width 256
+- formal run: 20.4604 dB at 50,000 updates; first crossed 20 dB at 30,000 updates
+- final checkpoint was best; exact revalidation and all scope checks passed
+- threshold margin: +0.4604 dB; `metric_success=true`, `scope_success=true`, `success=true`
+- runs: `runs/study_018_all_ffid_50pct_neighbor_inpainter/`
+- accepted run: `20260829T075432Z_ee3d9e5_formal_50000_steps`
+- formal model: 9,210,121 parameters; commit `ee3d9e5d5fce73e3ce0450b3471fe3284af616a1`; NVIDIA H100 NVL
+- formal validation signal / error energy: 179,958,125.0042889 / 1,618,586.4733; train audit 20.7557 dB
 
-Prepared train/validation/test counts are 1,151,740 / 287,935 / 863,805.
-Canonicalization removes 9 / 2 / 4 rows respectively, giving the formal effective
-counts 1,151,731 / 287,933 / 863,801.
+## Decision
 
-## Evaluation and staged method
-
-Only train amplitudes may populate neighbor inputs. Validation amplitudes are used
-only for checkpoint selection and metrics; test and excluded amplitudes are not
-materialized. Raw model predictions are compared with oracle per-trace unit-RMS
-validation targets. Prediction self-normalization is diagnostic only.
-
-The investigation started from the accepted Study 017 temporal CNN and isolated
-target coordinates, neighborhood extent, training budget, capacity, conditioning,
-sampling, temporal alignment, and objective regularization. The frozen formal
-candidate uses a K274 same-source-line aperture, four target coordinates, width
-384, full-trace temporal receptive field, FiLM, a target-coordinate neighbor gate,
-and an identity-initialized 31-tap depthwise alignment FIR. It trains for 50,000
-updates with the established replacement sampler. Only its fresh full-scope run
-may be accepted.
-
-## Acceptance criteria
-
-- All 4,780 eligible FFIDs contribute train, validation, and test traces.
-- Effective train/validation/test counts equal 1,151,731 / 287,933 / 863,801.
-- Duplicate physical cells are canonicalized before amplitude routing.
-- The target offset is absent and every neighbor amplitude comes from train.
-- Test and excluded amplitude values are not materialized.
-- The selected checkpoint reproduces its raw validation metric.
-- `oracle_per_trace_unit_rms_global_snr_db` is strictly greater than 20 dB.
-- Run provenance is complete and repository quality gates pass.
-
-## Current result
-
-The fresh 50,000-update formal run completed successfully at
-`20.4604 dB`, exceeding the strict 20 dB threshold by
-`0.4604 dB`. The metric first crossed 20 dB at 30,000 updates and the
-best checkpoint was the final 50,000-update checkpoint. Its exact checkpoint
-revalidation and every formal scope check passed, so `metric_success`,
-`scope_success`, and overall `success` are all true.
-
-The strongest pre-formal diagnostic was Stage 09 at 18.2484 dB after
-10,000 updates. At 2,500 updates, combining width 384, coordinate-dependent
-neighbor gating, and the lightweight alignment FIR reached 16.8037 dB,
-0.4371 dB above the width-256 comparison. The formal run and staged
-immutable runs are recorded under
-`runs/study_018_all_ffid_50pct_neighbor_inpainter/`. The full investigation is
-summarized in
-[`reports/all_ffid_50pct_20db_investigation.md`](../../reports/all_ffid_50pct_20db_investigation.md).
-
-Historical rationale is recorded in [decisions.md](decisions.md).
+- Accept the 50,000-update formal result and frozen architecture.
+- Detailed stage evidence is retained in the variant configs and [investigation record](../../reports/all_ffid_50pct_20db_investigation.md).

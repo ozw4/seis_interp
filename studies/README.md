@@ -1,6 +1,10 @@
 # Studies
 
-Each numbered study directory is the authoritative record of one research question. The role of each study file is defined in [`docs/repository_layout.md`](../docs/repository_layout.md). Start a new study from [`_template/`](_template/README.md).
+Each numbered study README is the authoritative record of its purpose, comparison conditions,
+results, and decisions. Config and input files remain the executable condition sources. Files in
+`reports/` contain only supplemental measurements or links back to the study record. The role of
+each study file is defined in [`docs/repository_layout.md`](../docs/repository_layout.md). Start a
+new study from [`_template/`](_template/README.md).
 
 Numbered studies are listed in ascending ID order. Gaps in the numbering (for example `study_002`) are real: those IDs were never created.
 
@@ -37,10 +41,11 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_028_c3_first_results](study_028_c3_first_results/README.md) | `first_results_complete` — GNN cross-run tolerance unmet | fixed validation / five-method pilot | What are the first full-volume results under finite declared budgets? |
 | [study_029_c3_amplitude_qc](study_029_c3_amplitude_qc/README.md) | `qc_and_numerical_validation_complete` | raw SEG-Y provenance / amplitude QC / GNN numerical probe / SIREN rerun | Does source-bound QC restore a meaningful fixed training scale while preserving the evaluation cases? |
 | [study_030_c3_siren_trace_scaling](study_030_c3_siren_trace_scaling/README.md) | `per_trace_scaling_evaluated` | observed per-trace RMS / interpolated physical scale | Does observed-only scale interpolation make per-trace SIREN useful in physical amplitude? |
-| [study_031_c3_siren_10db](study_031_c3_siren_10db/README.md) | `fixed_shear_reference_adopted_no_shear_10db_unmet` — declared-shear SIREN reference adopted at 11.3422 dB; no-shear goal unmet | Cartesian SIREN / complete observed traces / fixed QC validation case | Physical target SNR with an explicitly recorded coordinate transform; preserve the [no-shear initialization and envelope comparison](../reports/c3_siren_time_learning_20260909.md) and [current adoption decision](../results/study_031_c3_siren_10db/20260909T055026000000Z_e39df16d563c_shear_reference_adoption/adoption_decision.json). |
-| [study_032_c3_proposed_gnn_10db](study_032_c3_proposed_gnn_10db/README.md) | `final_5000_adopted_10db_achieved` — adopted 11.9354 dB; global RMS comparison 10.3033 dB; both audited | QC train-partition proposed relational GNN / fixed full validation | No fixed shear; relative MSE retained. Adopted observed trace RMS with interpolated gain; see the [adopted evaluation](../reports/c3_proposed_gnn_relative_mse_5k_20260909.md) and [global RMS comparison](../reports/c3_proposed_gnn_global_rms_relative_mse_5k_20260910.md). |
-| [study_033_c3_ccnet_10db](study_033_c3_ccnet_10db/README.md) | `final_2048_adopted_10db_achieved` — final 11.6607 dB; saved-output and CPU audits passed | QC train-partition CCNet-5D / fixed full validation | No fixed shear; width 32, larger patches, batch two and complete-patch MSE. See the [final evaluation](../reports/c3_ccnet_context_2048_20260909.md). |
-| [study_034_c3_nersi_baseline](study_034_c3_nersi_baseline/README.md) | `validation_complete_candidate_c_selected` — Candidate C 15.9189 dB; selected-run audit passed | per-volume observed-only profile-wise NeRSI repository reimplementation / fixed QC validation | Four predeclared candidates completed; Candidate C is the fixed-final validation primary. Test remains unused. See the [validation report](../reports/c3_nersi_validation_20260910.md). |
+| [study_031_c3_siren_10db](study_031_c3_siren_10db/README.md) | `fixed_shear_reference_adopted_no_shear_10db_unmet` | Cartesian SIREN / complete observed traces / fixed QC validation case | Physical target SNR with a declared coordinate transform |
+| [study_032_c3_proposed_gnn_10db](study_032_c3_proposed_gnn_10db/README.md) | `final_5000_adopted_10db_achieved` | QC train-partition relational GNN / fixed full validation | Observed-trace RMS scaling and relative-MSE training against global RMS |
+| [study_033_c3_ccnet_10db](study_033_c3_ccnet_10db/README.md) | `final_2048_adopted_10db_achieved` | QC train-partition CCNet-5D / fixed full validation | Wider-context supervised CCNet-5D under the fixed benchmark |
+| [study_034_c3_nersi_baseline](study_034_c3_nersi_baseline/README.md) | `validation_complete_candidate_c_selected` — Candidate C 15.9189 dB | observed-only profile-wise NeRSI / fixed QC validation | Four predeclared NeRSI candidates on the fixed validation case |
+| [study_035_c3_ccnet_full_train_sampling](study_035_c3_ccnet_full_train_sampling/README.md) | `completed_degraded` | QC full-train patch sampling / CCNet-5D | Full-train patch sampling against the adopted Study 033 model |
 
 ## Scratch workspaces
 

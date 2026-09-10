@@ -1,55 +1,31 @@
-# study_004_domain_scaling
+# Study 004: domain scaling
 
-## Status
+Status: `active`
 
-`active`
+## Purpose
 
-## Research question
+- Measure training fit as the number of FFID 2348 training traces increases.
 
-With all 625 time samples fixed, how does empirical training fit change as the number of
-training traces increases?
+## Conditions
 
-## Fixed conditions
+- dataset: FFID 2348, nested seed-42 prefixes of `1, 8, 32, 128, 435` training traces, all 625 samples
+- split / normalization: existing trace split and training-only global RMS; validation and test amplitudes unused
+- model: six-input SIREN, width 256, four sine layers, `omega_0=300`
+- training: Adam, L2, learning rate `1e-3`, batch 1,024, 50,000 updates, report every 500 updates, `cuda:0`
+- classification: `strong_fit` at median training-trace S/N >=20 dB; otherwise `escaped_zero_predictor` above 1 dB with RMS ratio above 0.1; otherwise `near_zero`
+- config: [`config.yaml`](config.yaml)
 
-Experiment A uses the existing FFID 2348 train/validation/test split and its training-only
-global-RMS normalization. Each condition trains a fresh 6-input SIREN with width 256, four sine
-layers, `omega_0: 300.0`, Adam, L2 loss, learning rate `1.0e-3`, batch size 1024, and 50,000
-updates on `cuda:0`. It reports full-subset training fit every 500 updates without early stopping
-or checkpoints. Validation and test amplitudes are not used.
+## Results
 
-One seed-42 permutation of sorted training `array_row` values supplies the nested prefixes:
+| Training traces | Classification | Best median training-trace S/N |
+|---:|---|---:|
+| 1 | `strong_fit` | 37.36 dB |
+| 8 | `near_zero` | not recorded here |
+| 32 | `near_zero` | not recorded here |
+| 128 | `near_zero` | not recorded here |
+| 435 | `near_zero` | not recorded here |
 
-```text
-1 ⊂ 8 ⊂ 32 ⊂ 128 ⊂ 435 traces
-```
+## Decision
 
-## Acceptance and interpretation
-
-- `strong_fit`: best median training-trace S/N is at least 20 dB.
-- `escaped_zero_predictor`: otherwise, best median training-trace S/N exceeds 1 dB and the
-  prediction/target RMS ratio at that report exceeds 0.1.
-- `near_zero`: otherwise.
-
-The result identifies the largest strong-fit subset, the largest subset that escaped the zero
-predictor, and the first larger nested subset that returned to near-zero behavior. These are POC
-diagnostic thresholds under one fixed setup; they do not attribute the boundary to parameter
-count or select an `omega_0` optimum.
-
-## Reproduction
-
-```bash
-python scripts/run_study_004_experiment_a.py \
-  --config studies/study_004_domain_scaling/config.yaml \
-  --interim data/interim/c3_na/ffid_2348 \
-  --processed data/processed/c3_na/ffid_2348_random_split \
-  --output-root runs/study_004_domain_scaling \
-  --device cuda:0
-```
-
-## Current conclusion
-
-The 1-trace condition achieved `strong_fit` at 37.36 dB best median training-trace S/N, while 8,
-32, 128, and 435 traces remained `near_zero`. Under this fixed setup the empirical scaling
-boundary lies between 1 and 8 traces; the experiment does not identify its cause.
-
-Historical rationale belongs in [`decisions.md`](decisions.md).
+- The observed scaling boundary under this condition is between 1 and 8 traces.
+- This study reports training fit only; it does not select a production model or report interpolation performance.

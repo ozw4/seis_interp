@@ -1,53 +1,31 @@
-# study_005_correlation_loss_ablation
+# Study 005: correlation-loss ablation
 
-## Status
+Status: `completed`
 
-`completed`
+## Purpose
 
-## Research question
-
-Does a trace-wise correlation auxiliary loss help the first failing Study 004 subset—eight
-training traces over all 625 samples—escape the near-zero predictor?
-
-## Fixed conditions
-
-Both conditions use the same seed-42 nested eight-trace prefix, the existing split and global-RMS
-normalization, and a fresh 6-input SIREN with width 256, four sine layers, `omega_0: 300.0`, Adam,
-learning rate `1.0e-3`, and 50,000 full-batch updates on `cuda:0`. Every update uses all 5,000
-training points, with reports every 500 updates. No validation or test amplitudes are evaluated.
+- Test whether a trace-wise correlation auxiliary loss is required for the first failing Study 004 subset.
 
 ## Conditions
 
-- `mse_control`: MSE only.
-- `mse_corr_0p1`: MSE plus `0.1` times mean trace-wise `1 - correlation`.
+- dataset: seed-42 nested eight-trace FFID 2348 subset, all 625 samples
+- normalization: training-only global RMS; validation and test amplitudes unused
+- model: six-input SIREN, width 256, four sine layers, `omega_0=300`
+- training: Adam, learning rate `1e-3`, full 5,000-point batches, 50,000 updates, `cuda:0`
+- conditions: MSE; MSE + `0.1 * mean(1 - trace_correlation)`
+- config: [`config.yaml`](config.yaml)
 
-## Acceptance and interpretation
+## Results
 
-A condition escapes the zero predictor only when its best-report median trace S/N exceeds 1 dB,
-median trace correlation exceeds 0.1, and prediction/target RMS ratio exceeds 0.1. A successful
-control attributes no causal benefit to correlation loss. If only the correlation condition
-passes, it is promising; RMS-only growth is classified as amplitude inflation without alignment.
-These are POC-specific thresholds, not criteria reported by the source paper.
-The trace-correlation auxiliary loss itself is also outside the paper-reported L1, L2, and Huber
-losses.
+| Condition | Best median trace S/N | Best median correlation |
+|---|---:|---:|
+| `mse_control` | 32.48 dB | 0.9997 |
+| `mse_corr_0p1` | 33.15 dB | 0.9998 |
 
-## Reproduction
+- summary decision: `full_batch_control_succeeds`
+- MSE control run: `20260826T020640Z_b550db8_mse_control`
 
-```bash
-python scripts/run_study_005_correlation_loss_ablation.py \
-  --config studies/study_005_correlation_loss_ablation/config.yaml \
-  --interim data/interim/c3_na/ffid_2348 \
-  --processed data/processed/c3_na/ffid_2348_random_split \
-  --output-root runs/study_005_correlation_loss_ablation \
-  --device cuda:0
-```
+## Decision
 
-## Current conclusion
-
-Both `mse_control` and `mse_corr_0p1` completed 50,000 full-batch updates and escaped the
-near-zero predictor, giving the summary decision `full_batch_control_succeeds`. Best median trace
-S/N and correlation were 32.48 dB / 0.9997 for the control and 33.15 dB / 0.9998 with correlation
-loss. Because the MSE control alone succeeded, no causal benefit is attributed to the auxiliary
-loss and the correlation-loss path is closed.
-
-Historical rationale belongs in [`decisions.md`](decisions.md).
+- The MSE control succeeded, so no causal benefit is assigned to the correlation term.
+- The correlation-loss path is closed and no production loss setting is selected here.

@@ -1,8 +1,8 @@
 # Decisions
 
-This file records rationale that may matter when changing study conditions.
-The current study contract is defined by `README.md`, `config.yaml`, and
-`inputs.yaml`. Current code and tests define implementation behavior.
+Use this file only when a decision needs evidence that does not fit concisely in
+the README. Record the current decision and its supporting run, metric, or source;
+omit discussion history and unverified explanations.
 
 ## YYYY-MM-DD — Short decision title
 
@@ -11,8 +11,5 @@ The current study contract is defined by `README.md`, `config.yaml`, and
 **Decision:**
 State the selected research condition or evaluation rule.
 
-**Reason:**
-State why it was selected.
-
 **Evidence:**
-- Optional run, commit, or source reference.
+- Run, metric, commit, or source reference.

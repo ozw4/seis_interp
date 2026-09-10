@@ -1,39 +1,29 @@
 # <study_id>
 
-## Status
+Status: `<status>`
 
-`draft`
+## Purpose
 
-## Research question
+- <question answered by this study>
 
-State one testable research question.
+## Conditions
 
-## Hypothesis
+- dataset / partition: <required comparison scope>
+- split / mask: <required split or sampling condition>
+- model / method: <model and material settings>
+- loss / normalization: <loss and amplitude transform>
+- training: <material budget and seed>
+- config: [`config.yaml`](config.yaml)
 
-State the expected result when applicable.
+## Results
 
-## Inputs
+- <metric>: <value>
+- run / checkpoint: <identifier or link>
 
-Describe datasets, subsets, references, and external models.
+Omit this section while no result exists.
 
-## Method
+## Decision
 
-Describe data selection, preprocessing, analysis, evaluation, and output generation.
+- <explicitly adopted, rejected, invalid, superseded, or comparison-only status>
 
-## Reproduction
-
-Document the exact CLI command after the pipeline exists.
-
-## Expected outputs
-
-List the expected metrics, tables, figures, and artifacts.
-
-## Acceptance criteria
-
-Define the go/no-go thresholds before running the experiment.
-
-## Limitations
-
-State data, methodological, and generalization limitations.
-
-Historical rationale, when needed, belongs in [`decisions.md`](decisions.md).
+Omit this section when no decision exists.
