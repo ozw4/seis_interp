@@ -1,0 +1,431 @@
+from __future__ import annotations
+
+import json
+import math
+from copy import deepcopy
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+import yaml
+
+from seis_interp.cli import main
+from seis_interp.configuration import load_resolved_config
+from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
+from seis_interp.data.file_checksums import file_sha256
+from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
+from seis_interp.pipelines import interpolate_nersi as pipeline
+from seis_interp.pipelines.interpolate_nersi import (
+    CHECKPOINT_RELATIVE_PATH,
+    METHOD,
+    METHOD_VARIANT,
+    PREDICTION_RELATIVE_PATH,
+    interpolate_nersi_run,
+)
+from seis_interp.training.c3_volume_nersi_data import (
+    PROFILE_AXIS_ORDER,
+    PROFILE_COORDINATE_ORDER,
+    build_c3_volume_nersi_data,
+)
+from seis_interp.training.c3_volume_nersi_prediction import predict_c3_volume_nersi
+from seis_interp.training.nersi_checkpoints import (
+    load_fixed_step_nersi_checkpoint,
+    nersi_checkpoint_input_binding,
+    validate_fixed_step_nersi_checkpoint_input_binding,
+)
+from tests.fixtures.c3_volume_run_artifacts import (
+    PreparedC3VolumeRunArtifacts,
+    prepare_c3_volume_run_artifacts,
+)
+
+
+@pytest.fixture(scope="module")
+def nersi_artifacts(tmp_path_factory: pytest.TempPathFactory) -> PreparedC3VolumeRunArtifacts:
+    return prepare_c3_volume_run_artifacts(
+        tmp_path_factory.mktemp("nersi-volume"),
+        time_sample_count=8,
+        receiver_y_count=8,
+    )
+
+
+def _config(artifacts: PreparedC3VolumeRunArtifacts, *, training_seed: int = 314) -> dict:
+    case = json.loads((artifacts.case / "benchmark_case.json").read_text(encoding="utf-8"))
+    return {
+        "project": {"random_seed": 42},
+        "interpolation_mask": {
+            "partition": "test",
+            "kind": artifacts.mask_kind,
+            "missing_fraction": case["mask"]["missing_fraction"],
+        },
+        "benchmark_case": {"id": "synthetic_case"},
+        "benchmark_volume": {
+            "id": "synthetic_volume",
+            "selection": artifacts.volume_metadata["selection"],
+        },
+        "model": {
+            "name": "nersi",
+            "coordinate_order": list(PROFILE_COORDINATE_ORDER),
+            "fourier_components": 2,
+            "frequency_schedule": "exponential",
+            "frequency_base": 1.25,
+            "encoder_width": 8,
+            "latent_channels": 2,
+            "decoder_channels": [2, 2, 1],
+            "upsample_scales": [2, 2, 2],
+            "kernel_size": 1,
+            "activation": "gelu",
+            "output_activation": "linear",
+        },
+        "training": {
+            "random_seed": training_seed,
+            "optimizer": "adam",
+            "loss": "observed_masked_mse",
+            "amplitude_scaling": "observed_volume_global_rms",
+            "learning_rate": 1.0e-3,
+            "profiles_per_step": 1,
+            "max_steps": 2,
+            "report_interval": 1,
+            "device": "cpu",
+        },
+        "prediction": {"batch_size": 5},
+        "evaluation": {
+            "primary_metric": "physical_amplitude_global_snr_db",
+            "domain": "evaluation_target",
+        },
+    }
+
+
+def _write_config(
+    path: Path,
+    artifacts: PreparedC3VolumeRunArtifacts,
+    *,
+    training_seed: int = 314,
+    contents: dict | None = None,
+) -> Path:
+    value = _config(artifacts, training_seed=training_seed) if contents is None else contents
+    path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def _run(
+    artifacts: PreparedC3VolumeRunArtifacts,
+    config: Path,
+    output: Path,
+    *,
+    progress_reporter=None,
+) -> dict[str, object]:
+    return interpolate_nersi_run(
+        config_path=config,
+        interim_dir=artifacts.interim,
+        processed_dir=artifacts.processed,
+        mask_dir=artifacts.mask,
+        case_dir=artifacts.case,
+        volume_dir=artifacts.volume,
+        output_dir=output,
+        progress_reporter=progress_reporter,
+    )
+
+
+def _loaded_inputs(artifacts: PreparedC3VolumeRunArtifacts, config: Path):
+    return load_c3_volume_run_inputs(
+        config=load_resolved_config(config),
+        interim_dir=artifacts.interim,
+        processed_dir=artifacts.processed,
+        mask_dir=artifacts.mask,
+        case_dir=artifacts.case,
+        volume_dir=artifacts.volume,
+    )
+
+
+def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
+    tmp_path: Path,
+    nersi_artifacts: PreparedC3VolumeRunArtifacts,
+) -> None:
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts)
+    output = tmp_path / "run"
+
+    metrics = _run(nersi_artifacts, config, output)
+
+    assert sorted(
+        path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
+    ) == [
+        "artifacts/final.pt",
+        "artifacts/prediction.npy",
+        "config.resolved.yaml",
+        "inputs.lock.json",
+        "metrics.json",
+        "run.json",
+    ]
+    stored_metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
+    prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
+    inputs = _loaded_inputs(nersi_artifacts, config)
+    observed = inputs.observed_volume
+    observed_count = int(np.count_nonzero(observed.observed_trace_mask))
+    target_count = int(np.count_nonzero(observed.evaluation_target_trace_mask))
+
+    assert metrics == stored_metrics
+    for record in (stored_metrics, run, inputs_lock):
+        json.dumps(record, allow_nan=False)
+    assert metrics["method"] == METHOD == "nersi"
+    assert metrics["method_variant"] == METHOD_VARIANT
+    assert metrics["evaluation_domain"] == "evaluation_target"
+    assert metrics["amplitude_domain"] == "physical"
+    assert metrics["evaluation_target"]["trace_count"] == target_count
+    assert metrics["evaluation_target"]["sample_count"] == target_count * 8
+    assert metrics["observed_max_abs_error"] == 0.0
+    assert metrics["uncovered_trace_count"] == metrics["uncovered_sample_count"] == 0
+    assert metrics["training"]["steps_completed"] == 2
+    assert math.isfinite(metrics["training"]["final_batch_loss"])
+
+    assert prediction.shape == (8, 2, 3, 2, 8)
+    assert prediction.dtype == np.float32
+    assert prediction.flags.c_contiguous
+    assert np.isfinite(prediction).all()
+    np.testing.assert_array_equal(
+        prediction[:, observed.observed_trace_mask],
+        observed.values[:, observed.observed_trace_mask].astype(np.float32),
+    )
+
+    assert run["method_variant"] == METHOD_VARIANT
+    assert run["random_seed"] == 42
+    assert run["training_random_seed"] == 314
+    assert run["profiles"]["axis_order"] == list(PROFILE_AXIS_ORDER)
+    assert run["profiles"]["coordinate_order"] == list(PROFILE_COORDINATE_ORDER)
+    assert run["profiles"]["coordinate_normalization"] == ("local_regular_grid_index_minmax_0_1")
+    assert run["profiles"]["count"] == 12
+    assert run["profiles"]["shape"] == [8, 8]
+    assert run["profiles"]["stable_order"] == (
+        "C_order_source_line_shot_in_line_relative_receiver_x"
+    )
+    assert 0 < run["profiles"]["training_profile_count"] <= 12
+    assert run["parameter_count"] > 0
+    assert run["paper_alignment"]["paper_specified"]["fourier_components_per_coordinate"] == 40
+    assert (
+        run["paper_alignment"]["repository_reimplementation_choices"][
+            "configured_fourier_components_per_coordinate"
+        ]
+        == 2
+    )
+    assert run["training"]["observed_trace_count"] == observed_count
+    assert run["training"]["observed_sample_count"] == observed_count * 8
+    assert run["prediction"]["shape"] == [8, 2, 3, 2, 8]
+    assert run["prediction"]["dtype"] == "float32"
+    assert run["prediction"]["sha256"] == file_sha256(output / PREDICTION_RELATIVE_PATH)
+    for name in (
+        "load_and_verification_seconds",
+        "training_data_seconds",
+        "training_seconds",
+        "prediction_seconds",
+        "evaluation_seconds",
+    ):
+        assert math.isfinite(run["resources"][name]) and run["resources"][name] >= 0.0
+    assert inputs_lock["benchmark_case"]["sha256"] == file_sha256(
+        nersi_artifacts.case / "benchmark_case.json"
+    )
+    assert inputs_lock["benchmark_volume"]["volume_id"] == "synthetic_volume"
+    assert run["checkpoint"]["scope"] == "one_verified_case_volume_only"
+    assert run["checkpoint"]["sha256"] == file_sha256(output / CHECKPOINT_RELATIVE_PATH)
+    assert run["checkpoint"]["input_binding"] == nersi_checkpoint_input_binding(inputs_lock)
+
+    loaded = load_fixed_step_nersi_checkpoint(output / CHECKPOINT_RELATIVE_PATH, device="cpu")
+    assert loaded.coordinate_order == PROFILE_COORDINATE_ORDER
+    assert loaded.profile_axis_order == PROFILE_AXIS_ORDER
+    assert loaded.spatial_shape == (2, 3, 2, 8)
+    assert loaded.profile_shape == (8, 8)
+    assert loaded.global_step == 2
+    current_data = build_c3_volume_nersi_data(observed)
+    validate_fixed_step_nersi_checkpoint_input_binding(
+        loaded,
+        inputs.inputs_lock,
+        current_data,
+    )
+    restored = predict_c3_volume_nersi(
+        loaded.model,
+        current_data,
+        observed,
+        batch_size=run["prediction"]["batch_size"],
+        device="cpu",
+    )
+    np.testing.assert_allclose(restored.values, prediction, rtol=1.0e-6, atol=1.0e-6)
+    np.testing.assert_array_equal(
+        restored.values[:, observed.observed_trace_mask],
+        observed.values[:, observed.observed_trace_mask].astype(np.float32),
+    )
+
+    rescored = evaluate_c3_volume_prediction(
+        prediction,
+        observed,
+        interim_dir=nersi_artifacts.interim,
+        volume_metadata=inputs.volume_metadata,
+    )
+    assert rescored == {
+        key: metrics[key]
+        for key in (
+            "evaluation_domain",
+            "amplitude_domain",
+            "evaluation_target",
+            "zero_fill",
+            "observed_max_abs_error",
+        )
+    }
+
+    wrong_lock = deepcopy(inputs.inputs_lock)
+    wrong_lock["benchmark_volume"]["volume_id"] = "another-volume"
+    with pytest.raises(ValueError, match="case/volume input binding"):
+        validate_fixed_step_nersi_checkpoint_input_binding(loaded, wrong_lock, current_data)
+
+
+def test_real_cli_emits_only_strict_json_on_stdout(
+    tmp_path: Path,
+    nersi_artifacts: PreparedC3VolumeRunArtifacts,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts)
+    output = tmp_path / "cli-run"
+    arguments = ["interpolate", "nersi"]
+    for option, path in (
+        ("config", config),
+        ("interim", nersi_artifacts.interim),
+        ("processed", nersi_artifacts.processed),
+        ("mask", nersi_artifacts.mask),
+        ("case", nersi_artifacts.case),
+        ("volume", nersi_artifacts.volume),
+        ("output", output),
+    ):
+        arguments.extend([f"--{option}", str(path)])
+
+    assert main([*arguments, "--device", "cpu", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    metrics = json.loads(
+        captured.out,
+        parse_constant=lambda value: pytest.fail(f"non-finite JSON constant: {value}"),
+    )
+    assert metrics == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["method"] == "nersi"
+    assert metrics["training"]["steps_completed"] == 2
+    assert "Loading and verifying C3 inputs." in captured.err
+    assert "nersi_volume step 2/2:" in captured.err
+    assert "Writing final checkpoint, prediction, and immutable run records." in captured.err
+
+
+def test_same_seed_cpu_runs_are_deterministic(
+    tmp_path: Path,
+    nersi_artifacts: PreparedC3VolumeRunArtifacts,
+) -> None:
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts, training_seed=2718)
+    outputs = (tmp_path / "first", tmp_path / "second")
+
+    metrics = [_run(nersi_artifacts, config, output) for output in outputs]
+    predictions = [
+        np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False) for output in outputs
+    ]
+    checkpoints = [
+        load_fixed_step_nersi_checkpoint(output / CHECKPOINT_RELATIVE_PATH) for output in outputs
+    ]
+    runs = [json.loads((output / "run.json").read_text(encoding="utf-8")) for output in outputs]
+
+    assert metrics[0] == metrics[1]
+    assert metrics[0]["training"] == metrics[1]["training"]
+    np.testing.assert_array_equal(predictions[0], predictions[1])
+    assert (outputs[0] / "config.resolved.yaml").read_bytes() == (
+        outputs[1] / "config.resolved.yaml"
+    ).read_bytes()
+    assert (outputs[0] / "inputs.lock.json").read_bytes() == (
+        outputs[1] / "inputs.lock.json"
+    ).read_bytes()
+    assert runs[0]["model"] == runs[1]["model"]
+    assert checkpoints[0].model.constructor_config() == checkpoints[1].model.constructor_config()
+    for name, expected in checkpoints[0].model.state_dict().items():
+        assert torch.equal(checkpoints[1].model.state_dict()[name], expected), name
+
+
+def test_training_and_prediction_complete_before_target_evaluation(
+    tmp_path: Path,
+    nersi_artifacts: PreparedC3VolumeRunArtifacts,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts)
+    output = tmp_path / "ordered-run"
+    events: list[str] = []
+    original_train = pipeline.train_nersi_fixed_steps
+    original_predict = pipeline.predict_c3_volume_nersi
+    original_evaluate = pipeline.evaluate_c3_volume_prediction
+
+    def train(*args, **kwargs):
+        assert events == []
+        assert not output.exists()
+        result = original_train(*args, **kwargs)
+        events.append("trained")
+        return result
+
+    def predict(*args, **kwargs):
+        assert events == ["trained"]
+        assert not output.exists()
+        result = original_predict(*args, **kwargs)
+        events.append("predicted")
+        return result
+
+    def evaluate(*args, **kwargs):
+        assert events == ["trained", "predicted"]
+        assert not output.exists()
+        result = original_evaluate(*args, **kwargs)
+        events.append("evaluated")
+        return result
+
+    monkeypatch.setattr(pipeline, "train_nersi_fixed_steps", train)
+    monkeypatch.setattr(pipeline, "predict_c3_volume_nersi", predict)
+    monkeypatch.setattr(pipeline, "evaluate_c3_volume_prediction", evaluate)
+
+    _run(nersi_artifacts, config, output)
+
+    assert events == ["trained", "predicted", "evaluated"]
+
+
+@pytest.mark.parametrize(
+    ("keys", "value", "match"),
+    [
+        (("benchmark_case", "id"), "wrong_case", "benchmark_case.id"),
+        (("benchmark_volume", "id"), "wrong_volume", "benchmark_volume.id"),
+        (("interpolation_mask", "kind"), "random_whole_ffid", "interpolation_mask.kind"),
+    ],
+)
+def test_case_volume_and_mask_mismatches_create_no_output(
+    tmp_path: Path,
+    nersi_artifacts: PreparedC3VolumeRunArtifacts,
+    keys: tuple[str, ...],
+    value: object,
+    match: str,
+) -> None:
+    invalid = deepcopy(_config(nersi_artifacts))
+    section = invalid
+    for key in keys[:-1]:
+        section = section[key]
+    section[keys[-1]] = value
+    config = _write_config(tmp_path / "invalid.yaml", nersi_artifacts, contents=invalid)
+    output = tmp_path / "invalid-run"
+
+    with pytest.raises(ValueError, match=match):
+        _run(nersi_artifacts, config, output)
+
+    assert not output.exists()
+
+
+def test_existing_output_directory_is_rejected_without_modification(
+    tmp_path: Path,
+    nersi_artifacts: PreparedC3VolumeRunArtifacts,
+) -> None:
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts)
+    output = tmp_path / "existing"
+    output.mkdir()
+    marker = output / "marker.txt"
+    marker.write_text("unchanged", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        _run(nersi_artifacts, config, output)
+
+    assert marker.read_text(encoding="utf-8") == "unchanged"
+    assert list(output.iterdir()) == [marker]

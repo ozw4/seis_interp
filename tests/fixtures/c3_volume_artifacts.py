@@ -89,6 +89,7 @@ def prepare_c3_volume_artifacts(
     mask_kind: str = RANDOM_TRACE_MASK_KIND,
     missing_fraction: float = 0.5,
     random_seed: int = 42,
+    time_sample_count: int = 4,
 ) -> PreparedC3VolumeArtifacts:
     """Create a source-block partition, interpolation mask, and case for a C3 crop."""
     geometry = make_c3_trace_table(
@@ -109,14 +110,16 @@ def prepare_c3_volume_artifacts(
         azimuth_deg=np.zeros(trace_count, dtype=np.float64),
         sample_interval_s=np.full(trace_count, 0.008, dtype=np.float64),
     ).drop(columns="array_row")
-    amplitudes = np.arange(trace_count * 4, dtype=np.float32).reshape(trace_count, 4)
+    amplitudes = np.arange(trace_count * time_sample_count, dtype=np.float32).reshape(
+        trace_count, time_sample_count
+    )
 
     interim = tmp_path / "interim"
     write_interim_trace_dataset(
         interim,
         trace_table,
         amplitudes,
-        np.arange(4, dtype=np.float64) * 0.008,
+        np.arange(time_sample_count, dtype=np.float64) * 0.008,
         source,
         "synthetic_c3",
         {"ffid_scope": "all"},

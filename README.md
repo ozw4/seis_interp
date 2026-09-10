@@ -203,10 +203,11 @@ The `interpolate` command group runs methods on a verified benchmark volume:
 interpolate pocs     CPU/NumPy Fourier POCS-5D
 interpolate drr      CPU/NumPy damped rank-reduction 5D
 interpolate siren    per-volume observed-only SIREN internal learning
+interpolate nersi    per-volume observed-only profile-wise NeRSI reimplementation
 interpolate ccnet5d  frozen pretrained CCNet5D inference
 ```
 
-All four commands require an existing prepared partition, interpolation mask, benchmark case,
+All five commands require an existing prepared partition, interpolation mask, benchmark case,
 and dense C3 volume index, with the same seven input/output path arguments:
 
 ```bash
@@ -230,6 +231,14 @@ fixed number of training steps. It also writes `artifacts/final.pt`; its final-s
 contract is separate from the survey-wide `train siren` contract. It accepts
 `--device` to override the configured training device. Its progress and warnings always go to
 stderr, while stdout contains only the final human-readable summary or strict JSON with `--json`.
+
+`interpolate nersi` is an explicit repository reimplementation, not an official or complete
+reproduction. It maps each local `(source_line, shot_in_line, relative_receiver_x)` profile key to
+the `(time, relative_receiver_y)` profile, fits only the selected volume's observed traces, and
+uses evaluation-target amplitudes only after prediction for scoring. The initial clean-data C3
+contract has no nuclear-norm term. It writes the same final checkpoint and prediction artifacts as
+the per-volume SIREN command and accepts the same `--device` override. Its checkpoint is bound to
+the exact verified case and volume hashes and is not a reusable pretrained model.
 
 `train ccnet5d` performs supervised pretraining using additional complete train-partition labels.
 `interpolate ccnet5d` requires `--checkpoint` and uses that frozen model without retraining;

@@ -87,6 +87,13 @@ def _install_siren_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: obje
     monkeypatch.setitem(sys.modules, module_name, module)
 
 
+def _install_nersi_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: object) -> None:
+    module_name = "seis_interp.pipelines.interpolate_nersi"
+    module = ModuleType(module_name)
+    module.interpolate_nersi_run = function  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module_name, module)
+
+
 def _drr_summary(**kwargs: object) -> dict[str, object]:
     return _summary(**kwargs) | {  # type: ignore[arg-type]
         "method": "damped_rank_reduction_5d",
@@ -528,6 +535,101 @@ def test_siren_requires_all_seven_paths(capsys) -> None:
         "--output",
     ):
         assert option in error
+
+
+def test_nersi_help_exposes_only_shared_paths_device_and_json(capsys) -> None:
+    assert "nersi" in _help_text(["interpolate"], capsys)
+    help_text = _help_text(["interpolate", "nersi"], capsys)
+    for option in (
+        "--config",
+        "--interim",
+        "--processed",
+        "--mask",
+        "--case",
+        "--volume",
+        "--output",
+        "--device",
+        "--json",
+    ):
+        assert option in help_text
+    for unsupported in (
+        "--overwrite",
+        "--seed",
+        "--steps",
+        "--learning-rate",
+        "--checkpoint",
+        "--nuclear-norm",
+    ):
+        assert unsupported not in help_text
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_nersi_dispatches_paths_and_keeps_progress_on_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    json_output: bool,
+) -> None:
+    received: dict[str, object] = {}
+    expected = _summary(warnings=["check profile fit"]) | {
+        "method": "nersi",
+        "method_variant": (
+            "profile_wise_per_volume_internal_learning_fixed_steps_reimplementation"
+        ),
+        "uncovered_trace_count": 0,
+    }
+
+    def interpolate_nersi_run(**kwargs: object) -> dict[str, object]:
+        received.update(kwargs)
+        reporter = kwargs["progress_reporter"]
+        assert callable(reporter)
+        reporter("nersi_volume step 2/2")
+        return expected
+
+    _install_nersi_pipeline_stub(monkeypatch, interpolate_nersi_run)
+    arguments = [*_arguments(tmp_path, "nersi"), "--device", "cpu"]
+    if json_output:
+        arguments.append("--json")
+
+    assert main(arguments) == 0
+
+    captured = capsys.readouterr()
+    if json_output:
+        assert json.loads(captured.out) == expected
+    else:
+        assert "Method: nersi" in captured.out
+        assert "Target global S/N: 12.5 dB" in captured.out
+        assert "Uncovered traces: 0" in captured.out
+    assert "nersi_volume step 2/2" not in captured.out
+    assert captured.err == "nersi_volume step 2/2\nWarning: check profile fit\n"
+    assert received == {
+        "config_path": tmp_path / "config.yaml",
+        "interim_dir": tmp_path / "interim",
+        "processed_dir": tmp_path / "processed",
+        "mask_dir": tmp_path / "mask",
+        "case_dir": tmp_path / "case",
+        "volume_dir": tmp_path / "volume",
+        "output_dir": tmp_path / "run",
+        "device_override": "cpu",
+        "progress_reporter": received["progress_reporter"],
+    }
+
+
+def test_nersi_reports_expected_failure_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def interpolate_nersi_run(**_kwargs: object) -> dict[str, object]:
+        raise ValueError("invalid profile shape")
+
+    _install_nersi_pipeline_stub(monkeypatch, interpolate_nersi_run)
+
+    assert main(_arguments(tmp_path, "nersi")) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "interpolate nersi failed: invalid profile shape\n"
+    assert "Traceback" not in captured.err
 
 
 def _install_ccnet5d_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: object) -> None:

@@ -40,6 +40,7 @@ def prepare_c3_volume_run_artifacts(
     mask_kind: str = RANDOM_TRACE_MASK_KIND,
     target_offset: float = 0.0,
     time_sample_count: int = 4,
+    receiver_y_count: int = 3,
 ) -> PreparedC3VolumeRunArtifacts:
     """Prepare a tiny complete run input, optionally changing only target truth."""
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -48,6 +49,7 @@ def prepare_c3_volume_run_artifacts(
         mask_kind=mask_kind,
         missing_fraction=0.5,
         random_seed=42,
+        time_sample_count=time_sample_count,
     )
     case_dir = prepared.case_dir
     if target_offset:
@@ -105,7 +107,7 @@ def prepare_c3_volume_run_artifacts(
         source_line_range=(2, 4),
         shot_in_line_range=(0, 3),
         relative_receiver_x_range=(0, 2),
-        relative_receiver_y_range=(0, 3),
+        relative_receiver_y_range=(0, receiver_y_count),
         config_source="studies/synthetic/config.yaml",
     )
     return PreparedC3VolumeRunArtifacts(
