@@ -44,9 +44,18 @@ def plot_c3_first_results(
     reference_abs = np.concatenate([np.abs(item[3]).ravel() for item in sections])
     clip = float(np.percentile(reference_abs, 99))
     display_clip = clip if clip > 0.0 else 1.0
+    display_methods = (
+        *_METHODS,
+        *(method for method in predictions if method not in _METHODS),
+    )
     records = []
     for axis, selection, rows, reference in sections:
-        figure, axes = plt.subplots(1 + len(_METHODS), 2, figsize=(12, 18), constrained_layout=True)
+        figure, axes = plt.subplots(
+            1 + len(display_methods),
+            2,
+            figsize=(12, 3 * (1 + len(display_methods))),
+            constrained_layout=True,
+        )
         _image(axes[0, 0], reference, volume.time_s, display_clip, "Reference", _AXES[axis])
         _image(
             axes[0, 1],
@@ -56,7 +65,7 @@ def plot_c3_first_results(
             "Masked observed input",
             _AXES[axis],
         )
-        for position, method in enumerate(_METHODS, start=1):
+        for position, method in enumerate(display_methods, start=1):
             if method not in predictions:
                 for subplot, role in zip(axes[position], ("prediction", "residual"), strict=True):
                     subplot.text(
@@ -252,6 +261,8 @@ def _plot_curves(plt, histories: Mapping[str, list], output: Path) -> dict:
         "ccnet5d": "Normalized complete-patch MSE",
         "relational_trace_graph": "Cumulative normalized masked-query MSE",
     }
+    if "nersi" in histories:
+        labels["nersi"] = "Observed-volume normalized profile masked MSE"
     records = {}
     for method, label in labels.items():
         history = histories.get(method, [])

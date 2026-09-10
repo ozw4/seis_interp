@@ -29,12 +29,14 @@ from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3B
 from seis_interp.visualization.c3_first_results import plot_c3_first_results
 
 METHODS = ("pocs", "drr", "siren5d", "ccnet5d", "relational_trace_graph")
+OPTIONAL_METHODS = ("nersi",)
 _NATIVE_METHODS = {
     "pocs": "pocs_fourier_5d",
     "drr": "damped_rank_reduction_5d",
     "siren5d": "siren_5d",
     "ccnet5d": "ccnet5d",
     "relational_trace_graph": "relational_trace_graph",
+    "nersi": "nersi",
 }
 _METRIC_FIELDS = (
     "trace_count",
@@ -62,8 +64,14 @@ def summarize_c3_first_results(
     and result.json. No discovery, ranking, training, or checkpoint loading occurs.
     A zero-fill row is always evaluated from the verified observed input.
     """
-    if not isinstance(method_runs, Mapping) or set(method_runs) - {"zero_fill", *METHODS}:
-        raise ValueError("method_runs must map only the five method names and optional zero_fill")
+    if not isinstance(method_runs, Mapping) or set(method_runs) - {
+        "zero_fill",
+        *METHODS,
+        *OPTIONAL_METHODS,
+    }:
+        raise ValueError(
+            "method_runs must map only the five required methods, optional nersi, and zero_fill"
+        )
     if set(METHODS) - set(method_runs):
         raise ValueError(
             "method_runs must explicitly include all five methods; use null for absent runs"
@@ -90,7 +98,13 @@ def summarize_c3_first_results(
         interim_dir=interim,
         volume_metadata=inputs.volume_metadata,
     )["evaluation_target"]
-    baseline = _empty_row("zero_fill", method_runs.get("zero_fill"), binding)
+    include_training_context = method_runs.get("nersi") is not None
+    baseline = _empty_row(
+        "zero_fill",
+        method_runs.get("zero_fill"),
+        binding,
+        include_training_context=include_training_context,
+    )
     baseline.update(
         status="success", reason=None, method_variant="sanity_zero_fill", **baseline_metrics
     )
@@ -102,8 +116,17 @@ def summarize_c3_first_results(
     rows = [baseline]
     predictions = {}
     histories = {}
-    for method in METHODS:
-        row = _empty_row(method, method_runs[method], binding)
+    selected_methods = (
+        *METHODS,
+        *(method for method in OPTIONAL_METHODS if method_runs.get(method) is not None),
+    )
+    for method in selected_methods:
+        row = _empty_row(
+            method,
+            method_runs[method],
+            binding,
+            include_training_context=include_training_context,
+        )
         if method_runs[method] is not None:
             try:
                 prediction, history = _collect_run(
@@ -200,9 +223,36 @@ def _binding(inputs: C3VolumeRunInputs, suite_hash: str) -> dict:
     }
 
 
-def _empty_row(method: str, path: Path | None, binding: dict) -> dict:
+def _empty_row(
+    method: str,
+    path: Path | None,
+    binding: dict,
+    *,
+    include_training_context: bool,
+) -> dict:
+    regimes = {
+        "zero_fill": "no_training",
+        "pocs": "per_volume_iterative_reconstruction_no_learned_parameters",
+        "drr": "per_volume_iterative_reconstruction_no_learned_parameters",
+        "siren5d": "per_volume_observed_only_internal_learning",
+        "nersi": "per_volume_observed_only_internal_learning",
+        "ccnet5d": "train_partition_pretraining_then_frozen_validation_inference",
+        "relational_trace_graph": (
+            "masked_train_partition_pretraining_then_frozen_validation_inference"
+        ),
+    }
     row = {
         "method": method,
+        **(
+            {
+                "training_regime": regimes[method],
+                "additional_supervised_training_data": method
+                in ("ccnet5d", "relational_trace_graph"),
+                "target_volume_model_optimization": method in ("siren5d", "nersi"),
+            }
+            if include_training_context
+            else {}
+        ),
         "method_variant": None,
         "model": None,
         "parameter_count": None,
@@ -245,6 +295,11 @@ def _empty_row(method: str, path: Path | None, binding: dict) -> dict:
         "expected_sample_count": binding["sample_count"],
         "pretraining_seconds": None,
         "volume_fit_seconds": None,
+        **(
+            {"prediction_seconds": None, "total_method_seconds": None}
+            if include_training_context
+            else {}
+        ),
         "reconstruction_seconds": None,
         "frozen_inference_seconds": None,
         "evaluation_seconds": None,
@@ -307,6 +362,7 @@ def _collect_run(
             "siren5d": "siren",
             "ccnet5d": "ccnet-predict",
             "relational_trace_graph": "gnn-predict",
+            "nersi": "nersi",
         }[method]
         if request.get("action") != expected_action:
             raise ValueError("outer action is not the selected method prediction")
@@ -353,10 +409,10 @@ def _collect_run(
         != declared_config.get(method, {}).get("n_iterations")
     ):
         raise ValueError("completed iterations differ from declared budget")
-    if method == "siren5d":
+    if method in ("siren5d", "nersi"):
         training = metadata.get("training", {})
         if training.get("steps_completed") != training.get("max_steps"):
-            raise ValueError("SIREN did not complete its declared optimizer budget")
+            raise ValueError(f"{method} did not complete its declared optimizer budget")
     row.update(
         method_variant=metadata.get("method_variant", metadata["method"]),
         model=metadata.get("model"),
@@ -371,7 +427,11 @@ def _collect_run(
     )
     checkpoint = metadata.get("checkpoint", {})
     checkpoint_path = _checkpoint(method, native, checkpoint, row)
-    prediction = np.load(native / "artifacts" / "prediction.npy", mmap_mode="r", allow_pickle=False)
+    prediction_path = native / "artifacts" / "prediction.npy"
+    prediction_digest = file_sha256(prediction_path)
+    if method == "nersi" and metadata.get("prediction", {}).get("sha256") != prediction_digest:
+        raise ValueError("NeRSI prediction SHA-256 differs from run metadata")
+    prediction = np.load(prediction_path, mmap_mode="r", allow_pickle=False)
     if prediction.dtype.kind != "f":
         raise ValueError("prediction must have a floating physical-amplitude dtype")
     if (
@@ -392,7 +452,7 @@ def _collect_run(
     row["summary_re_evaluation_seconds"] = time.perf_counter() - started
     comparison = _compare_metrics(metrics, rescored, prediction.dtype)
     row.update(**rescored, metric_comparison=comparison, no_context_query_count=no_context)
-    row["prediction_sha256"] = file_sha256(native / "artifacts" / "prediction.npy")
+    row["prediction_sha256"] = prediction_digest
     history = _measurements(method, native, metadata, metrics, checkpoint_path, row)
     row.update(status="success", reason=None)
     row["null_reasons"] = {
@@ -411,6 +471,12 @@ def _validate_binding(
         raise ValueError("run method does not match explicit method mapping")
     if metrics.get("case_id") != inputs.case["case_id"]:
         raise ValueError("run case does not match selected case")
+    if method == "nersi" and (
+        metadata.get("case_id") != inputs.case["case_id"]
+        or metadata.get("volume_id") != inputs.volume_metadata["volume_id"]
+        or metrics.get("volume_id") != inputs.volume_metadata["volume_id"]
+    ):
+        raise ValueError("NeRSI metadata/metrics case or volume does not match selected input")
     for key in ("benchmark_case", "benchmark_volume"):
         for field, expected in inputs.inputs_lock[key].items():
             if lock.get(key, {}).get(field) != expected:
@@ -437,15 +503,18 @@ def _validate_binding(
 
 
 def _checkpoint(method: str, native: Path, checkpoint: dict, row: dict) -> Path | None:
-    if method not in ("siren5d", "ccnet5d", "relational_trace_graph"):
+    if method not in ("siren5d", "nersi", "ccnet5d", "relational_trace_graph"):
         row["checkpoint_role"] = "declared_iterations_completed"
         return None
-    role = "fixed_step_final" if method == "siren5d" else "final"
+    role = "fixed_step_final" if method in ("siren5d", "nersi") else "final"
     if checkpoint.get("role") != role:
         raise ValueError("pilot main comparison requires the final checkpoint")
     path = native / checkpoint["artifact"] if "artifact" in checkpoint else Path(checkpoint["path"])
     digest = file_sha256(path)
-    if checkpoint.get("sha256", digest) != digest:
+    recorded_digest = checkpoint.get("sha256", digest)
+    if method == "nersi" and "sha256" not in checkpoint:
+        raise ValueError("NeRSI final checkpoint metadata requires its saved SHA-256")
+    if recorded_digest != digest:
         raise ValueError("checkpoint hash changed since prediction")
     row.update(checkpoint_path=str(path.resolve()), checkpoint_sha256=digest, checkpoint_role=role)
     return path
@@ -545,6 +614,8 @@ def _measurements(
                 else f"native {key.removesuffix('_seconds')} stage"
             )
     row["frozen_inference_seconds"] = resources.get("prediction_seconds")
+    if "prediction_seconds" in row:
+        row["prediction_seconds"] = resources.get("prediction_seconds")
     row["measurement_scopes"]["frozen_inference_seconds"] = (
         "native prediction stage including assembly and observed reinsertion when measured"
     )
@@ -552,11 +623,20 @@ def _measurements(
         "collector dense target-only evaluation, including reference reads"
     )
     row["training_exposure"] = metadata.get("training", {})
-    if method == "siren5d":
+    if method in ("siren5d", "nersi"):
         row["volume_fit_seconds"] = resources.get("training_seconds")
         row["measurement_scopes"]["volume_fit_seconds"] = (
             "target volume observed-only optimizer stage"
         )
+        if (
+            "prediction_seconds" in row
+            and row["volume_fit_seconds"] is not None
+            and row["prediction_seconds"] is not None
+        ):
+            row["total_method_seconds"] = row["volume_fit_seconds"] + row["prediction_seconds"]
+            row["measurement_scopes"]["total_method_seconds"] = (
+                "per-volume observed-only training plus full-volume prediction"
+            )
         return metrics.get("training", {}).get("history", [])
     if method in ("ccnet5d", "relational_trace_graph") and checkpoint is not None:
         training = checkpoint.parent.parent

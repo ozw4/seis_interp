@@ -115,9 +115,15 @@ def _native(
         interim_dir=pilot["interim"],
         volume_metadata=inputs.volume_metadata,
     )
-    metrics.update(method=collector._NATIVE_METHODS[method], case_id=inputs.case["case_id"])
+    metrics.update(
+        method=collector._NATIVE_METHODS[method],
+        case_id=inputs.case["case_id"],
+        volume_id=inputs.volume_metadata["volume_id"],
+    )
     metadata = {
         "method": metrics["method"],
+        "case_id": inputs.case["case_id"],
+        "volume_id": inputs.volume_metadata["volume_id"],
         "status": "success",
         "input": {
             "partition": "validation",
@@ -128,19 +134,22 @@ def _native(
         "resources": {"reconstruction_seconds": 0.125} if method in ("pocs", "drr") else {},
     }
     lock = deepcopy(inputs.inputs_lock)
-    if method in ("siren5d", "ccnet5d", "relational_trace_graph"):
+    if method in ("siren5d", "nersi", "ccnet5d", "relational_trace_graph"):
         checkpoint = native / "artifacts" / "final.pt"
         checkpoint.write_bytes(b"synthetic checkpoint; collector must never deserialize")
         metadata["checkpoint"] = {
-            "role": "fixed_step_final" if method == "siren5d" else "final",
+            "role": "fixed_step_final" if method in ("siren5d", "nersi") else "final",
             "path": str(checkpoint),
             "sha256": file_sha256(checkpoint),
         }
-    if method == "siren5d":
+    if method in ("siren5d", "nersi"):
         metadata["training"] = {"max_steps": 2, "steps_completed": 2}
+        metadata["resources"] = {"training_seconds": 0.25, "prediction_seconds": 0.05}
         metrics["training"] = {
             "history": [{"step": 1, "train_loss": 2.0}, {"step": 2, "train_loss": 1.0}]
         }
+    if method == "nersi":
+        metadata["prediction"]["sha256"] = file_sha256(native / "artifacts" / "prediction.npy")
     if method == "relational_trace_graph":
         targets = inputs.observed_volume.array_rows[
             inputs.observed_volume.evaluation_target_trace_mask
@@ -209,6 +218,81 @@ def test_five_native_formats_reconcile_and_keep_unmeasured_null(pilot: dict) -> 
         table = list(csv.DictReader(stream))
     assert len(table) == 6
     assert table[1]["pretraining_seconds"] == ""
+    assert "training_regime" not in result["rows"][0]
+    assert "prediction_seconds" not in result["rows"][0]
+    assert "total_method_seconds" not in result["rows"][0]
+
+
+def test_optional_nersi_adds_one_validated_internal_learning_row(pilot: dict) -> None:
+    native = _native(pilot, "nersi")
+
+    result = _summarize(pilot, {"nersi": native}, suffix="_nersi")
+
+    assert [row["method"] for row in result["rows"]] == [
+        "zero_fill",
+        *collector.METHODS,
+        "nersi",
+    ]
+    row = result["rows"][-1]
+    assert row["status"] == "success"
+    assert row["checkpoint_role"] == "fixed_step_final"
+    assert row["training_regime"] == "per_volume_observed_only_internal_learning"
+    assert not row["additional_supervised_training_data"]
+    assert row["target_volume_model_optimization"]
+    assert row["expected_target_count"] == row["trace_count"]
+    assert row["expected_sample_count"] == row["sample_count"]
+    assert row["volume_fit_seconds"] == 0.25
+    assert row["prediction_seconds"] == row["frozen_inference_seconds"] == 0.05
+    assert row["total_method_seconds"] == 0.3
+
+
+def test_optional_nersi_rejects_a_run_bound_to_another_volume(pilot: dict) -> None:
+    native = _native(pilot, "nersi")
+    lock_path = native / "inputs.lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["benchmark_volume"]["files"]["volume.json"]["sha256"] = "another-volume"
+    _json(lock_path, lock)
+
+    result = _summarize(pilot, {"nersi": native}, suffix="_wrong_nersi_volume")
+
+    row = result["rows"][-1]
+    assert row["method"] == "nersi"
+    assert row["status"] == "invalid_result"
+    assert "benchmark_volume" in row["reason"]
+
+
+@pytest.mark.parametrize(
+    ("corruption", "message"),
+    [
+        ("metadata_volume", "case or volume"),
+        ("checkpoint_hash", "checkpoint metadata"),
+        ("prediction", "prediction SHA-256"),
+    ],
+)
+def test_optional_nersi_rejects_cross_record_identity_or_changed_artifacts(
+    pilot: dict,
+    corruption: str,
+    message: str,
+) -> None:
+    native = _native(pilot, "nersi")
+    run_path = native / "run.json"
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+    if corruption == "metadata_volume":
+        run["volume_id"] = "another-volume"
+        _json(run_path, run)
+    elif corruption == "checkpoint_hash":
+        del run["checkpoint"]["sha256"]
+        _json(run_path, run)
+    else:
+        prediction_path = native / "artifacts" / "prediction.npy"
+        prediction = np.load(prediction_path, allow_pickle=False)
+        np.save(prediction_path, prediction + np.float32(0.25))
+
+    result = _summarize(pilot, {"nersi": native}, suffix=f"_{corruption}")
+
+    row = result["rows"][-1]
+    assert row["status"] == "invalid_result"
+    assert message in row["reason"]
 
 
 def test_explicit_path_wins_without_directory_discovery(pilot: dict) -> None:
