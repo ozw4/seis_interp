@@ -34,7 +34,7 @@ def load_c3_benchmark_volume_inputs(
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
     verified_suite: VerifiedC3BenchmarkSuite | None = None,
 ) -> C3VolumeRunInputs:
-    """The shared POCS, DRR, SIREN-5D, and CCNet-5D observed-volume input contract."""
+    """The shared POCS, DRR, SIREN-5D, NeRSI, and CCNet-5D volume input contract."""
     suite = load_c3_benchmark_input_manifest(
         suite_dir, case_id=case_id, dimensions=dimensions, verified_suite=verified_suite
     )

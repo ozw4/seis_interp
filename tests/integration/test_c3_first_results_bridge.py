@@ -34,6 +34,7 @@ from tests.fixtures.c3_benchmark import (
 
 DIMENSIONS = C3BenchmarkDimensions((0, 4), (1, 2), (4, 2, 2, 2, 4))
 STUDY = REPOSITORY_ROOT / "studies/study_028_c3_first_results"
+NERSI_STUDY = REPOSITORY_ROOT / "studies/study_034_c3_nersi_baseline"
 SEEDS = {
     "partition": 42,
     "training": 20260908,
@@ -78,6 +79,8 @@ def _write_inputs(tmp_path, suite_inputs):
 
 
 def _fragment(action):
+    if action == "nersi":
+        return yaml.safe_load((NERSI_STUDY / "methods/nersi_preflight.yaml").read_text())
     name = "gnn-train" if action == "gnn-preflight" else action
     result = yaml.safe_load((STUDY / "methods" / f"{name.replace('-', '_')}.yaml").read_text())
     if action in ("gnn-train", "gnn-preflight"):
@@ -271,6 +274,148 @@ def test_dry_run_writes_nothing_and_rejects_case_override(tmp_path, suite_inputs
     )
     assert result["status"] == "blocked"
     assert set(tmp_path.rglob("*")) == before
+
+
+def test_nersi_dry_run_binds_exact_suite_paths_native_config_and_distinct_seeds(
+    tmp_path, suite_inputs
+):
+    inputs_path = _write_inputs(tmp_path, suite_inputs)
+    fragment = _fragment("nersi")
+    fragment["training"]["device"] = "cuda:1"
+    plan = _plan(tmp_path, "nersi", fragment)
+    binding = resolve_c3_first_result_inputs(inputs_path, dimensions=DIMENSIONS)
+    before = set(tmp_path.rglob("*"))
+
+    result = run_c3_first_results(
+        config_path=plan,
+        inputs_path=inputs_path,
+        action="nersi",
+        dimensions=DIMENSIONS,
+    )
+
+    assert result["status"] == "dry_run", result
+    assert not result["writes"]
+    request = result["request"]
+    assert request["paths"] == {key: str(path) for key, path in binding.paths.items()}
+    assert request["case"]["case_id"] == binding.entry["case_id"]
+    assert request["volume"]["volume_id"] == binding.volume["volume_id"]
+    assert request["input_hashes"] == binding.input_hashes
+    native = request["native_config"]
+    for section in ("model", "training", "prediction", "evaluation"):
+        assert native[section] == fragment[section]
+    assert native["project"]["random_seed"] == request["case"]["random_seed"] == 142
+    assert native["training"]["random_seed"] == SEEDS["training"] == 20260908
+    assert native["training"]["random_seed"] != native["project"]["random_seed"]
+    assert native["benchmark_case"] == {"id": binding.entry["case_id"]}
+    assert native["benchmark_volume"] == {
+        "id": binding.volume["volume_id"],
+        "selection": binding.volume["selection"],
+    }
+    assert native["interpolation_mask"] == {
+        key: binding.entry[key] for key in ("partition", "kind", "missing_fraction")
+    }
+    assert set(tmp_path.rglob("*")) == before
+
+
+@pytest.mark.parametrize("problem", ["unsupported_section", "evaluation_mismatch"])
+def test_nersi_native_binding_rejects_fragment_scope_or_evaluation_mismatch(
+    tmp_path, suite_inputs, problem
+):
+    binding = resolve_c3_first_result_inputs(
+        _write_inputs(tmp_path, suite_inputs), dimensions=DIMENSIONS
+    )
+    fragment = _fragment("nersi")
+    if problem == "unsupported_section":
+        fragment["nuclear_norm"] = {"weight": 1.0}
+        message = "exactly"
+    else:
+        fragment["evaluation"]["domain"] = "all_traces"
+        message = "evaluation"
+
+    with pytest.raises(ConfigurationError, match=message):
+        build_c3_first_result_native_config(
+            "nersi", fragment=fragment, binding=binding, seeds=SEEDS
+        )
+
+
+def test_nersi_full_dispatch_passes_only_exact_verified_volume_paths(
+    tmp_path, suite_inputs, monkeypatch
+):
+    fragment = _fragment("nersi")
+    fragment["training"]["device"] = "cuda:1"
+    result = run_c3_first_results(
+        config_path=_plan(tmp_path, "nersi", fragment),
+        inputs_path=_write_inputs(tmp_path, suite_inputs),
+        action="nersi",
+        dimensions=DIMENSIONS,
+    )
+    assert result["status"] == "dry_run", result
+    request = result["request"]
+    request.update(
+        native_config_path=str(tmp_path / "native.yaml"),
+        native_run_directory=str(tmp_path / "native"),
+    )
+    captured = {}
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.interpolate_nersi.interpolate_nersi_run",
+        spy,
+    )
+
+    assert dispatch_c3_first_results_action(request) == {"status": "success"}
+    assert captured == {
+        "config_path": tmp_path / "native.yaml",
+        "output_dir": tmp_path / "native",
+        "progress_reporter": captured["progress_reporter"],
+        **{key: Path(value) for key, value in request["paths"].items()},
+    }
+    assert callable(captured["progress_reporter"])
+    assert "checkpoint_path" not in captured
+
+
+def test_dispatch_nersi_preflight_uses_declared_ten_smoke_steps(tmp_path, monkeypatch):
+    request = {
+        "action": "nersi",
+        "preflight": True,
+        "paths": {},
+        "native_config_path": str(tmp_path / "config.yaml"),
+        "native_run_directory": str(tmp_path / "native"),
+        "suite_manifest": str(tmp_path / "benchmark_suite.json"),
+        "case_id": "validation_random_trace",
+        "dimensions": {
+            "time_range": DIMENSIONS.time_range,
+            "sail_line_numbers": DIMENSIONS.sail_line_numbers,
+            "shape": DIMENSIONS.shape,
+        },
+        "experiment_config": {
+            "methods": {"nersi": {"preflight": {"smoke_steps": 10}}},
+        },
+    }
+    captured = {}
+
+    def spy(action, **kwargs):
+        captured["action"] = action
+        captured.update(kwargs)
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "seis_interp.pipelines.preflight_c3_first_results_neural."
+        "run_c3_first_results_neural_preflight",
+        spy,
+    )
+
+    assert dispatch_c3_first_results_action(request) == {"status": "success"}
+    assert captured["action"] == "nersi"
+    assert captured["smoke_steps"] == 10
+    assert captured["config_path"] == tmp_path / "config.yaml"
+    assert captured["suite_dir"] == tmp_path
+    assert captured["output_dir"] == tmp_path / "native"
+    assert captured["case_id"] == "validation_random_trace"
+    assert not (tmp_path / "native").exists()
 
 
 @pytest.mark.parametrize("action", ["pocs", "drr"])

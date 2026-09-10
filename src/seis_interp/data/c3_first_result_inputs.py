@@ -251,7 +251,7 @@ def validate_c3_first_result_training_inputs(
 def _method_sections(action: str) -> set[str]:
     if action in ("pocs", "drr"):
         return {action, "evaluation"}
-    if action == "siren":
+    if action in ("siren", "nersi"):
         return {"model", "training", "prediction", "evaluation"}
     if action == "ccnet-train":
         return {"model", "supervision", "patches", "training", "selection"}

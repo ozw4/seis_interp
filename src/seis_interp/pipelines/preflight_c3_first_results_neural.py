@@ -26,7 +26,9 @@ from seis_interp.data.c3_benchmark_suite import (
     suite_path,
 )
 from seis_interp.data.file_checksums import file_sha256
+from seis_interp.models.nersi import Nersi
 from seis_interp.models.siren import Siren
+from seis_interp.nersi_config import NersiSettings, validate_nersi_config
 from seis_interp.pipelines.preflight_relational_trace_graph import (
     preflight_relational_trace_graph_run,
 )
@@ -50,6 +52,7 @@ from seis_interp.training.c3_first_results_neural_preflight import (
     measure_c3_first_results_graph_training_batch,
     synchronize_preflight_device,
 )
+from seis_interp.training.c3_volume_nersi_data import build_c3_volume_nersi_data
 from seis_interp.training.c3_volume_siren_data import (
     build_c3_volume_siren_data,
     build_c3_volume_siren_sampler,
@@ -68,12 +71,14 @@ from seis_interp.training.ccnet5d_source_binding import (
     load_ccnet5d_supervised_source,
 )
 from seis_interp.training.devices import resolve_device
+from seis_interp.training.fixed_step_nersi import train_nersi_fixed_steps
 from seis_interp.training.fixed_step_siren import (
     train_siren_complete_trace_steps,
     train_siren_fixed_steps,
 )
 from seis_interp.training.point_sampler import build_trace_coordinate_points
 from seis_interp.training.prediction import predict_points
+from seis_interp.training.randomness import seed_global_model_initialization
 from seis_interp.training.siren_initialization import apply_siren_time_weight_initialization
 
 
@@ -90,13 +95,14 @@ def run_c3_first_results_neural_preflight(
     normalization_checkpoint_path: Path | None = None,
     query_counts: tuple[int, ...] = (1, 8),
     query_limit: int = 32,
+    smoke_steps: int = 10,
 ) -> dict[str, object]:
     """Measure only the requested smoke; save successful and blocked strict JSON.
 
     Call in a fresh process with the execution environment's explicit timeout.
     This function never launches the main pilot or a full validation prediction.
     """
-    if action not in ("siren", "ccnet-train", "gnn-preflight"):
+    if action not in ("siren", "nersi", "ccnet-train", "gnn-preflight"):
         raise ValueError("unsupported neural preflight action")
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=False)
@@ -138,11 +144,23 @@ def run_c3_first_results_neural_preflight(
                 output,
             )
         else:
+            input_started = perf_counter()
             inputs = load_c3_benchmark_volume_inputs(case_id=case_id, **arguments)
+            input_seconds = perf_counter() - input_started
             if action == "siren":
                 if config["project"]["random_seed"] != inputs.case["mask"]["random_seed"]:
                     raise ValueError("SIREN project seed must equal the fixed case mask seed")
                 details = _siren_preflight(config, inputs, device)
+            elif action == "nersi":
+                if config["project"]["random_seed"] != inputs.case["mask"]["random_seed"]:
+                    raise ValueError("NeRSI project seed must equal the fixed case mask seed")
+                details = _nersi_preflight(
+                    validate_nersi_config(config),
+                    inputs,
+                    device,
+                    smoke_steps=smoke_steps,
+                    input_seconds=input_seconds,
+                )
             else:
                 if config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET:
                     source = load_ccnet5d_supervised_source(
@@ -180,6 +198,96 @@ def run_c3_first_results_neural_preflight(
     report["elapsed_seconds"] = perf_counter() - started
     write_benchmark_json(output / "preflight.json", report)
     return report
+
+
+def _nersi_preflight(
+    settings: NersiSettings,
+    inputs,
+    device: torch.device,
+    *,
+    smoke_steps: int,
+    input_seconds: float,
+) -> dict[str, object]:
+    if isinstance(smoke_steps, bool) or not isinstance(smoke_steps, int) or smoke_steps <= 0:
+        raise ValueError("NeRSI smoke_steps must be a positive integer")
+    started = perf_counter()
+    data = build_c3_volume_nersi_data(inputs.observed_volume)
+    data_seconds = perf_counter() - started
+    model_config = settings.model_constructor_config(data.profile_shape)
+    devices = list(range(torch.cuda.device_count())) if device.type == "cuda" else []
+    with torch.random.fork_rng(devices=devices):
+        seed_global_model_initialization(settings.training.random_seed, device=device)
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+        started = perf_counter()
+        model = Nersi(**model_config)
+        model_seconds = perf_counter() - started
+        synchronize_preflight_device(device)
+        started = perf_counter()
+        trained = train_nersi_fixed_steps(
+            model,
+            data,
+            device=device,
+            learning_rate=settings.training.learning_rate,
+            profiles_per_step=settings.training.profiles_per_step,
+            max_steps=smoke_steps,
+            report_interval=smoke_steps,
+            random_seed=settings.training.random_seed,
+        )
+        synchronize_preflight_device(device)
+        training_seconds = perf_counter() - started
+        prediction_count = min(len(data.normalized_coordinates), settings.prediction_batch_size)
+        coordinates = torch.from_numpy(data.normalized_coordinates[:prediction_count]).to(
+            device=device, dtype=torch.float32
+        )
+        model.eval()
+        synchronize_preflight_device(device)
+        started = perf_counter()
+        with torch.inference_mode():
+            prediction = model(coordinates)
+        synchronize_preflight_device(device)
+        prediction_seconds = perf_counter() - started
+        expected_shape = (prediction_count, 1, *data.profile_shape)
+        if tuple(prediction.shape) != expected_shape or not torch.isfinite(prediction).all():
+            raise ValueError("NeRSI smoke predictions must have the expected finite profile shape")
+        resources = trace_graph_resource_measurements(device)
+    observed_trace_count = int(np.count_nonzero(data.observed_trace_mask))
+    return {
+        "smoke_steps": trained.steps_completed,
+        "training_random_seed": settings.training.random_seed,
+        "profile_count": int(len(data.normalized_coordinates)),
+        "training_profile_count": int(len(data.training_profile_indices)),
+        "observed_trace_count": observed_trace_count,
+        "observed_sample_count": observed_trace_count * data.profile_shape[0],
+        "profile_shape": list(data.profile_shape),
+        "model_config": model.constructor_config(),
+        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+        "sampled_prediction_profile_count": prediction_count,
+        "timings": {
+            "verified_volume_input_load_seconds": input_seconds,
+            "observed_profile_data_seconds": data_seconds,
+            "model_build_seconds": model_seconds,
+            "smoke_training_seconds": training_seconds,
+            "sample_prediction_seconds": prediction_seconds,
+        },
+        "estimates": {
+            "kind": "linear_extrapolation_not_measured_full_run",
+            "declared_training_steps": settings.training.max_steps,
+            "estimated_training_seconds": (
+                training_seconds * settings.training.max_steps / smoke_steps
+            ),
+            "estimated_full_profile_prediction_seconds": (
+                prediction_seconds * len(data.normalized_coordinates) / prediction_count
+            ),
+            "unmeasured_costs": [
+                "full-run input verification and output writes",
+                "full-volume physical target scoring",
+            ],
+        },
+        "resources": resources,
+        "full_validation_prediction_completed": False,
+        "state_reused_by_pilot": False,
+    }
 
 
 def _siren_preflight(config, inputs, device):

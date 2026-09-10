@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from copy import deepcopy
 
 import pytest
@@ -31,7 +32,9 @@ from tests.fixtures.c3_benchmark import (
 )
 
 DIMENSIONS = C3BenchmarkDimensions((0, 4), (2, 3), (4, 2, 2, 2, 4))
+NERSI_DIMENSIONS = C3BenchmarkDimensions((0, 8), (2, 3), (8, 2, 2, 2, 8))
 METHODS = REPOSITORY_ROOT / "studies/study_028_c3_first_results/methods"
+NERSI_METHODS = REPOSITORY_ROOT / "studies/study_034_c3_nersi_baseline/methods"
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +55,27 @@ def suite(tmp_path_factory):
     return output
 
 
+@pytest.fixture(scope="module")
+def nersi_suite(tmp_path_factory):
+    """Build a profile shape compatible with NeRSI's three 2x decoder blocks."""
+    root = tmp_path_factory.mktemp("nersi-neural-preflight")
+    config = synthetic_benchmark_config()
+    config["c3_benchmark"]["shape"] = list(NERSI_DIMENSIONS.shape)
+    config["c3_benchmark"]["sail_lines"].update(requested_inclusive=[2, 3], index_range=[2, 4])
+    config["c3_benchmark"]["training"]["time_samples"] = [0, 8]
+    config["benchmark_volume"]["selection"].update(time=[0, 8], source_line=[2, 4])
+    interim = make_benchmark_interim(root / "source")
+    output = root / "suite"
+    prepare_c3_benchmark_artifacts(
+        interim,
+        output,
+        config=config,
+        inputs={"cases": synthetic_benchmark_cases()},
+        dimensions=NERSI_DIMENSIONS,
+    )
+    return output
+
+
 def _regions(suite, **kwargs):
     return resolve_c3_first_results_ccnet_regions(
         suite,
@@ -65,10 +89,12 @@ def _regions(suite, **kwargs):
 def _config(suite, action):
     filename = {
         "siren": "siren",
+        "nersi": "nersi_preflight",
         "ccnet-train": "ccnet_train",
         "gnn-preflight": "gnn_train",
     }[action]
-    config = load_resolved_config(METHODS / f"{filename}.yaml")
+    method_directory = NERSI_METHODS if action == "nersi" else METHODS
+    config = load_resolved_config(method_directory / f"{filename}.yaml")
     config.update(project={"random_seed": 42}, data={"dataset_id": "synthetic_c3"})
     config["training"]["device"] = "cpu"
     if action == "ccnet-train":
@@ -83,11 +109,37 @@ def _config(suite, action):
         config["training_data"]["time_samples"] = [0, 4]
         config["training"]["query_batch_size"] = 2
         config["evaluation"]["query_batch_size"] = 2
+    elif action == "nersi":
+        config["model"].update(
+            fourier_components=2,
+            encoder_width=8,
+            latent_channels=2,
+            decoder_channels=[2, 2, 2],
+            kernel_size=1,
+        )
+        config["training"].update(
+            profiles_per_step=1,
+            max_steps=20,
+            report_interval=10,
+        )
+        config["prediction"]["batch_size"] = 3
     else:
         config["model"].update(hidden_width=8, hidden_layers=2)
         config["training"]["batch_size"] = 8
         config["prediction"]["batch_size"] = 8
     return config
+
+
+def _nested_mapping_keys(value):
+    keys = set()
+    if isinstance(value, dict):
+        keys.update(value)
+        for child in value.values():
+            keys.update(_nested_mapping_keys(child))
+    elif isinstance(value, list):
+        for child in value:
+            keys.update(_nested_mapping_keys(child))
+    return keys
 
 
 def test_regions_resolve_geometry_and_reject_nontrain_overlap_or_wrong_time(suite):
@@ -186,6 +238,66 @@ def test_neural_smoke_measures_tiny_fixed_suite_without_full_prediction(
         if amplitude_scaling == "per_trace_rms":
             assert report["amplitude_scaling"] == amplitude_scaling
             assert report["scale_interpolation"] == config["prediction"]["scale_interpolation"]
+
+
+def test_nersi_preflight_runs_ten_observed_only_steps_without_target_metrics(nersi_suite, tmp_path):
+    config = _config(nersi_suite, "nersi")
+    config_path = tmp_path / "nersi.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    output = tmp_path / "smoke"
+
+    report = run_c3_first_results_neural_preflight(
+        "nersi",
+        config_path=config_path,
+        suite_dir=nersi_suite,
+        case_id="validation_random_trace",
+        output_dir=output,
+        dimensions=NERSI_DIMENSIONS,
+        smoke_steps=10,
+    )
+
+    assert report["status"] == "success", report
+    assert report["action"] == "nersi"
+    assert report["scope"] == "disposable_neural_preflight"
+    assert report["smoke_steps"] == 10
+    assert report["training_random_seed"] == 20260908
+    assert report["profile_shape"] == [8, 8]
+    # The synthetic validation partition has one source line, two shots, and
+    # two receiver-x positions; receiver-y remains the profile output axis.
+    assert report["profile_count"] == 1 * 2 * 2 == 4
+    assert 0 < report["training_profile_count"] <= report["profile_count"]
+    assert report["observed_trace_count"] > 0
+    assert report["observed_sample_count"] == report["observed_trace_count"] * 8
+    assert report["sampled_prediction_profile_count"] == 3
+    assert report["model_config"]["profile_shape"] == (8, 8)
+    assert report["model_config"]["fourier_components"] == 2
+    assert report["parameter_count"] > 0
+    assert not report["training_started"]
+    assert not report["full_validation_prediction_completed"]
+    assert not report["state_reused_by_pilot"]
+    forbidden_metric_keys = {
+        "evaluation_target",
+        "snr_db",
+        "rmse",
+        "reference_energy",
+        "error_energy",
+        "target_metric",
+        "target_metrics",
+    }
+    assert not (forbidden_metric_keys & _nested_mapping_keys(report))
+    assert all(math.isfinite(value) and value >= 0.0 for value in report["timings"].values())
+    assert report["estimates"]["kind"] == "linear_extrapolation_not_measured_full_run"
+    for name in ("estimated_training_seconds", "estimated_full_profile_prediction_seconds"):
+        assert math.isfinite(report["estimates"][name])
+        assert report["estimates"][name] >= 0.0
+    assert report["resources"]["process_max_rss_bytes"] > 0
+    assert report["resources"]["cpu_memory_scope"] == "process_lifetime_peak"
+    assert report["resources"]["cuda_max_memory_allocated_bytes"] is None
+    assert report["resources"]["cuda_max_memory_reserved_bytes"] is None
+    assert report["resources"]["cuda_memory_scope"] == "unmeasured"
+    stored = json.loads((output / "preflight.json").read_text())
+    assert stored == json.loads(json.dumps(report, allow_nan=False))
+    assert load_resolved_config(config_path) == config
 
 
 @pytest.mark.parametrize("problem", ["wrong_seed", "query_limit"])

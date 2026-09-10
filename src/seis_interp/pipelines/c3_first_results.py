@@ -34,6 +34,7 @@ ACTIONS = (
     "pocs",
     "drr",
     "siren",
+    "nersi",
     "ccnet-train",
     "ccnet-predict",
     "gnn-preflight",
@@ -58,7 +59,14 @@ def run_c3_first_results(
     """Resolve read-only by default; explicit execution isolates a single timed action."""
     if action not in ACTIONS:
         raise ConfigurationError(f"unsupported action: {action}")
-    if preflight and action not in ("pocs", "drr", "siren", "ccnet-train", "gnn-preflight"):
+    if preflight and action not in (
+        "pocs",
+        "drr",
+        "siren",
+        "nersi",
+        "ccnet-train",
+        "gnn-preflight",
+    ):
         raise ConfigurationError(f"--preflight is not supported for {action}")
     config_path, inputs_path = Path(config_path).resolve(), Path(inputs_path).resolve()
     plan = read_first_results_yaml(config_path)
@@ -397,6 +405,12 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
                     "validation_query_counts"
                 ]
             )
+        elif action == "nersi":
+            measurement_options["smoke_steps"] = (
+                request["experiment_config"]["methods"]["nersi"]
+                .get("preflight", {})
+                .get("smoke_steps", 10)
+            )
         return run_c3_first_results_neural_preflight(
             action,
             config_path=config_path,
@@ -454,6 +468,10 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
         from seis_interp.pipelines.interpolate_siren import interpolate_siren_run
 
         return interpolate_siren_run(**arguments, **paths)
+    if action == "nersi":
+        from seis_interp.pipelines.interpolate_nersi import interpolate_nersi_run
+
+        return interpolate_nersi_run(**arguments, **paths)
     checkpoint = Path(request["checkpoint"]["path"])
     if file_sha256(checkpoint) != request["checkpoint"]["sha256"]:
         raise ValueError("checkpoint changed after the experiment request was recorded")
