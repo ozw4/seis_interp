@@ -7,6 +7,15 @@
 SIRENのShear付き11.3422 dBは[Study031](../study_031_c3_siren_10db/README.md)の
 採用参照モデルとして別条件で記録する。
 
+同じ採用設定の振幅処理だけを`train_global_rms`へ変えた比較では、final 5,000更新の
+独立予測が**10.3033 dB、RMSE 3.0350**となり、全対象再採点とCPU復元監査に合格した。
+観測traceごとの正規化とquery尺度のIDW復元を使わず、訓練データでfitした共通RMSだけで
+入出力振幅を変換する。relative MSEの教師RMSによるloss重みは維持した。
+この条件のbest 4,000更新は補助予測で11.0417 dBだったが、主比較は両条件ともfinal 5,000更新とする。
+採用済み11.9354 dBより低いため、現在の採用モデルと`config.yaml`は維持する。
+[global RMSの比較報告](../../reports/c3_proposed_gnn_global_rms_relative_mse_5k_20260910.md)と
+[実行条件](config_train_global_rms_relative_mse_fp32_no_benchmark_5k.yaml)を参照する。
+
 入力は[inputs.yaml](inputs.yaml)のQC suite（SHA-256
 `f707a2e09dc0c0c2e137c1c2aef3ed57ade7bf8a3f05e9b784f531d70ed3a3ee`）に固定する。
 評価caseは`c3_benchmark_validation_random_trace_80_seed142`、欠損80%、観測14,729本、

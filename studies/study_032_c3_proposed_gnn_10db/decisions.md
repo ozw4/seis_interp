@@ -181,3 +181,34 @@ matched-information superiority is established. Preserve every prior
 failed condition and audit. See the
 [final report](../../reports/c3_proposed_gnn_relative_mse_5k_20260909.md)
 for the adopted record, saved reconstruction figures, and run provenance.
+
+## 2026-09-10 — Compare the adopted GNN settings with global RMS amplitude normalization
+
+The requested comparison changes only native `model.amplitude_mode` from
+`observed_trace_rms` to `train_global_rms`. Retain the adopted relative-MSE
+loss, width 64, batch 128, seed 20260908, 5,000 updates, FP32 environment,
+cuDNN benchmark disabled, 437 QC exclusions, and identical train/validation
+bindings. Reuse the same frozen execution source and train-only global RMS
+28.627922455065246. Teacher-trace RMS remains confined to the training
+loss weights; it is never a forward input or prediction gain. This mode
+switch removes both observed-trace unit-RMS input scaling and interpolated
+query gain, so their individual effects are not separated.
+
+The final 5,000 independent prediction achieved 10.3033 dB and RMSE 3.0350 on
+all 58,999 targets × 384 samples. Saved-output rescoring, checkpoint provenance,
+training/frozen energy reconciliation, and the fixed 1,143-query CPU
+restoration criteria passed. Best 4,000 produced 11.0417 dB as an auxiliary
+prediction; the later validation decline is recorded without attributing
+its cause to overfitting. Preserve the declared final-checkpoint comparison
+and do not extend the budget or retry for quality.
+
+Publish the global-RMS comparison measurements and figures, while retaining
+the adopted observed-RMS final 11.9354 dB model and current `config.yaml`.
+The final difference is −1.6321 dB on this single seed and validation case;
+test performance remains unevaluated. The generic preflight's budget
+estimator could not use its limited query sample, despite a successful
+disposable batch 128 update and small inference measurements. Those records
+and the separate resource decision to proceed are retained; the overall
+preflight is not relabelled successful. The numerical audit thresholds were
+unchanged. See the [comparison report](../../reports/c3_proposed_gnn_global_rms_relative_mse_5k_20260910.md)
+and [declared executable condition](config_train_global_rms_relative_mse_fp32_no_benchmark_5k.yaml).

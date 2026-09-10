@@ -1,0 +1,3 @@
+amplitude_mode,error_energy,reference_energy,relative_l2,rmse,sample_count,snr_db,snr_status,trace_count,steps,best_step,train_global_RMS,query_presentations,sample_presentations,source
+observed_trace_rms,143312260.84446973,2237830414.4522996,0.2530626710344306,2.5150911911880325,22655616,11.93543824732025,finite,58999,5000,3000,28.627922455065246,640000,245760000,runs/study_032_c3_proposed_gnn_10db/20260909T104419208387Z_e39df16d563c_gnn-predict/native/metrics.json
+train_global_rms,208686217.63656825,2237830414.4522996,0.3053748719081978,3.035001753545805,22655616,10.303334043731542,finite,58999,5000,4000,28.627922455065246,640000,245760000,runs/study_032_c3_proposed_gnn_10db/20260910T001409915447Z_6d0cdf28f9ef_gnn-predict/native/metrics.json

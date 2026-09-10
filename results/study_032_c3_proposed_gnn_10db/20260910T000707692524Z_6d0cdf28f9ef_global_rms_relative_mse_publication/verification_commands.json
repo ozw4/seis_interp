@@ -1,0 +1,91 @@
+{
+  "scope": "Existing bounded CPU tests; no combinedunique count. Tests are not rerun for publication.",
+  "main_tests": {
+    "command": [
+      "$REPOSITORY_ROOT/.venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/unit/test_relational_trace_graph.py",
+      "tests/unit/test_trace_graph_amplitude.py",
+      "tests/unit/test_trace_graph_preprocessing.py",
+      "tests/unit/test_trace_graph_losses.py",
+      "tests/unit/test_relational_trace_graph_config.py",
+      "tests/unit/test_relational_trace_graph_checkpoints.py",
+      "tests/unit/test_relational_trace_graph_trainer.py",
+      "tests/unit/test_relational_trace_graph_prediction.py",
+      "tests/unit/test_trace_graph_preflight.py",
+      "tests/integration/test_relational_trace_graph_runs.py",
+      "tests/integration/test_relational_trace_graph_variants.py",
+      "tests/integration/test_relational_trace_graph_inputs.py",
+      "tests/integration/test_c3_first_results_neural_preflight.py",
+      "-q",
+      "-p",
+      "no:cacheprovider"
+    ],
+    "returncode": 0,
+    "elapsed_seconds": 239.17247268464416,
+    "stdout": "pytest.stdout.log",
+    "stderr": "pytest.stderr.log"
+  },
+  "main_summary": "432 passed in 237.87s (0:03:57)",
+  "public_preflight_tests": {
+    "command": [
+      "$REPOSITORY_ROOT/.venv/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/unit/test_c3_first_results_neural_preflight.py",
+      "-q",
+      "-p",
+      "no:cacheprovider"
+    ],
+    "pytest_summary": "20 passed in 2.33s",
+    "pytest_returncode_not_separately_persisted": true,
+    "stdout": "public_preflight.stdout.log",
+    "stderr": "public_preflight.stderr.log",
+    "wrapper_exit_code": 1,
+    "wrapper_error_after_tests": "FileNotFoundError when recording test hash: wrapper selected argument -q instead of the test filename. Tests completed before this bookkeeping error. Existing stdout retained; no tests rerun.",
+    "test_file_sha256": "a17d7607e840a6bcba9c65f22d3788b1617d65632f680f1530c12e732d74e3d0"
+  },
+  "public_preflight_summary": "20 passed in 2.33s",
+  "public_preflight_returncode_scope": "pytest returncode not separatelypersisted; success summary retained; metadata writer wrapper exit1 remains distinct.",
+  "test_environment": {
+    "CUDA_VISIBLE_DEVICES": "",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONPATH": "$REPOSITORY_ROOT/src"
+  },
+  "lint": [
+    {
+      "command": [
+        "$REPOSITORY_ROOT/.venv/bin/ruff",
+        "check",
+        "."
+      ],
+      "returncode": 0,
+      "stdout": "All checks passed!\n"
+    },
+    {
+      "command": [
+        "$REPOSITORY_ROOT/.venv/bin/ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "returncode": 0,
+      "stdout": "490 files already formatted\n"
+    }
+  ],
+  "source_records": {
+    "runs/study_032_c3_proposed_gnn_10db/20260909T232001437217Z_6d0cdf28f9ef_global_rms_existing_implementation_review/checks.json": "7e637e81d0ac4bc6407c1591e770762597b250b19a98e9df042feb9d2f7593b6",
+    "runs/study_032_c3_proposed_gnn_10db/20260909T232001437217Z_6d0cdf28f9ef_global_rms_existing_implementation_review/request.json": "bf765db8575d65ec48567e94349218678c8b1a1d9ddeba7e0e31f1aac367bfd0",
+    "runs/study_032_c3_proposed_gnn_10db/20260909T232001437217Z_6d0cdf28f9ef_global_rms_existing_implementation_review/public_preflight_execution_recovered.json": "f684f22cc64186b0cc5f87359014e7defdbb307875986174c5bb5cdcc1d18044",
+    "runs/study_032_c3_proposed_gnn_10db/20260909T232001437217Z_6d0cdf28f9ef_global_rms_existing_implementation_review/pytest.stdout.log": "4f54fab39584bde625589d04720707e56e7db5451733347e4e1185b5aa483fd2",
+    "runs/study_032_c3_proposed_gnn_10db/20260909T232001437217Z_6d0cdf28f9ef_global_rms_existing_implementation_review/public_preflight.stdout.log": "66e59aee7fa694bf88809953c4b383a387ef14543119840ab4542ce085b78465"
+  },
+  "local_path_export": "$REPOSITORY_ROOT prefix represented as $REPOSITORY_ROOT; no temporary source paths copied."
+}

@@ -1,0 +1,25 @@
+{
+  "source_run": "runs/study_032_c3_proposed_gnn_10db/20260910T002353442297Z_6d0cdf28f9ef_global_rms_comparison_layout",
+  "source_sha256": {
+    "runs/study_032_c3_proposed_gnn_10db/20260910T000707692524Z_6d0cdf28f9ef_global_rms_relative_mse_publication/selected_waveforms.csv": "c6616b8a2047c3df64370f76ec71b112973c383a0779a9165be4f8a79d4070bf",
+    "runs/study_032_c3_proposed_gnn_10db/20260910T000707692524Z_6d0cdf28f9ef_global_rms_relative_mse_publication/selected_geometry.csv": "fa4fb51abeee686e10dfc644004d0d109f8220136d5a03f3938788311eedeed7",
+    "runs/study_032_c3_proposed_gnn_10db/20260910T000707692524Z_6d0cdf28f9ef_global_rms_relative_mse_publication/figure_metadata.json": "72e9c3bf516b56689d69ada87460dd13ec3b2c00911c7bbd146f38377766d683",
+    "runs/study_032_c3_proposed_gnn_10db/20260910T000707692524Z_6d0cdf28f9ef_global_rms_relative_mse_publication/fixed_gather_comparison.png": "c78a170fe0cd396e93fa959b691ea8514457aefa3f7681f16322d64970166cf5",
+    "runs/study_032_c3_proposed_gnn_10db/20260910T000707692524Z_6d0cdf28f9ef_global_rms_relative_mse_publication/manifest.json": "20730200b451aa9fda544561c8f88806abd1f1dcc3d6d8dc6961b4e378ec57b0",
+    "runs/study_032_c3_proposed_gnn_10db/20260910T002353442297Z_6d0cdf28f9ef_global_rms_comparison_layout/request.json": "c34ece931176ab44754d744b150f80591bff7197e362fcf896d8f3aa7bc7bef7",
+    "runs/study_032_c3_proposed_gnn_10db/20260910T002353442297Z_6d0cdf28f9ef_global_rms_comparison_layout/render.py": "2b8563d1a8513526240c4302c9523423f2f925ebed60fb85ab1c95bec2da16a2"
+  },
+  "artifact_sha256": {
+    "fixed_gather_comparison.png": "29192603bd4944fe1ab559251cfd914d91bf6f290caf599b9611cf45f306c531"
+  },
+  "derivation": "Move panel titles upward using pad=25 points; same data, scales, geometry, residual, sample counts.",
+  "same_selected_data_and_clip_counts": true,
+  "clip_counts": {
+    "truth": 123,
+    "observed_rms": 88,
+    "train_global_rms": 72,
+    "residual": 0
+  },
+  "raw_reads": 0,
+  "GPU": false
+}

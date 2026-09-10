@@ -1,0 +1,39 @@
+{
+  "decided_at_utc": "2026-09-10T00:22:25.968281+00:00",
+  "record_kind": "completed normalizationcomparison",
+  "model_adopted": false,
+  "reference_adopted_model_retained": true,
+  "final5000_primary_even_below10": true,
+  "new_final_above10": true,
+  "audit_status": "success",
+  "new_metrics": {
+    "error_energy": 208686217.63656825,
+    "reference_energy": 2237830414.4522996,
+    "relative_l2": 0.3053748719081978,
+    "rmse": 3.035001753545805,
+    "sample_count": 22655616,
+    "snr_db": 10.303334043731542,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "old_metrics": {
+    "error_energy": 143312260.84446973,
+    "reference_energy": 2237830414.4522996,
+    "relative_l2": 0.2530626710344306,
+    "rmse": 2.5150911911880325,
+    "sample_count": 22655616,
+    "snr_db": 11.93543824732025,
+    "snr_status": "finite",
+    "trace_count": 58999
+  },
+  "new_final_checkpoint": {
+    "path": "runs/study_032_c3_proposed_gnn_10db/20260909T232330486359Z_6d0cdf28f9ef_gnn-train/native/artifacts/final.pt",
+    "sha256": "0b4c824d441eb5191887d8cc3917acf7957ea884515c10fc88db09d06b959137"
+  },
+  "old_adopted_final_checkpoint": {
+    "path": "runs/study_032_c3_proposed_gnn_10db/20260909T094605478732Z_e39df16d563c_gnn-train/native/artifacts/final.pt",
+    "sha256": "08760de6d26c09da271ee3f67c2a9c60950f6234a12e30c403fd502522ae07f0"
+  },
+  "no_quality_retries_or_best_substitution": true,
+  "reason": "Root-directed completed comparison; currentmodel decision explicitly supplied afterfullaudit, not inferred from incomplete training."
+}

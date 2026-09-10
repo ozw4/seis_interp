@@ -1,0 +1,35 @@
+{
+  "scope": "Same preregistered32trace gather and3heldout traces; not quality selection",
+  "declaration": "runs/study_032_c3_proposed_gnn_10db/20260909T231543369773Z_6bf8b06b459e_global_rms_relative_mse_audit_preparation/qualitative_geometry_declaration.json",
+  "declaration_sha256": "7f15ef073b772c5c2c59b02fb0402c2ee3eae5657c97d8f39448c4f2dc35eb24",
+  "gather_clip": 56.368047637939256,
+  "gather_clip_counts": {
+    "truth": 123,
+    "observed_rms": 88,
+    "train_global_rms": 72,
+    "residual": 0
+  },
+  "overlay_limit": 109.53060836791992,
+  "overlay_offscale_counts": {
+    "truth": 0,
+    "observed_rms": 0,
+    "train_global_rms": 0
+  },
+  "trace_ids": [
+    2093068,
+    2093081,
+    2093097
+  ],
+  "observed_count": 8,
+  "heldout_count": 24,
+  "truth_source": "runs/study_032_c3_proposed_gnn_10db/20260909T105512350489Z_00e9e555d9fb_qualitative_layout_correction/selected_waveforms.csv",
+  "truth_source_sha256": "bff82fbe4c6c6a21c46ad228cde2308468e9ec30daed0758aca560c6c0e5da6e",
+  "truth_CSV_read_passes": 1,
+  "selected_prediction_samples": 12288,
+  "raw_amplitude_source_reads": 0,
+  "model_forward_count": 0,
+  "GPU_used": false,
+  "gain_adjustment": false,
+  "time_alignment": false,
+  "observed_reinsertion_exact": true
+}
