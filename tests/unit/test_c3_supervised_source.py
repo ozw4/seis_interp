@@ -12,9 +12,17 @@ import pandas as pd
 import pytest
 
 from seis_interp.data import c3_supervised_source as source_module
-from seis_interp.data.c3_supervised_source import C3SupervisedSource, load_c3_supervised_source
+from seis_interp.data.c3_supervised_source import (
+    C3SupervisedSource,
+    load_c3_supervised_source,
+    load_c3_training_dataset_source,
+)
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines.prepare_baseline import prepare_baseline_dataset
+from seis_interp.training.ccnet5d_patches import (
+    load_ccnet_patch,
+    make_ccnet_training_dataset_patch_plan,
+)
 from tests.fixtures.ccnet5d_artifacts import PreparedCCNet5DArtifacts, prepare_ccnet5d_artifacts
 
 
@@ -46,6 +54,22 @@ def _rebind_amplitudes(artifacts: PreparedCCNet5DArtifacts, values: np.ndarray) 
     preparation = json.loads(preparation_path.read_text())
     preparation["input_files"]["amplitudes.npy"]["sha256"] = file_sha256(path)
     preparation_path.write_text(json.dumps(preparation), encoding="utf-8")
+
+
+def _training_dataset_source(
+    artifacts: PreparedCCNet5DArtifacts, *, authorized_rows: np.ndarray | None = None
+) -> C3SupervisedSource:
+    split = pd.read_parquet(artifacts.processed / "trace_split.parquet")
+    train_rows = split.loc[split["split"].eq("train"), "array_row"].to_numpy(dtype=np.int64)
+    return load_c3_training_dataset_source(
+        interim_dir=artifacts.interim,
+        processed_dir=artifacts.processed,
+        authorized_train_rows=train_rows if authorized_rows is None else authorized_rows,
+        time_range=(1, 4),
+        selection_region=artifacts.selection_region,
+        amplitude_rms=7.5,
+        normalization_source={"sha256": "a" * 64, "amplitude_rms": 7.5},
+    )
 
 
 @pytest.mark.parametrize("shuffled", [False, True])
@@ -253,6 +277,76 @@ def test_missing_canonical_train_cell_is_not_zero_filled(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="fit region.*not dense"):
         _load(artifacts)
+
+    training_dataset = _training_dataset_source(artifacts)
+    assert training_dataset.fit.array_rows[0, 0, 0, 0] == -1
+    with pytest.raises(ValueError, match="unauthorized or absent"):
+        training_dataset.patch_array_rows("fit", (0, 0, 0, 0, 0), (1, 1, 1, 1, 1))
+
+
+def test_training_dataset_grid_is_canonical_under_row_table_order(tmp_path: Path) -> None:
+    clean = _training_dataset_source(prepare_ccnet5d_artifacts(tmp_path / "clean"))
+    shuffled = _training_dataset_source(
+        prepare_ccnet5d_artifacts(tmp_path / "shuffled", shuffle_tables=True)
+    )
+
+    np.testing.assert_array_equal(clean.fit.array_rows, shuffled.fit.array_rows)
+    assert clean.fit.selection == shuffled.fit.selection
+    assert clean.fit.shape == shuffled.fit.shape == (3, 2, 3, 8, 68)
+    assert clean.amplitude_rms == shuffled.amplitude_rms == 7.5
+
+
+def test_training_dataset_rejects_nontrain_rows_and_accepts_zero_labels(tmp_path: Path) -> None:
+    artifacts = prepare_ccnet5d_artifacts(tmp_path)
+    split = pd.read_parquet(artifacts.processed / "trace_split.parquet")
+    train_rows = split.loc[split["split"].eq("train"), "array_row"].to_numpy(dtype=np.int64)
+    validation_row = int(split.loc[split["split"].eq("validation"), "array_row"].iloc[0])
+    with pytest.raises(ValueError, match="canonical QC train rows"):
+        _training_dataset_source(
+            artifacts, authorized_rows=np.append(train_rows[:-1], validation_row)
+        )
+
+    amplitudes = np.load(artifacts.interim / "amplitudes.npy", allow_pickle=False)
+    amplitudes[train_rows] = 0.0
+    _rebind_amplitudes(artifacts, amplitudes)
+    source = _training_dataset_source(artifacts)
+    patch = source.read_patch("fit", (0, 0, 0, 0, 0), (1, 1, 1, 1, 1))
+    assert not patch.any()
+
+
+def test_validation_amplitudes_do_not_change_fit_plan_or_training_inputs(tmp_path: Path) -> None:
+    original_artifacts = prepare_ccnet5d_artifacts(tmp_path / "original")
+    changed_artifacts = prepare_ccnet5d_artifacts(tmp_path / "changed")
+    split = pd.read_parquet(changed_artifacts.processed / "trace_split.parquet")
+    validation_rows = split.loc[split["split"].eq("validation"), "array_row"].to_numpy(
+        dtype=np.int64
+    )
+    amplitudes = np.load(changed_artifacts.interim / "amplitudes.npy", allow_pickle=False)
+    amplitudes[validation_rows] += 1234.0
+    _rebind_amplitudes(changed_artifacts, amplitudes)
+
+    original = _training_dataset_source(original_artifacts)
+    changed = _training_dataset_source(changed_artifacts)
+    plan_options = {
+        "patch_shape": (2, 1, 2, 2, 3),
+        "fit_count": 64,
+        "selection_count": 3,
+        "missing_fraction": 0.5,
+        "random_seed": 19,
+    }
+    original_plan, _ = make_ccnet_training_dataset_patch_plan(original, **plan_options)
+    changed_plan, _ = make_ccnet_training_dataset_patch_plan(changed, **plan_options)
+
+    assert original_plan == changed_plan
+    for index in range(len(original_plan.fit)):
+        original_input, original_label, _ = load_ccnet_patch(
+            original, original_plan, region="fit", index=index
+        )
+        changed_input, changed_label, _ = load_ccnet_patch(
+            changed, changed_plan, region="fit", index=index
+        )
+        np.testing.assert_array_equal(original_input, changed_input)
+        np.testing.assert_array_equal(original_label, changed_label)
 
 
 def test_split_assignment_and_preparation_binding_are_validated(tmp_path: Path) -> None:

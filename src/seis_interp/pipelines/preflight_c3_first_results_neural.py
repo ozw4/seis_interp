@@ -60,6 +60,13 @@ from seis_interp.training.c3_volume_siren_options import (
     initial_time_weight_scale,
 )
 from seis_interp.training.ccnet5d_checkpoints import load_ccnet5d_checkpoint
+from seis_interp.training.ccnet5d_patches import (
+    make_ccnet_training_dataset_patch_plan,
+)
+from seis_interp.training.ccnet5d_source_binding import (
+    QC_TRAINING_DATASET,
+    load_ccnet5d_supervised_source,
+)
 from seis_interp.training.devices import resolve_device
 from seis_interp.training.fixed_step_siren import (
     train_siren_complete_trace_steps,
@@ -80,6 +87,7 @@ def run_c3_first_results_neural_preflight(
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
     verified_suite: VerifiedC3BenchmarkSuite | None = None,
     prediction_config_path: Path | None = None,
+    normalization_checkpoint_path: Path | None = None,
     query_counts: tuple[int, ...] = (1, 8),
     query_limit: int = 32,
 ) -> dict[str, object]:
@@ -136,11 +144,21 @@ def run_c3_first_results_neural_preflight(
                     raise ValueError("SIREN project seed must equal the fixed case mask seed")
                 details = _siren_preflight(config, inputs, device)
             else:
-                source = load_c3_benchmark_supervised_source(
-                    fit_region=config["supervision"]["fit_region"],
-                    selection_region=config["supervision"]["selection_region"],
-                    **arguments,
-                )
+                if config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET:
+                    source = load_ccnet5d_supervised_source(
+                        config,
+                        interim_dir=suite_path(suite_dir, suite["interim"]),
+                        processed_dir=suite_path(suite_dir, suite["processed"]),
+                        suite_dir=suite_dir,
+                        normalization_checkpoint_path=normalization_checkpoint_path,
+                        dimensions=dimensions,
+                    )
+                else:
+                    source = load_c3_benchmark_supervised_source(
+                        fit_region=config["supervision"]["fit_region"],
+                        selection_region=config["supervision"]["selection_region"],
+                        **arguments,
+                    )
                 details = _ccnet_preflight(
                     config,
                     source,
@@ -150,6 +168,8 @@ def run_c3_first_results_neural_preflight(
                     output,
                     device,
                     prediction_config_path,
+                    normalization_checkpoint_path,
+                    dimensions,
                 )
         report.update(status="success", device=str(device), **details)
     except (OSError, ValueError, RuntimeError, MemoryError) as error:
@@ -307,7 +327,18 @@ def _siren_preflight(config, inputs, device):
     }
 
 
-def _ccnet_preflight(config, source, inputs, suite, suite_dir, output, device, prediction_path):
+def _ccnet_preflight(
+    config,
+    source,
+    inputs,
+    suite,
+    suite_dir,
+    output,
+    device,
+    prediction_path,
+    normalization_checkpoint_path,
+    dimensions,
+):
     if prediction_path is None:
         raise ValueError("CCNet preflight requires its explicit prediction config")
     batch_size = config["training"]["batch_size"]
@@ -323,6 +354,19 @@ def _ccnet_preflight(config, source, inputs, suite, suite_dir, output, device, p
     }
     smoke_path = output / "smoke_config.yaml"
     write_benchmark_yaml(smoke_path, smoke)
+    full_plan_diagnostics = None
+    if config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET:
+        patches = config["patches"]
+        full_plan, full_plan_diagnostics = make_ccnet_training_dataset_patch_plan(
+            source,
+            patch_shape=patches["shape"],
+            fit_count=patches["fit_count"],
+            selection_count=patches["selection_count"],
+            missing_fraction=patches["missing_fraction"],
+            random_seed=patches["random_seed"],
+        )
+        write_benchmark_json(output / "full_patch_plan.json", full_plan.to_dict())
+        write_benchmark_json(output / "full_patch_plan_diagnostics.json", full_plan_diagnostics)
     synchronize_preflight_device(device)
     started = perf_counter()
     metrics = train_ccnet5d_run(
@@ -330,6 +374,9 @@ def _ccnet_preflight(config, source, inputs, suite, suite_dir, output, device, p
         interim_dir=suite_path(suite_dir, suite["interim"]),
         processed_dir=suite_path(suite_dir, suite["processed"]),
         output_dir=output / "smoke_native",
+        suite_dir=suite_dir,
+        normalization_checkpoint_path=normalization_checkpoint_path,
+        dimensions=dimensions,
     )
     synchronize_preflight_device(device)
     train_seconds = perf_counter() - started
@@ -383,6 +430,11 @@ def _ccnet_preflight(config, source, inputs, suite, suite_dir, output, device, p
         },
         "resources": trace_graph_resource_measurements(device),
         "state_reused_by_pilot": False,
+        **(
+            {"full_patch_plan_diagnostics": full_plan_diagnostics}
+            if full_plan_diagnostics is not None
+            else {}
+        ),
     }
 
 

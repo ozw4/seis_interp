@@ -168,14 +168,38 @@ def _resolve_request(request, *, config_path, inputs_path, checkpoint_path, dime
     fragment_path = config_path.parent / plan["methods"][method]["native_fragment"]
     fragment = read_first_results_yaml(fragment_path)
     regions = request["experiment_inputs"].get("ccnet_regions")
-    if (
+    full_training_dataset = (
+        action == "ccnet-train"
+        and fragment.get("supervision", {}).get("sampling_domain") == "qc_training_dataset"
+    )
+    if action == "ccnet-train" and full_training_dataset:
+        if not regions or not regions.get("selection"):
+            raise ConfigurationError("full-training CCNet requires its fixed selection region")
+        normalization = request["experiment_inputs"].get("normalization")
+        if not isinstance(normalization, dict):
+            raise ConfigurationError("full-training CCNet requires normalization inputs")
+        checkpoint_path = (inputs_path.parent / normalization["checkpoint"]).resolve()
+        checkpoint_hash = file_sha256(checkpoint_path)
+        if checkpoint_hash != normalization["expected_sha256"]:
+            raise ValueError("normalization checkpoint SHA-256 differs from expected_sha256")
+        if fragment["supervision"]["normalization_checkpoint_sha256"] != checkpoint_hash:
+            raise ConfigurationError(
+                "native supervision normalization hash differs from the input contract"
+            )
+        request["normalization_checkpoint"] = {
+            "path": str(checkpoint_path),
+            "sha256": checkpoint_hash,
+        }
+    elif (
         action == "ccnet-train"
         and regions
         and bool(regions.get("fit")) != bool(regions.get("selection"))
     ):
         raise ConfigurationError("CCNet fit and selection regions must be resolved together")
-    if action == "ccnet-train" and (
-        not regions or not regions.get("fit") or not regions.get("selection")
+    if (
+        action == "ccnet-train"
+        and not full_training_dataset
+        and (not regions or not regions.get("fit") or not regions.get("selection"))
     ):
         from seis_interp.data.c3_first_results_training_regions import (
             resolve_c3_first_results_ccnet_regions,
@@ -193,7 +217,15 @@ def _resolve_request(request, *, config_path, inputs_path, checkpoint_path, dime
     request["native_config"] = native
     request["native_fragment_sha256"] = file_sha256(fragment_path)
     request["training_inputs"] = validate_c3_first_result_training_inputs(
-        action, binding=binding, config=native, dimensions=dimensions
+        action,
+        binding=binding,
+        config=native,
+        dimensions=dimensions,
+        normalization_checkpoint_path=(
+            Path(request["normalization_checkpoint"]["path"])
+            if request.get("normalization_checkpoint")
+            else None
+        ),
     )
     if action == "ccnet-train" and request["preflight"]:
         prediction_path = config_path.parent / plan["methods"]["ccnet-predict"]["native_fragment"]
@@ -228,6 +260,13 @@ def _execute_worker(request: dict, output: Path) -> dict:
         "NUMEXPR_NUM_THREADS",
     ):
         environment[variable] = str(threads)
+    declared_environment = execution.get("environment", {})
+    if not isinstance(declared_environment, dict) or any(
+        not isinstance(name, str) or not isinstance(value, str)
+        for name, value in declared_environment.items()
+    ):
+        raise ConfigurationError("execution.environment must map strings to strings")
+    environment.update(declared_environment)
     print(f"Executing {request['action']} in a fresh process; timeout={timeout}s", file=sys.stderr)
     try:
         with (
@@ -368,6 +407,11 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
             prediction_config_path=Path(request["prediction_config_path"])
             if request.get("prediction_config_path")
             else None,
+            normalization_checkpoint_path=(
+                Path(request["normalization_checkpoint"]["path"])
+                if request.get("normalization_checkpoint")
+                else None
+            ),
             **measurement_options,
         )
     arguments = {"config_path": config_path, "output_dir": output, "progress_reporter": _progress}
@@ -375,7 +419,15 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
         from seis_interp.pipelines.train_ccnet5d import train_ccnet5d_run
 
         return train_ccnet5d_run(
-            **arguments, **{key: paths[key] for key in ("interim_dir", "processed_dir")}
+            **arguments,
+            **{key: paths[key] for key in ("interim_dir", "processed_dir")},
+            suite_dir=suite_dir,
+            normalization_checkpoint_path=(
+                Path(request["normalization_checkpoint"]["path"])
+                if request.get("normalization_checkpoint")
+                else None
+            ),
+            dimensions=dimensions,
         )
     if action == "gnn-train":
         from seis_interp.pipelines.train_relational_trace_graph import (

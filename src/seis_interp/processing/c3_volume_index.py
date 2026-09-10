@@ -150,6 +150,72 @@ def c3_source_indices(trace_table: pd.DataFrame) -> tuple[np.ndarray, np.ndarray
     )
 
 
+def c3_spatial_indices(
+    trace_table: pd.DataFrame,
+) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], tuple[int, int, int, int]]:
+    """Return canonical global C3 cell indices and their geometry-derived shape."""
+    table = _validated_trace_table(trace_table)
+    source_lines, shots = c3_source_indices(table)
+    receiver_x_values, receiver_y_values = receiver_grid_offsets(table)
+    source_x = table["source_x_m"].to_numpy(dtype=np.float64)
+    source_y = table["source_y_m"].to_numpy(dtype=np.float64)
+    receiver_x = np.searchsorted(
+        receiver_x_values,
+        table["receiver_x_m"].to_numpy(dtype=np.float64) - source_x,
+    )
+    receiver_y = np.searchsorted(
+        receiver_y_values,
+        table["receiver_y_m"].to_numpy(dtype=np.float64) - source_y,
+    )
+    indices = (source_lines, shots, receiver_x, receiver_y)
+    shape = (
+        int(source_lines.max()) + 1,
+        int(shots.max()) + 1,
+        len(receiver_x_values),
+        len(receiver_y_values),
+    )
+    return indices, shape
+
+
+def build_c3_row_id_grid(
+    trace_table: pd.DataFrame,
+    candidate_array_rows: np.ndarray,
+    *,
+    source_line_range: tuple[int, int],
+    invalid_row: int = -1,
+) -> tuple[np.ndarray, dict[str, list[int]]]:
+    """Map authorized rows into a small C3 grid, retaining holes as a sentinel."""
+    table = _validated_trace_table(trace_table)
+    candidates = _validated_candidate_rows(candidate_array_rows, table)
+    line_range = validated_index_range(source_line_range, name="source_line_range")
+    if isinstance(invalid_row, bool) or not isinstance(invalid_row, Integral) or invalid_row >= 0:
+        raise ValueError("invalid_row must be a negative integer")
+    global_indices, geometry_shape = c3_spatial_indices(table)
+    if line_range[1] > geometry_shape[0]:
+        raise ValueError(
+            f"source_line_range {line_range} is outside the {geometry_shape[0]} source lines"
+        )
+    ranges = (line_range, (0, geometry_shape[1]), (0, geometry_shape[2]), (0, geometry_shape[3]))
+    shape = tuple(stop - start for start, stop in ranges)
+    grid = np.full(shape, int(invalid_row), dtype=np.int64)
+    array_rows = table["array_row"].to_numpy(dtype=np.int64)
+    selected = np.isin(array_rows, candidates)
+    local_indices = tuple(
+        values[selected] - bounds[0] for values, bounds in zip(global_indices, ranges, strict=True)
+    )
+    cells = np.ravel_multi_index(local_indices, shape)
+    if len(np.unique(cells)) != len(cells):
+        raise ValueError("candidate_array_rows contain duplicate canonical C3 spatial cells")
+    grid[local_indices] = array_rows[selected]
+    if np.count_nonzero(grid >= 0) != len(candidates):
+        raise ValueError("candidate_array_rows are outside the requested source-line range")
+    grid.flags.writeable = False
+    selection = {
+        axis: list(bounds) for axis, bounds in zip(SPATIAL_AXIS_ORDER, ranges, strict=True)
+    }
+    return grid, selection
+
+
 def build_c3_volume_index(
     trace_table: pd.DataFrame,
     candidate_array_rows: np.ndarray,

@@ -445,6 +445,39 @@ def test_action_timeout_is_retained(tmp_path, suite_inputs, monkeypatch):
     )
 
 
+def test_execute_passes_declared_environment_to_fresh_worker(tmp_path, suite_inputs, monkeypatch):
+    plan_path = _plan(tmp_path, "pocs", _fragment("pocs"))
+    plan = yaml.safe_load(plan_path.read_text())
+    plan["execution"]["environment"] = {
+        "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
+        "NVIDIA_TF32_OVERRIDE": "0",
+    }
+    plan_path.write_text(yaml.safe_dump(plan))
+    captured = {}
+    original = subprocess.run
+
+    def completed(command, **kwargs):
+        if "--worker" not in command:
+            return original(command, **kwargs)
+        captured.update(kwargs["env"])
+        output = Path(command[-1]).parent
+        (output / "worker.result.json").write_text(json.dumps({"status": "success"}))
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", completed)
+    result = run_c3_first_results(
+        config_path=plan_path,
+        inputs_path=_write_inputs(tmp_path, suite_inputs),
+        action="pocs",
+        execute=True,
+        dimensions=DIMENSIONS,
+    )
+
+    assert result["status"] == "success"
+    assert captured["TORCH_ALLOW_TF32_CUBLAS_OVERRIDE"] == "0"
+    assert captured["NVIDIA_TF32_OVERRIDE"] == "0"
+
+
 def _cpu_plan(tmp_path, fragments):
     methods = {}
     for action, fragment in fragments.items():

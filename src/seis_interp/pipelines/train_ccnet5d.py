@@ -13,18 +13,33 @@ import torch
 
 from seis_interp import config_values, run_records
 from seis_interp.configuration import ConfigurationError, load_resolved_config
-from seis_interp.data.c3_supervised_source import load_c3_supervised_source
+from seis_interp.data import c3_supervised_source
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.ccnet5d_selection import validate_ccnet5d_selection_targets
 from seis_interp.models.ccnet5d import CCNet5D, ccnet5d_method_variant
+from seis_interp.processing.c3_benchmark_contract import (
+    MAIN_C3_DIMENSIONS,
+    C3BenchmarkDimensions,
+)
 from seis_interp.training.ccnet5d_checkpoints import save_ccnet5d_checkpoint
-from seis_interp.training.ccnet5d_patches import make_ccnet_patch_plan
+from seis_interp.training.ccnet5d_patches import (
+    make_ccnet_patch_plan,
+    make_ccnet_training_dataset_patch_plan,
+)
+from seis_interp.training.ccnet5d_source_binding import (
+    FIXED_CHECKPOINT_RMS,
+    QC_TRAINING_DATASET,
+    load_ccnet5d_supervised_source,
+)
 from seis_interp.training.ccnet5d_trainer import train_ccnet5d
 from seis_interp.training.devices import resolve_device
 from seis_interp.training.randomness import seed_global_model_initialization
 
 METHOD = "ccnet5d"
 TRAINING_REGIME = "supervised_train_partition"
+
+# Retained as a module attribute for existing integration preflight probes.
+load_c3_supervised_source = c3_supervised_source.load_c3_supervised_source
 
 
 def train_ccnet5d_run(
@@ -35,6 +50,9 @@ def train_ccnet5d_run(
     output_dir: Path,
     device_override: str | None = None,
     progress_reporter: Callable[[str], None] | None = None,
+    suite_dir: Path | None = None,
+    normalization_checkpoint_path: Path | None = None,
+    dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
 ) -> dict[str, object]:
     """Fit fixed patches and select a checkpoint without any benchmark labels."""
     output = Path(output_dir)
@@ -51,11 +69,13 @@ def train_ccnet5d_run(
     if progress_reporter:
         progress_reporter("Verifying train-partition source and fitting complete-label RMS.")
     started = time.perf_counter()
-    source = load_c3_supervised_source(
+    source = load_ccnet5d_supervised_source(
+        config,
         interim_dir=Path(interim_dir),
         processed_dir=Path(processed_dir),
-        fit_region=config["supervision"]["fit_region"],
-        selection_region=config["supervision"]["selection_region"],
+        suite_dir=suite_dir,
+        normalization_checkpoint_path=normalization_checkpoint_path,
+        dimensions=dimensions,
     )
     timings["load_and_verification_seconds"] = time.perf_counter() - started
     if config["project"]["random_seed"] != source.inputs_lock["partition_random_seed"]:
@@ -63,14 +83,18 @@ def train_ccnet5d_run(
     if config["data"]["dataset_id"] != source.inputs_lock["dataset_id"]:
         raise ConfigurationError("data.dataset_id does not match the supervised source")
     patches = config["patches"]
-    plan = make_ccnet_patch_plan(
-        source,
-        patch_shape=patches["shape"],
-        fit_count=patches["fit_count"],
-        selection_count=patches["selection_count"],
-        missing_fraction=patches["missing_fraction"],
-        random_seed=patches["random_seed"],
-    )
+    plan_options = {
+        "patch_shape": patches["shape"],
+        "fit_count": patches["fit_count"],
+        "selection_count": patches["selection_count"],
+        "missing_fraction": patches["missing_fraction"],
+        "random_seed": patches["random_seed"],
+    }
+    patch_diagnostics = None
+    if config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET:
+        plan, patch_diagnostics = make_ccnet_training_dataset_patch_plan(source, **plan_options)
+    else:
+        plan = make_ccnet_patch_plan(source, **plan_options)
     validate_ccnet5d_selection_targets(source, plan)
     seed_global_model_initialization(trainer_options["random_seed"], device=device)
     if not trainer_options.get("cudnn_benchmark", True):
@@ -85,6 +109,11 @@ def train_ccnet5d_run(
         json.dumps(plan.to_dict(), sort_keys=True, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
+    if patch_diagnostics is not None:
+        (artifacts / "patch_plan_diagnostics.json").write_text(
+            json.dumps(patch_diagnostics, sort_keys=True, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
     provenance = {
         "training_run": dict(git_metadata),
         "source_inputs_lock": source.inputs_lock,
@@ -142,6 +171,16 @@ def train_ccnet5d_run(
         "training_history": list(trained.training_history),
         "selection_history": list(trained.selection_history),
     }
+    if patch_diagnostics is not None:
+        metrics["patch_plan_diagnostics"] = patch_diagnostics
+    warnings = []
+    selection_role = "held_out_train_partition_patch_instances"
+    if patch_diagnostics is not None:
+        selection_role = patch_diagnostics["selection_metric_role"]
+        if selection_role == "diagnostic_only_not_independent_holdout":
+            warnings.append(
+                "Fit patches overlap selection traces; selection metrics are diagnostic only."
+            )
     metadata = {
         **identity,
         **git_metadata,
@@ -155,8 +194,17 @@ def train_ccnet5d_run(
         "torch_version": str(torch.__version__),
         "supervision": config["supervision"],
         "amplitude": {
-            "scale_source": "fit_region_complete_labels",
+            "scale_source": (
+                "fixed_normalization_checkpoint"
+                if patch_diagnostics is not None
+                else "fit_region_complete_labels"
+            ),
             "amplitude_rms": source.amplitude_rms,
+            **(
+                {"normalization_source": source.inputs_lock["normalization_source"]}
+                if patch_diagnostics is not None
+                else {}
+            ),
         },
         "model": {
             **model.constructor_config(),
@@ -177,6 +225,7 @@ def train_ccnet5d_run(
         "selection": {
             **config["selection"],
             "metric_scope": "selection_patch_instances_missing_only",
+            "metric_role": selection_role,
             "best_epoch": trained.best_epoch,
             "best_step": trained.best_step,
         },
@@ -190,7 +239,7 @@ def train_ccnet5d_run(
             "process_max_rss_scope": "whole_process",
             "torch_num_threads": torch.get_num_threads(),
         },
-        "warnings": [],
+        "warnings": warnings,
     }
     run_records.write_run_outputs(output, config, provenance, metrics, metadata)
     return metrics
@@ -207,11 +256,24 @@ def _validate_config(config: Mapping[str, object]) -> tuple[dict[str, object], d
     if not isinstance(data["dataset_id"], str) or not data["dataset_id"]:
         raise ConfigurationError("data.dataset_id must be a non-empty string")
     config_values.nonnegative_integer(config["project"]["random_seed"], "project.random_seed")
-    config_values.exact_section(
-        config,
-        "supervision",
-        {"partition", "amplitude_normalization", "fit_region", "selection_region"},
+    supervision = config.get("supervision")
+    full_training_dataset = (
+        isinstance(supervision, Mapping)
+        and supervision.get("sampling_domain") == QC_TRAINING_DATASET
     )
+    supervision_keys = (
+        {
+            "partition",
+            "sampling_domain",
+            "amplitude_normalization",
+            "normalization_checkpoint_sha256",
+            "normalization_checkpoint_global_step",
+            "selection_region",
+        }
+        if full_training_dataset
+        else {"partition", "amplitude_normalization", "fit_region", "selection_region"}
+    )
+    supervision = config_values.exact_section(config, "supervision", supervision_keys)
     patches = config_values.exact_section(
         config,
         "patches",
@@ -237,7 +299,9 @@ def _validate_config(config: Mapping[str, object]) -> tuple[dict[str, object], d
     for key, value in {
         "model.name": METHOD,
         "supervision.partition": "train",
-        "supervision.amplitude_normalization": "fit_region_global_rms",
+        "supervision.amplitude_normalization": (
+            FIXED_CHECKPOINT_RMS if full_training_dataset else "fit_region_global_rms"
+        ),
         "patches.mask_kind": "random_trace",
         "training.optimizer": "adam",
         "training.loss": "mse_complete_patch",
@@ -245,6 +309,21 @@ def _validate_config(config: Mapping[str, object]) -> tuple[dict[str, object], d
         "selection.domain": "held_out_train_partition_patch_instances",
     }.items():
         config_values.require_exact(config, key, value)
+    if full_training_dataset:
+        config_values.require_exact(config, "supervision.sampling_domain", QC_TRAINING_DATASET)
+        digest = supervision["normalization_checkpoint_sha256"]
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ConfigurationError(
+                "supervision.normalization_checkpoint_sha256 must be a lowercase SHA-256"
+            )
+        config_values.positive_integer(
+            supervision["normalization_checkpoint_global_step"],
+            "supervision.normalization_checkpoint_global_step",
+        )
     batch_size = config_values.positive_integer(training["batch_size"], "training.batch_size")
     cudnn_benchmark = training.get("cudnn_benchmark", True)
     if not isinstance(cudnn_benchmark, bool):

@@ -26,6 +26,10 @@ from seis_interp.data.c3_benchmark_suite import (
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
 from seis_interp.processing.training_coordinates import coordinate_order_for_features
+from seis_interp.training.ccnet5d_source_binding import (
+    QC_TRAINING_DATASET,
+    load_ccnet5d_supervised_source,
+)
 
 
 @dataclass(frozen=True)
@@ -190,9 +194,13 @@ def build_c3_first_result_native_config(
     if action == "ccnet-train":
         if config["patches"]["random_seed"] != seeds["ccnet_patches"]:
             raise ConfigurationError("patches.random_seed differs from ccnet_patches seed")
-        if ccnet_regions is None or not all(ccnet_regions.get(key) for key in ("fit", "selection")):
-            raise ConfigurationError("CCNet fit/selection regions must be explicitly resolved")
-        config["supervision"]["fit_region"] = deepcopy(ccnet_regions["fit"])
+        full_training_dataset = config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET
+        required_regions = ("selection",) if full_training_dataset else ("fit", "selection")
+        if ccnet_regions is None or not all(ccnet_regions.get(key) for key in required_regions):
+            names = "/".join(required_regions)
+            raise ConfigurationError(f"CCNet {names} regions must be explicitly resolved")
+        if not full_training_dataset:
+            config["supervision"]["fit_region"] = deepcopy(ccnet_regions["fit"])
         config["supervision"]["selection_region"] = deepcopy(ccnet_regions["selection"])
     return config
 
@@ -204,18 +212,31 @@ def validate_c3_first_result_training_inputs(
     config: Mapping,
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
     verified_suite: VerifiedC3BenchmarkSuite | None = None,
+    normalization_checkpoint_path: Path | None = None,
 ) -> dict:
     """Check teacher regions or exact graph rows against the suite's canonical pool."""
     if action == "ccnet-train":
-        source = load_c3_benchmark_supervised_source(
-            binding.suite_dir,
-            fit_region=config["supervision"]["fit_region"],
-            selection_region=config["supervision"]["selection_region"],
-            dimensions=dimensions,
-            verified_suite=verified_suite,
-        )
+        if config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET:
+            source = load_ccnet5d_supervised_source(
+                config,
+                interim_dir=binding.paths["interim_dir"],
+                processed_dir=binding.paths["processed_dir"],
+                suite_dir=binding.suite_dir,
+                normalization_checkpoint_path=normalization_checkpoint_path,
+                dimensions=dimensions,
+            )
+            fit_trace_count = source.inputs_lock["training_dataset"]["authorized_trace_count"]
+        else:
+            source = load_c3_benchmark_supervised_source(
+                binding.suite_dir,
+                fit_region=config["supervision"]["fit_region"],
+                selection_region=config["supervision"]["selection_region"],
+                dimensions=dimensions,
+                verified_suite=verified_suite,
+            )
+            fit_trace_count = int(source.fit.array_rows.size)
         return {
-            "fit_trace_count": int(source.fit.array_rows.size),
+            "fit_trace_count": fit_trace_count,
             "selection_trace_count": int(source.selection.array_rows.size),
             "inputs_lock": source.inputs_lock,
         }

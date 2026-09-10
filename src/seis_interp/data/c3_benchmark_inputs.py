@@ -13,7 +13,11 @@ from seis_interp.data.c3_benchmark_suite import (
     load_c3_benchmark_input_manifest,
     suite_path,
 )
-from seis_interp.data.c3_supervised_source import C3SupervisedSource, load_c3_supervised_source
+from seis_interp.data.c3_supervised_source import (
+    C3SupervisedSource,
+    load_c3_supervised_source,
+    load_c3_training_dataset_source,
+)
 from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs, load_c3_volume_run_inputs
 from seis_interp.data.trace_graph_domain import (
     TraceGraphDomain,
@@ -119,6 +123,34 @@ def load_c3_benchmark_supervised_source(
             or region.time_range != dimensions.time_range
         ):
             raise ValueError("CCNet training region is outside the authorized rows/time")
+    return source
+
+
+def load_c3_benchmark_training_dataset_source(
+    suite_dir: Path,
+    *,
+    selection_region: dict,
+    amplitude_rms: float,
+    normalization_source: dict[str, object],
+    dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
+    verified_suite: VerifiedC3BenchmarkSuite | None = None,
+) -> C3SupervisedSource:
+    """Load the complete QC train rows while retaining the existing selection region."""
+    suite = load_c3_benchmark_input_manifest(
+        suite_dir, dimensions=dimensions, verified_suite=verified_suite
+    )
+    allowed = np.load(suite_dir / suite["train_pool"]["file"], allow_pickle=False)
+    source = load_c3_training_dataset_source(
+        interim_dir=suite_path(suite_dir, suite["interim"]),
+        processed_dir=suite_path(suite_dir, suite["processed"]),
+        authorized_train_rows=allowed,
+        time_range=dimensions.time_range,
+        selection_region=selection_region,
+        amplitude_rms=amplitude_rms,
+        normalization_source=normalization_source,
+    )
+    if source.inputs_lock["training_dataset"]["authorized_trace_count"] != len(allowed):
+        raise ValueError("CCNet training dataset differs from the authorized train rows")
     return source
 
 

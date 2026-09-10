@@ -10,6 +10,7 @@ from numbers import Integral, Real
 import numpy as np
 
 from seis_interp.data.c3_supervised_source import C3SupervisedSource
+from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 
 
 @dataclass(frozen=True)
@@ -115,17 +116,170 @@ def make_ccnet_patch_plan(
         region_shape = getattr(source, name).shape
         if any(length > available for length, available in zip(shape, region_shape, strict=True)):
             raise ValueError(f"patch_shape must fit inside the {name} region on every axis")
-        rng = np.random.default_rng(stream)
-        descriptors = []
-        for _ in range(count):
-            start = tuple(
-                int(rng.integers(0, available - length + 1))
-                for length, available in zip(shape, region_shape, strict=True)
-            )
-            mask_seed = int(rng.integers(0, np.iinfo(np.int64).max))
-            descriptors.append(PatchSpec(start, mask_seed))
-        plans.append(tuple(descriptors))
+        plans.append(_sample_bounded_specs(shape, region_shape, count, stream))
     return CCNetPatchPlan(shape, fraction, seed, plans[0], plans[1])
+
+
+def make_ccnet_training_dataset_patch_plan(
+    source: C3SupervisedSource,
+    *,
+    patch_shape: tuple[int, int, int, int, int],
+    fit_count: int,
+    selection_count: int,
+    missing_fraction: float,
+    random_seed: int,
+) -> tuple[CCNetPatchPlan, dict[str, object]]:
+    """Rejection-sample unique all-valid fit patches from the QC training dataset."""
+    shape = _five_integers(patch_shape, name="patch_shape", minimum=1)
+    fraction = _missing_fraction(missing_fraction)
+    _missing_count(shape, fraction)
+    seed = _integer(random_seed, name="random_seed", minimum=0)
+    fit_total = _integer(fit_count, name="fit_count", minimum=1)
+    selection_total = _integer(selection_count, name="selection_count", minimum=1)
+    for name in ("fit", "selection"):
+        region_shape = getattr(source, name).shape
+        if any(length > available for length, available in zip(shape, region_shape, strict=True)):
+            raise ValueError(f"patch_shape must fit inside the {name} region on every axis")
+
+    fit_stream, selection_stream = np.random.SeedSequence(seed).spawn(2)
+    rng = np.random.default_rng(fit_stream)
+    accepted: list[PatchSpec] = []
+    starts: set[tuple[int, int, int, int, int]] = set()
+    rejection_reasons = {"duplicate_start": 0, "unauthorized_or_absent_trace_cell": 0}
+    maximum_attempts = max(10_000, fit_total * 1_000)
+    attempts = 0
+    while len(accepted) < fit_total and attempts < maximum_attempts:
+        attempts += 1
+        start = tuple(
+            int(rng.integers(0, available - length + 1))
+            for length, available in zip(shape, source.fit.shape, strict=True)
+        )
+        if start in starts:
+            rejection_reasons["duplicate_start"] += 1
+            continue
+        try:
+            source.patch_array_rows("fit", start, shape)
+        except ValueError as error:
+            if "unauthorized or absent trace cells" not in str(error):
+                raise
+            rejection_reasons["unauthorized_or_absent_trace_cell"] += 1
+            continue
+        starts.add(start)
+        accepted.append(PatchSpec(start, int(rng.integers(0, np.iinfo(np.int64).max))))
+    if len(accepted) != fit_total:
+        raise ValueError(
+            "could not sample the requested valid unique fit patches: "
+            f"accepted={len(accepted)}, attempts={attempts}, "
+            f"fit_shape={source.fit.shape}, patch_shape={shape}, "
+            f"rejections={rejection_reasons}"
+        )
+    selection = _sample_bounded_specs(
+        shape, source.selection.shape, selection_total, selection_stream
+    )
+    plan = CCNetPatchPlan(shape, fraction, seed, tuple(accepted), selection)
+    diagnostics = ccnet_training_dataset_patch_diagnostics(
+        source,
+        plan,
+        candidate_count=attempts,
+        rejection_reasons=rejection_reasons,
+    )
+    return plan, diagnostics
+
+
+def ccnet_training_dataset_patch_diagnostics(
+    source: C3SupervisedSource,
+    plan: CCNetPatchPlan,
+    *,
+    candidate_count: int,
+    rejection_reasons: Mapping[str, int],
+) -> dict[str, object]:
+    """Summarize descriptor distribution, trace coverage, overlap, and fixed scale."""
+    fit_starts = np.asarray([spec.start for spec in plan.fit], dtype=np.int64)
+    fit_rows = source.fit.array_rows[source.fit.array_rows >= 0]
+    row_limit = int(fit_rows.max()) + 1
+    covered = np.zeros(row_limit, dtype=np.bool_)
+    for spec in plan.fit:
+        covered[source.patch_array_rows("fit", spec.start, plan.patch_shape)] = True
+    selection_covered = np.zeros(row_limit, dtype=np.bool_)
+    for spec in plan.selection:
+        rows = source.patch_array_rows("selection", spec.start, plan.patch_shape)
+        selection_covered[rows[rows < row_limit]] = True
+    unique_covered = int(np.count_nonzero(covered))
+    training_trace_count = int(
+        source.inputs_lock.get("training_dataset", {}).get(
+            "authorized_trace_count", len(np.unique(fit_rows))
+        )
+    )
+    offsets = [source.fit.selection[axis][0] for axis in VOLUME_AXIS_ORDER]
+    global_starts = fit_starts + np.asarray(offsets, dtype=np.int64)
+    line_start_histogram = _integer_histogram(global_starts[:, 1])
+    line_bounds = source.fit.selection["source_line"]
+    line_inclusion = {
+        str(line): int(
+            np.count_nonzero(
+                (global_starts[:, 1] <= line) & (line < global_starts[:, 1] + plan.patch_shape[1])
+            )
+        )
+        for line in range(*line_bounds)
+    }
+    normalization = source.inputs_lock.get("normalization_source")
+    return {
+        "fit_patch_count": len(plan.fit),
+        "unique_start_count": len({spec.start for spec in plan.fit}),
+        "candidate_count": candidate_count,
+        "rejected_candidate_count": candidate_count - len(plan.fit),
+        "rejection_reason_counts": dict(rejection_reasons),
+        "source_line_start": {
+            "min": int(global_starts[:, 1].min()),
+            "max": int(global_starts[:, 1].max()),
+            "histogram": line_start_histogram,
+        },
+        "shot_start": {
+            "min": int(global_starts[:, 2].min()),
+            "max": int(global_starts[:, 2].max()),
+            "histogram": _integer_histogram(global_starts[:, 2]),
+        },
+        "receiver_y_start": {
+            "min": int(global_starts[:, 4].min()),
+            "max": int(global_starts[:, 4].max()),
+        },
+        "source_line_patch_inclusion_histogram": line_inclusion,
+        "all_source_lines_covered": all(count > 0 for count in line_inclusion.values()),
+        "unique_canonical_trace_rows_covered": unique_covered,
+        "training_dataset_trace_count": training_trace_count,
+        "unique_trace_coverage_fraction": unique_covered / training_trace_count,
+        "selection_trace_overlap_count": int(np.count_nonzero(covered & selection_covered)),
+        "selection_metric_role": (
+            "diagnostic_only_not_independent_holdout"
+            if np.any(covered & selection_covered)
+            else "diagnostic_only"
+        ),
+        "normalization_source": normalization,
+        "normalization_value": source.amplitude_rms,
+    }
+
+
+def _sample_bounded_specs(
+    shape: tuple[int, int, int, int, int],
+    region_shape: tuple[int, int, int, int, int],
+    count: int,
+    stream: np.random.SeedSequence,
+) -> tuple[PatchSpec, ...]:
+    rng = np.random.default_rng(stream)
+    descriptors = []
+    for _ in range(count):
+        start = tuple(
+            int(rng.integers(0, available - length + 1))
+            for length, available in zip(shape, region_shape, strict=True)
+        )
+        mask_seed = int(rng.integers(0, np.iinfo(np.int64).max))
+        descriptors.append(PatchSpec(start, mask_seed))
+    return tuple(descriptors)
+
+
+def _integer_histogram(values: np.ndarray) -> dict[str, int]:
+    unique, counts = np.unique(values, return_counts=True)
+    return {str(int(value)): int(count) for value, count in zip(unique, counts, strict=True)}
 
 
 def load_ccnet_patch(

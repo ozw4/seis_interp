@@ -7,14 +7,20 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from seis_interp.data.c3_supervised_source import C3SupervisedSource, load_c3_supervised_source
+from seis_interp.data.c3_supervised_source import (
+    C3SupervisedSource,
+    load_c3_supervised_source,
+    load_c3_training_dataset_source,
+)
 from seis_interp.training.ccnet5d_patches import (
     CCNetPatchPlan,
     PatchSpec,
     load_ccnet_patch,
     make_ccnet_patch_plan,
+    make_ccnet_training_dataset_patch_plan,
 )
 from tests.fixtures.ccnet5d_artifacts import prepare_ccnet5d_artifacts
 
@@ -49,6 +55,32 @@ def _plan(source, **changes) -> CCNetPatchPlan:
     return make_ccnet_patch_plan(source, **settings)
 
 
+def _full_training_source(tmp_path: Path) -> C3SupervisedSource:
+    artifacts = prepare_ccnet5d_artifacts(tmp_path)
+    split = pd.read_parquet(artifacts.processed / "trace_split.parquet")
+    train_rows = split.loc[split["split"].eq("train"), "array_row"].to_numpy(dtype=np.int64)
+    return load_c3_training_dataset_source(
+        interim_dir=artifacts.interim,
+        processed_dir=artifacts.processed,
+        authorized_train_rows=train_rows,
+        time_range=(1, 4),
+        selection_region=artifacts.selection_region,
+        amplitude_rms=2.0,
+        normalization_source={"sha256": "a" * 64, "amplitude_rms": 2.0},
+    )
+
+
+def _full_plan(source: C3SupervisedSource, *, seed: int = 19, count: int = 64):
+    return make_ccnet_training_dataset_patch_plan(
+        source,
+        patch_shape=(2, 1, 2, 2, 3),
+        fit_count=count,
+        selection_count=3,
+        missing_fraction=0.5,
+        random_seed=seed,
+    )
+
+
 def test_seeded_plan_and_json_roundtrip_are_identical() -> None:
     source = _shape_only_source()
     plan = _plan(source)
@@ -75,6 +107,51 @@ def test_fit_and_selection_streams_do_not_depend_on_other_region_count() -> None
 
     assert plan.selection == _plan(source, fit_count=17).selection
     assert plan.fit == _plan(source, selection_count=17).fit
+
+
+def test_training_dataset_plan_is_seeded_unique_valid_and_amplitude_independent(
+    tmp_path: Path,
+) -> None:
+    source = _full_training_source(tmp_path)
+    first, diagnostics = _full_plan(source)
+    repeated, _ = _full_plan(source)
+    changed_seed, _ = _full_plan(source, seed=20)
+    changed_amplitudes = replace(source, _amplitudes=np.full_like(source._amplitudes, 1234.0))
+    amplitude_changed, _ = _full_plan(changed_amplitudes)
+
+    assert first == repeated == amplitude_changed
+    assert first != changed_seed
+    assert len(first.fit) == len({spec.start for spec in first.fit}) == 64
+    assert first.patch_shape == (2, 1, 2, 2, 3)
+    assert diagnostics["fit_patch_count"] == diagnostics["unique_start_count"] == 64
+    for spec in first.fit:
+        assert np.all(source.patch_array_rows("fit", spec.start, first.patch_shape) >= 0)
+    legacy = make_ccnet_patch_plan(
+        source,
+        patch_shape=first.patch_shape,
+        fit_count=64,
+        selection_count=3,
+        missing_fraction=0.5,
+        random_seed=19,
+    )
+    assert first.selection == legacy.selection
+
+
+def test_training_dataset_sampler_rejects_patch_with_one_unauthorized_row(
+    tmp_path: Path,
+) -> None:
+    source = _full_training_source(tmp_path)
+    rows = source.fit.array_rows.copy()
+    rows[:, 0, :, :] = -1
+    rows.flags.writeable = False
+    source = replace(source, fit=replace(source.fit, array_rows=rows))
+
+    with pytest.raises(ValueError, match="unauthorized or absent"):
+        source.patch_array_rows("fit", (0, 0, 0, 0, 0), (1, 1, 1, 1, 1))
+    plan, diagnostics = _full_plan(source, count=128)
+    assert diagnostics["rejection_reason_counts"]["unauthorized_or_absent_trace_cell"] > 0
+    for spec in plan.fit:
+        assert np.all(source.patch_array_rows("fit", spec.start, plan.patch_shape) >= 0)
 
 
 def test_patch_starts_stay_inside_every_axis_and_include_boundary_positions() -> None:

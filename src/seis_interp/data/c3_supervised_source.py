@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from numbers import Integral
+from numbers import Integral, Real
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +20,7 @@ from seis_interp.data.trace_store import OUTPUT_FILE_NAMES as INTERIM_FILE_NAMES
 from seis_interp.data.trace_table import validated_array_rows
 from seis_interp.processing.c3_volume_index import (
     VOLUME_AXIS_ORDER,
+    build_c3_row_id_grid,
     build_c3_volume_index,
     validated_index_range,
 )
@@ -44,7 +45,7 @@ _RMS_TRACE_CHUNK_SIZE = 4096
 
 @dataclass(frozen=True)
 class C3SupervisedRegion:
-    """A dense canonical row map with global ranges and region-local shape."""
+    """A canonical row map with global ranges and region-local shape."""
 
     array_rows: np.ndarray
     time_range: tuple[int, int]
@@ -54,7 +55,7 @@ class C3SupervisedRegion:
 
 @dataclass(frozen=True)
 class C3SupervisedSource:
-    """Bound train-only regions and their fit-label RMS, without a dense cube."""
+    """Bound train-only row maps and their fixed RMS, without a dense amplitude cube."""
 
     fit: C3SupervisedRegion
     selection: C3SupervisedRegion
@@ -71,6 +72,25 @@ class C3SupervisedSource:
         """Copy one bounded label patch as contiguous ``(T,Sx,Sy,Rx,Ry)`` float32."""
         if region not in ("fit", "selection"):
             raise ValueError("region must be fit or selection")
+        rows = self.patch_array_rows(region, start, shape)
+        selected = self.fit if region == "fit" else self.selection
+        starts = _five_integers(start, name="start", minimum=0)
+        sizes = _five_integers(shape, name="shape", minimum=1)
+        time_start = selected.time_range[0] + starts[0]
+        values = self._amplitudes[rows.reshape(-1), time_start : time_start + sizes[0]]
+        if not np.all(np.isfinite(values)):
+            raise ValueError(f"{region} label patch contains non-finite amplitudes")
+        return np.array(values.T.reshape(sizes), dtype=np.float32, order="C", copy=True)
+
+    def patch_array_rows(
+        self,
+        region: str,
+        start: tuple[int, int, int, int, int],
+        shape: tuple[int, int, int, int, int],
+    ) -> np.ndarray:
+        """Return one patch's row map, rejecting unauthorized sentinel cells."""
+        if region not in ("fit", "selection"):
+            raise ValueError("region must be fit or selection")
         selected = self.fit if region == "fit" else self.selection
         starts = _five_integers(start, name="start", minimum=0)
         sizes = _five_integers(shape, name="shape", minimum=1)
@@ -83,12 +103,10 @@ class C3SupervisedSource:
             slice(offset, offset + length)
             for offset, length in zip(starts[1:], sizes[1:], strict=True)
         )
-        rows = selected.array_rows[spatial_slices].reshape(-1)
-        time_start = selected.time_range[0] + starts[0]
-        values = self._amplitudes[rows, time_start : time_start + sizes[0]]
-        if not np.all(np.isfinite(values)):
-            raise ValueError(f"{region} label patch contains non-finite amplitudes")
-        return np.array(values.T.reshape(sizes), dtype=np.float32, order="C", copy=True)
+        rows = selected.array_rows[spatial_slices]
+        if np.any(rows < 0):
+            raise ValueError(f"{region} patch contains unauthorized or absent trace cells")
+        return rows
 
 
 def load_c3_supervised_source(
@@ -99,6 +117,103 @@ def load_c3_supervised_source(
     selection_region: Mapping[str, object],
 ) -> C3SupervisedSource:
     """Verify prepared source-line splits and fit RMS using complete fit labels only."""
+    loaded = _load_prepared_training_inputs(interim_dir, processed_dir)
+    dataset, preparation, train_rows = loaded.dataset, loaded.preparation, loaded.train_rows
+    regions = {
+        name: _build_region(
+            selection,
+            name=name,
+            trace_table=dataset.trace_table,
+            train_rows=train_rows,
+            time_count=len(dataset.time_s),
+            train_line_range=preparation["source_line_ranges"][TRAIN_SPLIT],
+        )
+        for name, selection in (("fit", fit_region), ("selection", selection_region))
+    }
+    fit, selection = regions["fit"], regions["selection"]
+    if np.intersect1d(fit.array_rows, selection.array_rows).size:
+        raise ValueError("fit and selection regions must have disjoint array_row sets")
+    amplitude_rms = _fit_amplitude_rms(dataset.amplitudes, fit)
+    inputs_lock = _source_inputs_lock(loaded, regions)
+    return C3SupervisedSource(fit, selection, amplitude_rms, inputs_lock, dataset.amplitudes)
+
+
+def load_c3_training_dataset_source(
+    *,
+    interim_dir: Path,
+    processed_dir: Path,
+    authorized_train_rows: np.ndarray,
+    time_range: Sequence[int],
+    selection_region: Mapping[str, object],
+    amplitude_rms: float,
+    normalization_source: Mapping[str, object],
+) -> C3SupervisedSource:
+    """Bind the complete QC training dataset to a sparse row grid and fixed RMS."""
+    loaded = _load_prepared_training_inputs(interim_dir, processed_dir)
+    dataset, preparation, train_rows = loaded.dataset, loaded.preparation, loaded.train_rows
+    authorized = np.asarray(authorized_train_rows)
+    if (
+        authorized.ndim != 1
+        or authorized.dtype.kind not in "iu"
+        or authorized.dtype.kind == "b"
+        or len(authorized) == 0
+        or len(np.unique(authorized)) != len(authorized)
+    ):
+        raise ValueError("authorized_train_rows must be a non-empty unique integer vector")
+    authorized = authorized.astype(np.int64, copy=False)
+    if not np.array_equal(np.sort(authorized), np.sort(train_rows)):
+        raise ValueError("authorized_train_rows differ from canonical QC train rows")
+    selected_time = validated_index_range(time_range, name="training_dataset.time")
+    if selected_time[1] > len(dataset.time_s):
+        raise ValueError("training_dataset.time is outside the interim time axis")
+    grid, spatial_selection = build_c3_row_id_grid(
+        dataset.trace_table,
+        authorized,
+        source_line_range=tuple(preparation["source_line_ranges"][TRAIN_SPLIT]),
+    )
+    fit_selection = {"time": list(selected_time), **spatial_selection}
+    fit = C3SupervisedRegion(
+        grid,
+        selected_time,
+        (selected_time[1] - selected_time[0], *grid.shape),
+        fit_selection,
+    )
+    selection = _build_region(
+        selection_region,
+        name="selection",
+        trace_table=dataset.trace_table,
+        train_rows=train_rows,
+        time_count=len(dataset.time_s),
+        train_line_range=preparation["source_line_ranges"][TRAIN_SPLIT],
+    )
+    rms = _positive_finite(amplitude_rms, name="amplitude_rms")
+    if not isinstance(normalization_source, Mapping) or not normalization_source:
+        raise ValueError("normalization_source must be a non-empty mapping")
+    regions = {"fit": fit, "selection": selection}
+    inputs_lock = _source_inputs_lock(loaded, regions)
+    inputs_lock["training_dataset"] = {
+        "authorized_trace_count": len(authorized),
+        "time_samples": list(selected_time),
+        "invalid_row_sentinel": -1,
+    }
+    inputs_lock["normalization_source"] = dict(normalization_source)
+    return C3SupervisedSource(fit, selection, rms, inputs_lock, dataset.amplitudes)
+
+
+@dataclass(frozen=True)
+class _PreparedTrainingInputs:
+    dataset: object
+    preparation: Mapping[str, object]
+    train_rows: np.ndarray
+    dataset_id: str
+    partition_seed: int
+    interim_hashes: dict[str, object]
+    processed_hashes: dict[str, object]
+
+
+def _load_prepared_training_inputs(
+    interim_dir: Path, processed_dir: Path
+) -> _PreparedTrainingInputs:
     interim, processed = Path(interim_dir), Path(processed_dir)
     interim_hashes = run_records.file_hashes(interim, INTERIM_FILE_NAMES)
     processed_hashes = run_records.file_hashes(processed, PREPARED_FILE_NAMES)
@@ -140,27 +255,26 @@ def load_c3_supervised_source(
     train_rows = canonical.loc[canonical[SPLIT_COLUMN].eq(TRAIN_SPLIT), "array_row"].to_numpy(
         dtype=np.int64
     )
-    regions = {
-        name: _build_region(
-            selection,
-            name=name,
-            trace_table=dataset.trace_table,
-            train_rows=train_rows,
-            time_count=len(dataset.time_s),
-            train_line_range=preparation["source_line_ranges"][TRAIN_SPLIT],
-        )
-        for name, selection in (("fit", fit_region), ("selection", selection_region))
-    }
-    fit, selection = regions["fit"], regions["selection"]
-    if np.intersect1d(fit.array_rows, selection.array_rows).size:
-        raise ValueError("fit and selection regions must have disjoint array_row sets")
-    amplitude_rms = _fit_amplitude_rms(dataset.amplitudes, fit)
-    inputs_lock = {
-        "dataset_id": dataset_id,
+    return _PreparedTrainingInputs(
+        dataset,
+        preparation,
+        train_rows,
+        dataset_id,
+        partition_seed,
+        interim_hashes,
+        processed_hashes,
+    )
+
+
+def _source_inputs_lock(
+    loaded: _PreparedTrainingInputs, regions: Mapping[str, C3SupervisedRegion]
+) -> dict[str, object]:
+    return {
+        "dataset_id": loaded.dataset_id,
         "partition": TRAIN_SPLIT,
-        "partition_random_seed": partition_seed,
-        "interim": interim_hashes,
-        "processed": processed_hashes,
+        "partition_random_seed": loaded.partition_seed,
+        "interim": loaded.interim_hashes,
+        "processed": loaded.processed_hashes,
         "canonical_policy": DUPLICATE_PHYSICAL_COORDINATE_POLICY,
         "array_rows_hash_rule": ARRAY_ROWS_HASH_RULE,
         "regions": {
@@ -172,7 +286,6 @@ def load_c3_supervised_source(
             for name, region in regions.items()
         },
     }
-    return C3SupervisedSource(fit, selection, amplitude_rms, inputs_lock, dataset.amplitudes)
 
 
 def _build_region(
@@ -254,3 +367,12 @@ def _five_integers(value: object, *, name: str, minimum: int) -> tuple[int, int,
     ):
         raise ValueError(f"{name} must contain five integers >= {minimum}")
     return tuple(int(item) for item in value)
+
+
+def _positive_finite(value: object, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be a positive finite number")
+    converted = float(value)
+    if not np.isfinite(converted) or converted <= 0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return converted
