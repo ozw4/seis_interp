@@ -38,6 +38,7 @@ def prepare_c3_volume_run_artifacts(
     tmp_path: Path,
     *,
     mask_kind: str = RANDOM_TRACE_MASK_KIND,
+    missing_fraction: float = 0.5,
     target_offset: float = 0.0,
     time_sample_count: int = 4,
     receiver_y_count: int = 3,
@@ -47,7 +48,7 @@ def prepare_c3_volume_run_artifacts(
     prepared = prepare_c3_volume_artifacts(
         tmp_path,
         mask_kind=mask_kind,
-        missing_fraction=0.5,
+        missing_fraction=missing_fraction,
         random_seed=42,
         time_sample_count=time_sample_count,
     )
@@ -80,7 +81,7 @@ def prepare_c3_volume_run_artifacts(
             prepared.mask_dir,
             partition=TEST_SPLIT,
             kind=mask_kind,
-            missing_fraction=0.5,
+            missing_fraction=missing_fraction,
             random_seed=42,
             config_source="studies/synthetic/config.yaml",
             overwrite=True,
