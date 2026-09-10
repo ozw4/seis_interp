@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-09-10 — Accept the measured Candidate C resource preflight
+
+The disposable maximum-capacity preflight completed successfully on `cuda:0` in outer run
+`20260910T025241559878Z_c33113626f7f_nersi`. Its resolved configuration SHA-256 is
+`8d7bd13099e359f55e6998531117921c8b497bce5e03b70ea1a284dc3da4c482` and it used
+7,728,697 parameters. Ten optimizer updates took 3.166324 seconds; peak CUDA allocated and
+reserved memory were 4,307,159,552 and 4,406,116,352 bytes. The declared 5,000-update fit
+and full-profile prediction were linearly estimated at 1,583.162019 and 17.173953 seconds.
+
+These measurements fit the declared four-hour action timeout and available H100 memory, so
+run the already frozen Candidates A–D once each without changing their widths, batch sizes,
+learning rates, update budget, or seed. The smoke state is disposable and is not reused.
+The estimate is not reported as a measured full-run duration.
+
 ## 2026-09-10 — Measure the maximum-capacity candidate in resource preflight
 
 Use Candidate C rather than Candidate A for the single disposable resource preflight.
