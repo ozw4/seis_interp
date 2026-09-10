@@ -87,6 +87,9 @@ def test_global_target_metrics_match_hand_calculation_and_existing_snr(tmp_path:
             "snr_db": signal_to_noise_ratio_db(target_reference, target_prediction),
             "rmse": 1.0,
             "relative_l2": math.sqrt(6.0 / 303.0),
+            "mean_trace_relative_mse": (0.01 + 1.0) / 2.0,
+            "covered_target_trace_count": 2,
+            "target_trace_count": 2,
         }
     )
     assert result["zero_fill"] == {
@@ -120,6 +123,44 @@ def test_observed_error_does_not_change_target_metrics(tmp_path: Path) -> None:
     assert changed["zero_fill"] == baseline["zero_fill"]
     assert baseline["observed_max_abs_error"] == 0.0
     assert changed["observed_max_abs_error"] == pytest.approx(7.0)
+
+
+def test_explicit_coverage_must_include_every_target(tmp_path: Path) -> None:
+    prediction, volume = _metric_example(tmp_path)
+    coverage = np.ones_like(volume.evaluation_target_trace_mask)
+    coverage.reshape(-1)[-1] = False
+
+    with pytest.raises(ValueError, match="cover every evaluation target"):
+        evaluate_c3_volume_prediction(
+            prediction,
+            volume,
+            interim_dir=tmp_path,
+            volume_metadata=_metadata(),
+            target_coverage_mask=coverage,
+        )
+
+
+@pytest.mark.parametrize(
+    "coverage",
+    [
+        np.ones((1, 1, 1, 3), dtype=np.bool_),
+        np.ones((1, 1, 1, 4), dtype=np.int8),
+    ],
+)
+def test_rejects_invalid_target_coverage_mask(
+    tmp_path: Path,
+    coverage: np.ndarray,
+) -> None:
+    prediction, volume = _metric_example(tmp_path)
+
+    with pytest.raises(ValueError, match="target coverage mask"):
+        evaluate_c3_volume_prediction(
+            prediction,
+            volume,
+            interim_dir=tmp_path,
+            volume_metadata=_metadata(),
+            target_coverage_mask=coverage,
+        )
 
 
 class _GuardedAmplitudes(np.ndarray):
@@ -233,6 +274,8 @@ def test_snr_special_cases_are_strict_json_safe(
     assert target["snr_db"] is None
     assert target["snr_status"] == status
     assert target["relative_l2"] == relative_l2
+    expected_trace_relative_mse = 0.0 if status == "perfect_reconstruction" else 1.0
+    assert target["mean_trace_relative_mse"] == expected_trace_relative_mse
     if status == "undefined_zero_reference":
         assert result["zero_fill"] == {
             "snr_db": None,
@@ -330,3 +373,35 @@ def test_rejects_time_selection_outside_source_amplitudes(tmp_path: Path) -> Non
             interim_dir=tmp_path,
             volume_metadata=_metadata((7, 10)),
         )
+
+
+def test_zero_energy_trace_uses_divisor_one_and_boundary_targets_are_counted(
+    tmp_path: Path,
+) -> None:
+    amplitudes = np.ones((7, 8), dtype=np.float32)
+    amplitudes[4, 2:5] = 0.0
+    amplitudes[0, 2:5] = [1.0, -1.0, 1.0]
+    _write_amplitudes(tmp_path, amplitudes)
+    volume = _volume(amplitudes)
+    boundary_targets = np.array([True, False, False, True]).reshape(_ARRAY_ROWS.shape)
+    volume = replace(
+        volume,
+        observed_trace_mask=~boundary_targets,
+        evaluation_target_trace_mask=boundary_targets,
+    )
+    traces = amplitudes[_ARRAY_ROWS.reshape(-1), 2:5].copy()
+    traces[0] = [2.0, -2.0, 2.0]
+    traces[-1] = 0.0
+
+    result = evaluate_c3_volume_prediction(
+        _trace_predictions(traces),
+        volume,
+        interim_dir=tmp_path,
+        volume_metadata=_metadata(),
+        target_coverage_mask=np.ones_like(boundary_targets),
+    )["evaluation_target"]
+
+    assert result["trace_count"] == 2
+    assert result["covered_target_trace_count"] == 2
+    assert result["target_trace_count"] == 2
+    assert result["mean_trace_relative_mse"] == pytest.approx((4.0 + 1.0) / 2.0)

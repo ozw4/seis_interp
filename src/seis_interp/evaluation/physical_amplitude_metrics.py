@@ -22,6 +22,43 @@ def physical_amplitude_energies(
     return reference_energy, error_energy
 
 
+def physical_amplitude_mean_trace_relative_mse(
+    reference: np.ndarray,
+    prediction: np.ndarray,
+) -> float:
+    """Return the mean trace-relative MSE using a divisor of one for zero traces."""
+    reference = np.asarray(reference, dtype=np.float64)
+    prediction = np.asarray(prediction, dtype=np.float64)
+    if reference.shape != prediction.shape or reference.ndim != 2:
+        raise ValueError("reference and prediction must have matching [trace, time] shape")
+    if min(reference.shape) < 1:
+        raise ValueError("reference and prediction must contain at least one complete trace")
+    if not np.all(np.isfinite(reference)) or not np.all(np.isfinite(prediction)):
+        raise ValueError("reference and prediction must contain finite values")
+
+    peak = np.max(np.abs(reference), axis=1, keepdims=True)
+    safe_peak = np.where(peak > 0.0, peak, 1.0)
+    with np.errstate(over="ignore", invalid="ignore"):
+        rms = peak * np.sqrt(
+            np.mean(
+                np.square(reference / safe_peak),
+                axis=1,
+                dtype=np.float64,
+                keepdims=True,
+            )
+        )
+        divisor = np.where(rms > 0.0, rms, 1.0)
+        residual = prediction - reference
+        trace_relative_mse = np.mean(
+            np.square(residual / divisor),
+            axis=1,
+            dtype=np.float64,
+        )
+        result = float(np.mean(trace_relative_mse, dtype=np.float64))
+    _require_finite_metric(result, "mean trace-relative MSE")
+    return result
+
+
 def physical_amplitude_target_metrics(
     *,
     trace_count: int,

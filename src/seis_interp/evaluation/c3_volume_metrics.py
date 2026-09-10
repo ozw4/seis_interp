@@ -16,6 +16,7 @@ from seis_interp.data.c3_volume_adapter import (
 from seis_interp.data.trace_store import AMPLITUDES_FILE_NAME
 from seis_interp.evaluation.physical_amplitude_metrics import (
     physical_amplitude_energies,
+    physical_amplitude_mean_trace_relative_mse,
     physical_amplitude_snr,
     physical_amplitude_target_metrics,
 )
@@ -38,6 +39,7 @@ def evaluate_c3_volume_prediction(
     *,
     interim_dir: Path,
     volume_metadata: Mapping[str, object],
+    target_coverage_mask: np.ndarray | None = None,
 ) -> dict[str, object]:
     """Evaluate one prediction on the volume's evaluation-target traces.
 
@@ -49,6 +51,10 @@ def evaluate_c3_volume_prediction(
         predicted_values,
         observed_volume,
         volume_metadata,
+    )
+    target_trace_count, covered_target_trace_count = _validated_target_coverage(
+        target_coverage_mask,
+        target_mask=observed_volume.evaluation_target_trace_mask,
     )
     array_rows, trace_predictions = volume_to_trace_predictions(
         predicted_values,
@@ -71,6 +77,7 @@ def evaluate_c3_volume_prediction(
 
     reference_energy = 0.0
     error_energy = 0.0
+    trace_relative_mse_sum = 0.0
     for start in range(0, len(target_positions), _TARGET_TRACE_CHUNK_SIZE):
         positions = target_positions[start : start + _TARGET_TRACE_CHUNK_SIZE]
         rows = array_rows[positions]
@@ -87,7 +94,14 @@ def evaluate_c3_volume_prediction(
         )
         reference_energy += chunk_reference_energy
         error_energy += chunk_error_energy
-        if not math.isfinite(reference_energy) or not math.isfinite(error_energy):
+        trace_relative_mse_sum += len(positions) * physical_amplitude_mean_trace_relative_mse(
+            reference,
+            prediction,
+        )
+        if not all(
+            math.isfinite(value)
+            for value in (reference_energy, error_energy, trace_relative_mse_sum)
+        ):
             raise ValueError("evaluation energies must be finite")
 
     trace_count = int(len(target_positions))
@@ -97,6 +111,11 @@ def evaluate_c3_volume_prediction(
         sample_count=sample_count,
         reference_energy=reference_energy,
         error_energy=error_energy,
+    )
+    target_metrics.update(
+        mean_trace_relative_mse=trace_relative_mse_sum / trace_count,
+        covered_target_trace_count=covered_target_trace_count,
+        target_trace_count=target_trace_count,
     )
     zero_fill_metrics = _zero_fill_metrics(
         sample_count=sample_count,
@@ -180,6 +199,25 @@ def _validate_trace_mask(
         raise ValueError(f"{name} must be a four-dimensional boolean NumPy array")
     if mask.shape != spatial_shape:
         raise ValueError(f"{name} shape must match the prediction spatial shape")
+
+
+def _validated_target_coverage(
+    coverage_mask: np.ndarray | None,
+    *,
+    target_mask: np.ndarray,
+) -> tuple[int, int]:
+    target_trace_count = int(np.count_nonzero(target_mask))
+    if coverage_mask is None:
+        return target_trace_count, target_trace_count
+    _validate_trace_mask(
+        coverage_mask,
+        name="target coverage mask",
+        spatial_shape=target_mask.shape,
+    )
+    covered_target_trace_count = int(np.count_nonzero(coverage_mask & target_mask))
+    if covered_target_trace_count != target_trace_count:
+        raise ValueError("target coverage mask must cover every evaluation target trace")
+    return target_trace_count, covered_target_trace_count
 
 
 def _validate_amplitude_source(
