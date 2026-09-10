@@ -1,0 +1,28 @@
+model:
+  name: nersi
+  coordinate_order: [source_line, shot_in_line, relative_receiver_x]
+  fourier_components: 40
+  frequency_schedule: exponential
+  frequency_base: 1.25
+  encoder_width: 384
+  latent_channels: 96
+  decoder_channels: [96, 48, 24]
+  upsample_scales: [2, 2, 2]
+  kernel_size: 3
+  activation: gelu
+  output_activation: linear
+training:
+  random_seed: 20260908
+  optimizer: adam
+  loss: observed_masked_mse
+  amplitude_scaling: observed_volume_global_rms
+  learning_rate: 0.001
+  profiles_per_step: 16
+  max_steps: 5000
+  report_interval: 100
+  device: cuda:0
+prediction:
+  batch_size: 64
+evaluation:
+  primary_metric: physical_amplitude_global_snr_db
+  domain: evaluation_target

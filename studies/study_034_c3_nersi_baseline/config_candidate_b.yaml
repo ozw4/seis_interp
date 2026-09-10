@@ -1,0 +1,43 @@
+# Explicit experiment plan for fixed validation Candidate B.
+study:
+  id: study_034_c3_nersi_baseline
+  status: planned
+execution:
+  default_action: dry_run
+  execute_requires_explicit_flag: true
+  one_action_per_invocation: true
+  action_timeout_seconds: 14400
+  preflight_timeout_seconds: 1800
+  device: cuda:0
+  thread_count: 1
+  gpu_actions_parallel: false
+  cpu_training_fallback: false
+  budget_extension: explicit_recorded_revision_only
+seeds:
+  partition: 42
+  training: 20260908
+methods:
+  nersi:
+    native_fragment: methods/nersi_candidate_b.yaml
+    model_description: repository_nersi_candidate_b_width256_latent64_lr3e-4
+training_information:
+  nersi: validation_volume_observed_samples_only
+  additional_teacher_data: false
+  normalization: selected_volume_observed_sample_global_rms
+  fixed_time_shear: 0.0
+  equal_training_information_or_compute_claimed: false
+evaluation:
+  domain: evaluation_target
+  primary_metric: physical_amplitude_global_snr_db
+  energy_accumulation_dtype: float64
+  coverage: every_target_and_every_selected_time_sample
+  target_amplitudes: evaluation_only_after_prediction
+  primary_checkpoint: final_after_declared_budget
+completion:
+  required_methods:
+  - nersi
+  automatic_quality_retries: false
+  test_execution: false
+  snr_threshold: null
+  candidate_set: [a, b, c, d]
+  primary_selection: after_all_four_fixed_validation_runs
