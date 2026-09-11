@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -9,9 +10,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from seis_interp.configuration import ConfigurationError
 from seis_interp.data import c3_poc_inputs
 from seis_interp.data.c3_poc_inputs import (
     C3_RANDOM80_POC_BENCHMARK_ID,
+    C3_RANDOM80_POC_DATASET_ID,
     load_c3_random80_poc_inputs,
 )
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
@@ -45,6 +48,14 @@ def _artifact_arguments(artifacts: object) -> dict[str, Path]:
     }
 
 
+def _poc_config(metadata: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "benchmark_volume": {
+            "selection": deepcopy(metadata["selection"]),
+        }
+    }
+
+
 def _memory_inputs() -> tuple[C3VolumeRunInputs, C3BenchmarkDimensions]:
     shape = (2, 1, 1, 1, 5)
     spatial_shape = shape[1:]
@@ -62,6 +73,7 @@ def _memory_inputs() -> tuple[C3VolumeRunInputs, C3BenchmarkDimensions]:
     )
     case = {
         "case_id": "memory_case",
+        "dataset_id": C3_RANDOM80_POC_DATASET_ID,
         "mask": {
             "kind": "random_trace",
             "missing_fraction": 0.8,
@@ -80,6 +92,9 @@ def _memory_inputs() -> tuple[C3VolumeRunInputs, C3BenchmarkDimensions]:
         "selection": {
             "time": [0, 2],
             "source_line": [7, 8],
+            "shot_in_line": [3, 4],
+            "relative_receiver_x": [5, 6],
+            "relative_receiver_y": [10, 15],
         },
         "role_counts": {
             OBSERVED_ROLE: 1,
@@ -112,7 +127,9 @@ def _load_memory_inputs(
         return inputs
 
     monkeypatch.setattr(c3_poc_inputs, "load_c3_volume_run_inputs", load_once)
+    config = _poc_config(inputs.volume_metadata)
     result = load_c3_random80_poc_inputs(
+        config=config,
         interim_dir=Path("interim"),
         processed_dir=Path("processed"),
         mask_dir=Path("mask"),
@@ -121,16 +138,21 @@ def _load_memory_inputs(
         dimensions=dimensions,
     )
     assert len(calls) == 1
-    assert calls[0]["config"] == {}
+    assert calls[0]["config"] == config
     return result
 
 
 def test_loads_small_artifacts_as_existing_volume_run_inputs(tmp_path: Path) -> None:
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path, missing_fraction=0.8)
+    artifacts = prepare_c3_volume_run_artifacts(
+        tmp_path,
+        dataset_id=C3_RANDOM80_POC_DATASET_ID,
+        missing_fraction=0.8,
+    )
     shape = tuple(artifacts.volume_metadata["shape"])
 
     inputs = load_c3_random80_poc_inputs(
         **_artifact_arguments(artifacts),
+        config=_poc_config(artifacts.volume_metadata),
         dimensions=_fixture_dimensions(shape),
     )
 
@@ -138,9 +160,76 @@ def test_loads_small_artifacts_as_existing_volume_run_inputs(tmp_path: Path) -> 
     assert inputs.observed_volume.values.shape == shape
     assert inputs.inputs_lock["benchmark_id"] == C3_RANDOM80_POC_BENCHMARK_ID
     assert inputs.inputs_lock["case_id"] == inputs.case["case_id"]
+    assert inputs.inputs_lock["dataset_id"] == C3_RANDOM80_POC_DATASET_ID
     assert inputs.inputs_lock["volume_id"] == inputs.volume_metadata["volume_id"]
+    assert inputs.inputs_lock["selection"] == inputs.volume_metadata["selection"]
     assert inputs.inputs_lock["shape"] == list(shape)
+    assert (
+        inputs.inputs_lock["benchmark_volume"]["files"]
+        == load_c3_volume_run_inputs(
+            config=_poc_config(artifacts.volume_metadata),
+            **_artifact_arguments(artifacts),
+        ).inputs_lock["benchmark_volume"]["files"]
+    )
     json.dumps(inputs.inputs_lock, allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{}, {"benchmark_volume": {"selection": {}}}],
+)
+def test_requires_resolved_benchmark_volume_selection(config: dict[str, object]) -> None:
+    with pytest.raises(
+        ConfigurationError,
+        match="benchmark_volume.selection",
+    ):
+        load_c3_random80_poc_inputs(
+            config=config,
+            interim_dir=Path("interim"),
+            processed_dir=Path("processed"),
+            mask_dir=Path("mask"),
+            case_dir=Path("case"),
+            volume_dir=Path("volume"),
+        )
+
+
+@pytest.mark.parametrize(
+    "axis",
+    ["shot_in_line", "relative_receiver_x", "relative_receiver_y"],
+)
+def test_rejects_same_shape_volume_selection_shift(
+    tmp_path: Path,
+    axis: str,
+) -> None:
+    artifacts = prepare_c3_volume_run_artifacts(
+        tmp_path,
+        dataset_id=C3_RANDOM80_POC_DATASET_ID,
+        missing_fraction=0.8,
+    )
+    config = _poc_config(artifacts.volume_metadata)
+    selection = config["benchmark_volume"]["selection"]
+    selection[axis] = [bound + 1 for bound in selection[axis]]
+
+    with pytest.raises(
+        ConfigurationError,
+        match="benchmark_volume.selection does not match the verified volume artifact",
+    ):
+        load_c3_random80_poc_inputs(
+            **_artifact_arguments(artifacts),
+            config=config,
+            dimensions=_fixture_dimensions(tuple(artifacts.volume_metadata["shape"])),
+        )
+
+
+def test_rejects_non_seg_c3_na_dataset(tmp_path: Path) -> None:
+    artifacts = prepare_c3_volume_run_artifacts(tmp_path, missing_fraction=0.8)
+
+    with pytest.raises(ValueError, match="PoC dataset_id must be 'seg_c3_na'"):
+        load_c3_random80_poc_inputs(
+            **_artifact_arguments(artifacts),
+            config=_poc_config(artifacts.volume_metadata),
+            dimensions=_fixture_dimensions(tuple(artifacts.volume_metadata["shape"])),
+        )
 
 
 def test_rejects_overlapping_observed_and_target_masks(
@@ -223,6 +312,7 @@ def test_target_truth_sentinel_is_not_materialized(tmp_path: Path) -> None:
     sentinel = 9.876543e19
     artifacts = prepare_c3_volume_run_artifacts(
         tmp_path,
+        dataset_id=C3_RANDOM80_POC_DATASET_ID,
         missing_fraction=0.8,
         target_offset=sentinel,
     )
@@ -237,6 +327,7 @@ def test_target_truth_sentinel_is_not_materialized(tmp_path: Path) -> None:
 
     inputs = load_c3_random80_poc_inputs(
         **_artifact_arguments(artifacts),
+        config=_poc_config(artifacts.volume_metadata),
         dimensions=_fixture_dimensions(shape),
     )
 

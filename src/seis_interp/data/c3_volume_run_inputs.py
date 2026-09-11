@@ -88,7 +88,7 @@ def _validate_declared_inputs(
 
     benchmark_volume = config.get("benchmark_volume")
     if isinstance(benchmark_volume, Mapping) and "selection" in benchmark_volume:
-        selection = _declared_selection(benchmark_volume["selection"])
+        selection = validated_c3_volume_selection(benchmark_volume["selection"])
         stored_selection = volume_metadata["selection"]
         assert isinstance(stored_selection, Mapping)
         if selection != dict(stored_selection):
@@ -138,7 +138,8 @@ def _validate_declared_inputs(
                 )
 
 
-def _declared_selection(value: object) -> dict[str, list[int]]:
+def validated_c3_volume_selection(value: object) -> dict[str, list[int]]:
+    """Return a complete normalized C3 volume selection declaration."""
     if not isinstance(value, Mapping) or set(value) != set(VOLUME_AXIS_ORDER):
         raise ConfigurationError(
             f"benchmark_volume.selection must contain exactly {list(VOLUME_AXIS_ORDER)!r}"

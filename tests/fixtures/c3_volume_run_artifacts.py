@@ -37,6 +37,7 @@ class PreparedC3VolumeRunArtifacts:
 def prepare_c3_volume_run_artifacts(
     tmp_path: Path,
     *,
+    dataset_id: str = "synthetic_c3",
     mask_kind: str = RANDOM_TRACE_MASK_KIND,
     missing_fraction: float = 0.5,
     target_offset: float = 0.0,
@@ -47,6 +48,7 @@ def prepare_c3_volume_run_artifacts(
     tmp_path.mkdir(parents=True, exist_ok=True)
     prepared = prepare_c3_volume_artifacts(
         tmp_path,
+        dataset_id=dataset_id,
         mask_kind=mask_kind,
         missing_fraction=missing_fraction,
         random_seed=42,

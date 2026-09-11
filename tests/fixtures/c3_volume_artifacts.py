@@ -84,6 +84,7 @@ class PreparedC3VolumeArtifacts:
 def prepare_c3_volume_artifacts(
     tmp_path: Path,
     *,
+    dataset_id: str = "synthetic_c3",
     physical_source_line_indices: tuple[int, ...] = (0, 1, 2, 3),
     omitted_shots: frozenset[tuple[int, int]] = frozenset(),
     mask_kind: str = RANDOM_TRACE_MASK_KIND,
@@ -121,7 +122,7 @@ def prepare_c3_volume_artifacts(
         amplitudes,
         np.arange(time_sample_count, dtype=np.float64) * 0.008,
         source,
-        "synthetic_c3",
+        dataset_id,
         {"ffid_scope": "all"},
     )
     processed = tmp_path / "processed"

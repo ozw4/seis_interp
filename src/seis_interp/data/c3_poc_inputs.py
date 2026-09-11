@@ -9,14 +9,17 @@ from pathlib import Path
 
 import numpy as np
 
+from seis_interp.configuration import ConfigurationError
 from seis_interp.data.c3_volume_run_inputs import (
     C3VolumeRunInputs,
     load_c3_volume_run_inputs,
+    validated_c3_volume_selection,
 )
 from seis_interp.processing.c3_benchmark_contract import (
     MAIN_C3_DIMENSIONS,
     C3BenchmarkDimensions,
 )
+from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.processing.interpolation_masks import (
     EVALUATION_TARGET_ROLE,
     OBSERVED_ROLE,
@@ -24,6 +27,7 @@ from seis_interp.processing.interpolation_masks import (
 )
 
 C3_RANDOM80_POC_BENCHMARK_ID = "c3_sl25_40_random80_observed_only_poc_v2"
+C3_RANDOM80_POC_DATASET_ID = "seg_c3_na"
 C3_RANDOM80_MISSING_FRACTION = 0.8
 
 
@@ -34,12 +38,13 @@ def load_c3_random80_poc_inputs(
     mask_dir: Path,
     case_dir: Path,
     volume_dir: Path,
-    config: Mapping[str, object] | None = None,
+    config: Mapping[str, object],
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
 ) -> C3VolumeRunInputs:
     """Materialize only observed amplitudes and validate the shared PoC contract."""
+    _require_resolved_volume_selection(config)
     inputs = load_c3_volume_run_inputs(
-        config={} if config is None else config,
+        config=config,
         interim_dir=interim_dir,
         processed_dir=processed_dir,
         mask_dir=mask_dir,
@@ -57,6 +62,17 @@ def load_c3_random80_poc_inputs(
     )
 
 
+def _require_resolved_volume_selection(config: Mapping[str, object]) -> None:
+    if not isinstance(config, Mapping):
+        raise TypeError("config must be a mapping")
+    benchmark_volume = config.get("benchmark_volume")
+    if not isinstance(benchmark_volume, Mapping) or not isinstance(
+        benchmark_volume.get("selection"), Mapping
+    ):
+        raise ConfigurationError("resolved benchmark_volume.selection is required")
+    validated_c3_volume_selection(benchmark_volume["selection"])
+
+
 def _validate_poc_inputs(
     inputs: C3VolumeRunInputs,
     *,
@@ -67,6 +83,8 @@ def _validate_poc_inputs(
     expected_shape = tuple(dimensions.shape)
     _validate_dimension_contract(dimensions)
     _validate_volume_domain(inputs, dimensions=dimensions, expected_shape=expected_shape)
+    if inputs.case.get("dataset_id") != C3_RANDOM80_POC_DATASET_ID:
+        raise ValueError(f"PoC dataset_id must be {C3_RANDOM80_POC_DATASET_ID!r}")
 
     volume = inputs.observed_volume
     observed = _trace_mask(
@@ -223,10 +241,13 @@ def _poc_inputs_lock(
     assert isinstance(mask, Mapping)
     input_files = inputs.case["input_files"]
     assert isinstance(input_files, Mapping)
+    selection = inputs.volume_metadata["selection"]
+    assert isinstance(selection, Mapping)
     lock.update(
         {
             "benchmark_id": C3_RANDOM80_POC_BENCHMARK_ID,
             "case_id": inputs.case["case_id"],
+            "dataset_id": inputs.case["dataset_id"],
             "mask": {
                 "kind": mask["kind"],
                 "missing_fraction": mask["missing_fraction"],
@@ -235,6 +256,7 @@ def _poc_inputs_lock(
                 "files": deepcopy(input_files["mask"]),
             },
             "volume_id": inputs.volume_metadata["volume_id"],
+            "selection": {axis: list(selection[axis]) for axis in VOLUME_AXIS_ORDER},
             "shape": list(inputs.volume_metadata["shape"]),
             "observed_trace_count": observed_count,
             "target_trace_count": target_count,
