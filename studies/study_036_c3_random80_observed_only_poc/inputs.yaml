@@ -1,0 +1,10 @@
+benchmark_id: c3_sl25_40_random80_observed_only_v1
+paths:
+  interim: ../../data/interim/c3_na/all_ffids
+  processed: ../../data/processed/c3_na/study_029_c3_amplitude_qc/partition
+  mask: ../../data/processed/c3_na/study_029_c3_amplitude_qc/masks/c3_benchmark_test_random_trace_80_seed42
+  case: ../../data/processed/c3_na/study_029_c3_amplitude_qc/cases/c3_benchmark_test_random_trace_80_seed42
+  volume: ../../data/processed/c3_na/study_029_c3_amplitude_qc/volumes/c3_benchmark_test_random_trace_80_seed42
+outputs:
+  runs: ../../runs/study_036_c3_random80_observed_only_poc
+  existing_directory_policy: reject

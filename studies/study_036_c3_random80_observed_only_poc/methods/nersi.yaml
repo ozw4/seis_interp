@@ -1,0 +1,30 @@
+extends: ../config.yaml
+
+model:
+  name: nersi
+  coordinate_order: [source_line, shot_in_line, relative_receiver_x]
+  fourier_components: 40
+  frequency_schedule: exponential
+  frequency_base: 1.25
+  encoder_width: 384
+  latent_channels: 96
+  decoder_channels: [96, 48, 24]
+  upsample_scales: [2, 2, 2]
+  kernel_size: 3
+  activation: gelu
+  output_activation: linear
+
+training:
+  model_initialization_seed: 101
+  sampling_seed: 201
+  optimizer: adam
+  loss: masked_trace_relative_mse
+  amplitude_scaling: observed_volume_global_rms
+  learning_rate: 0.001
+  profiles_per_step: 16
+  max_steps: 5000
+  report_interval: 100
+  device: cuda:1
+
+prediction:
+  batch_size: 64

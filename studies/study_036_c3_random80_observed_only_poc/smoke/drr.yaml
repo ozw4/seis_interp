@@ -1,0 +1,4 @@
+extends: ../methods/drr.yaml
+
+drr:
+  n_iterations: 1

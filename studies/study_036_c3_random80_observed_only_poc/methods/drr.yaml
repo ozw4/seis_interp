@@ -1,0 +1,10 @@
+extends: ../config.yaml
+
+drr:
+  rank: 4
+  damping_power: 3
+  n_iterations: 10
+  frequency_min_hz: 5.0
+  frequency_max_hz: null
+  spatial_window_shape: [5, 8, 4, 8]
+  spatial_overlap: [0, 0, 0, 0]

@@ -1,0 +1,5 @@
+extends: ../methods/nersi.yaml
+
+training:
+  max_steps: 2
+  report_interval: 1

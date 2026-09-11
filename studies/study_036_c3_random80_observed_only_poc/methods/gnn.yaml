@@ -1,0 +1,60 @@
+extends: ../config.yaml
+
+model:
+  name: relational_trace_graph
+  width: 64
+  message_passing_rounds: 2
+  time_downsample_factor: 2
+  stem_kernel_size: 7
+  temporal_kernel_size: 5
+  temporal_dilations: [1, 2]
+  attention_width: 32
+  relation_embedding_dim: 8
+  relation_fusion: learned_gate
+  method_variant: relational
+  explicit_azimuth_features: true
+  amplitude_mode: train_global_rms
+  max_edge_time_shift_samples: 0
+
+graph:
+  neighbors_per_relation: 2
+  max_normalized_distance: 1.0
+  candidate_chunk_size: 4096
+  topology: multi_relation
+  neighbor_search: exact_index
+  relations:
+    source:
+      source_scale_m: 160.0
+      receiver_scale_m: 640.0
+    receiver:
+      source_scale_m: 640.0
+      receiver_scale_m: 160.0
+    cmp:
+      midpoint_scale_m: 160.0
+      offset_vector_scale_m: 640.0
+    offset_azimuth:
+      midpoint_scale_m: 640.0
+      offset_vector_scale_m: 160.0
+
+geometry_features:
+  position_scale_m: 1000.0
+  offset_scale_m: 1000.0
+  azimuth_min_offset_m: 1.0
+
+training:
+  device: cuda:1
+  model_initialization_seed: 101
+  episode_seed: 201
+  loss: masked_trace_relative_mse
+  amplitude_scaling: observed_volume_global_rms
+  optimizer: adamw
+  max_steps: 5000
+  query_batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0
+  gradient_clip_norm: 1.0
+  inner_mask_fraction: 0.8
+  report_interval: 100
+
+prediction:
+  query_batch_size: 256

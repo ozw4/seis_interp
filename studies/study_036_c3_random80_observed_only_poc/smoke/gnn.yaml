@@ -1,0 +1,5 @@
+extends: ../methods/gnn.yaml
+
+training:
+  max_steps: 2
+  report_interval: 1

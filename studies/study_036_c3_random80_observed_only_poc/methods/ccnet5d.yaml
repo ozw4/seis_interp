@@ -1,0 +1,28 @@
+extends: ../config.yaml
+
+model:
+  name: ccnet5d
+  hidden_channels: 32
+  intermediate_channels: 32
+  kernel_size: 3
+  output_activation: linear
+
+patches:
+  shape: [384, 4, 8, 4, 8]
+  inner_mask_fraction: 0.8
+  mask_kind: random_trace
+  placement_seed: 301
+  inner_mask_seed: 401
+
+training:
+  model_initialization_seed: 101
+  optimizer: adam
+  loss: masked_trace_relative_mse
+  amplitude_scaling: observed_volume_global_rms
+  learning_rate: 0.001
+  max_steps: 5000
+  report_interval: 100
+  device: cuda:1
+
+prediction:
+  core_shape: [64, 8, 16, 8, 16]

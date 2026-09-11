@@ -1,0 +1,4 @@
+extends: ../methods/pocs.yaml
+
+pocs:
+  n_iterations: 2
