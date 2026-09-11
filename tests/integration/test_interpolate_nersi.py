@@ -12,7 +12,12 @@ import yaml
 
 from seis_interp.cli import main
 from seis_interp.configuration import load_resolved_config
-from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
+from seis_interp.data.c3_poc_inputs import (
+    C3_RANDOM80_POC_BENCHMARK_ID,
+    C3_RANDOM80_POC_DATASET_ID,
+    load_c3_random80_poc_inputs,
+)
+from seis_interp.data.c3_volume_index_store import load_c3_volume_index
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
 from seis_interp.pipelines import interpolate_nersi as pipeline
@@ -23,6 +28,7 @@ from seis_interp.pipelines.interpolate_nersi import (
     PREDICTION_RELATIVE_PATH,
     interpolate_nersi_run,
 )
+from seis_interp.processing.c3_benchmark_contract import C3BenchmarkDimensions
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
@@ -43,16 +49,37 @@ from tests.fixtures.c3_volume_run_artifacts import (
 
 @pytest.fixture(scope="module")
 def nersi_artifacts(tmp_path_factory: pytest.TempPathFactory) -> PreparedC3VolumeRunArtifacts:
+    return _prepare_poc_artifacts(tmp_path_factory.mktemp("nersi-volume"))
+
+
+def _prepare_poc_artifacts(
+    path: Path, *, target_offset: float = 0.0
+) -> PreparedC3VolumeRunArtifacts:
     return prepare_c3_volume_run_artifacts(
-        tmp_path_factory.mktemp("nersi-volume"),
+        path,
+        dataset_id=C3_RANDOM80_POC_DATASET_ID,
+        missing_fraction=0.8,
+        target_offset=target_offset,
         time_sample_count=8,
         receiver_y_count=8,
     )
 
 
 @pytest.fixture(autouse=True)
-def _use_tiny_synthetic_input_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(pipeline, "load_c3_random80_poc_inputs", load_c3_volume_run_inputs)
+def _use_synthetic_poc_dimensions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pipeline, "load_c3_random80_poc_inputs", _load_synthetic_poc_inputs)
+
+
+def _load_synthetic_poc_inputs(**kwargs):
+    _, metadata = load_c3_volume_index(kwargs["volume_dir"])
+    selection = metadata["selection"]
+    source_start, source_stop = selection["source_line"]
+    dimensions = C3BenchmarkDimensions(
+        time_range=tuple(selection["time"]),
+        sail_line_numbers=(source_start, source_stop - 1),
+        shape=tuple(metadata["shape"]),
+    )
+    return load_c3_random80_poc_inputs(**kwargs, dimensions=dimensions)
 
 
 def _config(artifacts: PreparedC3VolumeRunArtifacts, *, training_seed: int = 314) -> dict:
@@ -134,7 +161,7 @@ def _run(
 
 
 def _loaded_inputs(artifacts: PreparedC3VolumeRunArtifacts, config: Path):
-    return load_c3_volume_run_inputs(
+    return _load_synthetic_poc_inputs(
         config=load_resolved_config(config),
         interim_dir=artifacts.interim,
         processed_dir=artifacts.processed,
@@ -269,6 +296,10 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
         nersi_artifacts.case / "benchmark_case.json"
     )
     assert inputs_lock["benchmark_volume"]["volume_id"] == "synthetic_volume"
+    assert inputs_lock["benchmark_id"] == C3_RANDOM80_POC_BENCHMARK_ID
+    assert inputs_lock["dataset_id"] == C3_RANDOM80_POC_DATASET_ID
+    assert inputs_lock["mask"]["missing_fraction"] == 0.8
+    assert inputs_lock["selection"] == nersi_artifacts.volume_metadata["selection"]
     assert run["checkpoint"]["scope"] == "one_verified_case_volume_only"
     assert run["checkpoint"]["sha256"] == file_sha256(output / CHECKPOINT_RELATIVE_PATH)
     assert run["checkpoint"]["input_binding"] == nersi_checkpoint_input_binding(inputs_lock)
@@ -390,6 +421,49 @@ def test_same_seed_cpu_runs_are_deterministic(
     assert checkpoints[0].model.constructor_config() == checkpoints[1].model.constructor_config()
     for name, expected in checkpoints[0].model.state_dict().items():
         assert torch.equal(checkpoints[1].model.state_dict()[name], expected), name
+
+
+def test_target_truth_changes_only_evaluation_not_training_or_prediction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    predictions = []
+    original_predict = pipeline.predict_c3_volume_nersi
+
+    def capture_prediction(*args, **kwargs):
+        result = original_predict(*args, **kwargs)
+        predictions.append(result.values.copy())
+        return result
+
+    monkeypatch.setattr(pipeline, "predict_c3_volume_nersi", capture_prediction)
+    checkpoints = []
+    metrics = []
+    observed_volumes = []
+    for name, offset in (("base", 0.0), ("changed", 10000.0)):
+        root = tmp_path / name
+        artifacts = _prepare_poc_artifacts(root / "data", target_offset=offset)
+        config = _write_config(root / "nersi.yaml", artifacts, training_seed=2718)
+        output = root / "run"
+        observed_volumes.append(_loaded_inputs(artifacts, config).observed_volume)
+        metrics.append(_run(artifacts, config, output))
+        checkpoints.append(load_fixed_step_nersi_checkpoint(output / CHECKPOINT_RELATIVE_PATH))
+
+    first, changed = observed_volumes
+    np.testing.assert_array_equal(first.observed_trace_mask, changed.observed_trace_mask)
+    np.testing.assert_array_equal(
+        first.evaluation_target_trace_mask, changed.evaluation_target_trace_mask
+    )
+    np.testing.assert_array_equal(first.values, changed.values)
+    assert checkpoints[0].amplitude_scale == checkpoints[1].amplitude_scale
+    first_state = checkpoints[0].model.state_dict()
+    changed_state = checkpoints[1].model.state_dict()
+    assert first_state.keys() == changed_state.keys()
+    for name, expected in first_state.items():
+        assert torch.equal(changed_state[name], expected), name
+    assert len(predictions) == 2
+    np.testing.assert_array_equal(predictions[0], predictions[1])
+    assert metrics[0]["training"] == metrics[1]["training"]
+    assert metrics[0]["evaluation_target"] != metrics[1]["evaluation_target"]
 
 
 def test_training_and_prediction_complete_before_target_evaluation(
