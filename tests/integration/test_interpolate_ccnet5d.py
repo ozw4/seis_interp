@@ -2,352 +2,248 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
+import yaml
 
 from seis_interp import run_records
-from seis_interp.cli import main
-from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
-from seis_interp.data.file_checksums import file_sha256
+from seis_interp.data.c3_poc_inputs import C3_RANDOM80_POC_DATASET_ID
+from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
+from seis_interp.pipelines import interpolate_ccnet5d as ccnet_pipeline
 from seis_interp.pipelines.interpolate_ccnet5d import interpolate_ccnet5d_run
-from seis_interp.pipelines.train_ccnet5d import train_ccnet5d_run
-from seis_interp.training.ccnet5d_checkpoints import load_ccnet5d_checkpoint
-from tests.fixtures.ccnet5d_artifacts import prepare_ccnet5d_artifacts
-from tests.fixtures.ccnet5d_runs import (
-    ccnet5d_inference_config,
-    ccnet5d_training_config,
-    prepare_ccnet5d_benchmark,
-    write_ccnet5d_config,
+from seis_interp.processing.c3_benchmark_contract import C3BenchmarkDimensions
+from seis_interp.training.amplitude_scaling import compute_observed_global_rms
+from seis_interp.training.ccnet5d_poc_checkpoints import load_ccnet5d_poc_checkpoint
+from seis_interp.training.ccnet5d_prediction import predict_ccnet5d_volume
+from tests.fixtures.c3_volume_run_artifacts import (
+    PreparedC3VolumeRunArtifacts,
+    prepare_c3_volume_run_artifacts,
 )
 
 
-def _training(tmp_path, source, *, activation="linear"):
-    config = ccnet5d_training_config(source)
-    config["model"]["output_activation"] = activation
-    path = write_ccnet5d_config(tmp_path / "train.yaml", config)
-    output = tmp_path / "train"
-    metrics = train_ccnet5d_run(
-        config_path=path,
-        interim_dir=source.interim,
-        processed_dir=source.processed,
-        output_dir=output,
+def _artifacts(tmp_path: Path, *, target_offset: float = 0.0) -> PreparedC3VolumeRunArtifacts:
+    return prepare_c3_volume_run_artifacts(
+        tmp_path,
+        dataset_id=C3_RANDOM80_POC_DATASET_ID,
+        missing_fraction=0.8,
+        target_offset=target_offset,
+        time_sample_count=4,
+        receiver_y_count=3,
     )
-    return output, metrics
 
 
-def _inference(artifacts, config, checkpoint, output, **kwargs):
-    return interpolate_ccnet5d_run(
-        config_path=config,
-        checkpoint_path=checkpoint,
+def _dimensions(artifacts: PreparedC3VolumeRunArtifacts) -> C3BenchmarkDimensions:
+    shape = tuple(artifacts.volume_metadata["shape"])
+    return C3BenchmarkDimensions(
+        time_range=(0, shape[0]),
+        sail_line_numbers=(2, 3),
+        shape=shape,  # type: ignore[arg-type]
+    )
+
+
+def _config(artifacts: PreparedC3VolumeRunArtifacts) -> dict[str, object]:
+    return {
+        "project": {"random_seed": 42},
+        "data": {"dataset_id": C3_RANDOM80_POC_DATASET_ID},
+        "model": {
+            "name": "ccnet5d",
+            "hidden_channels": 1,
+            "intermediate_channels": 1,
+            "kernel_size": 1,
+            "output_activation": "linear",
+        },
+        "patches": {
+            "shape": list(artifacts.volume_metadata["shape"]),
+            "inner_mask_fraction": 0.5,
+            "mask_kind": "random_trace",
+            "random_seed": 19,
+        },
+        "training": {
+            "random_seed": 23,
+            "optimizer": "adam",
+            "loss": "masked_trace_relative_mse",
+            "amplitude_scaling": "observed_volume_global_rms",
+            "learning_rate": 1.0e-3,
+            "max_steps": 2,
+            "report_interval": 1,
+            "device": "cpu",
+        },
+        "interpolation_mask": {
+            "partition": "test",
+            "kind": "random_trace",
+            "missing_fraction": 0.8,
+        },
+        "benchmark_case": {"id": "synthetic_case"},
+        "benchmark_volume": {
+            "id": "synthetic_volume",
+            "selection": deepcopy(artifacts.volume_metadata["selection"]),
+        },
+        "prediction": {"core_shape": list(artifacts.volume_metadata["shape"])},
+        "evaluation": {
+            "primary_metric": "physical_amplitude_global_snr_db",
+            "domain": "evaluation_target",
+        },
+    }
+
+
+def _run(
+    tmp_path: Path,
+    artifacts: PreparedC3VolumeRunArtifacts,
+    *,
+    progress_reporter=None,
+) -> tuple[Path, dict[str, object]]:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(_config(artifacts), sort_keys=False), encoding="utf-8")
+    output = tmp_path / "run"
+    metrics = interpolate_ccnet5d_run(
+        config_path=config_path,
         interim_dir=artifacts.interim,
         processed_dir=artifacts.processed,
         mask_dir=artifacts.mask,
         case_dir=artifacts.case,
         volume_dir=artifacts.volume,
         output_dir=output,
-        **kwargs,
+        progress_reporter=progress_reporter,
+        dimensions=_dimensions(artifacts),
     )
+    return output, metrics
 
 
-@pytest.mark.parametrize(
-    "mask_kind,role,activation",
-    [("random_trace", "best", "linear"), ("random_whole_ffid", "final", "relu")],
-)
-def test_frozen_checkpoint_inference_records_full_forward_and_truth_metric(
-    tmp_path, monkeypatch, mask_kind, role, activation
-):
+def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         run_records,
         "current_git_metadata",
-        lambda: {"git_commit": "a" * 40, "git_worktree_dirty": False},
+        lambda: {"git_commit": "c" * 40, "git_worktree_dirty": False},
     )
-    source = prepare_ccnet5d_artifacts(tmp_path / "data")
-    artifacts = prepare_ccnet5d_benchmark(source, mask_kind=mask_kind)
-    training, _ = _training(tmp_path, source, activation=activation)
-    checkpoint = training / f"artifacts/{role}.pt"
-    original_hash = file_sha256(checkpoint)
-    loaded = load_ccnet5d_checkpoint(checkpoint)
-    state = {name: tensor.clone() for name, tensor in loaded.model.state_dict().items()}
-    config = ccnet5d_inference_config(artifacts)
-    config["prediction"]["device"] = "cuda:0"
-    path = write_ccnet5d_config(tmp_path / "infer.yaml", config)
-    output = tmp_path / "infer"
+    artifacts = _artifacts(tmp_path / "data")
+    progress: list[str] = []
 
-    def no_optimizer(*args, **kwargs):
-        pytest.fail("frozen inference must not create an optimizer")
+    output, metrics = _run(tmp_path, artifacts, progress_reporter=progress.append)
 
-    monkeypatch.setattr(torch.optim, "Adam", no_optimizer)
-    timestamps = []
-
-    def timestamp():
-        if timestamps:
-            assert (output / "artifacts/prediction.npy").is_file()
-        timestamps.append("2026-09-07T01:00:00Z")
-        return timestamps[-1]
-
-    monkeypatch.setattr(run_records, "utc_timestamp", timestamp)
-    messages = []
-    metrics = _inference(
-        artifacts,
-        path,
-        checkpoint,
-        output,
-        device_override="cpu",
-        progress_reporter=messages.append,
-    )
-    assert messages and len(timestamps) == 2
-    assert sorted(p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()) == [
+    assert sorted(
+        path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
+    ) == [
+        "artifacts/final.pt",
         "artifacts/prediction.npy",
         "config.resolved.yaml",
         "inputs.lock.json",
         "metrics.json",
         "run.json",
     ]
-    records = {
-        name: json.loads((output / f"{name}.json").read_text())
-        for name in ("metrics", "run", "inputs.lock")
-    }
-    for record in records.values():
-        json.dumps(record, allow_nan=False)
-    assert records["metrics"] == metrics
-    run = records["run"]
-    assert run["device"] == "cpu" and run["status"] == "success"
-    assert run["warnings"] == metrics["warnings"] == []
-    assert run["checkpoint"]["role"] == ("best_selection" if role == "best" else "final")
-    assert run["amplitude"] == {
-        "scale_source": "checkpoint_fit_region",
-        "amplitude_rms": loaded.amplitude_rms,
-    }
-    assert run["prediction"]["halo_radius"] == 4
-    assert run["prediction"]["tile_count"] == 16
-    assert metrics["training_regime"] == "supervised_train_partition"
-    assert metrics["method_variant"] == (
-        "supervised_train_partition_linear_output"
-        if activation == "linear"
-        else "supervised_train_partition_paper_relu_output"
-    )
-    assert (
-        records["inputs.lock"]["checkpoint"]["sha256"] == original_hash == file_sha256(checkpoint)
-    )
-    verified = load_c3_volume_run_inputs(
-        config=config,
+    prediction = np.load(output / "artifacts/prediction.npy", allow_pickle=False)
+    observed = load_observed_c3_volume(
         interim_dir=artifacts.interim,
         processed_dir=artifacts.processed,
         mask_dir=artifacts.mask,
         case_dir=artifacts.case,
         volume_dir=artifacts.volume,
     )
-    assert {
-        key: value for key, value in records["inputs.lock"].items() if key != "checkpoint"
-    } == verified.inputs_lock
-    observed = verified.observed_volume
-    assert loaded.amplitude_rms != np.sqrt(
-        np.mean(observed.values[:, observed.observed_trace_mask] ** 2, dtype=np.float64)
+    expected_scale = compute_observed_global_rms(
+        observed.values,
+        observed.observed_trace_mask,
     )
-    prediction = np.load(output / "artifacts/prediction.npy", allow_pickle=False)
-    assert prediction.shape == observed.values.shape and prediction.dtype == np.float32
-    assert np.isfinite(prediction).all()
+    checkpoint = load_ccnet5d_poc_checkpoint(output / "artifacts/final.pt")
+    assert checkpoint.amplitude_scale == expected_scale
+    assert checkpoint.optimizer_updates == 2
+    replay = predict_ccnet5d_volume(
+        checkpoint.model,
+        observed,
+        amplitude_rms=checkpoint.amplitude_scale,
+        core_shape=tuple(observed.values.shape),
+        device="cpu",
+    )
+    np.testing.assert_array_equal(replay.values, prediction)
+    np.testing.assert_array_equal(
+        prediction[:, observed.observed_trace_mask],
+        observed.values[:, observed.observed_trace_mask],
+    )
+    assert np.all(np.isfinite(prediction))
+
+    for name in ("metrics", "run", "inputs.lock"):
+        record = json.loads((output / f"{name}.json").read_text(encoding="utf-8"))
+        json.dumps(record, allow_nan=False)
+    stored_metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    assert stored_metrics == metrics
+    assert metrics["method"] == "ccnet5d"
+    assert metrics["training_domain"] == "O_with_inner_pseudo_mask"
+    assert metrics["loss"] == "masked_trace_relative_mse"
+    assert metrics["checkpoint_role"] == "final"
+    assert metrics["normalization"] == {
+        "type": "global_rms",
+        "source": "O_only",
+        "scale": expected_scale,
+    }
+    for metric in ("snr_db", "rmse", "relative_l2", "mean_trace_relative_mse"):
+        assert metric in metrics["evaluation_target"]
     assert (
-        prediction[:, observed.observed_trace_mask].tobytes()
-        == observed.values[:, observed.observed_trace_mask].tobytes()
+        metrics["evaluation_target"]["covered_target_trace_count"]
+        == metrics["evaluation_target"]["target_trace_count"]
     )
-    with torch.no_grad():
-        direct = (
-            loaded.model(torch.from_numpy(observed.values / loaded.amplitude_rms)[None, None])[
-                0, 0
-            ].numpy()
-            * loaded.amplitude_rms
-        )
-    direct[:, observed.observed_trace_mask] = observed.values[:, observed.observed_trace_mask]
-    np.testing.assert_allclose(prediction, direct, rtol=1e-6, atol=1e-3)
-    target_rows = observed.array_rows[observed.evaluation_target_trace_mask]
-    truth = np.load(artifacts.interim / "amplitudes.npy", allow_pickle=False)[
-        target_rows, 1:5
-    ].T.astype(np.float64)
-    errors = truth - prediction[:, observed.evaluation_target_trace_mask].astype(np.float64)
-    target = metrics["evaluation_target"]
-    assert target["snr_db"] == pytest.approx(10 * np.log10(np.sum(truth**2) / np.sum(errors**2)))
-    assert target["sample_count"] == truth.size
-    assert (
-        metrics["observed_max_abs_error"]
-        == metrics["uncovered_sample_count"]
-        == metrics["uncovered_trace_count"]
-        == 0
-    )
-    assert (
-        metrics["amplitude_domain"] == "physical"
-        and metrics["evaluation_domain"] == "evaluation_target"
-    )
-    reloaded = load_ccnet5d_checkpoint(checkpoint)
-    for name, tensor in state.items():
-        assert torch.equal(tensor, reloaded.model.state_dict()[name])
+    assert run["training"]["optimizer_updates"] == 2
+    assert run["training"]["validation"] is False
+    assert run["training"]["best_checkpoint_selection"] is False
+    assert run["coverage"]["minimum_target_coverage_count"] >= 1
+    assert run["resources"]["training_seconds"] >= 0.0
+    assert run["resources"]["prediction_seconds"] >= 0.0
+    assert run["resources"]["end_to_end_seconds"] >= 0.0
+    assert len(progress) >= 7
 
 
-def test_dirty_training_checkpoint_stays_nonformal_in_clean_inference(tmp_path, monkeypatch):
-    source = prepare_ccnet5d_artifacts(tmp_path / "data")
-    artifacts = prepare_ccnet5d_benchmark(source)
-    training_git = {"git_commit": "a" * 40, "git_worktree_dirty": True}
-    inference_git = {"git_commit": "b" * 40, "git_worktree_dirty": False}
-    git_snapshots = []
-
-    def git_metadata():
-        index = len(git_snapshots)
-        assert index < 2
-        assert not (tmp_path / ("train" if index == 0 else "infer")).exists()
-        snapshot = training_git if index == 0 else inference_git
-        git_snapshots.append(snapshot)
-        return snapshot.copy()
-
-    monkeypatch.setattr(run_records, "current_git_metadata", git_metadata)
-    training, _ = _training(tmp_path, source)
-    assert git_snapshots == [training_git]
-    training_run = json.loads((training / "run.json").read_text())
-    for key, value in training_git.items():
-        assert training_run[key] == value
-    for role in ("best", "final"):
-        loaded = load_ccnet5d_checkpoint(training / f"artifacts/{role}.pt")
-        assert loaded.training_provenance["training_run"] == training_git
-
-    checkpoint = training / "artifacts/best.pt"
-    original_hash = file_sha256(checkpoint)
-    config = write_ccnet5d_config(tmp_path / "infer.yaml", ccnet5d_inference_config(artifacts))
-    output = tmp_path / "infer"
-    metrics = _inference(artifacts, config, checkpoint, output)
-
-    assert git_snapshots == [training_git, inference_git]
-    run = json.loads((output / "run.json").read_text())
-    inputs_lock = json.loads((output / "inputs.lock.json").read_text())
-    assert run["status"] == "success"
-    for key, value in inference_git.items():
-        assert run[key] == value
-    for record in (run, inputs_lock):
-        assert record["checkpoint"]["training_provenance"]["training_run"] == training_git
-    assert (
-        metrics["warnings"]
-        == run["warnings"]
-        == [
-            "Training checkpoint was created from a dirty Git worktree; "
-            "this inference run is nonformal."
-        ]
-    )
-    assert json.loads((output / "metrics.json").read_text()) == metrics
-    assert file_sha256(checkpoint) == original_hash
-
-
-def test_benchmark_target_change_cannot_affect_training_rms_weights_or_prediction(tmp_path):
+def test_target_truth_change_cannot_change_training_state_or_pre_evaluation_prediction(
+    tmp_path: Path,
+) -> None:
     runs = []
-    for index, offset in enumerate((0.0, 50000.0)):
-        root = tmp_path / str(index)
-        root.mkdir()
-        source = prepare_ccnet5d_artifacts(root / "data")
-        artifacts = prepare_ccnet5d_benchmark(source, target_offset=offset)
-        training, training_metrics = _training(root, source)
-        checkpoint = training / "artifacts/best.pt"
-        config = write_ccnet5d_config(root / "infer.yaml", ccnet5d_inference_config(artifacts))
-        output = root / "infer"
-        metrics = _inference(artifacts, config, checkpoint, output)
+    for name, offset in (("base", 0.0), ("changed", 10000.0)):
+        root = tmp_path / name
+        artifacts = _artifacts(root / "data", target_offset=offset)
+        output, metrics = _run(root, artifacts)
+        checkpoint = load_ccnet5d_poc_checkpoint(output / "artifacts/final.pt")
         runs.append(
             (
-                training_metrics,
-                load_ccnet5d_checkpoint(checkpoint),
-                np.load(output / "artifacts/prediction.npy"),
+                {key: value.clone() for key, value in checkpoint.model.state_dict().items()},
+                np.load(output / "artifacts/prediction.npy", allow_pickle=False),
                 metrics,
             )
         )
-    left, right = runs
-    assert left[0] == right[0]
-    assert left[1].amplitude_rms == right[1].amplitude_rms
-    assert left[1].training_provenance != right[1].training_provenance
-    for name, value in left[1].model.state_dict().items():
-        assert torch.equal(value, right[1].model.state_dict()[name])
-    np.testing.assert_array_equal(left[2], right[2])
-    assert left[3]["evaluation_target"] != right[3]["evaluation_target"]
-    assert (
-        left[3]["observed_model_rmse_before_reinsertion"]
-        == right[3]["observed_model_rmse_before_reinsertion"]
-    )
+
+    first, changed = runs
+    for key, tensor in first[0].items():
+        torch.testing.assert_close(tensor, changed[0][key], rtol=0, atol=0)
+    np.testing.assert_array_equal(first[1], changed[1])
+    assert first[2]["evaluation_target"] != changed[2]["evaluation_target"]
 
 
-@pytest.mark.parametrize(
-    "problem",
-    ["hash", "train_partition", "spatial_overlap", "dataset", "evaluation", "core", "constructor"],
-)
-def test_preflight_rejects_before_creating_output(tmp_path, problem):
-    source = prepare_ccnet5d_artifacts(tmp_path / "data")
-    partition = "train" if problem == "train_partition" else "validation"
-    artifacts = prepare_ccnet5d_benchmark(source, partition=partition)
-    training, _ = _training(tmp_path, source)
-    checkpoint = training / "artifacts/best.pt"
-    config = ccnet5d_inference_config(artifacts, partition=partition)
-    if problem in ("hash", "spatial_overlap"):
-        payload = torch.load(checkpoint, weights_only=True, map_location="cpu")
-        lock = payload["training_provenance"]["source_inputs_lock"]
-        if problem == "hash":
-            lock["interim"]["amplitudes.npy"]["sha256"] = "f" * 64
-        else:
-            selection = deepcopy(artifacts.volume_metadata["selection"])
-            selection["time"] = [0, 1]  # Time-disjoint is still forbidden for the same traces.
-            lock["regions"]["fit"]["selection"] = selection
-        checkpoint = tmp_path / "changed.pt"
-        torch.save(payload, checkpoint)
-    elif problem == "dataset":
-        config["data"]["dataset_id"] = "wrong"
-    elif problem == "evaluation":
-        config["evaluation"]["domain"] = "all_traces"
-    elif problem == "core":
-        config["prediction"]["core_shape"] = [0, 1, 1, 1, 1]
-    elif problem == "constructor":
-        config["model"] = {"name": "ccnet5d"}
-    path = write_ccnet5d_config(tmp_path / "infer.yaml", config)
-    output = tmp_path / "infer"
-    with pytest.raises(ValueError):
-        _inference(artifacts, path, checkpoint, output)
-    assert not output.exists()
+def test_missing_target_coverage_fails_before_evaluation_and_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _artifacts(tmp_path / "data")
+    original_predict = ccnet_pipeline.predict_ccnet5d_volume
 
+    def omit_target(*args: object, **kwargs: object):
+        predicted = original_predict(*args, **kwargs)
+        observed = args[1]
+        counts = predicted.coverage_counts.copy()
+        target_position = tuple(np.argwhere(observed.evaluation_target_trace_mask)[-1])
+        counts[target_position] = 0
+        return replace(predicted, coverage_counts=counts)
 
-def test_existing_output_is_unchanged(tmp_path):
-    output = tmp_path / "keep"
-    output.mkdir()
-    marker = output / "marker"
-    marker.write_text("unchanged")
-    with pytest.raises(FileExistsError):
-        interpolate_ccnet5d_run(
-            config_path=tmp_path,
-            checkpoint_path=tmp_path,
-            interim_dir=tmp_path,
-            processed_dir=tmp_path,
-            mask_dir=tmp_path,
-            case_dir=tmp_path,
-            volume_dir=tmp_path,
-            output_dir=output,
-        )
-    assert list(output.iterdir()) == [marker]
-    assert marker.read_text() == "unchanged"
+    monkeypatch.setattr(ccnet_pipeline, "predict_ccnet5d_volume", omit_target)
 
+    def unexpected_evaluation(*_args: object, **_kwargs: object) -> dict[str, object]:
+        pytest.fail("incomplete target coverage must fail before target truth is read")
 
-def test_interpolate_cli_end_to_end(tmp_path, capsys):
-    source = prepare_ccnet5d_artifacts(tmp_path / "data")
-    artifacts = prepare_ccnet5d_benchmark(source)
-    training, _ = _training(tmp_path, source)
-    path = write_ccnet5d_config(tmp_path / "infer.yaml", ccnet5d_inference_config(artifacts))
-    output = tmp_path / "infer"
-    args = ["interpolate", "ccnet5d"]
-    for name, value in {
-        "config": path,
-        "checkpoint": training / "artifacts/best.pt",
-        "interim": artifacts.interim,
-        "processed": artifacts.processed,
-        "mask": artifacts.mask,
-        "case": artifacts.case,
-        "volume": artifacts.volume,
-        "output": output,
-    }.items():
-        args.extend([f"--{name}", str(value)])
-    result = main([*args, "--device", "cpu", "--json"])
-    captured = capsys.readouterr()
-    assert result == 0
-    summary = json.loads(captured.out)
-    assert summary["observed_max_abs_error"] == 0
-    assert captured.err
+    monkeypatch.setattr(ccnet_pipeline, "evaluate_c3_volume_prediction", unexpected_evaluation)
+
+    with pytest.raises(ValueError, match="cover every evaluation target trace"):
+        _run(tmp_path, artifacts)
+
+    assert not (tmp_path / "run").exists()

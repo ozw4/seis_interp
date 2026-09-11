@@ -43,6 +43,8 @@ class CCNet5DObservedPatchSource:
             patch > extent for patch, extent in zip(self.patch_shape, volume.shape, strict=True)
         ):
             raise ValueError("patch_shape must fit inside the observed volume on every axis")
+        if self.patch_shape[0] != volume.shape[0]:
+            raise ValueError("patch_shape must span the complete trace time axis")
         self.inner_mask_fraction = _inner_mask_fraction(inner_mask_fraction)
         self.amplitude_scale = _positive_finite_scale(amplitude_scale)
         self._generator = _random_generator(random_seed=random_seed, generator=generator)
@@ -69,10 +71,8 @@ class CCNet5DObservedPatchSource:
 
     def sample(self) -> CCNet5DObservedPatch:
         """Draw one patch and a whole-trace pseudo-mask from the source RNG."""
-        time_limit = self.volume_shape[0] - self.patch_shape[0] + 1
-        time_start = int(self._generator.integers(time_limit))
         placement_index = int(self._generator.integers(len(self._eligible_spatial_starts)))
-        starts = (time_start, *self._eligible_spatial_starts[placement_index])
+        starts = (0, *self._eligible_spatial_starts[placement_index])
         patch_slices = tuple(
             slice(start, start + extent)
             for start, extent in zip(starts, self.patch_shape, strict=True)

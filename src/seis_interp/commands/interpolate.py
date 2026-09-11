@@ -109,7 +109,6 @@ def _interpolate_ccnet5d(args: argparse.Namespace) -> int:
     try:
         summary = interpolate_ccnet5d_run(
             config_path=args.config,
-            checkpoint_path=args.checkpoint,
             interim_dir=args.interim,
             processed_dir=args.processed,
             mask_dir=args.mask,
@@ -256,13 +255,10 @@ def add_interpolate_commands(
     nersi.add_argument("--device", help="Override the configured training device for this run.")
     nersi.set_defaults(handler=_interpolate_nersi)
     ccnet5d = interpolate_commands.add_parser(
-        "ccnet5d", help="Interpolate a verified C3 volume with a frozen CCNet5D checkpoint."
+        "ccnet5d", help="Fit CCNet5D on observed traces and interpolate the same C3 volume."
     )
     _add_c3_volume_run_arguments(ccnet5d)
-    ccnet5d.add_argument(
-        "--checkpoint", type=Path, required=True, help="Pretrained CCNet5D checkpoint."
-    )
-    ccnet5d.add_argument("--device", help="Override the configured inference device for this run.")
+    ccnet5d.add_argument("--device", help="Override the configured training device for this run.")
     ccnet5d.set_defaults(handler=_interpolate_ccnet5d)
     relational = interpolate_commands.add_parser(
         "relational-trace-graph", help="Predict a native case or volume with a frozen trace graph."

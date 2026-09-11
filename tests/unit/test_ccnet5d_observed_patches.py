@@ -114,19 +114,32 @@ def test_patch_source_rejects_domain_without_target_and_context() -> None:
         )
 
 
-def test_sampled_patch_uses_bounded_placement_and_complete_trace_mask() -> None:
+def test_sampled_patch_uses_bounded_spatial_placement_and_complete_trace_mask() -> None:
     volume = _observed_volume()
     source = CCNet5DObservedPatchSource(
         volume,
         amplitude_scale=2.0,
-        patch_shape=(128, 1, 2, 1, 2),
+        patch_shape=(384, 1, 2, 1, 2),
         inner_mask_fraction=0.5,
         random_seed=5,
     )
 
     batch = source.sample()
 
-    assert batch.model_input.shape == (128, 1, 2, 1, 2)
+    assert batch.model_input.shape == (384, 1, 2, 1, 2)
     assert batch.pseudo_target_mask.shape == (1, 2, 1, 2)
     assert all(item.start is not None and item.stop is not None for item in batch.patch_slices)
     np.testing.assert_array_equal(batch.model_input[:, batch.pseudo_target_mask], 0)
+
+
+def test_patch_must_span_the_complete_trace_time_axis() -> None:
+    volume = _observed_volume()
+
+    with pytest.raises(ValueError, match="complete trace time axis"):
+        CCNet5DObservedPatchSource(
+            volume,
+            amplitude_scale=2.0,
+            patch_shape=(128, 1, 2, 1, 2),
+            inner_mask_fraction=0.5,
+            random_seed=5,
+        )

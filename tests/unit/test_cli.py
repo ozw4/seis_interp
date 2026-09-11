@@ -59,13 +59,14 @@ def test_public_python_api_is_importable_from_cli() -> None:
     assert callable(main)
 
 
-def test_ccnet5d_help_distinguishes_training_and_frozen_checkpoint_inference(capsys) -> None:
+def test_ccnet5d_help_distinguishes_partition_training_and_poc_end_to_end_run(capsys) -> None:
     training = _help_text(["train", "ccnet5d"], capsys)
     inference = _help_text(["interpolate", "ccnet5d"], capsys)
 
     for option in ("--config", "--interim", "--processed", "--output", "--device", "--json"):
         assert option in training and option in inference
-    for option in ("--checkpoint", "--mask", "--case", "--volume"):
+    assert "--checkpoint" not in training and "--checkpoint" not in inference
+    for option in ("--mask", "--case", "--volume"):
         assert option not in training
         assert option in inference
     for option in ("--model", "--patch-shape", "--learning-rate", "--max-epochs", "--overwrite"):

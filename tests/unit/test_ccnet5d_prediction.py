@@ -5,6 +5,7 @@ import pytest
 import torch
 from torch.nn import functional as F
 
+import seis_interp.training.ccnet5d_prediction as prediction_module
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.training.ccnet5d_prediction import predict_ccnet5d_volume
@@ -55,6 +56,10 @@ def test_halo_matches_full_forward_including_true_boundaries_with_bias() -> None
         np.max(abs(errors))
     )
     assert result.tile_count == len(seen) == 20
+    np.testing.assert_array_equal(
+        result.coverage_counts,
+        np.ones(volume.observed_trace_mask.shape, dtype=result.coverage_counts.dtype),
+    )
     assert max(shape[0] for shape in seen) == 11 < volume.values.shape[0]
     assert result.maximum_input_shape == (11, 2, 3, 1, 4)
     assert model.training
@@ -96,6 +101,28 @@ def test_signed_physical_output_empty_tiles_reinsertion_and_target_isolation(dty
     np.testing.assert_array_equal(result.values, -3)
     assert result.tile_count == 24
     assert result.observed_model_rmse_before_reinsertion == 0
+
+
+def test_missing_boundary_tile_is_rejected_before_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    volume = _volume(shape=(3, 2, 2, 1, 3), dtype=np.float32)
+    model = CCNet5D(hidden_channels=1, intermediate_channels=1, kernel_size=1)
+    original_tiles = prediction_module.iter_ccnet5d_tiles
+
+    def omit_last_tile(*args, **kwargs):
+        yield from list(original_tiles(*args, **kwargs))[:-1]
+
+    monkeypatch.setattr(prediction_module, "iter_ccnet5d_tiles", omit_last_tile)
+
+    with pytest.raises(ValueError, match="cover every output sample"):
+        predict_ccnet5d_volume(
+            model,
+            volume,
+            amplitude_rms=1.0,
+            core_shape=(2, 1, 1, 1, 1),
+            device="cpu",
+        )
 
 
 def test_model_mode_is_restored_on_forward_failure() -> None:

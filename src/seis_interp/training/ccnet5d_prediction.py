@@ -11,11 +11,16 @@ import torch
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.processing.ccnet5d_tiles import iter_ccnet5d_tiles, validate_ccnet5d_shape
+from seis_interp.training.amplitude_scaling import (
+    normalize_by_global_rms,
+    restore_physical_amplitude,
+)
 
 
 @dataclass(frozen=True)
 class CCNet5DVolumePrediction:
     values: np.ndarray
+    coverage_counts: np.ndarray
     observed_model_rmse_before_reinsertion: float
     observed_model_max_abs_error_before_reinsertion: float
     tile_count: int
@@ -54,8 +59,9 @@ def predict_ccnet5d_volume(
         raise ValueError("amplitude_rms must be positive and finite")
     core = validate_ccnet5d_shape(core_shape, "core_shape")
     # np.where, not multiplication: target placeholders may contain NaN.
-    source = np.where(mask[None, ...], values, 0) / amplitude_rms
+    source = normalize_by_global_rms(np.where(mask[None, ...], values, 0), amplitude_rms)
     predicted = np.empty_like(values)
+    sample_coverage = np.zeros(values.shape, dtype=np.uint16)
     parameter = next(model.parameters())
     tile_count = 0
     maximum_input_shape = (0,) * 5
@@ -67,8 +73,9 @@ def predict_ccnet5d_volume(
                 block = np.ascontiguousarray(source[tile.input_slices])
                 inputs = torch.as_tensor(block, dtype=parameter.dtype, device=device)[None, None]
                 output = model(inputs)[0, 0][tile.local_core_slices]
-                physical = output.cpu().numpy() * amplitude_rms
+                physical = restore_physical_amplitude(output.cpu().numpy(), amplitude_rms)
                 predicted[tile.core_slices] = physical
+                sample_coverage[tile.core_slices] += 1
                 tile_count += 1
                 maximum_input_shape = tuple(
                     max(previous, actual)
@@ -76,6 +83,8 @@ def predict_ccnet5d_volume(
                 )
     finally:
         model.train(original_mode)
+    if np.any(sample_coverage == 0):
+        raise ValueError("CCNet-5D tiles must cover every output sample")
     if not np.all(np.isfinite(predicted)):
         raise ValueError("physical prediction must contain only finite values")
     error = predicted[:, mask].astype(np.float64) - values[:, mask].astype(np.float64)
@@ -84,6 +93,7 @@ def predict_ccnet5d_volume(
     predicted[:, mask] = values[:, mask]
     return CCNet5DVolumePrediction(
         values=np.ascontiguousarray(predicted),
+        coverage_counts=np.ascontiguousarray(sample_coverage.min(axis=0)),
         observed_model_rmse_before_reinsertion=rmse,
         observed_model_max_abs_error_before_reinsertion=maximum_error,
         tile_count=tile_count,

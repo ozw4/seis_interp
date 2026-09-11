@@ -641,7 +641,7 @@ def _install_ccnet5d_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: ob
 
 @pytest.mark.parametrize("json_output", [False, True])
 @pytest.mark.parametrize("device_override", [None, "cpu"])
-def test_ccnet5d_dispatches_checkpoint_paths_and_keeps_progress_on_stderr(
+def test_ccnet5d_dispatches_end_to_end_paths_and_keeps_progress_on_stderr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -651,17 +651,17 @@ def test_ccnet5d_dispatches_checkpoint_paths_and_keeps_progress_on_stderr(
     received = {}
     expected = _summary(warnings=["check reconstruction"]) | {
         "method": "ccnet5d",
-        "training_regime": "supervised_train_partition",
+        "training_domain": "O_with_inner_pseudo_mask",
         "uncovered_trace_count": 0,
     }
 
     def interpolate_ccnet5d_run(**kwargs):
         received.update(kwargs)
-        kwargs["progress_reporter"]("Predicting with frozen CCNet5D")
+        kwargs["progress_reporter"]("Training observed-only CCNet5D")
         return expected
 
     _install_ccnet5d_pipeline_stub(monkeypatch, interpolate_ccnet5d_run)
-    arguments = [*_arguments(tmp_path, "ccnet5d"), "--checkpoint", str(tmp_path / "best.pt")]
+    arguments = _arguments(tmp_path, "ccnet5d")
     if device_override is not None:
         arguments.extend(["--device", device_override])
     if json_output:
@@ -690,10 +690,9 @@ def test_ccnet5d_dispatches_checkpoint_paths_and_keeps_progress_on_stderr(
             "Uncovered traces: 0\n"
             "Uncovered samples: 0\n"
         )
-    assert captured.err == "Predicting with frozen CCNet5D\nWarning: check reconstruction\n"
+    assert captured.err == "Training observed-only CCNet5D\nWarning: check reconstruction\n"
     assert received == {
         "config_path": tmp_path / "config.yaml",
-        "checkpoint_path": tmp_path / "best.pt",
         "interim_dir": tmp_path / "interim",
         "processed_dir": tmp_path / "processed",
         "mask_dir": tmp_path / "mask",
@@ -705,14 +704,11 @@ def test_ccnet5d_dispatches_checkpoint_paths_and_keeps_progress_on_stderr(
     }
 
 
-def test_ccnet5d_requires_checkpoint_in_addition_to_volume_paths(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    with pytest.raises(SystemExit) as error:
-        main(_arguments(tmp_path, "ccnet5d"))
+def test_ccnet5d_help_has_no_external_checkpoint_argument(capsys) -> None:
+    help_text = _help_text(["interpolate", "ccnet5d"], capsys)
 
-    assert error.value.code == 2
-    assert "--checkpoint" in capsys.readouterr().err
+    assert "--checkpoint" not in help_text
+    assert "--device" in help_text
 
 
 @pytest.mark.parametrize(
@@ -729,7 +725,7 @@ def test_ccnet5d_reports_expected_failures(
 
     _install_ccnet5d_pipeline_stub(monkeypatch, interpolate_ccnet5d_run)
 
-    assert main([*_arguments(tmp_path, "ccnet5d"), "--checkpoint", str(tmp_path / "best.pt")]) == 1
+    assert main(_arguments(tmp_path, "ccnet5d")) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""
