@@ -31,12 +31,7 @@ from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3B
 ACTIONS = (
     "check",
     "zero-fill",
-    "pocs",
-    "drr",
     "siren",
-    "nersi",
-    "ccnet-train",
-    "ccnet-predict",
     "gnn-preflight",
     "gnn-train",
     "gnn-predict",
@@ -60,11 +55,7 @@ def run_c3_first_results(
     if action not in ACTIONS:
         raise ConfigurationError(f"unsupported action: {action}")
     if preflight and action not in (
-        "pocs",
-        "drr",
         "siren",
-        "nersi",
-        "ccnet-train",
         "gnn-preflight",
     ):
         raise ConfigurationError(f"--preflight is not supported for {action}")
@@ -155,7 +146,7 @@ def _resolve_request(request, *, config_path, inputs_path, checkpoint_path, dime
     request["volume"] = binding.volume
     request["train_pool"] = binding.manifest["train_pool"]
     if checkpoint_path is not None:
-        if action not in ("ccnet-predict", "gnn-predict"):
+        if action != "gnn-predict":
             raise ConfigurationError("--checkpoint is only supported for frozen prediction actions")
         checkpoint_path = Path(checkpoint_path).resolve()
         if checkpoint_path.name != "final.pt":
@@ -167,7 +158,7 @@ def _resolve_request(request, *, config_path, inputs_path, checkpoint_path, dime
             "sha256": file_sha256(checkpoint_path),
             "role": "final",
         }
-    elif action in ("ccnet-predict", "gnn-predict"):
+    elif action == "gnn-predict":
         raise ConfigurationError(f"{action} requires an explicit final checkpoint")
     if action in ("check", "zero-fill", "summarize"):
         request["native_config"] = plan
@@ -175,49 +166,8 @@ def _resolve_request(request, *, config_path, inputs_path, checkpoint_path, dime
     method = "gnn-train" if action == "gnn-preflight" else action
     fragment_path = config_path.parent / plan["methods"][method]["native_fragment"]
     fragment = read_first_results_yaml(fragment_path)
-    regions = request["experiment_inputs"].get("ccnet_regions")
-    full_training_dataset = (
-        action == "ccnet-train"
-        and fragment.get("supervision", {}).get("sampling_domain") == "qc_training_dataset"
-    )
-    if action == "ccnet-train" and full_training_dataset:
-        if not regions or not regions.get("selection"):
-            raise ConfigurationError("full-training CCNet requires its fixed selection region")
-        normalization = request["experiment_inputs"].get("normalization")
-        if not isinstance(normalization, dict):
-            raise ConfigurationError("full-training CCNet requires normalization inputs")
-        checkpoint_path = (inputs_path.parent / normalization["checkpoint"]).resolve()
-        checkpoint_hash = file_sha256(checkpoint_path)
-        if checkpoint_hash != normalization["expected_sha256"]:
-            raise ValueError("normalization checkpoint SHA-256 differs from expected_sha256")
-        if fragment["supervision"]["normalization_checkpoint_sha256"] != checkpoint_hash:
-            raise ConfigurationError(
-                "native supervision normalization hash differs from the input contract"
-            )
-        request["normalization_checkpoint"] = {
-            "path": str(checkpoint_path),
-            "sha256": checkpoint_hash,
-        }
-    elif (
-        action == "ccnet-train"
-        and regions
-        and bool(regions.get("fit")) != bool(regions.get("selection"))
-    ):
-        raise ConfigurationError("CCNet fit and selection regions must be resolved together")
-    if (
-        action == "ccnet-train"
-        and not full_training_dataset
-        and (not regions or not regions.get("fit") or not regions.get("selection"))
-    ):
-        from seis_interp.data.c3_first_results_training_regions import (
-            resolve_c3_first_results_ccnet_regions,
-        )
-
-        resolved = resolve_c3_first_results_ccnet_regions(binding.suite_dir, dimensions=dimensions)
-        regions = {"fit": resolved["fit_region"], "selection": resolved["selection_region"]}
-        request["ccnet_region_selection"] = resolved
     native = build_c3_first_result_native_config(
-        action, fragment=fragment, binding=binding, seeds=plan["seeds"], ccnet_regions=regions
+        action, fragment=fragment, binding=binding, seeds=plan["seeds"]
     )
     device_section = native.get("training", native.get("prediction", {}))
     if "device" in device_section and device_section["device"] != plan["execution"]["device"]:
@@ -229,15 +179,7 @@ def _resolve_request(request, *, config_path, inputs_path, checkpoint_path, dime
         binding=binding,
         config=native,
         dimensions=dimensions,
-        normalization_checkpoint_path=(
-            Path(request["normalization_checkpoint"]["path"])
-            if request.get("normalization_checkpoint")
-            else None
-        ),
     )
-    if action == "ccnet-train" and request["preflight"]:
-        prediction_path = config_path.parent / plan["methods"]["ccnet-predict"]["native_fragment"]
-        request["prediction_config_path"] = str(prediction_path.resolve())
 
 
 def _validate_execution(execution: dict) -> None:
@@ -339,6 +281,8 @@ def _classify_gnn_preflight_budget(result: dict, timeout: float) -> None:
 def dispatch_c3_first_results_action(request: dict) -> dict:
     """Call a public native run API using the exact paths verified by the outer reader."""
     action = request["action"]
+    if action not in ACTIONS:
+        raise ConfigurationError(f"unsupported action: {action}")
     paths = {key: Path(value) for key, value in request["paths"].items()}
     config_path = Path(request["native_config_path"])
     output = Path(request["native_run_directory"])
@@ -376,24 +320,6 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
             dimensions=dimensions,
         )
     if request["preflight"]:
-        if action in ("pocs", "drr"):
-            from seis_interp.data.c3_benchmark_inputs import load_c3_benchmark_volume_inputs
-            from seis_interp.processing.c3_first_results_preflight import preflight_classical_c3
-
-            inputs = load_c3_benchmark_volume_inputs(
-                suite_dir, request["case_id"], dimensions=dimensions
-            )
-            report = preflight_classical_c3(
-                method=action,
-                inputs=inputs,
-                config=request["native_config"],
-                action_timeout_seconds=request["experiment_config"]["execution"][
-                    "action_timeout_seconds"
-                ],
-            )
-            output.mkdir(parents=True, exist_ok=False)
-            write_benchmark_json(output / "preflight.json", report)
-            return report
         from seis_interp.pipelines.preflight_c3_first_results_neural import (
             run_c3_first_results_neural_preflight,
         )
@@ -405,12 +331,6 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
                     "validation_query_counts"
                 ]
             )
-        elif action == "nersi":
-            measurement_options["smoke_steps"] = (
-                request["experiment_config"]["methods"]["nersi"]
-                .get("preflight", {})
-                .get("smoke_steps", 10)
-            )
         return run_c3_first_results_neural_preflight(
             action,
             config_path=config_path,
@@ -418,31 +338,9 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
             case_id=request["case_id"],
             output_dir=output,
             dimensions=dimensions,
-            prediction_config_path=Path(request["prediction_config_path"])
-            if request.get("prediction_config_path")
-            else None,
-            normalization_checkpoint_path=(
-                Path(request["normalization_checkpoint"]["path"])
-                if request.get("normalization_checkpoint")
-                else None
-            ),
             **measurement_options,
         )
     arguments = {"config_path": config_path, "output_dir": output, "progress_reporter": _progress}
-    if action == "ccnet-train":
-        from seis_interp.pipelines.train_ccnet5d import train_ccnet5d_run
-
-        return train_ccnet5d_run(
-            **arguments,
-            **{key: paths[key] for key in ("interim_dir", "processed_dir")},
-            suite_dir=suite_dir,
-            normalization_checkpoint_path=(
-                Path(request["normalization_checkpoint"]["path"])
-                if request.get("normalization_checkpoint")
-                else None
-            ),
-            dimensions=dimensions,
-        )
     if action == "gnn-train":
         from seis_interp.pipelines.train_relational_trace_graph import (
             train_relational_trace_graph_run,
@@ -456,31 +354,13 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
             validation_case_dir=paths["case_dir"],
             validation_volume_dir=paths["volume_dir"],
         )
-    if action == "pocs":
-        from seis_interp.pipelines.interpolate_pocs import interpolate_pocs_run
-
-        return interpolate_pocs_run(**arguments, **paths)
-    if action == "drr":
-        from seis_interp.pipelines.interpolate_drr import interpolate_drr_run
-
-        return interpolate_drr_run(**arguments, **paths)
     if action == "siren":
         from seis_interp.pipelines.interpolate_siren import interpolate_siren_run
 
         return interpolate_siren_run(**arguments, **paths)
-    if action == "nersi":
-        from seis_interp.pipelines.interpolate_nersi import interpolate_nersi_run
-
-        return interpolate_nersi_run(**arguments, **paths)
     checkpoint = Path(request["checkpoint"]["path"])
     if file_sha256(checkpoint) != request["checkpoint"]["sha256"]:
         raise ValueError("checkpoint changed after the experiment request was recorded")
-    if action == "ccnet-predict":
-        from seis_interp.pipelines.interpolate_ccnet5d import interpolate_ccnet5d_run
-        from seis_interp.training.ccnet5d_checkpoints import load_ccnet5d_checkpoint
-
-        _require_final_checkpoint(load_ccnet5d_checkpoint, checkpoint)
-        return interpolate_ccnet5d_run(**arguments, **paths, checkpoint_path=checkpoint)
     if action == "gnn-predict":
         from seis_interp.pipelines.interpolate_relational_trace_graph import (
             interpolate_relational_trace_graph_run,

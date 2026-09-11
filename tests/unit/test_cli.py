@@ -25,8 +25,15 @@ def test_top_level_parser_routes_doctor_data_train_and_interpolate(capsys) -> No
 
 def test_train_parser_exposes_the_five_commands(capsys) -> None:
     help_text = _help_text(["train"], capsys)
+    assert "ccnet5d" not in help_text
 
-    for name in ("siren", "neighbor-inpainter", "shot-gather-inpainter", "trace-graph", "ccnet5d"):
+    for name in (
+        "siren",
+        "neighbor-inpainter",
+        "shot-gather-inpainter",
+        "trace-graph",
+        "relational-trace-graph",
+    ):
         assert name in help_text
 
 
@@ -44,7 +51,13 @@ def test_train_and_interpolate_siren_keep_distinct_input_contracts(capsys) -> No
 
 @pytest.mark.parametrize(
     "command",
-    ["siren", "neighbor-inpainter", "shot-gather-inpainter", "trace-graph", "ccnet5d"],
+    [
+        "siren",
+        "neighbor-inpainter",
+        "shot-gather-inpainter",
+        "trace-graph",
+        "relational-trace-graph",
+    ],
 )
 def test_train_commands_offer_no_overwrite_option(command: str, capsys) -> None:
     help_text = _help_text(["train", command], capsys)
@@ -59,27 +72,24 @@ def test_public_python_api_is_importable_from_cli() -> None:
     assert callable(main)
 
 
-def test_ccnet5d_help_distinguishes_partition_training_and_poc_end_to_end_run(capsys) -> None:
-    training = _help_text(["train", "ccnet5d"], capsys)
+def test_ccnet5d_help_exposes_only_poc_end_to_end_run(capsys) -> None:
     inference = _help_text(["interpolate", "ccnet5d"], capsys)
 
     for option in ("--config", "--interim", "--processed", "--output", "--device", "--json"):
-        assert option in training and option in inference
-    assert "--checkpoint" not in training and "--checkpoint" not in inference
+        assert option in inference
+    assert "--checkpoint" not in inference
     for option in ("--mask", "--case", "--volume"):
-        assert option not in training
         assert option in inference
     for option in ("--model", "--patch-shape", "--learning-rate", "--max-epochs", "--overwrite"):
-        assert option not in training and option not in inference
+        assert option not in inference
 
 
-@pytest.mark.parametrize("command", ["train", "interpolate"])
-def test_ccnet5d_help_does_not_import_torch_or_pipelines(command: str) -> None:
+def test_ccnet5d_help_does_not_import_torch_or_pipelines() -> None:
     probe = (
         "import sys\n"
         "from seis_interp.cli import main\n"
         "try:\n"
-        f"    main([{command!r}, 'ccnet5d', '--help'])\n"
+        "    main(['interpolate', 'ccnet5d', '--help'])\n"
         "except SystemExit as error:\n"
         "    assert error.code == 0\n"
         "else:\n"

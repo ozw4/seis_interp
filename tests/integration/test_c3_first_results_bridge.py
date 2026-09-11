@@ -34,7 +34,6 @@ from tests.fixtures.c3_benchmark import (
 
 DIMENSIONS = C3BenchmarkDimensions((0, 4), (1, 2), (4, 2, 2, 2, 4))
 STUDY = REPOSITORY_ROOT / "studies/study_028_c3_first_results"
-NERSI_STUDY = REPOSITORY_ROOT / "studies/study_034_c3_nersi_baseline"
 SEEDS = {
     "partition": 42,
     "training": 20260908,
@@ -42,6 +41,23 @@ SEEDS = {
     "ccnet_patches": 20260908,
     "gnn_episodes": 20260908,
 }
+
+
+@pytest.mark.parametrize("action", ["pocs", "drr", "nersi", "ccnet-train", "ccnet-predict"])
+@pytest.mark.parametrize("execute", [False, True])
+def test_replaced_methods_are_rejected_before_input_access_or_writes(tmp_path, action, execute):
+    with pytest.raises(ConfigurationError, match="unsupported action"):
+        run_c3_first_results(
+            config_path=tmp_path / "missing.yaml",
+            inputs_path=tmp_path / "missing-inputs.yaml",
+            action=action,
+            execute=execute,
+        )
+    with pytest.raises(ConfigurationError, match="unsupported action"):
+        dispatch_c3_first_results_action({"action": action})
+    with pytest.raises(ConfigurationError, match="unsupported native action"):
+        build_c3_first_result_native_config(action, fragment={}, binding=None, seeds={})
+    assert not list(tmp_path.iterdir())
 
 
 @pytest.fixture(scope="module")
@@ -79,14 +95,10 @@ def _write_inputs(tmp_path, suite_inputs):
 
 
 def _fragment(action):
-    if action == "nersi":
-        return yaml.safe_load((NERSI_STUDY / "methods/nersi_preflight.yaml").read_text())
     name = "gnn-train" if action == "gnn-preflight" else action
     result = yaml.safe_load((STUDY / "methods" / f"{name.replace('-', '_')}.yaml").read_text())
     if action in ("gnn-train", "gnn-preflight"):
         result["training_data"]["time_samples"] = [0, 4]
-    if action in ("pocs", "drr"):
-        result["evaluation"] = synthetic_benchmark_config()["evaluation"]
     return result
 
 
@@ -111,10 +123,7 @@ def _plan(tmp_path, action, fragment):
 @pytest.mark.parametrize(
     "action",
     [
-        "pocs",
-        "drr",
         "siren",
-        "ccnet-predict",
         "gnn-train",
         "gnn-predict",
         "gnn-preflight",
@@ -137,7 +146,7 @@ def test_native_seed_and_section_contracts(tmp_path, suite_inputs, action):
     if action == "siren":
         assert native["model"]["input_features"] == 6
         assert native["training"]["random_seed"] == SEEDS["training"]
-    if action == "ccnet-predict":
+    if action == "gnn-predict":
         assert not {"model", "training"} & native.keys()
         assert set(native["evaluation"]) == {"primary_metric", "domain"}
 
@@ -149,8 +158,8 @@ def test_native_evaluation_projects_only_required_metric_keys(tmp_path, suite_in
     manifest = deepcopy(binding.manifest)
     manifest["evaluation"]["additional_metrics"] = ["diagnostic_metric"]
     native = build_c3_first_result_native_config(
-        "ccnet-predict",
-        fragment=_fragment("ccnet-predict"),
+        "gnn-predict",
+        fragment=_fragment("gnn-predict"),
         binding=replace(binding, manifest=manifest),
         seeds=SEEDS,
     )
@@ -203,40 +212,20 @@ def test_gnn_physical_bound_preserves_strict_pool_time_and_key_contract(
         )
 
 
-def test_ccnet_training_separates_partition_patch_and_model_seeds(tmp_path, suite_inputs):
-    binding = resolve_c3_first_result_inputs(
-        _write_inputs(tmp_path, suite_inputs), dimensions=DIMENSIONS
-    )
-    fragment = _fragment("ccnet-train")
-    fragment["patches"]["random_seed"] = 71
-    regions = {"fit": {"time": [0, 4]}, "selection": {"time": [0, 4]}}
-    native = build_c3_first_result_native_config(
-        "ccnet-train",
-        fragment=fragment,
-        binding=binding,
-        seeds={**SEEDS, "ccnet_patches": 71},
-        ccnet_regions=regions,
-    )
-    assert native["project"]["random_seed"] == 42
-    assert native["training"]["random_seed"] == 20260908
-    assert native["patches"]["random_seed"] == 71
-    assert "benchmark_volume" not in native
-
-
 def test_prediction_rejects_even_null_model_section(tmp_path, suite_inputs):
     binding = resolve_c3_first_result_inputs(
         _write_inputs(tmp_path, suite_inputs), dimensions=DIMENSIONS
     )
     with pytest.raises(ConfigurationError, match="exactly"):
         build_c3_first_result_native_config(
-            "ccnet-predict",
-            fragment={**_fragment("ccnet-predict"), "model": None},
+            "gnn-predict",
+            fragment={**_fragment("gnn-predict"), "model": None},
             binding=binding,
             seeds=SEEDS,
         )
 
 
-@pytest.mark.parametrize("change", ["hash", "case", "time", "shape", "test", "ccnet_time"])
+@pytest.mark.parametrize("change", ["hash", "case", "time", "shape", "test"])
 def test_binding_rejects_wrong_frozen_contract(tmp_path, suite_inputs, change):
     inputs = deepcopy(suite_inputs)
     if change == "hash":
@@ -247,8 +236,6 @@ def test_binding_rejects_wrong_frozen_contract(tmp_path, suite_inputs, change):
         inputs["validation_contract"]["selection"]["time"] = [1, 4]
     elif change == "shape":
         inputs["validation_contract"]["shape"][0] = 3
-    elif change == "ccnet_time":
-        inputs["ccnet_regions"] = {"time_samples": [0, 3]}
     else:
         inputs["required_cases"] = ["test_random_trace"]
     with pytest.raises((ValueError, KeyError)):
@@ -257,10 +244,10 @@ def test_binding_rejects_wrong_frozen_contract(tmp_path, suite_inputs, change):
 
 def test_dry_run_writes_nothing_and_rejects_case_override(tmp_path, suite_inputs):
     inputs = _write_inputs(tmp_path, suite_inputs)
-    plan = _plan(tmp_path, "pocs", _fragment("pocs"))
+    plan = _plan(tmp_path, "siren", _fragment("siren"))
     before = set(tmp_path.rglob("*"))
     result = run_c3_first_results(
-        config_path=plan, inputs_path=inputs, action="pocs", dimensions=DIMENSIONS
+        config_path=plan, inputs_path=inputs, action="siren", dimensions=DIMENSIONS
     )
     assert result["status"] == "dry_run"
     assert result["request"]["native_config"]["project"]["random_seed"] == 142
@@ -268,7 +255,7 @@ def test_dry_run_writes_nothing_and_rejects_case_override(tmp_path, suite_inputs
     result = run_c3_first_results(
         config_path=plan,
         inputs_path=inputs,
-        action="pocs",
+        action="siren",
         case_id="test_random_trace",
         dimensions=DIMENSIONS,
     )
@@ -276,183 +263,13 @@ def test_dry_run_writes_nothing_and_rejects_case_override(tmp_path, suite_inputs
     assert set(tmp_path.rglob("*")) == before
 
 
-def test_nersi_dry_run_binds_exact_suite_paths_native_config_and_distinct_seeds(
-    tmp_path, suite_inputs
-):
-    inputs_path = _write_inputs(tmp_path, suite_inputs)
-    fragment = _fragment("nersi")
-    fragment["training"]["device"] = "cuda:1"
-    plan = _plan(tmp_path, "nersi", fragment)
-    binding = resolve_c3_first_result_inputs(inputs_path, dimensions=DIMENSIONS)
-    before = set(tmp_path.rglob("*"))
-
-    result = run_c3_first_results(
-        config_path=plan,
-        inputs_path=inputs_path,
-        action="nersi",
-        dimensions=DIMENSIONS,
-    )
-
-    assert result["status"] == "dry_run", result
-    assert not result["writes"]
-    request = result["request"]
-    assert request["paths"] == {key: str(path) for key, path in binding.paths.items()}
-    assert request["case"]["case_id"] == binding.entry["case_id"]
-    assert request["volume"]["volume_id"] == binding.volume["volume_id"]
-    assert request["input_hashes"] == binding.input_hashes
-    native = request["native_config"]
-    for section in ("model", "training", "prediction", "evaluation"):
-        assert native[section] == fragment[section]
-    assert native["project"]["random_seed"] == request["case"]["random_seed"] == 142
-    assert native["training"]["random_seed"] == SEEDS["training"] == 20260908
-    assert native["training"]["random_seed"] != native["project"]["random_seed"]
-    assert native["benchmark_case"] == {"id": binding.entry["case_id"]}
-    assert native["benchmark_volume"] == {
-        "id": binding.volume["volume_id"],
-        "selection": binding.volume["selection"],
-    }
-    assert native["interpolation_mask"] == {
-        key: binding.entry[key] for key in ("partition", "kind", "missing_fraction")
-    }
-    assert set(tmp_path.rglob("*")) == before
-
-
-@pytest.mark.parametrize("problem", ["unsupported_section", "evaluation_mismatch"])
-def test_nersi_native_binding_rejects_fragment_scope_or_evaluation_mismatch(
-    tmp_path, suite_inputs, problem
-):
-    binding = resolve_c3_first_result_inputs(
-        _write_inputs(tmp_path, suite_inputs), dimensions=DIMENSIONS
-    )
-    fragment = _fragment("nersi")
-    if problem == "unsupported_section":
-        fragment["nuclear_norm"] = {"weight": 1.0}
-        message = "exactly"
-    else:
-        fragment["evaluation"]["domain"] = "all_traces"
-        message = "evaluation"
-
-    with pytest.raises(ConfigurationError, match=message):
-        build_c3_first_result_native_config(
-            "nersi", fragment=fragment, binding=binding, seeds=SEEDS
-        )
-
-
-def test_nersi_full_dispatch_passes_only_exact_verified_volume_paths(
-    tmp_path, suite_inputs, monkeypatch
-):
-    fragment = _fragment("nersi")
-    fragment["training"]["device"] = "cuda:1"
-    result = run_c3_first_results(
-        config_path=_plan(tmp_path, "nersi", fragment),
-        inputs_path=_write_inputs(tmp_path, suite_inputs),
-        action="nersi",
-        dimensions=DIMENSIONS,
-    )
-    assert result["status"] == "dry_run", result
-    request = result["request"]
-    request.update(
-        native_config_path=str(tmp_path / "native.yaml"),
-        native_run_directory=str(tmp_path / "native"),
-    )
-    captured = {}
-
-    def spy(**kwargs):
-        captured.update(kwargs)
-        return {"status": "success"}
-
-    monkeypatch.setattr(
-        "seis_interp.pipelines.interpolate_nersi.interpolate_nersi_run",
-        spy,
-    )
-
-    assert dispatch_c3_first_results_action(request) == {"status": "success"}
-    assert captured == {
-        "config_path": tmp_path / "native.yaml",
-        "output_dir": tmp_path / "native",
-        "progress_reporter": captured["progress_reporter"],
-        **{key: Path(value) for key, value in request["paths"].items()},
-    }
-    assert callable(captured["progress_reporter"])
-    assert "checkpoint_path" not in captured
-
-
-def test_dispatch_nersi_preflight_uses_declared_ten_smoke_steps(tmp_path, monkeypatch):
-    request = {
-        "action": "nersi",
-        "preflight": True,
-        "paths": {},
-        "native_config_path": str(tmp_path / "config.yaml"),
-        "native_run_directory": str(tmp_path / "native"),
-        "suite_manifest": str(tmp_path / "benchmark_suite.json"),
-        "case_id": "validation_random_trace",
-        "dimensions": {
-            "time_range": DIMENSIONS.time_range,
-            "sail_line_numbers": DIMENSIONS.sail_line_numbers,
-            "shape": DIMENSIONS.shape,
-        },
-        "experiment_config": {
-            "methods": {"nersi": {"preflight": {"smoke_steps": 10}}},
-        },
-    }
-    captured = {}
-
-    def spy(action, **kwargs):
-        captured["action"] = action
-        captured.update(kwargs)
-        return {"status": "success"}
-
-    monkeypatch.setattr(
-        "seis_interp.pipelines.preflight_c3_first_results_neural."
-        "run_c3_first_results_neural_preflight",
-        spy,
-    )
-
-    assert dispatch_c3_first_results_action(request) == {"status": "success"}
-    assert captured["action"] == "nersi"
-    assert captured["smoke_steps"] == 10
-    assert captured["config_path"] == tmp_path / "config.yaml"
-    assert captured["suite_dir"] == tmp_path
-    assert captured["output_dir"] == tmp_path / "native"
-    assert captured["case_id"] == "validation_random_trace"
-    assert not (tmp_path / "native").exists()
-
-
-@pytest.mark.parametrize("action", ["pocs", "drr"])
-def test_tiny_suite_reaches_real_native_pipeline_in_fresh_process(tmp_path, suite_inputs, action):
-    fragment = _fragment(action)
-    fragment[action]["n_iterations"] = 2 if action == "pocs" else 1
-    if action == "pocs":
-        fragment[action].update(window_shape=None, overlap=None)
-    else:
-        fragment[action].update(rank=1, spatial_window_shape=None, spatial_overlap=None)
-    result = run_c3_first_results(
-        config_path=_plan(tmp_path, action, fragment),
-        inputs_path=_write_inputs(tmp_path, suite_inputs),
-        action=action,
-        execute=True,
-        dimensions=DIMENSIONS,
-    )
-    assert result["status"] == "success", result
-    native = Path(result["native_run_directory"])
-    assert (native / "artifacts/prediction.npy").is_file()
-    saved = yaml.safe_load((native / "config.resolved.yaml").read_text())
-    assert saved["project"]["random_seed"] == 142
-    outer = Path(result["outer_run_directory"])
-    assert json.loads((outer / "result.json").read_text())["status"] == "success"
-    assert (
-        json.loads((outer / "request.json").read_text())["input_hashes"]["suite"]
-        == suite_inputs["frozen_suite"]["expected_sha256"]
-    )
-
-
 def test_execute_records_input_failure_without_native_run(tmp_path, suite_inputs):
     inputs = deepcopy(suite_inputs)
     inputs["frozen_suite"]["expected_sha256"] = "0" * 64
     result = run_c3_first_results(
-        config_path=_plan(tmp_path, "pocs", _fragment("pocs")),
+        config_path=_plan(tmp_path, "siren", _fragment("siren")),
         inputs_path=_write_inputs(tmp_path, inputs),
-        action="pocs",
+        action="siren",
         execute=True,
         dimensions=DIMENSIONS,
     )
@@ -525,17 +342,18 @@ def test_siren_bridge_supports_cartesian_complete_trace_variant(
 
 
 def test_native_failure_is_recorded(tmp_path, suite_inputs):
-    fragment = _fragment("pocs")
-    fragment["pocs"]["n_iterations"] = 0
+    fragment = _fragment("siren")
+    fragment["training"]["max_steps"] = 0
+    fragment["training"]["device"] = "cpu"
     result = run_c3_first_results(
-        config_path=_plan(tmp_path, "pocs", fragment),
+        config_path=_cpu_plan(tmp_path, {"siren": fragment}),
         inputs_path=_write_inputs(tmp_path, suite_inputs),
-        action="pocs",
+        action="siren",
         execute=True,
         dimensions=DIMENSIONS,
     )
     assert result["status"] == "failed"
-    assert "n_iterations" in result["reason"]
+    assert "max_steps" in result["reason"]
 
 
 def test_dispatch_gnn_training_passes_fixed_validation_only(tmp_path, suite_inputs, monkeypatch):
@@ -577,9 +395,9 @@ def test_action_timeout_is_retained(tmp_path, suite_inputs, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", timeout)
     result = run_c3_first_results(
-        config_path=_plan(tmp_path, "pocs", _fragment("pocs")),
+        config_path=_plan(tmp_path, "siren", _fragment("siren")),
         inputs_path=_write_inputs(tmp_path, suite_inputs),
-        action="pocs",
+        action="siren",
         execute=True,
         dimensions=DIMENSIONS,
     )
@@ -591,7 +409,7 @@ def test_action_timeout_is_retained(tmp_path, suite_inputs, monkeypatch):
 
 
 def test_execute_passes_declared_environment_to_fresh_worker(tmp_path, suite_inputs, monkeypatch):
-    plan_path = _plan(tmp_path, "pocs", _fragment("pocs"))
+    plan_path = _plan(tmp_path, "siren", _fragment("siren"))
     plan = yaml.safe_load(plan_path.read_text())
     plan["execution"]["environment"] = {
         "TORCH_ALLOW_TF32_CUBLAS_OVERRIDE": "0",
@@ -613,7 +431,7 @@ def test_execute_passes_declared_environment_to_fresh_worker(tmp_path, suite_inp
     result = run_c3_first_results(
         config_path=plan_path,
         inputs_path=_write_inputs(tmp_path, suite_inputs),
-        action="pocs",
+        action="siren",
         execute=True,
         dimensions=DIMENSIONS,
     )
@@ -681,39 +499,21 @@ def test_tiny_siren_bridge_trains_observed_and_scores_all_targets(
         assert not run["amplitude"]["target_amplitudes_used_for_scale"]
 
 
-@pytest.mark.parametrize("method", ["ccnet", "gnn"])
-def test_tiny_neural_bridge_trains_and_predicts_native_final(tmp_path, suite_inputs, method):
+def test_tiny_gnn_bridge_trains_and_predicts_native_final(tmp_path, suite_inputs):
+    method = "gnn"
     training, prediction = _fragment(f"{method}-train"), _fragment(f"{method}-predict")
     inputs = deepcopy(suite_inputs)
-    if method == "ccnet":
-        training["model"].update(hidden_channels=2, intermediate_channels=2, kernel_size=1)
-        training["patches"].update(shape=[4, 1, 1, 2, 2], fit_count=1, selection_count=1)
-        training["training"].update(max_epochs=1, validate_every_steps=1, report_every_steps=1)
-        prediction["prediction"]["core_shape"] = [4, 1, 1, 2, 2]
-        fit = {
-            "time": [0, 4],
-            "source_line": [0, 1],
-            "shot_in_line": [0, 1],
-            "relative_receiver_x": [3, 5],
-            "relative_receiver_y": [32, 36],
-        }
-        inputs["ccnet_regions"] = {
-            "fit": fit,
-            "selection": {**fit, "shot_in_line": [1, 2]},
-            "time_samples": [0, 4],
-        }
-    else:
-        training["model"].update(
-            width=8,
-            message_passing_rounds=1,
-            temporal_dilations=[1],
-            attention_width=4,
-            relation_embedding_dim=2,
-        )
-        training["graph"]["neighbors_per_relation"] = 1
-        training["training"].update(max_steps=1, query_batch_size=2, validation_interval=1)
-        training["evaluation"]["query_batch_size"] = 8
-        prediction["prediction"]["query_batch_size"] = 8
+    training["model"].update(
+        width=8,
+        message_passing_rounds=1,
+        temporal_dilations=[1],
+        attention_width=4,
+        relation_embedding_dim=2,
+    )
+    training["graph"]["neighbors_per_relation"] = 1
+    training["training"].update(max_steps=1, query_batch_size=2, validation_interval=1)
+    training["evaluation"]["query_batch_size"] = 8
+    prediction["prediction"]["query_batch_size"] = 8
     plan = _cpu_plan(tmp_path, {f"{method}-train": training, f"{method}-predict": prediction})
     inputs_path = _write_inputs(tmp_path, inputs)
     trained = run_c3_first_results(
@@ -724,11 +524,6 @@ def test_tiny_neural_bridge_trains_and_predicts_native_final(tmp_path, suite_inp
         dimensions=DIMENSIONS,
     )
     assert trained["status"] == "success", trained
-    if method == "ccnet":
-        request = json.loads((Path(trained["outer_run_directory"]) / "request.json").read_text())
-        # Each teacher region has 1 line x 1 shot x 2 receivers-x x 4 receivers-y.
-        assert request["training_inputs"]["fit_trace_count"] == 8
-        assert request["training_inputs"]["selection_trace_count"] == 8
     checkpoint = Path(trained["native_run_directory"]) / "artifacts/final.pt"
     predicted = run_c3_first_results(
         config_path=plan,
@@ -742,7 +537,7 @@ def test_tiny_neural_bridge_trains_and_predicts_native_final(tmp_path, suite_inp
     native = Path(predicted["native_run_directory"])
     assert (native / "artifacts/prediction.npy").is_file()
     resolved = yaml.safe_load((native / "config.resolved.yaml").read_text())
-    assert resolved["project"]["random_seed"] == (142 if method == "ccnet" else 42)
+    assert resolved["project"]["random_seed"] == 42
     assert not {"model", "training"} & resolved.keys()
 
 
@@ -752,11 +547,11 @@ def test_renaming_best_checkpoint_does_not_make_it_final(tmp_path, monkeypatch):
     checkpoint = tmp_path / "final.pt"
     checkpoint.write_bytes(b"synthetic renamed checkpoint")
     monkeypatch.setattr(
-        "seis_interp.training.ccnet5d_checkpoints.load_ccnet5d_checkpoint",
+        "seis_interp.training.relational_trace_graph_checkpoints.load_relational_trace_graph_checkpoint",
         lambda path, device: SimpleNamespace(checkpoint_role="best_selection"),
     )
     request = {
-        "action": "ccnet-predict",
+        "action": "gnn-predict",
         "preflight": False,
         "paths": {},
         "native_config_path": str(tmp_path / "config.yaml"),
@@ -774,26 +569,12 @@ def test_renaming_best_checkpoint_does_not_make_it_final(tmp_path, monkeypatch):
     assert not (tmp_path / "native").exists()
 
 
-def test_partial_explicit_ccnet_region_is_not_replaced(tmp_path, suite_inputs):
-    inputs = deepcopy(suite_inputs)
-    inputs["ccnet_regions"] = {"fit": {"time": [0, 4]}, "selection": None}
-    result = run_c3_first_results(
-        config_path=_plan(tmp_path, "ccnet-train", _fragment("ccnet-train")),
-        inputs_path=_write_inputs(tmp_path, inputs),
-        action="ccnet-train",
-        dimensions=DIMENSIONS,
-    )
-    assert result["status"] == "blocked"
-    assert "resolved together" in result["reason"]
-    assert not (tmp_path / "runs").exists()
-
-
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), 0, -1])
 @pytest.mark.parametrize("key", ["action_timeout_seconds", "preflight_timeout_seconds"])
 def test_nonfinite_or_nonpositive_timeout_is_rejected_before_writes(
     tmp_path, suite_inputs, key, value
 ):
-    plan_path = _plan(tmp_path, "pocs", _fragment("pocs"))
+    plan_path = _plan(tmp_path, "siren", _fragment("siren"))
     plan = yaml.safe_load(plan_path.read_text())
     plan["execution"][key] = value
     plan_path.write_text(yaml.safe_dump(plan))
@@ -802,7 +583,7 @@ def test_nonfinite_or_nonpositive_timeout_is_rejected_before_writes(
         run_c3_first_results(
             config_path=plan_path,
             inputs_path=inputs_path,
-            action="pocs",
+            action="siren",
             execute=True,
             dimensions=DIMENSIONS,
         )

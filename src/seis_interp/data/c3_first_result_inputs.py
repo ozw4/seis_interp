@@ -13,7 +13,6 @@ from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
 from seis_interp.data.c3_benchmark_artifacts import read_benchmark_json
 from seis_interp.data.c3_benchmark_inputs import (
-    load_c3_benchmark_supervised_source,
     load_c3_benchmark_training_graph_domain,
 )
 from seis_interp.data.c3_benchmark_suite import (
@@ -26,10 +25,6 @@ from seis_interp.data.c3_benchmark_suite import (
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
 from seis_interp.processing.training_coordinates import coordinate_order_for_features
-from seis_interp.training.ccnet5d_source_binding import (
-    QC_TRAINING_DATASET,
-    load_ccnet5d_supervised_source,
-)
 
 
 @dataclass(frozen=True)
@@ -100,9 +95,6 @@ def resolve_c3_first_result_inputs(
         raise ConfigurationError("validation time differs from the authorized training time")
     if suite["train_pool"]["time_samples"] != list(dimensions.time_range):
         raise ConfigurationError("training pool time differs from the fixed time contract")
-    regions = contract.get("ccnet_regions", {})
-    if "time_samples" in regions and regions["time_samples"] != list(dimensions.time_range):
-        raise ConfigurationError("CCNet region time differs from the authorized training time")
     preparation = read_benchmark_json(paths["processed_dir"] / "preparation.json")
     dataset = read_benchmark_json(paths["interim_dir"] / "dataset.json")
     return C3FirstResultInputs(
@@ -131,21 +123,20 @@ def build_c3_first_result_native_config(
     fragment: Mapping,
     binding: C3FirstResultInputs,
     seeds: Mapping,
-    ccnet_regions: Mapping | None = None,
 ) -> dict:
     """Construct only native sections, retaining each API's distinct seed semantics."""
+    sections = _method_sections(action)
     if seeds["partition"] != binding.partition_seed:
         raise ConfigurationError("experiment partition seed differs from prepared partition")
-    sections = _method_sections(action)
     if set(fragment) != sections:
         raise ConfigurationError(f"{action} fragment must contain exactly {sorted(sections)}")
     config = deepcopy(dict(fragment))
-    uses_partition = action in ("ccnet-train", "gnn-train", "gnn-preflight", "gnn-predict")
+    uses_partition = action in ("gnn-train", "gnn-preflight", "gnn-predict")
     config["project"] = {
         "random_seed": binding.partition_seed if uses_partition else binding.entry["random_seed"]
     }
     config["data"] = {"dataset_id": binding.dataset_id}
-    if action not in ("ccnet-train", "gnn-train", "gnn-preflight"):
+    if action not in ("gnn-train", "gnn-preflight"):
         config["benchmark_case"] = {"id": binding.entry["case_id"]}
         config["benchmark_volume"] = {
             "id": binding.volume["volume_id"],
@@ -191,17 +182,6 @@ def build_c3_first_result_native_config(
             )
         if seeds["gnn_episodes"] != seeds["training"]:
             raise ConfigurationError("native GNN uses the training seed for its episodes")
-    if action == "ccnet-train":
-        if config["patches"]["random_seed"] != seeds["ccnet_patches"]:
-            raise ConfigurationError("patches.random_seed differs from ccnet_patches seed")
-        full_training_dataset = config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET
-        required_regions = ("selection",) if full_training_dataset else ("fit", "selection")
-        if ccnet_regions is None or not all(ccnet_regions.get(key) for key in required_regions):
-            names = "/".join(required_regions)
-            raise ConfigurationError(f"CCNet {names} regions must be explicitly resolved")
-        if not full_training_dataset:
-            config["supervision"]["fit_region"] = deepcopy(ccnet_regions["fit"])
-        config["supervision"]["selection_region"] = deepcopy(ccnet_regions["selection"])
     return config
 
 
@@ -212,34 +192,8 @@ def validate_c3_first_result_training_inputs(
     config: Mapping,
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
     verified_suite: VerifiedC3BenchmarkSuite | None = None,
-    normalization_checkpoint_path: Path | None = None,
 ) -> dict:
-    """Check teacher regions or exact graph rows against the suite's canonical pool."""
-    if action == "ccnet-train":
-        if config["supervision"].get("sampling_domain") == QC_TRAINING_DATASET:
-            source = load_ccnet5d_supervised_source(
-                config,
-                interim_dir=binding.paths["interim_dir"],
-                processed_dir=binding.paths["processed_dir"],
-                suite_dir=binding.suite_dir,
-                normalization_checkpoint_path=normalization_checkpoint_path,
-                dimensions=dimensions,
-            )
-            fit_trace_count = source.inputs_lock["training_dataset"]["authorized_trace_count"]
-        else:
-            source = load_c3_benchmark_supervised_source(
-                binding.suite_dir,
-                fit_region=config["supervision"]["fit_region"],
-                selection_region=config["supervision"]["selection_region"],
-                dimensions=dimensions,
-                verified_suite=verified_suite,
-            )
-            fit_trace_count = int(source.fit.array_rows.size)
-        return {
-            "fit_trace_count": fit_trace_count,
-            "selection_trace_count": int(source.selection.array_rows.size),
-            "inputs_lock": source.inputs_lock,
-        }
+    """Check exact graph rows against the suite's canonical pool."""
     if action in ("gnn-train", "gnn-preflight"):
         domain = load_c3_benchmark_training_graph_domain(
             binding.suite_dir, dimensions=dimensions, verified_suite=verified_suite
@@ -249,13 +203,9 @@ def validate_c3_first_result_training_inputs(
 
 
 def _method_sections(action: str) -> set[str]:
-    if action in ("pocs", "drr"):
-        return {action, "evaluation"}
-    if action in ("siren", "nersi"):
+    if action == "siren":
         return {"model", "training", "prediction", "evaluation"}
-    if action == "ccnet-train":
-        return {"model", "supervision", "patches", "training", "selection"}
-    if action in ("ccnet-predict", "gnn-predict"):
+    if action == "gnn-predict":
         return {"prediction", "evaluation"}
     if action in ("gnn-train", "gnn-preflight"):
         return {

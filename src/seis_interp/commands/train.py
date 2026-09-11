@@ -187,40 +187,6 @@ def _train_trace_graph(args: argparse.Namespace) -> int:
     return 0
 
 
-def _train_ccnet5d(args: argparse.Namespace) -> int:
-    from seis_interp.pipelines.train_ccnet5d import train_ccnet5d_run
-
-    try:
-        summary = train_ccnet5d_run(
-            config_path=args.config,
-            interim_dir=args.interim,
-            processed_dir=args.processed,
-            output_dir=args.output,
-            device_override=args.device,
-            progress_reporter=_print_progress_to_stderr,
-        )
-    except (FileNotFoundError, FileExistsError, OSError, RuntimeError, ValueError) as error:
-        print(f"train ccnet5d failed: {error}", file=sys.stderr)
-        return 1
-
-    for warning in summary.get("warnings", []):
-        print(f"Warning: {warning}", file=sys.stderr)
-    if args.json:
-        print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
-    else:
-        selection = summary["best_selection_metrics"]
-        score = (
-            f"{selection['snr_db']} dB"
-            if selection["snr_status"] == "finite"
-            else selection["snr_status"].replace("_", " ")
-        )
-        print(f"Output directory: {args.output}")
-        print(f"Completed steps: {summary['steps_completed']}")
-        print(f"Best step: {summary['best_step']}")
-        print(f"Best internal selection global S/N: {score}")
-    return 0
-
-
 def _print_progress_to_stderr(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
@@ -311,16 +277,6 @@ def add_train_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     trace_graph.add_argument("--device", help="Override training.device for this environment.")
     trace_graph.add_argument("--json", action="store_true", help="Print metrics as JSON.")
     trace_graph.set_defaults(handler=_train_trace_graph)
-    ccnet5d = train_commands.add_parser(
-        "ccnet5d", help="Pretrain CCNet5D on complete labels from the train partition."
-    )
-    ccnet5d.add_argument("--config", type=Path, required=True, help="Study configuration YAML.")
-    ccnet5d.add_argument("--interim", type=Path, required=True, help="Interim trace dataset.")
-    ccnet5d.add_argument("--processed", type=Path, required=True, help="Prepared split dataset.")
-    ccnet5d.add_argument("--output", type=Path, required=True, help="Run output directory.")
-    ccnet5d.add_argument("--device", help="Override training.device for this environment.")
-    ccnet5d.add_argument("--json", action="store_true", help="Print metrics as JSON.")
-    ccnet5d.set_defaults(handler=_train_ccnet5d)
     relational = train_commands.add_parser(
         "relational-trace-graph", help="Train a grid-free trace graph with fixed validation."
     )

@@ -182,7 +182,6 @@ train siren                  coordinate-only SIREN on prepared dataset partition
 train neighbor-inpainter     physical-neighbor temporal trace inpainter
 train shot-gather-inpainter  joint whole-shot gather inpainter
 train trace-graph            trace-node graph gather interpolator
-train ccnet5d                supervised CCNet5D on complete train-partition labels
 ```
 
 Every train command takes required `--config`, `--interim`, `--processed`, and `--output` paths, plus optional `--device` and `--json`; run `python -m seis_interp.cli train <command> --help` for details. With `--json`, metrics go to stdout and training progress goes to stderr. For example:
@@ -204,7 +203,7 @@ interpolate pocs     CPU/NumPy Fourier POCS-5D
 interpolate drr      CPU/NumPy damped rank-reduction 5D
 interpolate siren    per-volume observed-only SIREN internal learning
 interpolate nersi    per-volume observed-only profile-wise NeRSI reimplementation
-interpolate ccnet5d  frozen pretrained CCNet5D inference
+interpolate ccnet5d  per-volume observed-only CCNet5D training and inference
 ```
 
 All five commands require an existing prepared partition, interpolation mask, benchmark case,
@@ -240,11 +239,11 @@ contract has no nuclear-norm term. It writes the same final checkpoint and predi
 the per-volume SIREN command and accepts the same `--device` override. Its checkpoint is bound to
 the exact verified case and volume hashes and is not a reusable pretrained model.
 
-`train ccnet5d` performs supervised pretraining using additional complete train-partition labels.
-`interpolate ccnet5d` requires `--checkpoint` and uses that frozen model without retraining;
-it also accepts `--device`. Both CCNet5D commands keep progress on stderr and the final summary
-on stdout, with strict JSON when `--json` is supplied. Training summaries label the internal
-selection score separately from benchmark target S/N.
+`interpolate ccnet5d` fits a fresh model on pseudo-masked observed traces within the same fixed
+PoC volume, then predicts all evaluation targets. It uses observed-only global RMS normalization,
+trace-relative loss, and a fixed optimizer-step budget, and writes `artifacts/final.pt`.
+It accepts `--device`; progress goes to stderr and the final summary to stdout, with strict JSON
+when `--json` is supplied.
 
 ## Run outputs
 
