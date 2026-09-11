@@ -37,7 +37,7 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkey
             domain.trace_ids[domain.query_mask],
             inputs.observed_volume.array_rows[inputs.observed_volume.evaluation_target_trace_mask],
         )
-        checkpoint = torch.load(tmp_path / "run/artifacts/final.pt", weights_only=True)
+        checkpoint = torch.load(tmp_path / "run/final.pt", weights_only=True)
         for key, value in model.state_dict().items():
             assert torch.equal(value.cpu(), checkpoint["model_state_dict"][key])
         result = original_predict(model, domain, preprocessing, **kwargs)
@@ -55,7 +55,7 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkey
         "seis_interp.evaluation.trace_graph_metrics.evaluate_trace_graph_prediction", forbidden
     )
     metrics, output = _run(tmp_path, paths, config)
-    checkpoint = torch.load(output / "artifacts/final.pt", weights_only=True)
+    checkpoint = torch.load(output / "final.pt", weights_only=True)
     assert not (output / "artifacts/best.pt").exists()
     assert checkpoint["steps_completed"] == metrics["optimizer_updates"] == 3
     assert checkpoint["checkpoint_role"] == "final"
@@ -70,7 +70,7 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkey
         == scale
     )
     assert checkpoint["inputs_lock"] == inputs.inputs_lock
-    prediction = np.load(output / "artifacts/prediction.npy")
+    prediction = np.load(output / "prediction.npy")
     coverage = np.load(output / "artifacts/target_coverage.npy")
     ids = np.load(output / "artifacts/query_trace_ids.npy")
     np.testing.assert_array_equal(ids, volume.array_rows[volume.evaluation_target_trace_mask])
@@ -86,13 +86,16 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkey
     for key in ("snr_db", "rmse", "relative_l2", "mean_trace_relative_mse"):
         assert key in metrics["evaluation_target"]
     assert metrics["evaluation_target"]["trace_count"] == len(ids)
-    run = json.loads((output / "run.json").read_text())
+    run = json.loads((output / "metadata.json").read_text())
     assert run["status"] == "success"
     assert run["coverage"]["covered_target_trace_count"] == len(ids)
-    assert run["parameter_count"] > 0
-    assert run["training"]["steps_completed"] == 3
-    assert run["resources"]["training_seconds"] > 0
-    assert json.loads((output / "metrics.json").read_text()) == metrics
+    assert run["method_details"]["parameter_count"] > 0
+    assert run["training_or_reconstruction"]["steps_completed"] == 3
+    assert run["timing"]["training_seconds"] > 0
+    assert (
+        json.loads((output / "metrics.json").read_text())["evaluation_target"]
+        == metrics["evaluation_target"]
+    )
     with pytest.raises(FileExistsError, match="already exists"):
         _run(tmp_path, paths, config)
 
@@ -112,9 +115,7 @@ def test_target_truth_changes_only_metrics_not_training_or_pre_evaluation_predic
     for name, offset in (("base", 0.0), ("changed", 1000000.0)):
         _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / name, target_offset=offset)
         metrics, output = _run(tmp_path, paths, config, name=f"{name}_run")
-        states.append(
-            torch.load(output / "artifacts/final.pt", weights_only=True)["model_state_dict"]
-        )
+        states.append(torch.load(output / "final.pt", weights_only=True)["model_state_dict"])
         scores.append(metrics["evaluation_target"])
         histories.append(
             [
@@ -136,7 +137,7 @@ def test_no_context_queries_are_trained_predicted_and_evaluated(tmp_path):
     training = metrics["training"]
     assert training["no_context_query_count"] == training["query_count"] > 0
     assert metrics["no_context_query_count"] == metrics["evaluation_target"]["trace_count"]
-    prediction = np.load(output / "artifacts/prediction.npy")
+    prediction = np.load(output / "prediction.npy")
     assert np.isfinite(prediction).all()
     assert np.count_nonzero(prediction[:, inputs.observed_volume.evaluation_target_trace_mask]) == 0
 
@@ -170,9 +171,9 @@ def test_invalid_prediction_fails_whole_run_before_evaluation(tmp_path, monkeypa
     with pytest.raises(ValueError):
         _run(tmp_path, paths, config)
     output = tmp_path / "run"
-    assert json.loads((output / "run.json").read_text())["status"] == "failed"
-    assert (output / "artifacts/final.pt").exists()
-    assert not (output / "artifacts/prediction.npy").exists()
+    assert json.loads((output / "metadata.json").read_text())["status"] == "failed"
+    assert (output / "final.pt").exists()
+    assert not (output / "prediction.npy").exists()
 
 
 @pytest.mark.parametrize(

@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from seis_interp.data.c3_benchmark_suite import c3_suite_case, suite_path
-from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
+from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.nersi_run_audit import audit_c3_nersi_run
 from seis_interp.pipelines import interpolate_nersi as nersi_pipeline
@@ -21,7 +21,13 @@ from tests.fixtures.c3_benchmark import (
     synthetic_benchmark_config,
 )
 
-DIMENSIONS = C3BenchmarkDimensions((0, 8), (1, 2), (8, 2, 2, 2, 8))
+
+class SyntheticDimensions(C3BenchmarkDimensions):
+    def validate(self, config):
+        super().validate(config | {"data": {"dataset_id": "synthetic_c3"}})
+
+
+DIMENSIONS = SyntheticDimensions((0, 8), (1, 2), (8, 2, 2, 2, 8))
 
 
 @pytest.fixture(autouse=True)
@@ -29,14 +35,15 @@ def _use_tiny_synthetic_input_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         nersi_pipeline,
         "load_c3_random80_poc_inputs",
-        load_c3_volume_run_inputs,
+        lambda **kwargs: load_c3_random80_poc_inputs(**kwargs, dimensions=DIMENSIONS),
     )
 
 
 def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> None:
-    interim = make_benchmark_interim(tmp_path / "source")
+    interim = make_benchmark_interim(tmp_path / "source", dataset_id="seg_c3_na")
     suite = tmp_path / "suite"
     benchmark_config = synthetic_benchmark_config()
+    benchmark_config["data"]["dataset_id"] = "seg_c3_na"
     benchmark_config["c3_benchmark"]["shape"] = list(DIMENSIONS.shape)
     benchmark_config["c3_benchmark"]["training"]["time_samples"] = [0, 8]
     benchmark_config["benchmark_volume"]["selection"]["time"] = [0, 8]
@@ -44,15 +51,17 @@ def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> Non
         interim,
         suite,
         config=benchmark_config,
-        inputs={"cases": synthetic_benchmark_cases()},
+        inputs={
+            "cases": [case | {"missing_fraction": 0.8} for case in synthetic_benchmark_cases()]
+        },
         dimensions=DIMENSIONS,
     )
-    entry = c3_suite_case(manifest, "validation_random_trace")
+    entry = c3_suite_case(manifest, "test_random_trace")
     volume_dir = suite_path(suite, entry["volume_dir"])
     volume = json.loads((volume_dir / "volume.json").read_text(encoding="utf-8"))
     config = {
         "project": {"random_seed": 42},
-        "data": {"dataset_id": "synthetic_c3"},
+        "data": {"dataset_id": "seg_c3_na"},
         "interpolation_mask": {
             key: entry[key] for key in ("partition", "kind", "missing_fraction")
         },
@@ -117,7 +126,7 @@ def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> Non
     assert report["checkpoint_restoration"]["status"] == "passed"
     assert report["checkpoint_restoration"]["max_abs_error"] == 0.0
     assert report["independent_saved_output_metrics"]["observed_max_abs_error"] == 0.0
-    prediction = np.load(run / "artifacts/prediction.npy", allow_pickle=False)
+    prediction = np.load(run / "prediction.npy", allow_pickle=False)
     assert report["independent_saved_output_metrics"]["evaluation_target"]["sample_count"] < (
         prediction.size
     )

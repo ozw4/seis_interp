@@ -129,15 +129,17 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
 
     assert sorted(
         path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
-    ) == [
-        "artifacts/final.pt",
-        "artifacts/prediction.npy",
-        "config.resolved.yaml",
-        "inputs.lock.json",
-        "metrics.json",
-        "run.json",
-    ]
-    prediction = np.load(output / "artifacts/prediction.npy", allow_pickle=False)
+    ) == sorted(
+        [
+            "final.pt",
+            "prediction.npy",
+            "config.resolved.yaml",
+            "inputs.lock.json",
+            "metrics.json",
+            "metadata.json",
+        ]
+    )
+    prediction = np.load(output / "prediction.npy", allow_pickle=False)
     observed = load_observed_c3_volume(
         interim_dir=artifacts.interim,
         processed_dir=artifacts.processed,
@@ -149,7 +151,7 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
         observed.values,
         observed.observed_trace_mask,
     )
-    checkpoint = load_ccnet5d_poc_checkpoint(output / "artifacts/final.pt")
+    checkpoint = load_ccnet5d_poc_checkpoint(output / "final.pt")
     assert checkpoint.amplitude_scale == expected_scale
     assert checkpoint.optimizer_updates == 2
     replay = predict_ccnet5d_volume(
@@ -166,12 +168,19 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
     )
     assert np.all(np.isfinite(prediction))
 
-    for name in ("metrics", "run", "inputs.lock"):
+    for name in ("metrics", "metadata", "inputs.lock"):
         record = json.loads((output / f"{name}.json").read_text(encoding="utf-8"))
         json.dumps(record, allow_nan=False)
     stored_metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
-    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
-    assert stored_metrics == metrics
+    run = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
+    assert stored_metrics == {key: metrics[key] for key in stored_metrics}
+    assert set(stored_metrics) == {
+        "evaluation_domain",
+        "amplitude_domain",
+        "evaluation_target",
+        "zero_fill",
+        "observed_max_abs_error",
+    }
     assert metrics["method"] == "ccnet5d"
     assert metrics["training_domain"] == "O_with_inner_pseudo_mask"
     assert metrics["loss"] == "masked_trace_relative_mse"
@@ -187,13 +196,13 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
         metrics["evaluation_target"]["covered_target_trace_count"]
         == metrics["evaluation_target"]["target_trace_count"]
     )
-    assert run["training"]["optimizer_updates"] == 2
-    assert run["training"]["validation"] is False
-    assert run["training"]["best_checkpoint_selection"] is False
+    assert run["training_or_reconstruction"]["optimizer_updates"] == 2
+    assert run["training_or_reconstruction"]["validation"] is False
+    assert run["training_or_reconstruction"]["best_checkpoint_selection"] is False
     assert run["coverage"]["minimum_target_coverage_count"] >= 1
-    assert run["resources"]["training_seconds"] >= 0.0
-    assert run["resources"]["prediction_seconds"] >= 0.0
-    assert run["resources"]["end_to_end_seconds"] >= 0.0
+    assert run["timing"]["training_seconds"] >= 0.0
+    assert run["timing"]["prediction_seconds"] >= 0.0
+    assert run["timing"]["end_to_end_seconds"] >= 0.0
     assert len(progress) >= 7
 
 
@@ -205,11 +214,11 @@ def test_target_truth_change_cannot_change_training_state_or_pre_evaluation_pred
         root = tmp_path / name
         artifacts = _artifacts(root / "data", target_offset=offset)
         output, metrics = _run(root, artifacts)
-        checkpoint = load_ccnet5d_poc_checkpoint(output / "artifacts/final.pt")
+        checkpoint = load_ccnet5d_poc_checkpoint(output / "final.pt")
         runs.append(
             (
                 {key: value.clone() for key, value in checkpoint.model.state_dict().items()},
-                np.load(output / "artifacts/prediction.npy", allow_pickle=False),
+                np.load(output / "prediction.npy", allow_pickle=False),
                 metrics,
             )
         )

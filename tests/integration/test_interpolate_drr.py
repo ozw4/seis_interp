@@ -140,7 +140,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
         else:
             saved_prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
             assert np.all(np.isfinite(saved_prediction))
-            assert not (output / "run.json").exists()
+            assert not (output / "metadata.json").exists()
             value = "2026-09-07T10:00:10Z"
         timestamps.append(value)
         return value
@@ -162,15 +162,17 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     output_files = sorted(
         path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
     )
-    assert output_files == [
-        "artifacts/prediction.npy",
-        "config.resolved.yaml",
-        "inputs.lock.json",
-        "metrics.json",
-        "run.json",
-    ]
+    assert output_files == sorted(
+        [
+            "prediction.npy",
+            "config.resolved.yaml",
+            "inputs.lock.json",
+            "metrics.json",
+            "metadata.json",
+        ]
+    )
     stored_metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
-    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
     inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
     prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
     observed = load_observed_c3_volume(
@@ -181,7 +183,14 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
         volume_dir=artifacts.volume,
     )
 
-    assert metrics == stored_metrics
+    assert stored_metrics == {key: metrics[key] for key in stored_metrics}
+    assert set(stored_metrics) == {
+        "evaluation_domain",
+        "amplitude_domain",
+        "evaluation_target",
+        "zero_fill",
+        "observed_max_abs_error",
+    }
     json.dumps(stored_metrics, allow_nan=False)
     json.dumps(run, allow_nan=False)
     json.dumps(inputs_lock, allow_nan=False)
@@ -207,28 +216,31 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     )
 
     assert run["method"] == METHOD
-    assert run["method_variant"] == "reconstruction_only_hard_consistency"
+    assert run["method_details"]["method_variant"] == "reconstruction_only_hard_consistency"
     assert run["benchmark_id"] == C3_RANDOM80_POC_BENCHMARK_ID
     assert run["case_id"] == "synthetic_case"
     assert run["volume_id"] == "synthetic_volume"
     assert run["input_amplitude_domain"] == "physical"
     assert run["output_amplitude_domain"] == "physical"
-    assert run["benchmark_global_rms_normalization"] is False
-    assert run["native_rank_reduction"] is True
-    assert run["native_iterative_updates"] is True
-    assert run["git_commit"] == git_metadata["git_commit"]
-    assert run["git_worktree_dirty"] is git_metadata["git_worktree_dirty"]
+    assert run["method_details"]["benchmark_global_rms_normalization"] is False
+    assert run["method_details"]["native_rank_reduction"] is True
+    assert run["method_details"]["native_iterative_updates"] is True
+    assert run["method_details"]["git_commit"] == git_metadata["git_commit"]
+    assert run["method_details"]["git_worktree_dirty"] is git_metadata["git_worktree_dirty"]
     assert run["status"] == "success"
     assert timestamps == ["2026-09-07T10:00:00Z", "2026-09-07T10:00:10Z"]
-    assert run["started_at_utc"] == timestamps[0]
-    assert run["finished_at_utc"] == timestamps[1]
-    assert run["device"] == "cpu"
-    assert run["python_version"]
-    assert run["numpy_version"] == np.__version__
-    assert run["random_seed"] == 42
-    assert run["input"]["mask"]["kind"] == RANDOM_TRACE_MASK_KIND
-    assert run["input"]["selected_volume"]["selection"] == artifacts.volume_metadata["selection"]
-    assert run["drr"] == {
+    assert run["method_details"]["started_at_utc"] == timestamps[0]
+    assert run["method_details"]["finished_at_utc"] == timestamps[1]
+    assert run["method_details"]["device"] == "cpu"
+    assert run["method_details"]["python_version"]
+    assert run["method_details"]["numpy_version"] == np.__version__
+    assert run["method_details"]["random_seed"] == 42
+    assert run["method_details"]["input"]["mask"]["kind"] == RANDOM_TRACE_MASK_KIND
+    assert (
+        run["method_details"]["input"]["selected_volume"]["selection"]
+        == artifacts.volume_metadata["selection"]
+    )
+    assert run["method_details"]["drr"] == {
         "mode": "reconstruction_only",
         "rank": 1,
         "damping_power": 3,
@@ -241,7 +253,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
         "observed_data_consistency": "hard_reinsertion_each_iteration_and_time_domain",
         "amplitude_normalization": "none",
     }
-    assert run["fft"] == {
+    assert run["method_details"]["fft"] == {
         "norm": "ortho",
         "padding": "next_power_of_two",
         "internal_dtype": "float64_and_complex128",
@@ -261,15 +273,15 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     expected_overlap = [0, 1, 0, 0] if windowed else None
     expected_maximum_shape = [time_sample_count, 2, 2 if windowed else 3, 2, 3]
     expected_hankel_shape = [16, 2 if windowed else 4]
-    assert run["window"]["requested_spatial_shape"] == expected_spatial_shape
-    assert run["window"]["requested_spatial_overlap"] == expected_overlap
-    assert run["window"]["maximum_block_shape"] == expected_maximum_shape
-    assert run["window"]["maximum_hankel_matrix_shape"] == expected_hankel_shape
-    assert run["window"]["blend"] == "positive_hann_interior_synthesis_only"
-    assert run["window"]["block_count"] == (2 if windowed else 1)
-    assert run["window"]["empty_block_count"] == 0
-    assert run["window"]["uncovered_trace_count"] == 0
-    assert run["window"]["uncovered_sample_count"] == 0
+    assert run["method_details"]["window"]["requested_spatial_shape"] == expected_spatial_shape
+    assert run["method_details"]["window"]["requested_spatial_overlap"] == expected_overlap
+    assert run["method_details"]["window"]["maximum_block_shape"] == expected_maximum_shape
+    assert run["method_details"]["window"]["maximum_hankel_matrix_shape"] == expected_hankel_shape
+    assert run["method_details"]["window"]["blend"] == "positive_hann_interior_synthesis_only"
+    assert run["method_details"]["window"]["block_count"] == (2 if windowed else 1)
+    assert run["method_details"]["window"]["empty_block_count"] == 0
+    assert run["method_details"]["window"]["uncovered_trace_count"] == 0
+    assert run["method_details"]["window"]["uncovered_sample_count"] == 0
     target_trace_count = int(np.count_nonzero(observed.evaluation_target_trace_mask))
     assert run["coverage"] == {
         "analysis_trace_count": observed.observed_trace_mask.size,
@@ -278,13 +290,13 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
         "covered_target_trace_count": target_trace_count,
         "complete": True,
     }
-    assert run["resources"]["load_and_verification_seconds"] >= 0.0
-    assert run["resources"]["reconstruction_seconds"] >= 0.0
-    assert run["resources"]["evaluation_seconds"] >= 0.0
-    assert run["resources"]["end_to_end_seconds"] >= 0.0
-    assert run["resources"]["process_max_rss_kib"] > 0
-    assert run["prediction"] == {
-        "artifact": "artifacts/prediction.npy",
+    assert run["timing"]["load_and_verification_seconds"] >= 0.0
+    assert run["timing"]["reconstruction_seconds"] >= 0.0
+    assert run["timing"]["evaluation_seconds"] >= 0.0
+    assert run["timing"]["end_to_end_seconds"] >= 0.0
+    assert run["resource_usage"]["process_max_rss_kib"] > 0
+    assert run["method_details"]["prediction"] == {
+        "artifact": "prediction.npy",
         "axis_order": list(artifacts.volume_metadata["axis_order"]),
         "shape": list(prediction.shape),
         "dtype": prediction.dtype.name,
@@ -546,7 +558,10 @@ def test_real_drr_cli_runs_real_pipeline_end_to_end(
     captured = capsys.readouterr()
     summary = json.loads(captured.out)
     assert exit_code == 0
-    assert summary == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    assert (
+        summary["evaluation_target"]
+        == json.loads((output / "metrics.json").read_text(encoding="utf-8"))["evaluation_target"]
+    )
     assert summary["method"] == METHOD
     assert (output / PREDICTION_RELATIVE_PATH).is_file()
     assert "Loading and verifying C3 inputs" in captured.err

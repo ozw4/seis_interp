@@ -12,7 +12,11 @@ from tests.fixtures.c3_volume_artifacts import make_c3_trace_table
 
 
 def make_benchmark_interim(
-    directory: Path, *, hole: bool = False, time_origin: float = 0.125
+    directory: Path,
+    *,
+    hole: bool = False,
+    time_origin: float = 0.125,
+    dataset_id: str = "synthetic_c3",
 ) -> Path:
     """Build five lines, three shots/line, and the existing full receiver lattice."""
     table = make_c3_trace_table(physical_source_line_indices=(0, 1, 2, 3, 4))
@@ -48,7 +52,7 @@ def make_benchmark_interim(
     source.write_bytes(b"synthetic source for C3 benchmark tests")
     interim = directory / "interim"
     write_interim_trace_dataset(
-        interim, table, amplitudes, time_s, source, "synthetic_c3", {"ffid_scope": "all"}
+        interim, table, amplitudes, time_s, source, dataset_id, {"ffid_scope": "all"}
     )
     return interim
 

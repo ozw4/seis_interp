@@ -13,6 +13,11 @@ from pathlib import Path
 import numpy as np
 
 from seis_interp import config_values, run_records
+from seis_interp.c3_poc_run_records import (
+    METADATA_FILE_NAME,
+    poc_run_metadata,
+    validate_poc_prediction,
+)
 from seis_interp.configuration import ConfigurationError, load_resolved_config
 from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
@@ -24,7 +29,7 @@ from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.processing.pocs_windows import WindowedPocsResult, interpolate_pocs_volume
 
 METHOD = "pocs"
-PREDICTION_RELATIVE_PATH = Path("artifacts") / "prediction.npy"
+PREDICTION_RELATIVE_PATH = Path("prediction.npy")
 
 _POCS_KEYS = frozenset(
     (
@@ -107,6 +112,7 @@ def interpolate_pocs_run(
 
     _report(progress_reporter, "Evaluating reconstruction on evaluation-target traces.")
     evaluation_started = time.perf_counter()
+    validate_poc_prediction(reconstructed.values, inputs.observed_volume)
     evaluation = evaluate_c3_volume_prediction(
         reconstructed.values,
         observed_volume,
@@ -131,7 +137,6 @@ def interpolate_pocs_run(
     _report(progress_reporter, "Writing prediction and immutable run records.")
     output_directory.mkdir(parents=True, exist_ok=False)
     prediction_path = output_directory / PREDICTION_RELATIVE_PATH
-    prediction_path.parent.mkdir(parents=True, exist_ok=False)
     np.save(prediction_path, reconstructed.values, allow_pickle=False)
     end_to_end_seconds = time.perf_counter() - run_started
     finished_at_utc = run_records.utc_timestamp()
@@ -153,12 +158,20 @@ def interpolate_pocs_run(
         end_to_end_seconds=end_to_end_seconds,
     )
 
+    run_metadata = poc_run_metadata(
+        inputs.inputs_lock,
+        run_metadata,
+        normalization={"type": "none"},
+        objective="fourier_hard_thresholding",
+        operation=run_metadata["pocs"],
+    )
     run_records.write_run_outputs(
         output_directory,
         deepcopy(config),
         inputs_lock,
-        metrics,
+        evaluation,
         run_metadata,
+        metadata_file_name=METADATA_FILE_NAME,
     )
     return metrics
 

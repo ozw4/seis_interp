@@ -13,6 +13,11 @@ from pathlib import Path
 import numpy as np
 
 from seis_interp import config_values, run_records
+from seis_interp.c3_poc_run_records import (
+    METADATA_FILE_NAME,
+    poc_run_metadata,
+    validate_poc_prediction,
+)
 from seis_interp.configuration import ConfigurationError, load_resolved_config
 from seis_interp.data.c3_poc_inputs import (
     C3_RANDOM80_POC_BENCHMARK_ID,
@@ -34,7 +39,7 @@ from seis_interp.processing.level_four_hankel import level_four_hankel_matrix_sh
 
 METHOD = "drr"
 METHOD_VARIANT = "reconstruction_only_hard_consistency"
-PREDICTION_RELATIVE_PATH = Path("artifacts") / "prediction.npy"
+PREDICTION_RELATIVE_PATH = Path("prediction.npy")
 
 _DRR_KEYS = frozenset(
     (
@@ -121,6 +126,7 @@ def interpolate_drr_run(
 
     _report(progress_reporter, "Evaluating reconstruction on evaluation-target traces.")
     evaluation_started = time.perf_counter()
+    validate_poc_prediction(reconstructed.values, inputs.observed_volume)
     evaluation = evaluate_c3_volume_prediction(
         reconstructed.values,
         observed,
@@ -147,7 +153,6 @@ def interpolate_drr_run(
     _report(progress_reporter, "Writing prediction and immutable run records.")
     output_directory.mkdir(parents=True, exist_ok=False)
     prediction_path = output_directory / PREDICTION_RELATIVE_PATH
-    prediction_path.parent.mkdir(parents=True, exist_ok=False)
     np.save(prediction_path, reconstructed.values, allow_pickle=False)
     finished_at_utc = run_records.utc_timestamp()
     end_to_end_seconds = time.perf_counter() - end_to_end_started
@@ -167,8 +172,20 @@ def interpolate_drr_run(
         warnings=warnings,
     )
 
+    metadata = poc_run_metadata(
+        inputs.inputs_lock,
+        metadata,
+        normalization={"type": "none"},
+        objective="damped_rank_reduction",
+        operation=metadata["drr"],
+    )
     run_records.write_run_outputs(
-        output_directory, deepcopy(config), inputs.inputs_lock, metrics, metadata
+        output_directory,
+        deepcopy(config),
+        inputs.inputs_lock,
+        evaluation,
+        metadata,
+        metadata_file_name=METADATA_FILE_NAME,
     )
     return metrics
 

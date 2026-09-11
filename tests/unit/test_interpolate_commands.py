@@ -13,6 +13,47 @@ from seis_interp.cli import build_parser, main
 _PIPELINE_MODULE = "seis_interp.pipelines.interpolate_pocs"
 
 
+@pytest.mark.parametrize("method", ["pocs", "drr", "nersi", "ccnet5d", "relational-trace-graph"])
+@pytest.mark.parametrize(
+    "missing", ["config", "interim", "processed", "mask", "case", "volume", "output"]
+)
+def test_poc_methods_require_every_shared_argument(tmp_path, method, missing):
+    arguments = _arguments(tmp_path, method)
+    index = arguments.index(f"--{missing}")
+    with pytest.raises(SystemExit) as error:
+        build_parser().parse_args(arguments[:index] + arguments[index + 2 :])
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize("method", ["pocs", "drr", "nersi", "ccnet5d", "relational-trace-graph"])
+def test_poc_methods_dispatch_shared_paths_and_reject_checkpoint(
+    tmp_path, monkeypatch, capsys, method
+):
+    name = method.replace("-", "_")
+    module_name = f"seis_interp.pipelines.interpolate_{name}"
+    module = ModuleType(module_name)
+    received = {}
+
+    def run(**kwargs):
+        received.update(kwargs)
+        return _summary() | {"method": name}
+
+    setattr(module, f"interpolate_{name}_run", run)
+    monkeypatch.setitem(sys.modules, module_name, module)
+    arguments = _arguments(tmp_path, method)
+    with pytest.raises(SystemExit) as error:
+        build_parser().parse_args([*arguments, "--checkpoint", "external.pt"])
+    assert error.value.code == 2
+    capsys.readouterr()
+    assert main([*arguments, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["method"] == name
+    for path in ("interim", "processed", "mask", "case", "volume"):
+        assert received[f"{path}_dir"] == tmp_path / path
+    assert received["config_path"] == tmp_path / "config.yaml"
+    assert received["output_dir"] == tmp_path / "run"
+    assert "checkpoint_path" not in received
+
+
 def test_relational_trace_graph_dispatches_without_checkpoint(tmp_path, monkeypatch, capsys):
     name = "seis_interp.pipelines.interpolate_relational_trace_graph"
     module = ModuleType(name)

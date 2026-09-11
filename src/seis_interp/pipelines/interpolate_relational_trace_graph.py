@@ -11,6 +11,11 @@ import numpy as np
 import torch
 
 from seis_interp import run_records
+from seis_interp.c3_poc_run_records import (
+    METADATA_FILE_NAME,
+    poc_run_metadata,
+    validate_poc_prediction,
+)
 from seis_interp.configuration import load_resolved_config
 from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
 from seis_interp.data.c3_poc_trace_graph import (
@@ -101,8 +106,7 @@ def interpolate_relational_trace_graph_run(
         "case_id": inputs.case["case_id"],
         "volume_id": inputs.volume_metadata["volume_id"],
     }
-    artifacts = output / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=False)
     checkpoint = {
         **identity,
         "model_config": model.constructor_config(),
@@ -115,7 +119,7 @@ def interpolate_relational_trace_graph_run(
         "steps_completed": trained.steps_completed,
         "inputs_lock": inputs.inputs_lock,
     }
-    torch.save(checkpoint, artifacts / "final.pt")
+    torch.save(checkpoint, output / "final.pt")
     metadata = {
         **identity,
         **run_records.current_git_metadata(),
@@ -130,13 +134,30 @@ def interpolate_relational_trace_graph_run(
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "training": asdict(trained),
         "checkpoint": {
-            "artifact": "artifacts/final.pt",
+            "artifact": "final.pt",
             "role": "final",
-            "sha256": file_sha256(artifacts / "final.pt"),
+            "sha256": file_sha256(output / "final.pt"),
         },
         "resources": {"training_seconds": training_seconds},
     }
-    run_records.write_run_outputs(output, config, inputs.inputs_lock, identity, metadata)
+
+    def common_metadata() -> dict[str, object]:
+        return poc_run_metadata(
+            inputs.inputs_lock,
+            metadata,
+            normalization=identity["normalization"],
+            objective=identity["loss"],
+            operation=metadata["training"],
+        )
+
+    run_records.write_run_outputs(
+        output,
+        config,
+        inputs.inputs_lock,
+        {},
+        common_metadata(),
+        metadata_file_name=METADATA_FILE_NAME,
+    )
     try:
         if progress_reporter:
             progress_reporter("Predicting every target with all observed context.")
@@ -155,13 +176,17 @@ def interpolate_relational_trace_graph_run(
         )
         metadata["resources"]["prediction_seconds"] = time.perf_counter() - prediction_started
         # Target truth is first materialized by this common evaluation boundary.
-        metrics = evaluate_c3_volume_prediction(
+        validate_poc_prediction(dense, volume)
+        evaluation_started = time.perf_counter()
+        evaluation = evaluate_c3_volume_prediction(
             dense,
             volume,
             interim_dir=Path(interim_dir),
             volume_metadata=inputs.volume_metadata,
             target_coverage_mask=coverage,
         )
+        metadata["resources"]["evaluation_seconds"] = time.perf_counter() - evaluation_started
+        metrics = dict(evaluation)
         metrics.update(
             {
                 **identity,
@@ -173,14 +198,16 @@ def interpolate_relational_trace_graph_run(
                 "warnings": [],
             }
         )
-        np.save(artifacts / "prediction.npy", dense, allow_pickle=False)
+        np.save(output / "prediction.npy", dense, allow_pickle=False)
+        artifacts = output / "artifacts"
+        artifacts.mkdir()
         np.save(artifacts / "target_coverage.npy", coverage, allow_pickle=False)
         np.save(artifacts / "query_trace_ids.npy", predicted.query_trace_ids, allow_pickle=False)
         metadata.update(
             status="success",
             prediction={
-                "artifact": "artifacts/prediction.npy",
-                "sha256": file_sha256(artifacts / "prediction.npy"),
+                "artifact": "prediction.npy",
+                "sha256": file_sha256(output / "prediction.npy"),
                 "shape": list(dense.shape),
                 "diagnostics": predicted.diagnostics,
                 "query_batch_size": settings.prediction_query_batch_size,
@@ -196,12 +223,16 @@ def interpolate_relational_trace_graph_run(
             status="failed", error={"type": type(error).__name__, "message": str(error)}
         )
         metadata["finished_at_utc"] = run_records.utc_timestamp()
-        run_records.write_run_progress(output, identity, metadata)
+        run_records.write_run_progress(
+            output, {}, common_metadata(), metadata_file_name=METADATA_FILE_NAME
+        )
         raise
     metadata["finished_at_utc"] = run_records.utc_timestamp()
     metadata["resources"].update(
         end_to_end_seconds=time.perf_counter() - started,
         **run_records.runtime_resource_metadata(device),
     )
-    run_records.write_run_progress(output, metrics, metadata)
+    run_records.write_run_progress(
+        output, evaluation, common_metadata(), metadata_file_name=METADATA_FILE_NAME
+    )
     return metrics

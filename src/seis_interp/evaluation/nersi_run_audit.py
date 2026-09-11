@@ -10,13 +10,14 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
-from seis_interp.data.c3_benchmark_inputs import load_c3_benchmark_volume_inputs
 from seis_interp.data.c3_benchmark_suite import (
     c3_suite_case,
     load_c3_benchmark_input_manifest,
     suite_path,
 )
+from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
 from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
@@ -33,12 +34,12 @@ from seis_interp.training.nersi_checkpoints import (
 RESTORE_RTOL = 1.0e-6
 RESTORE_ATOL = 1.0e-6
 RUN_FILES = (
-    "run.json",
+    "metadata.json",
     "metrics.json",
     "config.resolved.yaml",
     "inputs.lock.json",
-    "artifacts/final.pt",
-    "artifacts/prediction.npy",
+    "final.pt",
+    "prediction.npy",
 )
 
 
@@ -118,54 +119,59 @@ def audit_c3_nersi_run(
     manifest_path = suite / "benchmark_suite.json"
     _require(file_sha256(manifest_path) == expected_suite_sha256, "suite SHA-256 differs")
     manifest = load_c3_benchmark_input_manifest(suite, case_id=case_id, dimensions=dimensions)
-    _require(
-        c3_suite_case(manifest, case_id)["partition"] == "validation",
-        "NeRSI audit is restricted to validation",
+    entry = c3_suite_case(manifest, case_id)
+    config = yaml.safe_load(suite_path(suite, entry["config_file"]).read_text(encoding="utf-8"))
+    inputs = load_c3_random80_poc_inputs(
+        config=config,
+        interim_dir=suite_path(suite, manifest["interim"]),
+        processed_dir=suite_path(suite, manifest["processed"]),
+        mask_dir=suite_path(suite, entry["mask_dir"]),
+        case_dir=suite_path(suite, entry["case_dir"]),
+        volume_dir=suite_path(suite, entry["volume_dir"]),
+        dimensions=dimensions,
     )
-    inputs = load_c3_benchmark_volume_inputs(suite, case_id, dimensions=dimensions)
-    metadata = _read(run / "run.json")
+    metadata = _read(run / "metadata.json")
     metrics = _read(run / "metrics.json")
     inputs_lock = _read(run / "inputs.lock.json")
     _require(metadata.get("status") == "success", "audit requires a successful run")
     _require(
-        metadata.get("method") == metrics.get("method") == "nersi",
+        metadata.get("method") == "nersi",
         "audit requires a NeRSI run",
     )
     _require(
-        metadata.get("method_variant") == metrics.get("method_variant") == NERSI_METHOD_VARIANT,
+        metadata["method_details"].get("method_variant") == NERSI_METHOD_VARIANT,
         "NeRSI method variant differs",
     )
     _require(
-        metadata.get("case_id") == metrics.get("case_id") == case_id,
+        metadata.get("case_id") == case_id,
         "NeRSI case differs",
     )
     _require(
-        metadata.get("volume_id")
-        == metrics.get("volume_id")
-        == inputs.volume_metadata["volume_id"],
+        metadata.get("volume_id") == inputs.volume_metadata["volume_id"],
         "NeRSI volume differs",
     )
     _require(inputs_lock == inputs.inputs_lock, "NeRSI input lock differs from verified inputs")
 
-    checkpoint_path = run / "artifacts/final.pt"
-    prediction_path = run / "artifacts/prediction.npy"
+    checkpoint_path = run / "final.pt"
+    prediction_path = run / "prediction.npy"
     checkpoint_sha256 = file_sha256(checkpoint_path)
     prediction_sha256 = file_sha256(prediction_path)
     _require(
-        metadata.get("checkpoint", {}).get("role") == FIXED_STEP_FINAL_CHECKPOINT_ROLE,
+        metadata["method_details"].get("checkpoint", {}).get("role")
+        == FIXED_STEP_FINAL_CHECKPOINT_ROLE,
         "NeRSI checkpoint is not fixed-step final",
     )
     _require(
-        metadata["checkpoint"].get("sha256") == checkpoint_sha256,
+        metadata["method_details"]["checkpoint"].get("sha256") == checkpoint_sha256,
         "NeRSI checkpoint SHA-256 differs",
     )
     _require(
-        metadata.get("prediction", {}).get("sha256") == prediction_sha256,
+        metadata["method_details"].get("prediction", {}).get("sha256") == prediction_sha256,
         "NeRSI prediction SHA-256 differs",
     )
     _require(
-        metadata.get("training", {}).get("steps_completed")
-        == metadata.get("training", {}).get("max_steps"),
+        metadata.get("training_or_reconstruction", {}).get("steps_completed")
+        == metadata.get("training_or_reconstruction", {}).get("max_steps"),
         "NeRSI final optimizer budget is incomplete",
     )
 
@@ -199,15 +205,15 @@ def audit_c3_nersi_run(
     loaded = load_fixed_step_nersi_checkpoint(checkpoint_path, device="cpu")
     validate_fixed_step_nersi_checkpoint_input_binding(loaded, inputs.inputs_lock, data)
     _require(
-        loaded.global_step == metadata["training"]["max_steps"],
+        loaded.global_step == metadata["training_or_reconstruction"]["max_steps"],
         "checkpoint global step differs from the declared final budget",
     )
-    with _recorded_numerical_settings(metadata.get("resources", {})):
+    with _recorded_numerical_settings(metadata.get("resource_usage", {})):
         restored = predict_c3_volume_nersi(
             loaded.model,
             data,
             observed,
-            batch_size=metadata["prediction"]["batch_size"],
+            batch_size=metadata["method_details"]["prediction"]["batch_size"],
             device=restore_device,
         )
     difference = restored.values.astype(np.float64) - prediction.astype(np.float64)
@@ -271,7 +277,7 @@ def audit_c3_nersi_run(
         "checkpoint_restoration": restoration,
         "run_artifact_sha256": recorded_hashes,
         "target_truth_used_for_restoration": False,
-        "test_partition_used": False,
+        "test_partition_used": entry["partition"] == "test",
     }
     output.mkdir(parents=True)
     _write(output / "result.json", report)

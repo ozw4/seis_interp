@@ -355,13 +355,13 @@ seis-interp interpolate relational-trace-graph \
 
 ## PoC run出力
 
-既存の出力directoryは再使用しない。`artifacts/final.pt`には最終重み、constructor、
+既存の出力directoryは再使用しない。`final.pt`には最終重み、constructor、
 graph設定、共通RMS、固定座標bounds、inner mask率、seed、完了step、inputs lockを保存する。
 推論にはO全体をcontextとして渡し、TのIDが重複・欠落なく一致することをscatter前に確認する。
 物理振幅への復元は予測関数内で一度だけ行い、Oを再挿入したdense volumeを共通C3 evaluatorで採点する。
 
-`artifacts/prediction.npy`、`target_coverage.npy`、`query_trace_ids.npy`と、
-`config.resolved.yaml`、`inputs.lock.json`、`metrics.json`、`run.json`を保存する。
+`prediction.npy`、診断用の`artifacts/target_coverage.npy`、`artifacts/query_trace_ids.npy`と、
+`config.resolved.yaml`、`inputs.lock.json`、`metrics.json`、`metadata.json`を保存する。共通評価結果はmetrics、手法固有情報はmetadataの`method_details`に分離する。
 metadataは学習step・episode数・loss・query/no-context件数、parameter数、実行時間と取得可能なmemoryを含む。
 推論・評価の失敗はrun全体の失敗として記録し、推論前に保存したfinal checkpointを保持する。
 `--json`のstdoutはstrict JSON、進捗はstderrへ出力する。

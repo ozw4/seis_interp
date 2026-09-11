@@ -300,6 +300,111 @@ def test_runtime_resource_metadata_on_cpu_has_no_cuda_keys() -> None:
     assert metadata["process_max_rss_kib"] > 0
 
 
+@pytest.mark.parametrize("method", ["pocs", "drr", "nersi", "ccnet5d", "relational_trace_graph"])
+def test_poc_records_share_metadata_and_canonical_metrics(tmp_path, method):
+    from seis_interp.c3_poc_run_records import METADATA_FILE_NAME, poc_run_metadata
+
+    classical = method in {"pocs", "drr"}
+    normalization = (
+        {"type": "none"}
+        if classical
+        else {
+            "type": "global_rms",
+            "source": "O_only",
+            "scale": 2.5,
+        }
+    )
+    lock = {
+        "benchmark_id": "poc",
+        "case_id": "case",
+        "volume_id": "volume",
+        "dataset_id": "seg_c3_na",
+        "observed_trace_count": 2,
+        "target_trace_count": 8,
+        "benchmark_volume": {"files": {"volume.json": {"sha256": "volume-hash"}}},
+    }
+    details = {
+        "method": method,
+        "status": "success",
+        "seed": 42,
+        "coverage": {"target_trace_count": 8, "covered_target_trace_count": 8},
+        "resources": {"end_to_end_seconds": 0.5, "process_max_rss_kib": 1024},
+    }
+    metadata = poc_run_metadata(
+        lock,
+        details,
+        normalization=normalization,
+        objective="native" if classical else "masked_trace_relative_mse",
+        operation={"steps": 2},
+    )
+    assert set(metadata) == {
+        "method",
+        "benchmark_id",
+        "case_id",
+        "volume_id",
+        "status",
+        "input_amplitude_domain",
+        "output_amplitude_domain",
+        "normalization",
+        "loss_or_native_objective",
+        "training_or_reconstruction",
+        "coverage",
+        "timing",
+        "resource_usage",
+        "method_details",
+    }
+    assert metadata["normalization"] == normalization
+    assert metadata["timing"] == {"end_to_end_seconds": 0.5}
+    assert metadata["resource_usage"] == {"process_max_rss_kib": 1024}
+    assert metadata["method_details"] == {"seed": 42}
+    metrics = {"evaluation_target": {"snr_db": None, "snr_status": "perfect_reconstruction"}}
+    run_records.write_run_outputs(
+        tmp_path, {}, lock, metrics, metadata, metadata_file_name=METADATA_FILE_NAME
+    )
+    assert json.loads((tmp_path / "metrics.json").read_text()) == metrics
+    assert json.loads((tmp_path / "inputs.lock.json").read_text()) == lock
+    assert json.loads((tmp_path / "metadata.json").read_text()) == metadata
+    assert not (tmp_path / "run.json").exists()
+    run_records.write_run_progress(
+        tmp_path, metrics, metadata, metadata_file_name=METADATA_FILE_NAME
+    )
+    assert not (tmp_path / "run.json").exists()
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+@pytest.mark.parametrize("record", ["metrics", "metadata"])
+def test_poc_progress_rejects_non_finite_values(tmp_path, value, record):
+    payloads = {"metrics": {}, "metadata": {}}
+    payloads[record]["nested"] = {"value": value}
+    with pytest.raises(ValueError, match="Out of range float values"):
+        run_records.write_run_progress(
+            tmp_path, payloads["metrics"], payloads["metadata"], metadata_file_name="metadata.json"
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("invalid", ["shape", "non_finite", "observed"])
+def test_poc_prediction_rejects_incomplete_or_changed_observations(invalid):
+    import numpy as np
+
+    from seis_interp.c3_poc_run_records import validate_poc_prediction
+
+    observed = SimpleNamespace(
+        values=np.ones((3, 1, 1, 1, 2)),
+        observed_trace_mask=np.array([True, False]).reshape(1, 1, 1, 2),
+    )
+    prediction = observed.values.copy()
+    validate_poc_prediction(prediction, observed)
+    if invalid == "shape":
+        prediction = prediction[:2]
+    elif invalid == "non_finite":
+        prediction[..., 1] = np.nan
+    else:
+        prediction[..., 0] = 2
+    with pytest.raises(ValueError):
+        validate_poc_prediction(prediction, observed)
+
+
 @pytest.mark.parametrize("benchmark", [True, False])
 def test_runtime_resource_metadata_on_cuda_records_device_and_numerical_mode(
     monkeypatch: pytest.MonkeyPatch,

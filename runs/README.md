@@ -2,33 +2,31 @@
 
 This directory stores machine-generated execution records. Do not edit run outputs by hand and do not commit large run directories.
 
-The expected layout is:
+The five random-80 PoC methods use:
 
 ```text
-runs/<study-id>/<YYYYMMDDThhmmssZ_gitsha[_condition]>/
+runs/<study-id>/<run-id>/
 ├── config.resolved.yaml
 ├── inputs.lock.json
+├── metadata.json
 ├── metrics.json
-├── run.json
-└── artifacts/
-    ├── best.pt
-    ├── final.pt
-    └── prediction.npy
+├── prediction.npy
+└── final.pt          # neural methods only
 ```
 
-The artifact entries are method-dependent alternatives, not three files required in every run.
-Model-selection training pipelines write `best.pt`; fixed-step per-volume SIREN writes `final.pt`
-and `prediction.npy`; POCS and DRR interpolation write `prediction.npy` without a checkpoint.
-Supervised CCNet5D training writes `patch_plan.json`, `best.pt`, and `final.pt` under `artifacts/`;
-frozen CCNet5D inference writes only `prediction.npy` and binds the source checkpoint and its
-training provenance in the input lock. Training/internal-selection cost and frozen inference
-cost belong to separate runs.
-Each run contains only the artifacts produced by its method.
+POCS and DRR have no checkpoint. NeRSI, CCNet5D, and relational trace graph save the final
+fixed-step model. The full physical prediction preserves observations exactly.
+Metrics contain only the common evaluator result. Metadata records common identity,
+normalization, objective, training/reconstruction, coverage, timing, resource usage, and nested
+method details. Input comparisons must include the full selection and nested volume hashes.
+
+Other training pipelines use `run.json` and method-specific files under `artifacts/`.
+Model-selection training saves `best.pt`; per-volume SIREN saves `final.pt` and `prediction.npy`.
 
 A runner that trains several conditions in one invocation writes one such directory per condition plus a sibling summary JSON sharing the timestamp and Git SHA prefix; the training-fit diagnostics record metrics only and write no `artifacts/`.
 
 Formal study run directories are immutable. Scratch workspaces labeled in [`studies/README.md`](../studies/README.md) instead maintain an overwriteable current output under their own `runs/` subdirectory.
 
-Shared run pipelines capture `git_commit` and `git_worktree_dirty` in `run.json` at run start. The dirty flag includes staged, unstaged, and untracked files, excluding ignored files. Dirty runs are allowed for development; promotion to formal results requires `git_worktree_dirty` to be `false`.
+Shared run pipelines capture `git_commit` and `git_worktree_dirty` in run metadata (`metadata.json.method_details` for PoC) at run start. The dirty flag includes staged, unstaged, and untracked files, excluding ignored files. Dirty runs are allowed for development; promotion to formal results requires `git_worktree_dirty` to be `false`.
 
 Accepted figures, tables, or models are promoted separately to `results/` when that directory is needed.

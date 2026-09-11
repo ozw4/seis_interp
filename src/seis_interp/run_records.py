@@ -112,6 +112,8 @@ def write_run_outputs(
     inputs_lock: Mapping[str, object],
     metrics: Mapping[str, object],
     run_metadata: Mapping[str, object],
+    *,
+    metadata_file_name: str = RUN_FILE_NAME,
 ) -> None:
     """Write the resolved config, inputs lock, metrics, and run metadata files."""
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -126,7 +128,7 @@ def write_run_outputs(
         json.dumps(metrics, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
-    (output_directory / RUN_FILE_NAME).write_text(
+    (output_directory / metadata_file_name).write_text(
         json.dumps(run_metadata, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
@@ -136,6 +138,8 @@ def write_run_progress(
     output_directory: Path,
     metrics: Mapping[str, object],
     run_metadata: Mapping[str, object],
+    *,
+    metadata_file_name: str = RUN_FILE_NAME,
 ) -> None:
     """Replace progress records individually, leaving the starting inputs intact.
 
@@ -144,7 +148,7 @@ def write_run_progress(
     """
     records = {
         name: json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n"
-        for name, payload in ((METRICS_FILE_NAME, metrics), (RUN_FILE_NAME, run_metadata))
+        for name, payload in ((METRICS_FILE_NAME, metrics), (metadata_file_name, run_metadata))
     }
     for name, text in records.items():
         with tempfile.NamedTemporaryFile(

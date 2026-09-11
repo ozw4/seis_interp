@@ -157,7 +157,7 @@ def test_run_writes_prediction_metrics_and_complete_records(
         else:
             saved_prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
             assert np.all(np.isfinite(saved_prediction))
-            assert not (output / "run.json").exists()
+            assert not (output / "metadata.json").exists()
             value = "2026-09-07T10:00:10Z"
         timestamps.append(value)
         return value
@@ -178,15 +178,17 @@ def test_run_writes_prediction_metrics_and_complete_records(
     output_files = sorted(
         path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
     )
-    assert output_files == [
-        "artifacts/prediction.npy",
-        "config.resolved.yaml",
-        "inputs.lock.json",
-        "metrics.json",
-        "run.json",
-    ]
+    assert output_files == sorted(
+        [
+            "prediction.npy",
+            "config.resolved.yaml",
+            "inputs.lock.json",
+            "metrics.json",
+            "metadata.json",
+        ]
+    )
     stored_metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
-    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
     inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
     prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
     observed = load_observed_c3_volume(
@@ -197,7 +199,14 @@ def test_run_writes_prediction_metrics_and_complete_records(
         volume_dir=artifacts.volume,
     )
 
-    assert metrics == stored_metrics
+    assert stored_metrics == {key: metrics[key] for key in stored_metrics}
+    assert set(stored_metrics) == {
+        "evaluation_domain",
+        "amplitude_domain",
+        "evaluation_target",
+        "zero_fill",
+        "observed_max_abs_error",
+    }
     assert metrics["method"] == METHOD
     assert metrics["warnings"] == []
     assert {
@@ -217,35 +226,39 @@ def test_run_writes_prediction_metrics_and_complete_records(
         prediction[:, observed.observed_trace_mask],
         observed.values[:, observed.observed_trace_mask],
     )
-    assert run["device"] == "cpu"
-    assert run["python_version"]
-    assert run["numpy_version"] == np.__version__
-    assert run["random_seed"] == 42
-    assert run["git_commit"] == git_metadata["git_commit"]
-    assert run["git_worktree_dirty"] is git_metadata["git_worktree_dirty"]
+    assert run["method_details"]["device"] == "cpu"
+    assert run["method_details"]["python_version"]
+    assert run["method_details"]["numpy_version"] == np.__version__
+    assert run["method_details"]["random_seed"] == 42
+    assert run["method_details"]["git_commit"] == git_metadata["git_commit"]
+    assert run["method_details"]["git_worktree_dirty"] is git_metadata["git_worktree_dirty"]
     assert run["method"] == "pocs"
     assert run["input_amplitude_domain"] == "physical"
     assert run["output_amplitude_domain"] == "physical"
-    assert run["benchmark_global_rms_normalization"] is False
-    assert run["observed_data_constraint"] is True
-    assert run["native_iterative_updates"] is True
+    assert run["method_details"]["benchmark_global_rms_normalization"] is False
+    assert run["method_details"]["observed_data_constraint"] is True
+    assert run["method_details"]["native_iterative_updates"] is True
     assert run["status"] == "success"
     assert timestamps == ["2026-09-07T10:00:00Z", "2026-09-07T10:00:10Z"]
-    assert run["started_at_utc"] == timestamps[0]
-    assert run["finished_at_utc"] == timestamps[1]
-    assert run["pocs"]["frequency_bins"] == "all_rfft_bins"
-    assert run["pocs"]["n_iterations"] == 3
-    assert run["prediction"]["axis_order"] == list(artifacts.volume_metadata["axis_order"])
-    assert run["window"]["block_count"] >= 1
-    assert run["window"]["requested_shape"] == ([3, 2, 3, 2, 3] if windowed else None)
+    assert run["method_details"]["started_at_utc"] == timestamps[0]
+    assert run["method_details"]["finished_at_utc"] == timestamps[1]
+    assert run["method_details"]["pocs"]["frequency_bins"] == "all_rfft_bins"
+    assert run["method_details"]["pocs"]["n_iterations"] == 3
+    assert run["method_details"]["prediction"]["axis_order"] == list(
+        artifacts.volume_metadata["axis_order"]
+    )
+    assert run["method_details"]["window"]["block_count"] >= 1
+    assert run["method_details"]["window"]["requested_shape"] == (
+        [3, 2, 3, 2, 3] if windowed else None
+    )
     assert run["coverage"] == {
         "target_trace_count": int(observed.evaluation_target_trace_mask.sum()),
         "covered_target_trace_count": int(observed.evaluation_target_trace_mask.sum()),
         "target_coverage_fraction": 1.0,
         "uncovered_sample_count": 0,
     }
-    assert run["resources"]["reconstruction_seconds"] >= 0.0
-    assert run["resources"]["end_to_end_seconds"] >= run["resources"]["reconstruction_seconds"]
+    assert run["timing"]["reconstruction_seconds"] >= 0.0
+    assert run["timing"]["end_to_end_seconds"] >= run["timing"]["reconstruction_seconds"]
     case_path = artifacts.case / "benchmark_case.json"
     case = json.loads(case_path.read_text(encoding="utf-8"))
     assert inputs_lock == {
@@ -616,7 +629,10 @@ def test_real_cli_runs_real_pipeline_end_to_end(
     captured = capsys.readouterr()
     summary = json.loads(captured.out)
     assert exit_code == 0
-    assert summary == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    assert (
+        summary["evaluation_target"]
+        == json.loads((output / "metrics.json").read_text(encoding="utf-8"))["evaluation_target"]
+    )
     assert (output / PREDICTION_RELATIVE_PATH).is_file()
     assert "Loading and verifying C3 inputs" in captured.err
 

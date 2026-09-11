@@ -12,6 +12,11 @@ import numpy as np
 import torch
 
 from seis_interp import config_values, run_records
+from seis_interp.c3_poc_run_records import (
+    METADATA_FILE_NAME,
+    poc_run_metadata,
+    validate_poc_prediction,
+)
 from seis_interp.ccnet5d_poc_config import CCNet5DPocSettings, validate_ccnet5d_poc_config
 from seis_interp.configuration import load_resolved_config
 from seis_interp.data.c3_poc_inputs import (
@@ -48,8 +53,8 @@ from seis_interp.training.randomness import seed_global_model_initialization
 
 METHOD = "ccnet5d"
 TRAINING_DOMAIN = "O_with_inner_pseudo_mask"
-PREDICTION_RELATIVE_PATH = Path("artifacts") / "prediction.npy"
-CHECKPOINT_RELATIVE_PATH = Path("artifacts") / "final.pt"
+PREDICTION_RELATIVE_PATH = Path("prediction.npy")
+CHECKPOINT_RELATIVE_PATH = Path("final.pt")
 ProgressReporter = Callable[[str], None]
 
 
@@ -141,7 +146,8 @@ def interpolate_ccnet5d_run(
     # This is the first boundary that may materialize evaluation-target amplitudes.
     _report(progress_reporter, "Evaluating target-only physical amplitudes.")
     started = time.perf_counter()
-    metrics = evaluate_c3_volume_prediction(
+    validate_poc_prediction(predicted.values, inputs.observed_volume)
+    evaluation = evaluate_c3_volume_prediction(
         predicted.values,
         inputs.observed_volume,
         interim_dir=Path(interim_dir),
@@ -149,6 +155,7 @@ def interpolate_ccnet5d_run(
         target_coverage_mask=target_coverage,
     )
     timings["evaluation_seconds"] = time.perf_counter() - started
+    metrics = dict(evaluation)
     metrics.update(
         {
             "method": METHOD,
@@ -185,7 +192,6 @@ def interpolate_ccnet5d_run(
 
     _report(progress_reporter, "Writing final checkpoint, prediction, and run records.")
     output.mkdir(parents=True, exist_ok=False)
-    (output / "artifacts").mkdir(exist_ok=False)
     save_ccnet5d_poc_checkpoint(
         output / CHECKPOINT_RELATIVE_PATH,
         model,
@@ -216,12 +222,20 @@ def interpolate_ccnet5d_run(
         checkpoint_sha256=checkpoint_sha256,
         prediction_sha256=prediction_sha256,
     )
+    metadata = poc_run_metadata(
+        inputs.inputs_lock,
+        metadata,
+        normalization=metadata["normalization"],
+        objective="masked_trace_relative_mse",
+        operation=metadata["training"],
+    )
     run_records.write_run_outputs(
         output,
         deepcopy(config),
         inputs.inputs_lock,
-        metrics,
+        evaluation,
         metadata,
+        metadata_file_name=METADATA_FILE_NAME,
     )
     return metrics
 

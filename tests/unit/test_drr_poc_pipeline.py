@@ -75,7 +75,11 @@ def _inputs() -> C3VolumeRunInputs:
             "trace_count": 5,
             "role_counts": {"observed": 1, "evaluation_target": 4},
         },
-        inputs_lock={"benchmark_id": C3_RANDOM80_POC_BENCHMARK_ID},
+        inputs_lock={
+            "benchmark_id": C3_RANDOM80_POC_BENCHMARK_ID,
+            "case_id": "poc_case",
+            "volume_id": "poc_volume",
+        },
     )
 
 
@@ -194,18 +198,18 @@ def test_drr_poc_run_passes_only_physical_observations_and_records_contract(
         observed.values[:, observed.observed_trace_mask],
     )
 
-    metadata = json.loads((tmp_path / "run" / "run.json").read_text(encoding="utf-8"))
+    metadata = json.loads((tmp_path / "run" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["method"] == "drr"
     assert metadata["benchmark_id"] == C3_RANDOM80_POC_BENCHMARK_ID
     assert metadata["input_amplitude_domain"] == "physical"
     assert metadata["output_amplitude_domain"] == "physical"
-    assert metadata["benchmark_global_rms_normalization"] is False
-    assert metadata["native_rank_reduction"] is True
-    assert metadata["native_iterative_updates"] is True
-    assert metadata["drr"]["rank"] == 1
-    assert metadata["drr"]["damping_power"] == 3
-    assert metadata["drr"]["n_iterations"] == 2
-    assert metadata["drr"]["amplitude_normalization"] == "none"
+    assert metadata["method_details"]["benchmark_global_rms_normalization"] is False
+    assert metadata["method_details"]["native_rank_reduction"] is True
+    assert metadata["method_details"]["native_iterative_updates"] is True
+    assert metadata["method_details"]["drr"]["rank"] == 1
+    assert metadata["method_details"]["drr"]["damping_power"] == 3
+    assert metadata["method_details"]["drr"]["n_iterations"] == 2
+    assert metadata["method_details"]["drr"]["amplitude_normalization"] == "none"
     assert metadata["coverage"] == {
         "analysis_trace_count": 5,
         "covered_analysis_trace_count": 5,
@@ -213,8 +217,8 @@ def test_drr_poc_run_passes_only_physical_observations_and_records_contract(
         "covered_target_trace_count": 4,
         "complete": True,
     }
-    assert metadata["resources"]["reconstruction_seconds"] >= 0.0
-    assert metadata["resources"]["end_to_end_seconds"] >= 0.0
+    assert metadata["timing"]["reconstruction_seconds"] >= 0.0
+    assert metadata["timing"]["end_to_end_seconds"] >= 0.0
     assert metadata["status"] == "success"
 
 

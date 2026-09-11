@@ -182,16 +182,18 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
 
     assert sorted(
         path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
-    ) == [
-        "artifacts/final.pt",
-        "artifacts/prediction.npy",
-        "config.resolved.yaml",
-        "inputs.lock.json",
-        "metrics.json",
-        "run.json",
-    ]
+    ) == sorted(
+        [
+            "final.pt",
+            "prediction.npy",
+            "config.resolved.yaml",
+            "inputs.lock.json",
+            "metrics.json",
+            "metadata.json",
+        ]
+    )
     stored_metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
-    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    run = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
     inputs_lock = json.loads((output / "inputs.lock.json").read_text(encoding="utf-8"))
     prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
     inputs = _loaded_inputs(nersi_artifacts, config)
@@ -199,7 +201,14 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     observed_count = int(np.count_nonzero(observed.observed_trace_mask))
     target_count = int(np.count_nonzero(observed.evaluation_target_trace_mask))
 
-    assert metrics == stored_metrics
+    assert stored_metrics == {key: metrics[key] for key in stored_metrics}
+    assert set(stored_metrics) == {
+        "evaluation_domain",
+        "amplitude_domain",
+        "evaluation_target",
+        "zero_fill",
+        "observed_max_abs_error",
+    }
     for record in (stored_metrics, run, inputs_lock):
         json.dumps(record, allow_nan=False)
     assert metrics["method"] == METHOD == "nersi"
@@ -238,44 +247,54 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
         observed.values[:, observed.observed_trace_mask].astype(np.float32),
     )
 
-    assert run["method_variant"] == METHOD_VARIANT
-    assert run["fit_domain"] == "O_only"
-    assert run["inner_corruption_mask"] is False
+    assert run["method_details"]["method_variant"] == METHOD_VARIANT
+    assert run["method_details"]["fit_domain"] == "O_only"
+    assert run["method_details"]["inner_corruption_mask"] is False
     assert run["normalization"] == {
         "type": "global_rms",
         "source": "O_only",
         "scale": compute_observed_global_rms(observed.values, observed.observed_trace_mask),
     }
-    assert run["loss"] == "masked_trace_relative_mse"
-    assert run["checkpoint_role"] == "final"
-    assert run["random_seed"] == 42
-    assert run["training_random_seed"] == 314
-    assert run["profiles"]["axis_order"] == list(PROFILE_AXIS_ORDER)
-    assert run["profiles"]["coordinate_order"] == list(PROFILE_COORDINATE_ORDER)
-    assert run["profiles"]["coordinate_normalization"] == (
+    assert run["loss_or_native_objective"] == "masked_trace_relative_mse"
+    assert run["method_details"]["checkpoint_role"] == "final"
+    assert run["method_details"]["random_seed"] == 42
+    assert run["method_details"]["training_random_seed"] == 314
+    assert run["method_details"]["profiles"]["axis_order"] == list(PROFILE_AXIS_ORDER)
+    assert run["method_details"]["profiles"]["coordinate_order"] == list(PROFILE_COORDINATE_ORDER)
+    assert run["method_details"]["profiles"]["coordinate_normalization"] == (
         "fixed_analysis_domain_index_bounds_to_unit_interval"
     )
-    assert run["profiles"]["coordinate_normalization_source"] == "fixed_analysis_domain"
-    assert run["profiles"]["coordinate_bounds"] == [[0, 1], [0, 2], [0, 1]]
-    assert run["profiles"]["count"] == 12
-    assert run["profiles"]["shape"] == [8, 8]
-    assert run["profiles"]["stable_order"] == (
+    assert (
+        run["method_details"]["profiles"]["coordinate_normalization_source"]
+        == "fixed_analysis_domain"
+    )
+    assert run["method_details"]["profiles"]["coordinate_bounds"] == [[0, 1], [0, 2], [0, 1]]
+    assert run["method_details"]["profiles"]["count"] == 12
+    assert run["method_details"]["profiles"]["shape"] == [8, 8]
+    assert run["method_details"]["profiles"]["stable_order"] == (
         "C_order_source_line_shot_in_line_relative_receiver_x"
     )
-    assert 0 < run["profiles"]["training_profile_count"] <= 12
-    assert run["parameter_count"] > 0
-    assert run["paper_alignment"]["paper_specified"]["fourier_components_per_coordinate"] == 40
+    assert 0 < run["method_details"]["profiles"]["training_profile_count"] <= 12
+    assert run["method_details"]["parameter_count"] > 0
     assert (
-        run["paper_alignment"]["repository_reimplementation_choices"][
+        run["method_details"]["paper_alignment"]["paper_specified"][
+            "fourier_components_per_coordinate"
+        ]
+        == 40
+    )
+    assert (
+        run["method_details"]["paper_alignment"]["repository_reimplementation_choices"][
             "configured_fourier_components_per_coordinate"
         ]
         == 2
     )
-    assert run["training"]["observed_trace_count"] == observed_count
-    assert run["training"]["observed_sample_count"] == observed_count * 8
-    assert run["prediction"]["shape"] == [8, 2, 3, 2, 8]
-    assert run["prediction"]["dtype"] == "float32"
-    assert run["prediction"]["sha256"] == file_sha256(output / PREDICTION_RELATIVE_PATH)
+    assert run["training_or_reconstruction"]["observed_trace_count"] == observed_count
+    assert run["training_or_reconstruction"]["observed_sample_count"] == observed_count * 8
+    assert run["method_details"]["prediction"]["shape"] == [8, 2, 3, 2, 8]
+    assert run["method_details"]["prediction"]["dtype"] == "float32"
+    assert run["method_details"]["prediction"]["sha256"] == file_sha256(
+        output / PREDICTION_RELATIVE_PATH
+    )
     assert run["coverage"] == {
         "target_trace_count": target_count,
         "covered_target_trace_count": target_count,
@@ -291,7 +310,7 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
         "end_to_end_seconds",
         "evaluation_seconds",
     ):
-        assert math.isfinite(run["resources"][name]) and run["resources"][name] >= 0.0
+        assert math.isfinite(run["timing"][name]) and run["timing"][name] >= 0.0
     assert inputs_lock["benchmark_case"]["sha256"] == file_sha256(
         nersi_artifacts.case / "benchmark_case.json"
     )
@@ -300,9 +319,13 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     assert inputs_lock["dataset_id"] == C3_RANDOM80_POC_DATASET_ID
     assert inputs_lock["mask"]["missing_fraction"] == 0.8
     assert inputs_lock["selection"] == nersi_artifacts.volume_metadata["selection"]
-    assert run["checkpoint"]["scope"] == "one_verified_case_volume_only"
-    assert run["checkpoint"]["sha256"] == file_sha256(output / CHECKPOINT_RELATIVE_PATH)
-    assert run["checkpoint"]["input_binding"] == nersi_checkpoint_input_binding(inputs_lock)
+    assert run["method_details"]["checkpoint"]["scope"] == "one_verified_case_volume_only"
+    assert run["method_details"]["checkpoint"]["sha256"] == file_sha256(
+        output / CHECKPOINT_RELATIVE_PATH
+    )
+    assert run["method_details"]["checkpoint"]["input_binding"] == nersi_checkpoint_input_binding(
+        inputs_lock
+    )
 
     loaded = load_fixed_step_nersi_checkpoint(output / CHECKPOINT_RELATIVE_PATH, device="cpu")
     assert loaded.coordinate_order == PROFILE_COORDINATE_ORDER
@@ -324,7 +347,7 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
         loaded.model,
         current_data,
         observed,
-        batch_size=run["prediction"]["batch_size"],
+        batch_size=run["method_details"]["prediction"]["batch_size"],
         device="cpu",
     )
     np.testing.assert_allclose(restored.values, prediction, rtol=1.0e-6, atol=1.0e-6)
@@ -339,6 +362,7 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
         interim_dir=nersi_artifacts.interim,
         volume_metadata=inputs.volume_metadata,
     )
+    assert stored_metrics == rescored
     assert rescored == {
         key: metrics[key]
         for key in (
@@ -382,7 +406,10 @@ def test_real_cli_emits_only_strict_json_on_stdout(
         captured.out,
         parse_constant=lambda value: pytest.fail(f"non-finite JSON constant: {value}"),
     )
-    assert metrics == json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    assert (
+        metrics["evaluation_target"]
+        == json.loads((output / "metrics.json").read_text(encoding="utf-8"))["evaluation_target"]
+    )
     assert metrics["method"] == "nersi"
     assert metrics["training"]["steps_completed"] == 2
     assert "Loading and verifying C3 inputs." in captured.err
@@ -404,7 +431,9 @@ def test_same_seed_cpu_runs_are_deterministic(
     checkpoints = [
         load_fixed_step_nersi_checkpoint(output / CHECKPOINT_RELATIVE_PATH) for output in outputs
     ]
-    runs = [json.loads((output / "run.json").read_text(encoding="utf-8")) for output in outputs]
+    runs = [
+        json.loads((output / "metadata.json").read_text(encoding="utf-8")) for output in outputs
+    ]
 
     assert {key: value for key, value in metrics[0].items() if key != "timing"} == {
         key: value for key, value in metrics[1].items() if key != "timing"
@@ -417,7 +446,7 @@ def test_same_seed_cpu_runs_are_deterministic(
     assert (outputs[0] / "inputs.lock.json").read_bytes() == (
         outputs[1] / "inputs.lock.json"
     ).read_bytes()
-    assert runs[0]["model"] == runs[1]["model"]
+    assert runs[0]["method_details"]["model"] == runs[1]["method_details"]["model"]
     assert checkpoints[0].model.constructor_config() == checkpoints[1].model.constructor_config()
     for name, expected in checkpoints[0].model.state_dict().items():
         assert torch.equal(checkpoints[1].model.state_dict()[name], expected), name
