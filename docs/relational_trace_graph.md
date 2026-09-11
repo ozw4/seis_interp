@@ -76,8 +76,9 @@ depth<Lのdestinationだけを元の観測domainへ問い合わせる。L-hop葉
 `edge_index`は`[sender, destination]`で、すべてのsenderは可視観測である。
 異なるrelationの同一ペアは保持し、対称化・radius拡大・fallbackは行わない。
 
-`exact_index`の`FixedTraceGraphSubgraphBuilder`はgeometry・ID・可視/許可mask・検索設定を所有し、
-固定domain内でindexとID対応を再利用する。可視senderのincoming edgesだけをIDごとに遅延cacheし、
+`TraceGraphSpatialIndex`はgeometry・ID・検索設定と全候補のsorted axesを所有し、可視性を保持しない。
+`exact_index`の`FixedTraceGraphSubgraphBuilder`はこのindexを所有または共有し、
+可視/許可maskと候補edge cacheはbuilderごとに独立して保持する。可視senderのincoming edgesだけをIDごとに遅延cacheし、
 初期queryの検索は毎回行う。各hopの検索domainは元の可視候補全体のままである。
 cacheのedge数は可視・許可sender数 × 有効relation数 × kが上限で、返すplanの変更はcacheへ伝わらない。
 `observed_neighbor_cache_info()`で件数と数値配列のbytesを取得でき、bytesにはPython容器の領域を含めない。
@@ -340,6 +341,21 @@ evaluation:
   domain: evaluation_target
 ```
 
+PoCの`exact_index`はgeometry-only indexを学習呼び出し内で一度作り、episode間で再利用する。
+可視性適用後のtop-K候補はepisodeごとに新しくcacheする。
+
+任意の`training.mixed_precision`は`"off"`（省略時）、`fp16`、`bf16`を受け付ける。
+YAMLでは`off`を文字列として引用する。AMPはCUDAだけに対応し、非対応deviceやbf16非対応GPUは
+errorとなる。dtypeの自動切替はしない。forwardだけをautocastし、AMP時のloss集計はFP32、
+省略時のloss集計は既存のFP64を維持する。fp16はgradient scaling後、unscaleしてからclipする。
+
+任意の`training.edge_sampling: {seed: 4201, fanout_per_relation: 3}`は学習だけに適用する。
+`multi_relation`と`exact_index`が必須で、seedは非負整数、Fは正整数かつcandidate K以下とする。
+Kは`graph.neighbors_per_relation`の可視候補数、Fは各destination・各relationで実際に使う最大数である。
+各hopで一様・非復元抽出してから次frontierを展開し、coverageはdegree/Fにする。
+edge専用RNGはepisode/query RNGと独立で、stepごとに再抽出する。
+省略時と凍結予測はsamplingせずfull Kを使い、予測はFP32のままである。
+
 数値は設定形式の例であり、精度や実行予算の推奨値ではない。
 Global RMSはO全体から一度だけ計算し、座標原点はD全体のmidpoint bounding box中心に固定する。
 各episodeではOの一部Hを全trace単位で隠し、context readerはO−Hの振幅だけを保持する。
@@ -371,6 +387,18 @@ feature順序、graph設定、時間軸とPoC前処理を検査してmodel・pre
 `prediction.npy`、診断用の`artifacts/target_coverage.npy`、`artifacts/query_trace_ids.npy`と、
 `config.resolved.yaml`、`inputs.lock.json`、`metrics.json`、`metadata.json`を保存する。共通評価結果はmetrics、手法固有情報はmetadataの`method_details`に分離する。
 metadataは学習step・episode数・loss・query/no-context件数、parameter数、実行時間と取得可能なmemoryを含む。
+`method_details.training_profile`は既存の全historyを残したまま、optimizer更新数、記録step時間・
+batch準備時間・最適化時間、node/support/edge数と最大depthの平均、node/edge数の最大を集計する。
+各stepのcountは実際のplanに対応する。準備時間はquery geometryからlabel materializationまで、
+最適化時間はzero-gradからloss/contextのscalar readまでである。
+`resource_usage.optimizer_updates_per_second`は更新数を`timing.training_seconds`で割った値で、
+index・episodeのsetupを含む。CUDAでは学習直後かつ予測前に
+`resource_usage.training_peak_cuda_allocated_bytes`と`resource_usage.training_peak_cuda_reserved_bytes`を採取し、CPUでは省略する。
+これらは予測を含むrun全体のpeakと区別する。追加のCUDA同期を区間ごとに行わず、
+同一machine・process条件での相対比較用timingである。数値は丸めずに保存する。
+`mixed_precision`と`edge_sampling`はresolved configに加えrunの`method_details`とfinal checkpointに
+training provenanceとして保存するが、checkpointの推論必須設定にはしない。
+
 推論・評価の失敗はrun全体の失敗として記録し、推論前に保存したfinal checkpointを保持する。
 `--json`のstdoutはstrict JSON、進捗はstderrへ出力する。
 
