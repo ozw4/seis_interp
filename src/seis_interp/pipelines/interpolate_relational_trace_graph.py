@@ -39,6 +39,10 @@ from seis_interp.training.relational_trace_graph_checkpoints import (
 )
 from seis_interp.training.relational_trace_graph_poc_trainer import train_relational_trace_graph_poc
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
+from seis_interp.training.trace_graph_training_profile import (
+    optimizer_updates_per_second,
+    summarize_trace_graph_training,
+)
 
 
 def interpolate_relational_trace_graph_run(
@@ -106,6 +110,22 @@ def interpolate_relational_trace_graph_run(
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     training_seconds = time.perf_counter() - train_started
+    resources = {
+        "training_seconds": training_seconds,
+        "optimizer_updates_per_second": optimizer_updates_per_second(
+            trained.steps_completed, training_seconds
+        ),
+    }
+    if device.type == "cuda":
+        resources.update(
+            training_peak_cuda_allocated_bytes=int(torch.cuda.max_memory_allocated(device)),
+            training_peak_cuda_reserved_bytes=int(torch.cuda.max_memory_reserved(device)),
+        )
+    training_profile = summarize_trace_graph_training(trained.history)
+    training_modes = {
+        "mixed_precision": options["mixed_precision"],
+        "edge_sampling": options.get("edge_sampling"),
+    }
     identity = {
         "method": "relational_trace_graph",
         "training_domain": "O_with_inner_pseudo_mask",
@@ -126,6 +146,7 @@ def interpolate_relational_trace_graph_run(
         graph_settings=settings.graph,
         metadata={
             **identity,
+            **training_modes,
             "model_initialization_seed": model_seed,
             "episode_seed": episode_seed,
             "steps_completed": trained.steps_completed,
@@ -134,6 +155,8 @@ def interpolate_relational_trace_graph_run(
     )
     metadata = {
         **identity,
+        **training_modes,
+        "training_profile": training_profile,
         **git_metadata,
         "started_at_utc": started_at,
         "status": "running",
@@ -154,7 +177,7 @@ def interpolate_relational_trace_graph_run(
             "role": "final",
             "sha256": file_sha256(output / "final.pt"),
         },
-        "resources": {"training_seconds": training_seconds},
+        "resources": resources,
     }
 
     coverage = np.zeros_like(volume.evaluation_target_trace_mask)

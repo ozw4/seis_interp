@@ -87,6 +87,8 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(
         yaml.safe_load((output / "config.resolved.yaml").read_text())["training"]["mixed_precision"]
         == "off"
     )
+    assert checkpoint["mixed_precision"] == "off"
+    assert checkpoint["edge_sampling"] is None
     assert checkpoint["inner_mask_fraction"] == 0.5
     assert not {"best_step", "validation_history"} & checkpoint.keys()
     volume = inputs.observed_volume
@@ -115,6 +117,16 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(
     assert metrics["evaluation_target"]["trace_count"] == len(ids)
     run = json.loads((output / "metadata.json").read_text())
     assert run["status"] == "success"
+    details = run["method_details"]
+    assert details["mixed_precision"] == "off" and details["edge_sampling"] is None
+    profile = details["training_profile"]
+    assert profile["optimizer_updates"] == 3
+    assert profile["mean_subgraph_node_count"] > 0
+    resources = run["resource_usage"]
+    assert resources["optimizer_updates_per_second"] == 3 / run["timing"]["training_seconds"]
+    assert "training_peak_cuda_allocated_bytes" not in resources
+    assert "training_peak_cuda_reserved_bytes" not in resources
+
     assert run["coverage"]["covered_target_trace_count"] == len(ids)
     assert run["method_details"]["parameter_count"] > 0
     assert run["training_or_reconstruction"]["steps_completed"] == 3
@@ -311,3 +323,80 @@ def test_invalid_training_contract_fails_before_input_read(tmp_path, monkeypatch
     with pytest.raises(ValueError):
         _run(tmp_path, paths, config)
     assert not (tmp_path / "run").exists()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required for AMP")
+def test_amp_run_records_mode_but_frozen_prediction_and_checkpoint_stay_fp32(tmp_path, monkeypatch):
+    if not torch.cuda.is_bf16_supported():
+        pytest.skip("CUDA device does not support bf16")
+    _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
+    config["training"].update(device="cuda", mixed_precision="bf16", max_steps=2)
+    original = pipeline.predict_relational_trace_graph
+    calls = []
+
+    def predict(model, *args, **kwargs):
+        assert not torch.is_autocast_enabled()
+        assert "mixed_precision" not in kwargs
+        assert all(parameter.dtype == torch.float32 for parameter in model.parameters())
+        calls.append(True)
+        return original(model, *args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "predict_relational_trace_graph", predict)
+    _, output = _run(tmp_path, paths, config)
+    assert calls == [True]
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text())
+    assert resolved["training"]["mixed_precision"] == "bf16"
+    record = json.loads((output / "metadata.json").read_text())
+    details = record["method_details"]
+    assert details["mixed_precision"] == "bf16"
+    for key in ("training_peak_cuda_allocated_bytes", "training_peak_cuda_reserved_bytes"):
+        assert type(record["resource_usage"][key]) is int and record["resource_usage"][key] >= 0
+
+    restored = load_relational_trace_graph_poc_checkpoint(
+        output / "final.pt",
+        device="cpu",
+        inputs_lock=json.loads((output / "inputs.lock.json").read_text()),
+    )
+    assert all(parameter.dtype == torch.float32 for parameter in restored.model.parameters())
+
+
+def test_sampled_training_keeps_full_candidate_k_for_frozen_prediction(tmp_path, monkeypatch):
+    from seis_interp.processing.trace_graph_subgraphs import FixedTraceGraphSubgraphBuilder
+
+    _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
+    sampling = {"seed": 4201, "fanout_per_relation": 1}
+    config["training"]["edge_sampling"] = sampling
+    original_predict = pipeline.predict_relational_trace_graph
+    original_build = FixedTraceGraphSubgraphBuilder.build
+    predicting = False
+    plans = []
+
+    def build(builder, *args, **kwargs):
+        plan = original_build(builder, *args, **kwargs)
+        if predicting:
+            assert "fanout_per_relation" not in kwargs and "rng" not in kwargs
+            assert plan.neighbors_per_relation == config["graph"]["neighbors_per_relation"]
+            plans.append(plan)
+        return plan
+
+    def predict(*args, **kwargs):
+        nonlocal predicting
+        assert "edge_sampling" not in kwargs
+        predicting = True
+        try:
+            return original_predict(*args, **kwargs)
+        finally:
+            predicting = False
+
+    monkeypatch.setattr(FixedTraceGraphSubgraphBuilder, "build", build)
+    monkeypatch.setattr(pipeline, "predict_relational_trace_graph", predict)
+    _, output = _run(tmp_path, paths, config)
+    assert plans and any(plan.degree.max() > 1 for plan in plans)
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text())
+    assert resolved["training"]["edge_sampling"] == sampling
+    checkpoint = torch.load(output / "final.pt", weights_only=True)
+    assert "edge_sampling" not in checkpoint["model_config"]
+    assert "edge_sampling" not in checkpoint["graph_settings"]
+    assert checkpoint["edge_sampling"] == sampling
+    details = json.loads((output / "metadata.json").read_text())["method_details"]
+    assert details["edge_sampling"] == sampling
