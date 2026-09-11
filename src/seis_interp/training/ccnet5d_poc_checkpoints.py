@@ -13,9 +13,9 @@ import torch
 from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.processing.ccnet5d_tiles import validate_ccnet5d_shape
+from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 CCNET5D_POC_METHOD_VARIANT = "common_protocol_masked_observed_training"
-CCNET5D_POC_LOSS = "masked_trace_relative_mse"
 CCNET5D_POC_CHECKPOINT_ROLE = "final"
 _MODEL_CONFIG_FIELDS = {
     "hidden_channels",
@@ -37,6 +37,7 @@ class LoadedCCNet5DPocCheckpoint:
     inner_mask_seed: int
     model_initialization_seed: int
     optimizer_updates: int
+    loss: str
 
 
 def save_ccnet5d_poc_checkpoint(
@@ -50,10 +51,13 @@ def save_ccnet5d_poc_checkpoint(
     inner_mask_seed: int,
     model_initialization_seed: int,
     optimizer_updates: int,
+    loss: str = "masked_trace_relative_mse",
 ) -> None:
     """Save one non-resumable final CPU snapshot without optimizer state."""
     if not isinstance(model, CCNet5D):
         raise TypeError("model must be a CCNet5D")
+    if loss not in POC_TRACE_LOSSES:
+        raise ValueError(f"checkpoint loss must be one of {POC_TRACE_LOSSES!r}")
     scale = _positive_finite_float(amplitude_scale, "amplitude_scale")
     shape = validate_ccnet5d_shape(patch_shape, "patch_shape")
     fraction = _fraction(inner_mask_fraction)
@@ -80,7 +84,7 @@ def save_ccnet5d_poc_checkpoint(
         },
         "model_initialization_seed": initialization,
         "optimizer_updates": updates,
-        "loss": CCNET5D_POC_LOSS,
+        "loss": loss,
         "checkpoint_role": CCNET5D_POC_CHECKPOINT_ROLE,
     }
     torch.save(payload, Path(path))
@@ -114,8 +118,8 @@ def load_ccnet5d_poc_checkpoint(
         raise ValueError("checkpoint method_variant does not match the observed-only PoC")
     if payload["axis_order"] != list(VOLUME_AXIS_ORDER):
         raise ValueError("checkpoint axis_order must match the C3 volume axis order")
-    if payload["loss"] != CCNET5D_POC_LOSS:
-        raise ValueError(f"checkpoint loss must be {CCNET5D_POC_LOSS!r}")
+    if payload["loss"] not in POC_TRACE_LOSSES:
+        raise ValueError(f"checkpoint loss must be one of {POC_TRACE_LOSSES!r}")
     if payload["checkpoint_role"] != CCNET5D_POC_CHECKPOINT_ROLE:
         raise ValueError("checkpoint checkpoint_role must be 'final'")
 
@@ -151,6 +155,7 @@ def load_ccnet5d_poc_checkpoint(
     model = _model_from_payload(payload["model_config"], payload["state_dict"])
     model.to(device)
     return LoadedCCNet5DPocCheckpoint(
+        loss=payload["loss"],
         model=model,
         amplitude_scale=scale,
         patch_shape=shape,

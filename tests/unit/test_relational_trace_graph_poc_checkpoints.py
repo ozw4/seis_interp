@@ -74,6 +74,7 @@ def _arguments():
         (("preprocessing", "fit_domain", "inputs_lock"), {}, "fit_domain"),
         (("normalization", "scale"), 3.0, "normalization"),
         (("checkpoint_role",), "best_validation", "checkpoint_role"),
+        (("loss",), "unknown", "loss"),
         (("model_initialization_seed",), True, "model_initialization_seed"),
         (("episode_seed",), -1, "episode_seed"),
         (("steps_completed",), 0, "steps_completed"),
@@ -108,9 +109,13 @@ def test_poc_loader_compares_nested_volume_hash_before_model_construction(tmp_pa
         load_relational_trace_graph_poc_checkpoint(path, inputs_lock=changed)
 
 
-def test_poc_atomic_snapshot_preserves_rng_and_existing_file_on_failure(tmp_path, monkeypatch):
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+def test_poc_atomic_snapshot_preserves_rng_and_existing_file_on_failure(
+    tmp_path, monkeypatch, loss_name
+):
     arguments = _arguments()
     path = tmp_path / "final.pt"
+    arguments["metadata"]["loss"] = loss_name
     rng = torch.get_rng_state().clone()
     save_relational_trace_graph_poc_checkpoint(path, **arguments)
     assert torch.equal(torch.get_rng_state(), rng)
@@ -118,6 +123,7 @@ def test_poc_atomic_snapshot_preserves_rng_and_existing_file_on_failure(tmp_path
     restored = load_relational_trace_graph_poc_checkpoint(
         path, inputs_lock=arguments["inputs_lock"]
     )
+    assert restored.metadata["loss"] == loss_name
     assert restored.preprocessing == arguments["preprocessing"]
     assert restored.graph_settings == arguments["graph_settings"]
     for key, value in arguments["state_dict"].items():

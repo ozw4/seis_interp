@@ -11,7 +11,7 @@ import torch
 
 from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.training.ccnet5d_observed_patches import CCNet5DObservedPatchSource
-from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
+from seis_interp.training.trace_relative_loss import masked_trace_loss
 
 Reporter = Callable[[str], None]
 
@@ -34,6 +34,7 @@ def train_ccnet5d_observed_steps(
     optimizer_updates: int,
     learning_rate: float,
     report_every_steps: int,
+    loss_name: str = "masked_trace_relative_mse",
     reporter: Reporter | None = None,
 ) -> CCNet5DObservedTrainingResult:
     """Run Adam for exactly the configured updates using pseudo-target traces only."""
@@ -79,7 +80,7 @@ def train_ccnet5d_observed_steps(
             raise ValueError("CCNet-5D output shape must match the pseudo-mask input patch")
         prediction_traces = prediction[0, 0].movedim(0, -1)[target_mask]
         target_traces = targets.movedim(0, -1)[target_mask]
-        loss = masked_trace_relative_mse(prediction_traces, target_traces)
+        loss = masked_trace_loss(prediction_traces, target_traces, loss_name=loss_name)
         final_loss = float(loss.detach().cpu().item())
         if not math.isfinite(final_loss):
             raise RuntimeError(f"non-finite CCNet-5D training loss at step {step}")
@@ -94,15 +95,12 @@ def train_ccnet5d_observed_steps(
             history.append(
                 {
                     "step": step,
-                    "trace_relative_loss": mean_loss,
+                    "loss": mean_loss,
                     "learning_rate": rate,
                 }
             )
             if reporter is not None:
-                reporter(
-                    f"ccnet5d observed-only step {step}/{update_count}: "
-                    f"trace_relative_loss={mean_loss:.8g}"
-                )
+                reporter(f"ccnet5d observed-only step {step}/{update_count}: loss={mean_loss:.8g}")
             interval_loss = 0.0
             interval_count = 0
 

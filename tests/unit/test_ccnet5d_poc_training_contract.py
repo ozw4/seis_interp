@@ -18,7 +18,6 @@ from seis_interp.training.ccnet5d_observed_patches import (
 )
 from seis_interp.training.ccnet5d_poc_checkpoints import (
     CCNET5D_POC_CHECKPOINT_ROLE,
-    CCNET5D_POC_LOSS,
     CCNET5D_POC_METHOD_VARIANT,
     load_ccnet5d_poc_checkpoint,
     save_ccnet5d_poc_checkpoint,
@@ -71,7 +70,9 @@ def _fixed_training_batch(source: CCNet5DObservedPatchSource) -> CCNet5DObserved
     )
 
 
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
 def test_fixed_step_training_calls_shared_loss_with_only_hidden_complete_traces(
+    loss_name,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     volume = _observed_volume()
@@ -94,25 +95,29 @@ def test_fixed_step_training_calls_shared_loss_with_only_hidden_complete_traces(
         return batch
 
     monkeypatch.setattr(source, "sample", fixed_sample)
-    real_shared_loss = observed_training.masked_trace_relative_mse
+    requested_loss = loss_name
+    real_shared_loss = observed_training.masked_trace_loss
     loss_calls: list[tuple[torch.Tensor, torch.Tensor]] = []
 
     def recorded_shared_loss(
         prediction: torch.Tensor,
         target: torch.Tensor,
         trace_mask: torch.Tensor | None = None,
+        *,
+        loss_name: str,
     ) -> torch.Tensor:
+        assert loss_name == requested_loss
         assert trace_mask is None
         assert prediction.shape == target.shape == (hidden_count, volume.values.shape[0])
         assert torch.isfinite(prediction).all()
         assert torch.isfinite(target).all()
         torch.testing.assert_close(target.cpu(), expected_targets, rtol=0, atol=0)
         loss_calls.append((prediction.detach().cpu(), target.detach().cpu()))
-        return real_shared_loss(prediction, target)
+        return real_shared_loss(prediction, target, loss_name=loss_name)
 
     monkeypatch.setattr(
         observed_training,
-        "masked_trace_relative_mse",
+        "masked_trace_loss",
         recorded_shared_loss,
     )
     model = _model()
@@ -131,6 +136,7 @@ def test_fixed_step_training_calls_shared_loss_with_only_hidden_complete_traces(
         learning_rate=1.0e-3,
         report_every_steps=2,
         reporter=reports.append,
+        loss_name=loss_name,
     )
 
     assert sample_count == 3
@@ -139,15 +145,15 @@ def test_fixed_step_training_calls_shared_loss_with_only_hidden_complete_traces(
     assert result.supervised_trace_presentations == 3 * hidden_count
     assert np.isfinite(result.final_loss)
     assert [entry["step"] for entry in result.history] == [2, 3]
-    assert all(
-        set(entry) == {"step", "trace_relative_loss", "learning_rate"} for entry in result.history
-    )
+    assert all(set(entry) == {"step", "loss", "learning_rate"} for entry in result.history)
     assert len(reports) == 2
     parameter_names = inspect.signature(observed_training.train_ccnet5d_observed_steps).parameters
     assert not {"validation", "early_stopping", "best_checkpoint"} & set(parameter_names)
 
 
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
 def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
+    loss_name,
     tmp_path: Path,
 ) -> None:
     model = _model()
@@ -159,6 +165,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
     save_ccnet5d_poc_checkpoint(
         path,
         model,
+        loss=loss_name,
         amplitude_scale=2.75,
         patch_shape=(4, 1, 1, 1, 4),
         inner_mask_fraction=0.5,
@@ -200,7 +207,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
         "inner_mask_seed": 401,
     }
     assert payload["optimizer_updates"] == 3
-    assert payload["loss"] == CCNET5D_POC_LOSS
+    assert payload["loss"] == loss_name
     assert payload["checkpoint_role"] == CCNET5D_POC_CHECKPOINT_ROLE == "final"
     assert "optimizer_state" not in payload
     assert "optimizer_state_dict" not in payload
@@ -210,6 +217,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
 
     loaded = load_ccnet5d_poc_checkpoint(path, device="cpu")
 
+    assert loaded.loss == loss_name
     assert loaded.amplitude_scale == 2.75
     assert loaded.patch_shape == (4, 1, 1, 1, 4)
     assert loaded.inner_mask_fraction == 0.5
@@ -223,6 +231,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
     ("field", "replacement", "match"),
     [
         ("checkpoint_role", "best", "checkpoint_role"),
+        ("loss", "unknown", "loss"),
         (
             "normalization",
             {"type": "global_rms", "source": "all_traces", "scale": 2.75},

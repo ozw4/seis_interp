@@ -11,6 +11,7 @@ from seis_interp.relational_trace_graph_config import (
     validate_trace_graph_graph_config,
     validate_trace_graph_model_config,
 )
+from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 
 @dataclass(frozen=True)
@@ -84,8 +85,9 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
             },
         )
     )
+    if training["loss"] not in POC_TRACE_LOSSES:
+        raise ConfigurationError(f"training.loss must be one of {POC_TRACE_LOSSES!r}")
     for key, expected in {
-        "loss": "masked_trace_relative_mse",
         "amplitude_scaling": "observed_volume_global_rms",
         "optimizer": "adamw",
     }.items():

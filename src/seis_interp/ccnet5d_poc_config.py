@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
 from seis_interp.processing.ccnet5d_tiles import validate_ccnet5d_shape
-from seis_interp.training.ccnet5d_poc_checkpoints import CCNET5D_POC_LOSS
+from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,7 @@ class CCNet5DPocTrainingSettings:
     max_steps: int
     report_interval: int
     device: str
+    loss: str
 
 
 @dataclass(frozen=True)
@@ -112,12 +113,14 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
         },
     )
     _require_literal(training, "optimizer", "adam")
-    _require_literal(training, "loss", CCNET5D_POC_LOSS)
+    if training["loss"] not in POC_TRACE_LOSSES:
+        raise ConfigurationError(f"training.loss must be one of {POC_TRACE_LOSSES!r}")
     _require_literal(training, "amplitude_scaling", "observed_volume_global_rms")
     device = training["device"]
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
     training_settings = CCNet5DPocTrainingSettings(
+        loss=training["loss"],
         model_initialization_seed=config_values.nonnegative_integer(
             training["model_initialization_seed"], "training.model_initialization_seed"
         ),

@@ -33,10 +33,14 @@ def _run(tmp_path, paths, config, name="run"):
     return metrics, output
 
 
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
 @pytest.mark.parametrize("search", ["exact_index", "brute_force"])
-def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkeypatch, search):
+def test_poc_graph_final_state_full_coverage_and_common_metrics(
+    tmp_path, monkeypatch, search, loss_name
+):
     inputs, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
     config["graph"]["neighbor_search"] = search
+    config["training"]["loss"] = loss_name
     original_predict = pipeline.predict_relational_trace_graph
     captured = []
 
@@ -69,7 +73,14 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkey
     assert not (output / "artifacts/best.pt").exists()
     assert checkpoint["steps_completed"] == metrics["optimizer_updates"] == 3
     assert checkpoint["checkpoint_role"] == "final"
-    assert checkpoint["loss"] == "masked_trace_relative_mse"
+    assert checkpoint["loss"] == loss_name
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["loss_or_native_objective"] == loss_name
+    assert "loss" not in metadata["method_details"]
+    assert (
+        yaml.safe_load((output / "config.resolved.yaml").read_text())["training"]["loss"]
+        == loss_name
+    )
     assert checkpoint["inner_mask_fraction"] == 0.5
     assert not {"best_step", "validation_history"} & checkpoint.keys()
     volume = inputs.observed_volume

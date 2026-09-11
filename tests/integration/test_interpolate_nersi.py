@@ -208,11 +208,15 @@ def test_model_initialization_and_profile_sampling_seeds_are_independent(
     assert any(not torch.equal(a, b) for a, b in zip(captures[0][1], captures[2][1], strict=True))
 
 
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
 def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
+    loss_name,
     tmp_path: Path,
     nersi_artifacts: PreparedC3VolumeRunArtifacts,
 ) -> None:
-    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts)
+    contents = _config(nersi_artifacts)
+    contents["training"]["loss"] = loss_name
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts, contents=contents)
     output = tmp_path / "run"
 
     metrics = _run(nersi_artifacts, config, output)
@@ -292,7 +296,10 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
         "source": "O_only",
         "scale": compute_observed_global_rms(observed.values, observed.observed_trace_mask),
     }
-    assert run["loss_or_native_objective"] == "masked_trace_relative_mse"
+    assert run["loss_or_native_objective"] == loss_name
+    assert "loss" not in run["method_details"]
+    assert load_resolved_config(output / "config.resolved.yaml")["training"]["loss"] == loss_name
+    assert run["training_or_reconstruction"]["loss"] == loss_name
     assert run["method_details"]["checkpoint_role"] == "final"
     assert run["method_details"]["random_seed"] == 42
     assert run["method_details"]["model_initialization_seed"] == 314

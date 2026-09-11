@@ -109,7 +109,7 @@ def interpolate_relational_trace_graph_run(
         "method": "relational_trace_graph",
         "training_domain": "O_with_inner_pseudo_mask",
         "normalization": {"type": "global_rms", "source": "O_only", "scale": scale},
-        "loss": "masked_trace_relative_mse",
+        "loss": options["loss"],
         "inner_mask_fraction": options["inner_mask_fraction"],
         "checkpoint_role": "final",
         "output_amplitude_domain": "physical",

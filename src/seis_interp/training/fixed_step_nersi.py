@@ -12,7 +12,7 @@ import torch
 
 from seis_interp.models.nersi import Nersi
 from seis_interp.training.c3_volume_nersi_data import C3VolumeNersiData
-from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
+from seis_interp.training.trace_relative_loss import masked_trace_loss
 
 Reporter = Callable[[str], None]
 
@@ -27,10 +27,12 @@ class FixedStepNersiResult:
     history: tuple[dict[str, int | float], ...]
 
 
-def observed_profile_trace_relative_mse(
+def observed_profile_trace_loss(
     prediction: torch.Tensor,
     target: torch.Tensor,
     observed_trace_mask: torch.Tensor,
+    *,
+    loss_name: str = "masked_trace_relative_mse",
 ) -> torch.Tensor:
     """Select observed complete traces and apply the shared neural loss."""
     if not isinstance(prediction, torch.Tensor) or not isinstance(target, torch.Tensor):
@@ -53,11 +55,11 @@ def observed_profile_trace_relative_mse(
             "observed_trace_mask must have shape (batch, receiver_y) matching prediction"
         )
     if not bool(torch.any(observed_trace_mask)):
-        raise ValueError("observed_profile_trace_relative_mse requires at least one observed trace")
+        raise ValueError("observed_profile_trace_loss requires at least one observed trace")
 
     prediction_traces = prediction[:, 0].transpose(1, 2)[observed_trace_mask]
     target_traces = target[:, 0].transpose(1, 2)[observed_trace_mask]
-    return masked_trace_relative_mse(prediction_traces, target_traces)
+    return masked_trace_loss(prediction_traces, target_traces, loss_name=loss_name)
 
 
 def train_nersi_fixed_steps(
@@ -70,6 +72,7 @@ def train_nersi_fixed_steps(
     max_steps: int,
     report_interval: int,
     random_seed: int,
+    loss_name: str = "masked_trace_relative_mse",
     reporter: Reporter | None = None,
 ) -> FixedStepNersiResult:
     """Perform exactly ``max_steps`` Adam updates on observed profile samples.
@@ -123,10 +126,11 @@ def train_nersi_fixed_steps(
 
         optimizer.zero_grad(set_to_none=True)
         prediction = model(coordinates)
-        loss = observed_profile_trace_relative_mse(
+        loss = observed_profile_trace_loss(
             prediction,
             targets,
             mask,
+            loss_name=loss_name,
         )
         final_batch_loss = float(loss.detach().cpu())
         if not math.isfinite(final_batch_loss):

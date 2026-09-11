@@ -15,11 +15,13 @@ from seis_interp.training.c3_poc_trace_graph_episodes import PocTraceGraphEpisod
 from tests.fixtures.c3_poc_trace_graph import prepare_poc_trace_graph_inputs
 
 
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
 @pytest.mark.parametrize("no_context", [False, True])
 def test_shared_loss_receives_exact_hidden_rows_and_every_optimizer_step(
-    tmp_path, monkeypatch, no_context
+    tmp_path, monkeypatch, no_context, loss_name
 ):
     inputs, config, _ = prepare_poc_trace_graph_inputs(tmp_path)
+    config["training"]["loss"] = loss_name
     settings = validate_relational_trace_graph_poc_config(config)
     training = build_c3_poc_trace_graph_training_data(
         inputs, amplitude_scale=7.0, **settings.geometry
@@ -43,18 +45,19 @@ def test_shared_loss_receives_exact_hidden_rows_and_every_optimizer_step(
             expected.append(
                 (training.observed_amplitudes[rows].astype(np.float64) / 7).astype(np.float32)
             )
-    original_loss = trainer.masked_trace_relative_mse
+    original_loss = trainer.masked_trace_loss
     calls = []
 
-    def loss(prediction, target):
+    def loss(prediction, target, *, loss_name):
+        assert loss_name == options["loss"]
         assert prediction.shape == target.shape == expected[len(calls)].shape
         np.testing.assert_array_equal(target.detach().numpy(), expected[len(calls)])
         assert prediction.requires_grad
-        result = original_loss(prediction, target)
+        result = original_loss(prediction, target, loss_name=loss_name)
         calls.append(float(result.detach()))
         return result
 
-    monkeypatch.setattr(trainer, "masked_trace_relative_mse", loss)
+    monkeypatch.setattr(trainer, "masked_trace_loss", loss)
     torch.manual_seed(4)
     model = RelationalTraceGraphInterpolator(**settings.model)
     before = {key: value.clone() for key, value in model.state_dict().items()}
@@ -70,7 +73,12 @@ def test_shared_loss_receives_exact_hidden_rows_and_every_optimizer_step(
     assert not hasattr(result, "validation_history")
     if no_context:
         assert result.no_context_query_count == result.query_count
-        np.testing.assert_allclose(calls, 1.0)
+        if loss_name == "masked_trace_relative_mse":
+            np.testing.assert_allclose(calls, 1.0)
+        else:
+            np.testing.assert_allclose(
+                calls, [np.mean(row.astype(np.float64) ** 2) for row in expected[:5]]
+            )
     else:
         assert any(not torch.equal(value, model.state_dict()[key]) for key, value in before.items())
 

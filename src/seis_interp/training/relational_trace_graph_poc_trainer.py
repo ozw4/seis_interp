@@ -20,7 +20,7 @@ from seis_interp.training.c3_poc_trace_graph_episodes import (
     PocTraceGraphEpisodeLabelReader,
     build_poc_trace_graph_context_source,
 )
-from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
+from seis_interp.training.trace_relative_loss import masked_trace_loss
 
 
 @dataclass(frozen=True)
@@ -48,10 +48,11 @@ def train_relational_trace_graph_poc(
     weight_decay: float,
     gradient_clip_norm: float | None,
     report_interval: int,
+    loss: str = "masked_trace_relative_mse",
     device: torch.device | str = "cpu",
     reporter: Callable[[str], None] | None = None,
 ) -> TraceGraphPocTrainingResult:
-    """Apply shared relative loss to every hidden query, including no-context rows."""
+    """Apply the shared objective to every hidden query, including no-context rows."""
     steps = config_values.positive_integer(max_steps, "max_steps")
     batch_size = config_values.positive_integer(query_batch_size, "query_batch_size")
     interval = config_values.positive_integer(report_interval, "report_interval")
@@ -116,10 +117,10 @@ def train_relational_trace_graph_poc(
             prediction, context = model(batch)
             if prediction.shape != target.shape or prediction.ndim != 2:
                 raise ValueError("prediction must match hidden labels [query, time]")
-            loss = masked_trace_relative_mse(prediction, target)
-            if not torch.isfinite(loss):
+            objective = masked_trace_loss(prediction, target, loss_name=loss)
+            if not torch.isfinite(objective):
                 raise RuntimeError("non-finite PoC training loss")
-            loss.backward()
+            objective.backward()
             if clip is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), clip, error_if_nonfinite=True)
             optimizer.step()
@@ -131,7 +132,7 @@ def train_relational_trace_graph_poc(
                 {
                     "step": len(history) + 1,
                     "episode_id": episode.episode_id,
-                    "loss": float(loss.detach().item()),
+                    "loss": float(objective.detach().item()),
                     "query_count": len(query_ids),
                     "no_context_query_count": count,
                     "seconds": perf_counter() - started,

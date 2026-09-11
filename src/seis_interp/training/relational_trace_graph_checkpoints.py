@@ -20,6 +20,7 @@ from seis_interp.processing.trace_graph_geometry import (
 )
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
+from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 RELATIONAL_TRACE_GRAPH_MODEL_TYPE = "relational_trace_graph"
 BEST_VALIDATION_CHECKPOINT_ROLE = "best_validation"
@@ -126,7 +127,6 @@ def _load_poc_payload(
     for name, expected in {
         "method": RELATIONAL_TRACE_GRAPH_MODEL_TYPE,
         "training_domain": "O_with_inner_pseudo_mask",
-        "loss": "masked_trace_relative_mse",
         "checkpoint_role": "final",
         "output_amplitude_domain": "physical",
         "case_id": expected_lock.get("case_id"),
@@ -134,6 +134,8 @@ def _load_poc_payload(
     }.items():
         if expected is None or payload.get(name) != expected:
             raise ValueError(f"checkpoint {name} does not match the PoC contract")
+    if payload.get("loss") not in POC_TRACE_LOSSES:
+        raise ValueError(f"checkpoint loss must be one of {POC_TRACE_LOSSES!r}")
     for key in ("model_initialization_seed", "episode_seed"):
         _integer(payload.get(key), key, minimum=0)
     _integer(payload.get("steps_completed"), "steps_completed", minimum=1)

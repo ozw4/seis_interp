@@ -42,7 +42,6 @@ from seis_interp.training.ccnet5d_observed_training import (
 )
 from seis_interp.training.ccnet5d_poc_checkpoints import (
     CCNET5D_POC_CHECKPOINT_ROLE,
-    CCNET5D_POC_LOSS,
     CCNET5D_POC_METHOD_VARIANT,
     save_ccnet5d_poc_checkpoint,
 )
@@ -125,6 +124,7 @@ def interpolate_ccnet5d_run(
         model,
         source,
         device=device,
+        loss_name=settings.training.loss,
         optimizer_updates=settings.training.max_steps,
         learning_rate=settings.training.learning_rate,
         report_every_steps=settings.training.report_interval,
@@ -169,7 +169,7 @@ def interpolate_ccnet5d_run(
                 "source": "O_only",
                 "scale": amplitude_scale,
             },
-            "loss": CCNET5D_POC_LOSS,
+            "loss": settings.training.loss,
             "inner_mask_fraction": settings.patches.inner_mask_fraction,
             "checkpoint_role": CCNET5D_POC_CHECKPOINT_ROLE,
             "output_amplitude_domain": "physical",
@@ -198,6 +198,7 @@ def interpolate_ccnet5d_run(
     save_ccnet5d_poc_checkpoint(
         output / CHECKPOINT_RELATIVE_PATH,
         model,
+        loss=settings.training.loss,
         amplitude_scale=amplitude_scale,
         patch_shape=settings.patches.shape,
         inner_mask_fraction=settings.patches.inner_mask_fraction,
@@ -231,7 +232,7 @@ def interpolate_ccnet5d_run(
         inputs.inputs_lock,
         metadata,
         normalization=metadata["normalization"],
-        objective="masked_trace_relative_mse",
+        objective=settings.training.loss,
         operation=metadata["training"],
         coverage=poc_coverage_metadata(
             inputs.observed_volume.evaluation_target_trace_mask,
@@ -326,7 +327,7 @@ def _run_metadata(
             "scale": amplitude_scale,
             "target_amplitudes_used_for_scale": False,
         },
-        "loss": CCNET5D_POC_LOSS,
+        "loss": settings.training.loss,
         "model": {
             **model.constructor_config(),
             "parameter_dtype": str(next(model.parameters()).dtype).removeprefix("torch."),

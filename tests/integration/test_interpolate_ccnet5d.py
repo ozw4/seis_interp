@@ -97,9 +97,12 @@ def _run(
     artifacts: PreparedC3VolumeRunArtifacts,
     *,
     progress_reporter=None,
+    loss_name="masked_trace_relative_mse",
 ) -> tuple[Path, dict[str, object]]:
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(yaml.safe_dump(_config(artifacts), sort_keys=False), encoding="utf-8")
+    config = _config(artifacts)
+    config["training"]["loss"] = loss_name
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     output = tmp_path / "run"
     metrics = interpolate_ccnet5d_run(
         config_path=config_path,
@@ -115,7 +118,9 @@ def _run(
     return output, metrics
 
 
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
 def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
+    loss_name,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -127,7 +132,9 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
     artifacts = _artifacts(tmp_path / "data")
     progress: list[str] = []
 
-    output, metrics = _run(tmp_path, artifacts, progress_reporter=progress.append)
+    output, metrics = _run(
+        tmp_path, artifacts, progress_reporter=progress.append, loss_name=loss_name
+    )
 
     assert sorted(
         path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()
@@ -185,7 +192,12 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
     }
     assert metrics["method"] == "ccnet5d"
     assert metrics["training_domain"] == "O_with_inner_pseudo_mask"
-    assert metrics["loss"] == "masked_trace_relative_mse"
+    assert metrics["loss"] == loss_name
+    assert checkpoint.loss == loss_name
+    assert (
+        yaml.safe_load((output / "config.resolved.yaml").read_text())["training"]["loss"]
+        == loss_name
+    )
     assert metrics["checkpoint_role"] == "final"
     assert metrics["normalization"] == {
         "type": "global_rms",
@@ -215,6 +227,8 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
     for key, filename in (("prediction", "prediction.npy"), ("checkpoint", "final.pt")):
         assert run["artifacts"][key] == {"path": filename, "sha256": file_sha256(output / filename)}
     assert run["training_or_reconstruction"]["validation"] is False
+    assert run["loss_or_native_objective"] == loss_name
+    assert "loss" not in run["method_details"]
     assert run["training_or_reconstruction"]["best_checkpoint_selection"] is False
     assert run["method_details"]["coverage"]["minimum_target_coverage_count"] >= 1
     assert run["timing"]["training_seconds"] >= 0.0

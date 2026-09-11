@@ -12,7 +12,7 @@ from seis_interp.models.nersi import Nersi
 from seis_interp.training import fixed_step_nersi as training_module
 from seis_interp.training.c3_volume_nersi_data import C3VolumeNersiData
 from seis_interp.training.fixed_step_nersi import (
-    observed_profile_trace_relative_mse,
+    observed_profile_trace_loss,
     train_nersi_fixed_steps,
 )
 from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
@@ -82,7 +82,7 @@ def test_profile_loss_selects_observed_complete_traces_for_shared_loss() -> None
     )
     mask = torch.tensor([[True, False, False], [False, True, False]])
 
-    loss = observed_profile_trace_relative_mse(prediction, target, mask)
+    loss = observed_profile_trace_loss(prediction, target, mask)
     prediction_traces = prediction[:, 0].transpose(1, 2)[mask]
     target_traces = target[:, 0].transpose(1, 2)[mask]
 
@@ -116,7 +116,7 @@ def test_profiles_with_different_observed_counts_reduce_over_selected_traces() -
         ]
     )
     mask = torch.tensor([[True, False, False], [True, True, False], [True, False, False]])
-    actual = observed_profile_trace_relative_mse(prediction, target, mask)
+    actual = observed_profile_trace_loss(prediction, target, mask)
     selected_targets = target[:, 0].transpose(1, 2)[mask]
 
     torch.testing.assert_close(
@@ -136,7 +136,7 @@ def test_masked_targets_do_not_affect_loss_or_gradient_even_when_nan() -> None:
     gradients = []
     for target in (baseline_target, poisoned_target):
         prediction = base_prediction.clone().requires_grad_()
-        loss = observed_profile_trace_relative_mse(prediction, target, mask)
+        loss = observed_profile_trace_loss(prediction, target, mask)
         loss.backward()
         losses.append(loss.detach())
         gradients.append(prediction.grad.detach().clone())
@@ -171,28 +171,51 @@ def test_fixed_steps_history_reporting_and_cpu_reproducibility() -> None:
     assert all(parameter.device.type == "cpu" for parameter in first_model.parameters())
 
 
-def test_fixed_steps_call_shared_loss_with_only_selected_time_last_traces(monkeypatch) -> None:
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+@pytest.mark.parametrize("profiles_per_step", [2, 3])
+def test_fixed_steps_call_shared_loss_with_only_selected_time_last_traces(
+    monkeypatch, loss_name, profiles_per_step
+) -> None:
     data = _data()
     selected_shapes: list[tuple[int, int]] = []
-    original = training_module.masked_trace_relative_mse
+    original = training_module.masked_trace_loss
+    requested_loss = loss_name
+    expected_rows = []
+    rng = np.random.default_rng(0)
+    for _ in range(4):
+        selected = (
+            data.training_profile_indices
+            if profiles_per_step == 3
+            else rng.choice(data.training_profile_indices, size=profiles_per_step, replace=False)
+        )
+        expected_rows.append(
+            torch.from_numpy(
+                data.normalized_profiles[selected, 0].transpose(0, 2, 1)[
+                    data.observed_trace_mask[selected]
+                ]
+            )
+        )
 
-    def recording_loss(prediction, target, trace_mask=None):
+    def recording_loss(prediction, target, trace_mask=None, *, loss_name):
+        assert loss_name == requested_loss
+        expected = expected_rows[len(selected_shapes)]
+        torch.testing.assert_close(target, expected, rtol=0, atol=0)
         assert trace_mask is None
         assert prediction.shape == target.shape
         selected_shapes.append(tuple(prediction.shape))
-        return original(prediction, target)
+        return original(prediction, target, loss_name=loss_name)
 
-    monkeypatch.setattr(training_module, "masked_trace_relative_mse", recording_loss)
+    monkeypatch.setattr(training_module, "masked_trace_loss", recording_loss)
 
     _train(
         _model(),
         data,
-        profiles_per_step=len(data.training_profile_indices),
+        profiles_per_step=profiles_per_step,
         max_steps=4,
+        loss_name=loss_name,
     )
 
-    expected_trace_count = int(data.observed_trace_mask[data.training_profile_indices].sum())
-    assert selected_shapes == [(expected_trace_count, data.profile_shape[0])] * 4
+    assert selected_shapes == [tuple(row.shape) for row in expected_rows]
 
 
 def test_different_sampling_seed_changes_a_partial_profile_update() -> None:

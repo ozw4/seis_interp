@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
 from seis_interp.training.c3_volume_nersi_data import PROFILE_COORDINATE_ORDER
+from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class NersiTrainingSettings:
     max_steps: int
     report_interval: int
     device: str
+    loss: str
 
 
 @dataclass(frozen=True)
@@ -120,12 +122,14 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
         },
     )
     _require_literal(training, "optimizer", "adam")
-    _require_literal(training, "loss", "masked_trace_relative_mse")
+    if training["loss"] not in POC_TRACE_LOSSES:
+        raise ConfigurationError(f"training.loss must be one of {POC_TRACE_LOSSES!r}")
     _require_literal(training, "amplitude_scaling", "observed_volume_global_rms")
     device = training["device"]
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
     training_settings = NersiTrainingSettings(
+        loss=training["loss"],
         model_initialization_seed=config_values.nonnegative_integer(
             training["model_initialization_seed"], "training.model_initialization_seed"
         ),

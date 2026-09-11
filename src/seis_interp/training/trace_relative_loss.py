@@ -1,8 +1,37 @@
-"""Trace-relative reconstruction loss shared by neural training methods."""
+"""Complete-trace reconstruction objectives shared by neural PoC methods."""
 
 from __future__ import annotations
 
 import torch
+
+POC_TRACE_LOSSES = ("masked_trace_mse", "masked_trace_relative_mse")
+
+
+def masked_trace_loss(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    trace_mask: torch.Tensor | None = None,
+    *,
+    loss_name: str,
+) -> torch.Tensor:
+    """Apply one of the two complete-trace PoC objectives."""
+    if loss_name == "masked_trace_mse":
+        return masked_trace_mse(prediction, target, trace_mask)
+    if loss_name == "masked_trace_relative_mse":
+        return masked_trace_relative_mse(prediction, target, trace_mask)
+    raise ValueError(f"loss_name must be one of {POC_TRACE_LOSSES!r}")
+
+
+def masked_trace_mse(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    trace_mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Return float64 time-then-trace mean squared error without trace weighting."""
+    prediction_rows, target_rows = _validated_selected_rows(prediction, target, trace_mask)
+    if prediction.dtype != target.dtype:
+        raise TypeError("prediction and target must share a dtype")
+    return (prediction_rows.double() - target_rows.double()).square().mean()
 
 
 def masked_trace_relative_mse(
@@ -11,12 +40,7 @@ def masked_trace_relative_mse(
     trace_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Return relative MSE over selected complete traces with time last."""
-    _validate_trace_pair(prediction, target)
-    prediction_rows, target_rows = _selected_trace_rows(prediction, target, trace_mask)
-    if not bool(torch.isfinite(prediction_rows).all()) or not bool(
-        torch.isfinite(target_rows).all()
-    ):
-        raise ValueError("selected prediction and target traces must be finite")
+    prediction_rows, target_rows = _validated_selected_rows(prediction, target, trace_mask)
 
     teacher = target_rows.detach().double()
     peak = teacher.abs().amax(dim=1, keepdim=True)
@@ -25,6 +49,20 @@ def masked_trace_relative_mse(
     divisor = torch.where(rms > 0, rms, torch.ones_like(rms))
     residual = prediction_rows.double() - target_rows.double()
     return (residual / divisor).square().mean()
+
+
+def _validated_selected_rows(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    trace_mask: torch.Tensor | None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    _validate_trace_pair(prediction, target)
+    prediction_rows, target_rows = _selected_trace_rows(prediction, target, trace_mask)
+    if not bool(torch.isfinite(prediction_rows).all()) or not bool(
+        torch.isfinite(target_rows).all()
+    ):
+        raise ValueError("selected prediction and target traces must be finite")
+    return prediction_rows, target_rows
 
 
 def _validate_trace_pair(prediction: torch.Tensor, target: torch.Tensor) -> None:
