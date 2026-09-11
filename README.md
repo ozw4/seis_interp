@@ -303,6 +303,33 @@ python -m seis_interp.cli poc check --interim INTERIM --processed PROCESSED \
   --mask MASK --case CASE --volume VOLUME --json
 ```
 
+Run the five methods once each with common input artifacts and independent configurations:
+
+```bash
+python -m seis_interp.cli poc run-all --interim INTERIM --processed PROCESSED \
+  --mask MASK --case CASE --volume VOLUME \
+  --pocs-config POCS.yaml --drr-config DRR.yaml --nersi-config NERSI.yaml \
+  --ccnet5d-config CCNET5D.yaml --gnn-config GNN.yaml --output NEW_OUTPUT
+```
+
+The runner first executes `poc check`, then POCS, DRR, NeRSI, CCNet5D, and relational trace graph
+in separate processes. Neural devices and seeds come from the method configurations. The output root must
+not already exist. Individual runs are retained under `pocs/`, `drr/`, `nersi/`, `ccnet5d/`, and
+`relational_trace_graph/`, with subprocess logs under `logs/`.
+
+`summary.json` is the full-precision machine-readable comparison artifact; `summary.csv` provides
+the per-method columns for inspection, rounding floating-point values to four decimal places.
+They include target-only metrics, compute counts, timings,
+memory usage, artifact paths and hashes, and individual failures. Classical prediction time is
+null because prediction is included in reconstruction; unavailable CUDA measurements are null.
+The runner compares complete verified input locks, validates artifact hashes and full target
+coverage, and aggregates existing run records without reading amplitude arrays or target truth.
+After a method fails, remaining methods still run and completed outputs are preserved. The command
+returns nonzero if any method or comparison check fails. `--json` prints the comparison summary.
+`comparison_valid` is true only when all five runs pass and their full input locks match;
+individual run statuses remain separate from this comparison-wide result.
+There are no retries, HPO, validation-based selection, multiple-seed runs, or best-method selection.
+
 Other model-selection training runs write:
 
 ```text
