@@ -362,3 +362,85 @@ def test_existing_canonical_loader_remains_usable(tmp_path: Path) -> None:
 
     assert isinstance(inputs, C3VolumeRunInputs)
     assert set(inputs.inputs_lock) == {"benchmark_case", "benchmark_volume"}
+
+
+def test_poc_check_reads_only_observations_and_leaves_inputs_unchanged(tmp_path, monkeypatch):
+    from seis_interp.evaluation import c3_volume_metrics
+    from seis_interp.pipelines.check_c3_poc import check_c3_poc_inputs
+    from seis_interp.training.amplitude_scaling import compute_observed_global_rms
+
+    artifacts = prepare_c3_volume_run_artifacts(
+        tmp_path,
+        dataset_id=C3_RANDOM80_POC_DATASET_ID,
+        missing_fraction=0.8,
+        target_offset=1.0e20,
+    )
+
+    def unexpected_truth(*args, **kwargs):
+        raise AssertionError("poc check must not read target truth")
+
+    monkeypatch.setattr(c3_volume_metrics, "evaluate_c3_volume_prediction", unexpected_truth)
+    mask, _ = load_interpolation_mask(artifacts.mask)
+    observed_rows = mask.loc[mask[OBSERVATION_ROLE_COLUMN].eq(OBSERVED_ROLE), "array_row"]
+    original_load = np.load
+    accessed_rows = []
+
+    class ObservedOnlyArray(np.ndarray):
+        def __getitem__(self, index):
+            rows, time_slice = index
+            assert np.isin(rows, observed_rows).all()
+            accessed_rows.extend(rows.tolist())
+            return self.view(np.ndarray)[rows, time_slice]
+
+    def guarded_load(path, *args, **kwargs):
+        values = original_load(path, *args, **kwargs)
+        if Path(path) == artifacts.interim / "amplitudes.npy":
+            return values.view(ObservedOnlyArray)
+        return values
+
+    monkeypatch.setattr(np, "load", guarded_load)
+    originals = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    shape = tuple(artifacts.volume_metadata["shape"])
+    result = check_c3_poc_inputs(
+        **_artifact_arguments(artifacts),
+        selection=artifacts.volume_metadata["selection"],
+        dimensions=_fixture_dimensions(shape),
+    )
+    assert len(accessed_rows) == result["observed_trace_count"]
+    inputs = load_c3_random80_poc_inputs(
+        **_artifact_arguments(artifacts),
+        config=_poc_config(artifacts.volume_metadata),
+        dimensions=_fixture_dimensions(shape),
+    )
+    observed = inputs.observed_volume
+    assert result["shape"] == list(shape)
+    assert result["observed_trace_count"] == int(observed.observed_trace_mask.sum())
+    assert result["target_trace_count"] == int(observed.evaluation_target_trace_mask.sum())
+    assert result["observed_global_rms"] == compute_observed_global_rms(
+        observed.values,
+        observed.observed_trace_mask,
+    )
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == originals
+
+
+def test_poc_check_uses_fixed_full_selection(monkeypatch):
+    from seis_interp.pipelines import check_c3_poc
+
+    def check_selection(**kwargs):
+        assert kwargs["config"]["benchmark_volume"]["selection"] == {
+            "time": [0, 384],
+            "source_line": [25, 41],
+            "shot_in_line": [28, 60],
+            "relative_receiver_x": [0, 8],
+            "relative_receiver_y": [18, 50],
+        }
+        raise ValueError("checked expected selection")
+
+    monkeypatch.setattr(check_c3_poc, "load_c3_random80_poc_inputs", check_selection)
+    with pytest.raises(ValueError, match="checked expected selection"):
+        check_c3_poc.check_c3_poc_inputs(
+            **{
+                key: Path(key)
+                for key in ("interim_dir", "processed_dir", "mask_dir", "case_dir", "volume_dir")
+            }
+        )

@@ -70,6 +70,40 @@ def test_public_python_api_is_importable_from_cli() -> None:
     assert callable(main)
 
 
+def test_poc_check_parser_and_dispatch(tmp_path, monkeypatch, capsys):
+    import json
+
+    from seis_interp.pipelines import check_c3_poc
+
+    paths = {name: tmp_path / name for name in ("interim", "processed", "mask", "case", "volume")}
+    received = {}
+    summary = {
+        "case_id": "case",
+        "shape": [4, 1, 1, 1, 5],
+        "observed_trace_count": 1,
+        "target_trace_count": 4,
+        "observed_global_rms": 2.0,
+    }
+
+    def check(**kwargs):
+        received.update(kwargs)
+        return summary
+
+    monkeypatch.setattr(check_c3_poc, "check_c3_poc_inputs", check)
+    arguments = ["poc", "check"]
+    for name, path in paths.items():
+        arguments.extend([f"--{name}", str(path)])
+    for name in paths:
+        index = arguments.index(f"--{name}")
+        with pytest.raises(SystemExit) as error:
+            build_parser().parse_args(arguments[:index] + arguments[index + 2 :])
+        assert error.value.code == 2
+    assert main([*arguments, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == summary
+    assert received == {f"{name}_dir": path for name, path in paths.items()}
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_ccnet5d_help_exposes_only_poc_end_to_end_run(capsys) -> None:
     inference = _help_text(["interpolate", "ccnet5d"], capsys)
 

@@ -223,7 +223,7 @@ python -m seis_interp.cli interpolate pocs \
 ```
 
 The immutable run contains the resolved configuration, verified input lock, target-only physical
-amplitude metrics, run metadata, and `artifacts/prediction.npy`. Method-specific conditions
+amplitude metrics, run metadata, and `prediction.npy`. Method-specific conditions
 belong in the study configuration.
 
 `interpolate siren` fits a fresh model for each selected volume using only observed samples and a
@@ -236,13 +236,12 @@ stderr, while stdout contains only the final human-readable summary or strict JS
 reproduction. It maps each local `(source_line, shot_in_line, relative_receiver_x)` profile key to
 the `(time, relative_receiver_y)` profile, fits only the selected volume's observed traces, and
 uses evaluation-target amplitudes only after prediction for scoring. The initial clean-data C3
-contract has no nuclear-norm term. It writes the same final checkpoint and prediction artifacts as
-the per-volume SIREN command and accepts the same `--device` override. Its checkpoint is bound to
+contract has no nuclear-norm term. It writes `final.pt` and `prediction.npy` at the run root and accepts `--device`. Its checkpoint is bound to
 the exact verified case and volume hashes and is not a reusable pretrained model.
 
 `interpolate ccnet5d` fits a fresh model on pseudo-masked observed traces within the same fixed
 PoC volume, then predicts all evaluation targets. It uses observed-only global RMS normalization,
-trace-relative loss, and a fixed optimizer-step budget, and writes `artifacts/final.pt`.
+trace-relative loss, and a fixed optimizer-step budget, and writes `final.pt`.
 It accepts `--device`; progress goes to stderr and the final summary to stdout, with strict JSON
 when `--json` is supplied.
 
@@ -250,13 +249,38 @@ when `--json` is supplied.
 observed set, using shared observed-only global RMS and trace-relative loss. Geometry uses the
 full analysis domain's fixed midpoint bounds. `training.max_steps` fixes the AdamW update count;
 `training.inner_mask_fraction` fixes the random pseudo-mask fraction. The final state is saved to
-`artifacts/final.pt` before predicting every target, including queries without observed neighbors.
+`final.pt` before predicting every target, including queries without observed neighbors.
 The dense physical prediction is scored by the common C3 evaluator. The command requires
 `--volume`, accepts `--device`, and does not accept an external checkpoint or use validation.
 
 ## Run outputs
 
-A training run writes:
+The five random-80 PoC methods (POCS, DRR, NeRSI, CCNet5D, and relational trace graph) write:
+
+```text
+config.resolved.yaml
+inputs.lock.json
+metadata.json
+metrics.json
+prediction.npy
+```
+
+Neural methods also write `final.pt` at the run root. Classical methods have no checkpoint.
+The prediction is a finite full-shape physical-amplitude array with exact observed reinsertion.
+The input lock records the dataset, full selection, O/T counts, and nested volume-file hashes.
+Comparisons must verify the full input lock, not just the case and volume IDs.
+`metrics.json` is the unchanged common evaluator result. `metadata.json` separates common
+identity, normalization, objective, training/reconstruction, coverage, timing, and resource usage
+from nested `method_details`.
+
+Check the fixed input selection, mask, counts, and observed-only RMS without creating a run:
+
+```bash
+python -m seis_interp.cli poc check --interim INTERIM --processed PROCESSED \
+  --mask MASK --case CASE --volume VOLUME --json
+```
+
+Other model-selection training runs write:
 
 ```text
 config.resolved.yaml

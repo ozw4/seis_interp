@@ -15,6 +15,7 @@ from seis_interp.commands.doctor import (
     collect_environment as collect_environment,
 )
 from seis_interp.commands.interpolate import add_interpolate_commands
+from seis_interp.commands.poc import add_poc_commands
 from seis_interp.commands.train import add_train_commands
 
 
@@ -26,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_data_commands(subparsers)
     add_train_commands(subparsers)
     add_interpolate_commands(subparsers)
+    add_poc_commands(subparsers)
     return parser
 
 
