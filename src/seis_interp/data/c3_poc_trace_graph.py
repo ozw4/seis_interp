@@ -56,24 +56,10 @@ def build_c3_poc_trace_graph_training_data(
 ) -> C3PocTraceGraphTrainingData:
     """Select exactly O without opening files, fitting RMS, or requiring a partition."""
     volume = inputs.observed_volume
-    table = inputs.index_table
-    ids = table["array_row"].to_numpy(dtype=np.int64)
-    if not np.array_equal(ids, volume.array_rows.reshape(-1)):
-        raise ValueError("volume index row order must match observed volume")
-    observed = volume.observed_trace_mask.reshape(-1)
+    analysis = build_c3_poc_trace_graph_domain(inputs)
+    ids, observed = analysis.trace_ids, analysis.observed_mask
     if np.count_nonzero(observed) < 2:
         raise ValueError("O must contain at least two traces for query and context")
-    source = table[["source_x_m", "source_y_m"]].to_numpy(dtype=np.float64)
-    relative = table[["relative_receiver_x_m", "relative_receiver_y_m"]].to_numpy(dtype=np.float64)
-    analysis = build_trace_graph_domain(
-        trace_ids=ids,
-        source_xy_m=source,
-        receiver_xy_m=source + relative,
-        ffids=table["ffid"].to_numpy(),
-        observed_mask=observed,
-        time_s=volume.time_s,
-        inputs_lock=inputs.inputs_lock,
-    )
     preprocessing = build_poc_trace_graph_preprocessing(
         analysis,
         amplitude_scale=amplitude_scale,
@@ -99,3 +85,24 @@ def build_c3_poc_trace_graph_training_data(
     if not np.all(np.isfinite(amplitudes)):
         raise ValueError("observed amplitudes must be finite float32 values")
     return C3PocTraceGraphTrainingData(domain, amplitudes, preprocessing)
+
+
+def build_c3_poc_trace_graph_domain(inputs: C3VolumeRunInputs) -> TraceGraphDomain:
+    """Build D geometry and outer visibility without any amplitude path or reader."""
+    volume = inputs.observed_volume
+    table = inputs.index_table
+    ids = table["array_row"].to_numpy(dtype=np.int64)
+    if not np.array_equal(ids, volume.array_rows.reshape(-1)):
+        raise ValueError("volume index row order must match observed volume")
+    observed = volume.observed_trace_mask.reshape(-1)
+    source = table[["source_x_m", "source_y_m"]].to_numpy(dtype=np.float64)
+    relative = table[["relative_receiver_x_m", "relative_receiver_y_m"]].to_numpy(dtype=np.float64)
+    return build_trace_graph_domain(
+        trace_ids=ids,
+        source_xy_m=source,
+        receiver_xy_m=source + relative,
+        ffids=table["ffid"].to_numpy(),
+        observed_mask=observed,
+        time_s=volume.time_s,
+        inputs_lock=inputs.inputs_lock,
+    )

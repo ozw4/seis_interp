@@ -78,11 +78,11 @@ def build_poc_trace_graph_preprocessing(
     origin = lower + (upper - lower) / 2
     return TraceGraphPreprocessing(
         amplitude_scale=amplitude_scale,
-        midpoint_origin_m=tuple(origin),
+        midpoint_origin_m=tuple(float(value) for value in origin),
         position_scale_m=position_scale_m,
         offset_scale_m=offset_scale_m,
         azimuth_min_offset_m=azimuth_min_offset_m,
-        time_s=tuple(analysis_domain.time_s),
+        time_s=tuple(float(value) for value in analysis_domain.time_s),
         fit_domain={
             "coordinate_source": "fixed_analysis_domain",
             "midpoint_bounds_m": [lower.tolist(), upper.tolist()],

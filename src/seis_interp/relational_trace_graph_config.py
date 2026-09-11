@@ -36,68 +36,8 @@ def validate_relational_trace_graph_training_config(
         },
     )
     _project_and_data(config)
-    model = dict(
-        _section_with_options(
-            config,
-            "model",
-            {
-                "name",
-                "width",
-                "message_passing_rounds",
-                "time_downsample_factor",
-                "stem_kernel_size",
-                "temporal_kernel_size",
-                "temporal_dilations",
-                "attention_width",
-                "relation_embedding_dim",
-                "relation_fusion",
-            },
-            {
-                "method_variant",
-                "explicit_azimuth_features",
-                "amplitude_mode",
-                "max_edge_time_shift_samples",
-            },
-        )
-    )
-    if model.pop("name") != METHOD:
-        raise ConfigurationError(f"model.name must be {METHOD!r}")
-    for name in (
-        "width",
-        "message_passing_rounds",
-        "time_downsample_factor",
-        "attention_width",
-        "relation_embedding_dim",
-    ):
-        model[name] = config_values.positive_integer(model[name], f"model.{name}")
-    if model["width"] % 8:
-        raise ConfigurationError("model.width must be divisible by 8")
-    for name in ("stem_kernel_size", "temporal_kernel_size"):
-        model[name] = config_values.odd_positive_integer(model[name], f"model.{name}")
-    model["temporal_dilations"] = config_values.validated_positive_integer_list(
-        model["temporal_dilations"], "model.temporal_dilations"
-    )
-    if len(model["temporal_dilations"]) != model["message_passing_rounds"]:
-        raise ConfigurationError("model.temporal_dilations must match message_passing_rounds")
-    if model["relation_fusion"] not in ("mean", "learned_gate"):
-        raise ConfigurationError("model.relation_fusion must be mean or learned_gate")
-    variant = model.get("method_variant", "relational")
-    if variant not in ("relational", "plain_gcn_row_normalized", "untyped_edge_conditioned"):
-        raise ConfigurationError("unsupported model.method_variant")
-    if variant != "relational" and model["relation_fusion"] != "mean":
-        raise ConfigurationError("comparison models require relation_fusion=mean")
-    if not isinstance(model.get("explicit_azimuth_features", True), bool):
-        raise ConfigurationError("model.explicit_azimuth_features must be boolean")
-    if model.get("amplitude_mode", "train_global_rms") not in (
-        "train_global_rms",
-        "observed_trace_rms",
-    ):
-        raise ConfigurationError("unsupported model.amplitude_mode")
-    if "max_edge_time_shift_samples" in model:
-        model["max_edge_time_shift_samples"] = config_values.nonnegative_integer(
-            model["max_edge_time_shift_samples"], "model.max_edge_time_shift_samples"
-        )
-    graph = _graph_settings(config)
+    model = validate_trace_graph_model_config(config)
+    graph = validate_trace_graph_graph_config(config)
     graph.validate_model_config(model)
     geometry = config_values.exact_section(
         config, "geometry_features", {"position_scale_m", "offset_scale_m", "azimuth_min_offset_m"}
@@ -234,7 +174,74 @@ def validate_relational_trace_graph_prediction_config(config: Mapping[str, objec
         config_values.exact_section(config, "benchmark_volume", {"id", "selection"})
 
 
-def _graph_settings(config: Mapping[str, object]) -> TraceGraphSettings:
+def validate_trace_graph_model_config(config: Mapping[str, object]) -> dict[str, object]:
+    """Validate model constructor settings independently of experiment wiring."""
+    model = dict(
+        _section_with_options(
+            config,
+            "model",
+            {
+                "name",
+                "width",
+                "message_passing_rounds",
+                "time_downsample_factor",
+                "stem_kernel_size",
+                "temporal_kernel_size",
+                "temporal_dilations",
+                "attention_width",
+                "relation_embedding_dim",
+                "relation_fusion",
+            },
+            {
+                "method_variant",
+                "explicit_azimuth_features",
+                "amplitude_mode",
+                "max_edge_time_shift_samples",
+            },
+        )
+    )
+    if model.pop("name") != METHOD:
+        raise ConfigurationError(f"model.name must be {METHOD!r}")
+    for name in (
+        "width",
+        "message_passing_rounds",
+        "time_downsample_factor",
+        "attention_width",
+        "relation_embedding_dim",
+    ):
+        model[name] = config_values.positive_integer(model[name], f"model.{name}")
+    if model["width"] % 8:
+        raise ConfigurationError("model.width must be divisible by 8")
+    for name in ("stem_kernel_size", "temporal_kernel_size"):
+        model[name] = config_values.odd_positive_integer(model[name], f"model.{name}")
+    model["temporal_dilations"] = config_values.validated_positive_integer_list(
+        model["temporal_dilations"], "model.temporal_dilations"
+    )
+    if len(model["temporal_dilations"]) != model["message_passing_rounds"]:
+        raise ConfigurationError("model.temporal_dilations must match message_passing_rounds")
+    if model["relation_fusion"] not in ("mean", "learned_gate"):
+        raise ConfigurationError("model.relation_fusion must be mean or learned_gate")
+    variant = model.get("method_variant", "relational")
+    if variant not in ("relational", "plain_gcn_row_normalized", "untyped_edge_conditioned"):
+        raise ConfigurationError("unsupported model.method_variant")
+    if variant != "relational" and model["relation_fusion"] != "mean":
+        raise ConfigurationError("comparison models require relation_fusion=mean")
+    if not isinstance(model.get("explicit_azimuth_features", True), bool):
+        raise ConfigurationError("model.explicit_azimuth_features must be boolean")
+    if model.get("amplitude_mode", "train_global_rms") not in (
+        "train_global_rms",
+        "observed_trace_rms",
+    ):
+        raise ConfigurationError("unsupported model.amplitude_mode")
+    if "max_edge_time_shift_samples" in model:
+        model["max_edge_time_shift_samples"] = config_values.nonnegative_integer(
+            model["max_edge_time_shift_samples"], "model.max_edge_time_shift_samples"
+        )
+    return model
+
+
+def validate_trace_graph_graph_config(config: Mapping[str, object]) -> TraceGraphSettings:
+    """Validate geometry-only neighbor settings for a trace graph."""
     graph = _section_with_options(
         config,
         "graph",
