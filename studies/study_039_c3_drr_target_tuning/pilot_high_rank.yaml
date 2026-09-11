@@ -1,0 +1,63 @@
+region_shape:
+- 5
+- 8
+- 4
+- 8
+region_origins:
+- - 0
+  - 0
+  - 0
+  - 0
+- - 5
+  - 8
+  - 4
+  - 8
+- - 10
+  - 16
+  - 0
+  - 16
+- - 11
+  - 24
+  - 4
+  - 24
+candidates:
+  r8_i30_p3_f0:
+    rank: 8
+    damping_power: 3
+    n_iterations: 30
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: &id001
+    - 5
+    - 8
+    - 4
+    - 8
+    spatial_overlap: &id002
+    - 0
+    - 0
+    - 0
+    - 0
+  r8_i60_p3_f0:
+    rank: 8
+    damping_power: 3
+    n_iterations: 60
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r12_i60_p3_f0:
+    rank: 12
+    damping_power: 3
+    n_iterations: 60
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r16_i60_p3_f0:
+    rank: 16
+    damping_power: 3
+    n_iterations: 60
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002

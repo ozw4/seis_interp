@@ -1,0 +1,95 @@
+region_shape:
+- 5
+- 8
+- 4
+- 8
+region_origins:
+- - 0
+  - 0
+  - 0
+  - 0
+- - 5
+  - 8
+  - 4
+  - 8
+- - 10
+  - 16
+  - 0
+  - 16
+- - 11
+  - 24
+  - 4
+  - 24
+candidates:
+  reference:
+    rank: 4
+    damping_power: 3
+    n_iterations: 10
+    frequency_min_hz: 5.0
+    frequency_max_hz: null
+    spatial_window_shape: &id001
+    - 5
+    - 8
+    - 4
+    - 8
+    spatial_overlap: &id002
+    - 0
+    - 0
+    - 0
+    - 0
+  r2_i30_p3_f0:
+    rank: 2
+    damping_power: 3
+    n_iterations: 30
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r4_i30_p3_f0:
+    rank: 4
+    damping_power: 3
+    n_iterations: 30
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r6_i30_p3_f0:
+    rank: 6
+    damping_power: 3
+    n_iterations: 30
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r4_i60_p3_f0:
+    rank: 4
+    damping_power: 3
+    n_iterations: 60
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r6_i60_p3_f0:
+    rank: 6
+    damping_power: 3
+    n_iterations: 60
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r4_i30_p8_f0:
+    rank: 4
+    damping_power: 8
+    n_iterations: 30
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
+  r4_i30_p3_f5:
+    rank: 4
+    damping_power: 3
+    n_iterations: 30
+    frequency_min_hz: 5.0
+    frequency_max_hz: null
+    spatial_window_shape: *id001
+    spatial_overlap: *id002
