@@ -20,7 +20,7 @@ from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
 from seis_interp.models.nersi import Nersi
-from seis_interp.nersi_config import NersiSettings, validate_nersi_config
+from seis_interp.nersi_config import NersiPocSettings, validate_nersi_poc_config
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
@@ -68,7 +68,7 @@ def interpolate_nersi_run(
     output = Path(output_dir)
     run_records.check_new_output_directory(output)
     config = load_resolved_config(Path(config_path))
-    settings = validate_nersi_config(config)
+    settings = validate_nersi_poc_config(config)
     benchmark_seed = config_values.nonnegative_integer(
         get_required_config_value(config, "project.random_seed"), "project.random_seed"
     )
@@ -220,7 +220,7 @@ def _run_metadata(
     inputs: C3VolumeRunInputs,
     data: C3VolumeNersiData,
     model: Nersi,
-    settings: NersiSettings,
+    settings: NersiPocSettings,
     trained: FixedStepNersiResult,
     predicted: C3VolumeNersiPrediction,
     device: torch.device,

@@ -1,4 +1,4 @@
-"""Validate the native configuration for profile-wise NeRSI runs."""
+"""Validate the PoC configuration for profile-wise NeRSI runs."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ class NersiTrainingSettings:
 
 
 @dataclass(frozen=True)
-class NersiSettings:
-    """Validated model, training, and prediction values for one native run."""
+class NersiPocSettings:
+    """Validated model, training, and prediction values for one PoC run."""
 
     model: dict[str, object]
     training: NersiTrainingSettings
@@ -36,8 +36,8 @@ class NersiSettings:
         return {**self.model, "profile_shape": shape}
 
 
-def validate_nersi_config(config: Mapping[str, object]) -> NersiSettings:
-    """Validate the strict NeRSI-native method sections."""
+def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
+    """Validate the strict NeRSI PoC method sections."""
     model = config_values.exact_section(
         config,
         "model",
@@ -147,7 +147,7 @@ def validate_nersi_config(config: Mapping[str, object]) -> NersiSettings:
         "domain": "evaluation_target",
     }:
         raise ConfigurationError("evaluation must use target-only physical-amplitude global S/N")
-    return NersiSettings(
+    return NersiPocSettings(
         model=model_config,
         training=training_settings,
         prediction_batch_size=config_values.positive_integer(

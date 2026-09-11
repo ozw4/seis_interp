@@ -5,7 +5,7 @@ from copy import deepcopy
 import pytest
 
 from seis_interp.configuration import ConfigurationError
-from seis_interp.nersi_config import validate_nersi_config
+from seis_interp.nersi_config import validate_nersi_poc_config
 
 
 def _config() -> dict[str, object]:
@@ -50,7 +50,7 @@ def _config() -> dict[str, object]:
 
 def test_valid_config_preserves_separate_mask_and_training_seeds() -> None:
     config = _config()
-    settings = validate_nersi_config(config)
+    settings = validate_nersi_poc_config(config)
 
     assert config["project"]["random_seed"] == 142
     assert settings.training.random_seed == 20260908
@@ -76,7 +76,7 @@ def test_method_sections_reject_unexpected_keys(section: str) -> None:
     config[section]["unexpected"] = True
 
     with pytest.raises(ConfigurationError, match="exactly"):
-        validate_nersi_config(config)
+        validate_nersi_poc_config(config)
 
 
 @pytest.mark.parametrize(
@@ -93,6 +93,7 @@ def test_method_sections_reject_unexpected_keys(section: str) -> None:
         ("model", "output_activation", "relu"),
         ("training", "optimizer", "sgd"),
         ("training", "loss", "l2"),
+        ("training", "loss", "observed_masked_mse"),
         ("training", "amplitude_scaling", "per_trace_rms"),
         ("training", "profiles_per_step", 0),
         ("prediction", "batch_size", 0),
@@ -106,12 +107,12 @@ def test_invalid_literal_shape_and_positive_values_are_rejected(
     config[section][key] = value
 
     with pytest.raises(ConfigurationError):
-        validate_nersi_config(config)
+        validate_nersi_poc_config(config)
 
 
 @pytest.mark.parametrize("shape", [(7, 8), (8, 9), (0, 8), [8, 8]])
 def test_profile_shape_must_fit_three_two_x_upsampling_stages(shape: object) -> None:
-    settings = validate_nersi_config(_config())
+    settings = validate_nersi_poc_config(_config())
 
     with pytest.raises(ConfigurationError, match="profile"):
         settings.model_constructor_config(shape)  # type: ignore[arg-type]
