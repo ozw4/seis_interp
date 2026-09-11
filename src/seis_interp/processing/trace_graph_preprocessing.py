@@ -1,4 +1,4 @@
-"""Fit fixed trace-graph scales using only the authorized training pool."""
+"""Fixed trace-graph scales from explicit PoC inputs or authorized training pools."""
 
 from __future__ import annotations
 
@@ -51,6 +51,45 @@ class TraceGraphPreprocessing:
             raise ValueError("time_s must be a nonempty finite vector")
         if np.any(np.diff(time) <= 0):
             raise ValueError("time_s must be strictly increasing")
+
+
+def build_poc_trace_graph_preprocessing(
+    analysis_domain: TraceGraphDomain,
+    *,
+    amplitude_scale: float,
+    position_scale_m: float,
+    offset_scale_m: float,
+    azimuth_min_offset_m: float,
+) -> TraceGraphPreprocessing:
+    """Use D's midpoint bounding-box centre and externally supplied global RMS.
+
+    Feature scales are fixed method settings, independent of both masks.
+    No amplitude reader or training-pool statistics are used here.
+    """
+    if not len(analysis_domain.trace_ids):
+        raise ValueError("analysis domain must not be empty")
+    geometry = compute_trace_graph_geometry(
+        analysis_domain.source_xy_m,
+        analysis_domain.receiver_xy_m,
+        azimuth_min_offset_m=azimuth_min_offset_m,
+    )
+    lower = geometry.midpoint_xy_m.min(axis=0)
+    upper = geometry.midpoint_xy_m.max(axis=0)
+    origin = lower + (upper - lower) / 2
+    return TraceGraphPreprocessing(
+        amplitude_scale=amplitude_scale,
+        midpoint_origin_m=tuple(origin),
+        position_scale_m=position_scale_m,
+        offset_scale_m=offset_scale_m,
+        azimuth_min_offset_m=azimuth_min_offset_m,
+        time_s=tuple(analysis_domain.time_s),
+        fit_domain={
+            "coordinate_source": "fixed_analysis_domain",
+            "midpoint_bounds_m": [lower.tolist(), upper.tolist()],
+            "amplitude_source": "external_observed_global_rms",
+            "inputs_lock": deepcopy(analysis_domain.inputs_lock),
+        },
+    )
 
 
 def fit_trace_graph_preprocessing(
