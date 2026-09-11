@@ -24,7 +24,7 @@ def trace_graph_training_errors_and_loss(
     *,
     loss: str = "masked_mse",
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return physical-scale squared errors and the selected query objective.
+    """Return unweighted squared errors in input amplitude units and the query objective.
 
     Inputs are the unpadded ``[query, time]`` predictions and authorized hidden
     training labels, already in the same global-normalized amplitude units.
@@ -38,18 +38,11 @@ def trace_graph_training_errors_and_loss(
     if loss == "masked_mse":
         errors = (prediction - target).square()
         return errors, errors.mean()
-    for name, value in (("prediction", prediction), ("target", target)):
-        if not isinstance(value, torch.Tensor) or not value.is_floating_point():
-            raise TypeError(f"{name} must be a floating-point torch.Tensor")
-    if prediction.ndim != 2 or min(prediction.shape) < 1 or prediction.shape != target.shape:
-        raise ValueError("prediction and target must have matching positive [query, time] shape")
-    if prediction.device != target.device:
-        raise ValueError("prediction and target must share a device")
-    if not bool(torch.isfinite(prediction).all()) or not bool(torch.isfinite(target).all()):
-        raise ValueError("prediction and target must be finite")
-    residual = prediction.double() - target.double()
-    errors = residual.square()
-    return errors, masked_trace_relative_mse(prediction, target)
+    objective = masked_trace_relative_mse(prediction, target)
+    if prediction.ndim != 2:
+        raise ValueError("prediction and target must have two-dimensional [query, time] shape")
+    errors = (prediction.double() - target.double()).square()
+    return errors, objective
 
 
 def masked_mean_square(

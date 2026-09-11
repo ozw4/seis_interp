@@ -160,7 +160,7 @@ def test_trace_training_default_preserves_exact_errors_objective_gradient_and_rn
     assert torch.equal(torch.get_rng_state(), rng)
 
 
-def test_relative_trace_loss_weights_teacher_rms_but_retains_physical_errors() -> None:
+def test_relative_trace_loss_weights_teacher_rms_but_retains_input_unit_errors() -> None:
     target = torch.tensor([[1.0, -1.0], [10.0, -10.0], [0.0, 0.0]])
     prediction = torch.tensor([[0.5, -0.5], [5.0, -5.0], [2.0, -2.0]], requires_grad=True)
     errors, objective = trace_graph_training_errors_and_loss(
@@ -173,6 +173,28 @@ def test_relative_trace_loss_weights_teacher_rms_but_retains_physical_errors() -
     objective.backward()
     assert torch.isfinite(prediction.grad).all()
     assert torch.count_nonzero(prediction.grad) == prediction.numel()
+
+
+def test_relative_trace_loss_checks_finiteness_only_in_shared_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checked = []
+    torch_isfinite = torch.isfinite
+
+    def counted_isfinite(value: torch.Tensor) -> torch.Tensor:
+        checked.append(value)
+        return torch_isfinite(value)
+
+    monkeypatch.setattr(torch, "isfinite", counted_isfinite)
+    prediction = torch.tensor([[0.5, -0.5]])
+    target = torch.tensor([[1.0, -1.0]])
+
+    trace_graph_training_errors_and_loss(
+        prediction,
+        target,
+        loss="masked_trace_relative_mse",
+    )
+    assert 1 <= len(checked) <= 2
 
 
 def test_relative_trace_weights_are_detached_from_teacher_gradient() -> None:
@@ -226,7 +248,8 @@ def test_trace_training_loss_rejects_unknown_modes_before_tensor_operations(loss
         (None, torch.zeros(1, 2), TypeError, "floating"),
         (torch.zeros(1, 2), torch.zeros(1, 2, dtype=torch.int64), TypeError, "floating"),
         (torch.zeros(2), torch.zeros(2), ValueError, "shape"),
-        (torch.zeros(0, 2), torch.zeros(0, 2), ValueError, "shape"),
+        (torch.zeros(1, 1, 2), torch.zeros(1, 1, 2), ValueError, "two-dimensional"),
+        (torch.zeros(0, 2), torch.zeros(0, 2), ValueError, "at least one trace"),
         (torch.zeros(1, 2), torch.zeros(2, 2), ValueError, "shape"),
         (torch.tensor([[float("nan")]]), torch.ones(1, 1), ValueError, "finite"),
         (torch.zeros(1, 1), torch.tensor([[float("inf")]]), ValueError, "finite"),
