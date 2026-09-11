@@ -7,10 +7,12 @@ from numbers import Integral
 
 import numpy as np
 
+from seis_interp.processing.trace_graph_edge_sampling import sample_trace_graph_relation_fanout
 from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, TraceGraphGeometry
 from seis_interp.processing.trace_graph_neighbors import (
     FixedTraceGraphNeighborIndex,
     TraceGraphNeighbors,
+    TraceGraphSpatialIndex,
     select_trace_graph_neighbors,
 )
 
@@ -136,11 +138,14 @@ def build_trace_graph_subgraph(
 class FixedTraceGraphSubgraphBuilder:
     """Reuse an exact index and ID lookup for one fixed observed domain.
 
-    Geometry, IDs, visibility, allowed mask and settings are copied at creation.
+    Geometry, IDs and settings are owned or shared through a static index.
+    Visibility and the observed-neighbor cache belong to this episode alone.
     Build a new instance for each training episode. Plans contain no amplitudes,
     and every hop still searches the complete original visible candidate set.
     Incoming edges of eligible observed senders are computed lazily and retained
     for this builder's lifetime. Initial query searches are never cached.
+    Optional fanout samples these full candidates afresh during each build,
+    before expanding the next frontier; sampled subsets never enter the cache.
     """
 
     def __init__(
@@ -153,6 +158,25 @@ class FixedTraceGraphSubgraphBuilder:
         self._index = FixedTraceGraphNeighborIndex(
             candidate_geometry, candidate_trace_ids, observed_mask, **search_settings
         )
+        self._initialize_episode_cache()
+
+    @classmethod
+    def from_spatial_index(
+        cls,
+        spatial_index: TraceGraphSpatialIndex,
+        observed_mask: np.ndarray,
+        *,
+        allowed_mask: np.ndarray | None = None,
+    ) -> FixedTraceGraphSubgraphBuilder:
+        """Share geometry/search axes, with fresh episode visibility and edge cache."""
+        builder = cls.__new__(cls)
+        builder._index = FixedTraceGraphNeighborIndex.from_spatial_index(
+            spatial_index, observed_mask, allowed_mask=allowed_mask
+        )
+        builder._initialize_episode_cache()
+        return builder
+
+    def _initialize_episode_cache(self):
         self._candidate_rows = {
             int(trace_id): row for row, trace_id in enumerate(self._index.trace_ids)
         }
@@ -168,7 +192,7 @@ class FixedTraceGraphSubgraphBuilder:
         self._cached_edge_count = 0
 
     def observed_neighbor_cache_info(self) -> dict[str, int]:
-        """Describe the bounded cache; array bytes exclude Python container overhead."""
+        """Describe episode edge storage, excluding shared index and Python overhead."""
         return {
             "cached_sender_count": len(self._observed_neighbors),
             "cached_edge_count": self._cached_edge_count,
@@ -183,10 +207,30 @@ class FixedTraceGraphSubgraphBuilder:
         query_trace_ids: np.ndarray,
         *,
         rounds: int,
+        fanout_per_relation: int | None = None,
+        rng: np.random.Generator | None = None,
     ) -> TraceGraphPlan:
-        """Build the same ordered finite closure as the brute-force public API."""
+        """Build an ordered closure, matching brute force when sampling is disabled."""
         if isinstance(rounds, (bool, np.bool_)) or not isinstance(rounds, Integral) or rounds < 1:
             raise ValueError("rounds must be a positive integer")
+        settings = self._index.search_settings
+        if fanout_per_relation is not None:
+            if (
+                isinstance(fanout_per_relation, (bool, np.bool_))
+                or not isinstance(fanout_per_relation, Integral)
+                or fanout_per_relation < 1
+                or fanout_per_relation > settings["neighbors_per_relation"]
+            ):
+                raise ValueError(
+                    "fanout_per_relation must be a positive integer no greater than candidate K"
+                )
+            if settings["topology"] != "multi_relation":
+                raise ValueError("fanout_per_relation requires multi_relation topology")
+            if not isinstance(rng, np.random.Generator):
+                raise ValueError("fanout_per_relation requires a numpy.random.Generator")
+            settings["neighbors_per_relation"] = int(fanout_per_relation)
+        elif rng is not None:
+            raise ValueError("rng requires fanout_per_relation")
         initial_edges = self._index.select(query_geometry, query_trace_ids)
         return _build_dependency_plan(
             query_geometry,
@@ -197,7 +241,9 @@ class FixedTraceGraphSubgraphBuilder:
             initial_edges=initial_edges,
             search=self._cached_observed_neighbors,
             candidate_rows=self._candidate_rows,
-            search_settings=self._index.search_settings,
+            search_settings=settings,
+            fanout_per_relation=fanout_per_relation,
+            rng=rng,
         )
 
     def _cached_observed_neighbors(self, geometry, trace_ids):
@@ -249,6 +295,8 @@ def _build_dependency_plan(
     search,
     candidate_rows,
     search_settings,
+    fanout_per_relation=None,
+    rng=None,
 ):
     query_rows = {int(trace_id): row for row, trace_id in enumerate(query_ids)}
     for trace_id, query_row in query_rows.items():
@@ -275,6 +323,10 @@ def _build_dependency_plan(
             edges = search(
                 _select_geometry(candidate_geometry, [candidate_rows[int(i)] for i in frontier]),
                 frontier,
+            )
+        if fanout_per_relation is not None:
+            edges = sample_trace_graph_relation_fanout(
+                edges, fanout_per_relation=fanout_per_relation, rng=rng
             )
         edge_blocks.append(edges)
         next_frontier = []

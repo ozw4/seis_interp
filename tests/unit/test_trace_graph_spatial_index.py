@@ -13,6 +13,7 @@ from seis_interp.processing.trace_graph_geometry import (
 )
 from seis_interp.processing.trace_graph_neighbors import (
     FixedTraceGraphNeighborIndex,
+    TraceGraphSpatialIndex,
     select_trace_graph_neighbors,
 )
 from seis_interp.processing.trace_graph_subgraphs import (
@@ -344,3 +345,169 @@ def test_observed_sender_with_no_incoming_edges_is_cached(monkeypatch):
         "eligible_sender_count": 1,
         "edge_capacity": 32,
     }
+
+
+@pytest.mark.parametrize("variant", [{}, {"excluded_relation": "cmp"}, {"topology": "single_4d"}])
+@pytest.mark.parametrize("use_allowed", [False, True])
+def test_shared_spatial_index_preserves_visibility_first_exact_edges(variant, use_allowed):
+    geometry, ids, observed, queries, query_ids, settings = _case()
+    allowed = settings.pop("allowed_mask") if use_allowed else None
+    settings.pop("allowed_mask", None)
+    settings.update(variant)
+    spatial = TraceGraphSpatialIndex(geometry, ids, **settings)
+    masks = [observed, ~observed, np.zeros(len(ids), bool)]
+    views = [
+        FixedTraceGraphNeighborIndex.from_spatial_index(spatial, mask, allowed_mask=allowed)
+        for mask in masks
+    ]
+    for view, mask in zip(views + views, masks + masks, strict=True):
+        assert view.geometry is spatial.geometry
+        assert view.trace_ids is spatial.trace_ids
+        _assert_edges(
+            view.select(queries, query_ids),
+            select_trace_graph_neighbors(
+                queries, query_ids, geometry, ids, mask, allowed_mask=allowed, **settings
+            ),
+        )
+
+
+def test_shared_index_owns_inputs_and_finds_visible_neighbors_behind_hidden_ties():
+    geometry = _geometry([[0, 0], [1, 0], [-1, 0], [2, 0]])
+    ids = np.array([40, 30, 20, 10])
+    settings = {"relation_scales_m": [[100.0, 100.0]] * 4, "neighbors_per_relation": 2}
+    spatial = TraceGraphSpatialIndex(geometry, ids, **settings)
+    observed = np.array([False, True, True, True])
+    allowed = np.ones(4, bool)
+    view = FixedTraceGraphNeighborIndex.from_spatial_index(spatial, observed, allowed_mask=allowed)
+    query = _geometry([[0, 0]])
+    expected = select_trace_graph_neighbors(query, [-1], geometry, ids, observed, **settings)
+    geometry.source_xy_m[:] += 10000
+    ids[:] = 0
+    observed[:] = False
+    allowed[:] = False
+    settings["relation_scales_m"][0][0] = 1e6
+    copied_settings = spatial.search_settings
+    copied_settings["relation_scales_m"][0][0] = 1e9
+    _assert_edges(view.select(query, [-1]), expected)
+    np.testing.assert_array_equal(expected.sender_ids, [20, 30] * 4)
+    assert not spatial.trace_ids.flags.writeable
+    for field in fields(spatial.geometry):
+        assert not getattr(spatial.geometry, field.name).flags.writeable
+
+
+@pytest.mark.parametrize("mask", [[True], [1, 0], [[True, False]]])
+@pytest.mark.parametrize("role", ["observed", "allowed"])
+def test_shared_index_rejects_inconsistent_visibility(mask, role):
+    spatial = TraceGraphSpatialIndex(
+        _geometry([[0, 0], [1, 0]]), [1, 2], relation_scales_m=[[100.0, 100.0]] * 4
+    )
+    with pytest.raises(ValueError, match=f"{role}_mask"):
+        FixedTraceGraphNeighborIndex.from_spatial_index(
+            spatial,
+            mask if role == "observed" else [True, True],
+            allowed_mask=mask if role == "allowed" else None,
+        )
+
+
+def test_static_index_rejects_episode_allowed_mask():
+    with pytest.raises(ValueError, match="allowed_mask belongs"):
+        TraceGraphSpatialIndex(
+            _geometry([[0, 0]]),
+            [1],
+            relation_scales_m=[[100.0, 100.0]] * 4,
+            allowed_mask=[True],
+        )
+
+
+@pytest.mark.parametrize("ids", [1, np.array(1)])
+def test_index_scalar_candidate_ids_keep_value_error_contract(ids):
+    with pytest.raises(ValueError, match="candidate_trace_ids must be an integer vector"):
+        FixedTraceGraphNeighborIndex(
+            _geometry([[0, 0]]), ids, [True], relation_scales_m=[[100.0, 100.0]] * 4
+        )
+
+
+@pytest.mark.parametrize("rounds", [1, 2, 3])
+def test_shared_builder_episode_caches_and_plans_are_independent(rounds):
+    geometry, ids, observed, queries, query_ids, settings = _case()
+    allowed = settings.pop("allowed_mask")
+    spatial = TraceGraphSpatialIndex(geometry, ids, **settings)
+    first = FixedTraceGraphSubgraphBuilder.from_spatial_index(
+        spatial, observed, allowed_mask=allowed
+    )
+    first_plan = first.build(queries, query_ids, rounds=rounds)
+    changed = observed.copy()
+    changed[np.isin(ids, first_plan.trace_ids[first_plan.observed_mask])] = False
+    second = FixedTraceGraphSubgraphBuilder.from_spatial_index(
+        spatial, changed, allowed_mask=allowed
+    )
+    assert second.observed_neighbor_cache_info()["cached_sender_count"] == 0
+    for builder, mask in ((first, observed), (second, changed), (first, observed)):
+        actual = builder.build(queries, query_ids, rounds=rounds)
+        expected = FixedTraceGraphSubgraphBuilder(
+            geometry, ids, mask, allowed_mask=allowed, **settings
+        ).build(queries, query_ids, rounds=rounds)
+        _assert_plan(actual, expected)
+        senders = actual.trace_ids[actual.edge_index[0]]
+        assert np.all(np.isin(senders, ids[mask & allowed]))
+        assert not np.any(np.isin(senders, query_ids))
+
+
+def test_fanout_expands_only_sampled_senders_and_keeps_full_candidate_cache():
+    geometry, ids, observed, queries, query_ids, settings = _case()
+    builder = FixedTraceGraphSubgraphBuilder(geometry, ids, observed, **settings)
+    full = builder.build(queries, query_ids, rounds=3)
+    sampled_builder = FixedTraceGraphSubgraphBuilder(geometry, ids, observed, **settings)
+    sampled = sampled_builder.build(
+        queries, query_ids, rounds=3, fanout_per_relation=1, rng=np.random.default_rng(47)
+    )
+    assert sampled.neighbors_per_relation == 1
+    assert len(sampled.trace_ids) < len(full.trace_ids)
+    assert sampled.edge_index.shape[1] < full.edge_index.shape[1]
+    assert sampled.degree.max() <= 1
+    np.testing.assert_array_equal(sampled.coverage[:, :, 0], sampled.degree)
+    senders = sampled.trace_ids[sampled.edge_index[0]]
+    np.testing.assert_array_equal(
+        sampled.trace_ids, np.unique(np.concatenate((query_ids, senders)))
+    )
+    assert np.all(np.isin(senders, ids[observed & settings["allowed_mask"]]))
+    assert not np.any(np.isin(senders, query_ids))
+    assert np.all(sampled.depth[sampled.edge_index[1]] < 3)
+    for row in np.flatnonzero(sampled.observed_mask):
+        outgoing_to = sampled.edge_index[1, sampled.edge_index[0] == row]
+        assert sampled.depth[row] == sampled.depth[outgoing_to].min() + 1
+    expanded_ids = sampled.trace_ids[(sampled.depth > 0) & (sampled.depth < 3)]
+    expanded_rows = [int(np.flatnonzero(ids == trace_id)[0]) for trace_id in expanded_ids]
+    candidates = select_trace_graph_neighbors(
+        _select(geometry, expanded_rows), expanded_ids, geometry, ids, observed, **settings
+    )
+    cache_info = sampled_builder.observed_neighbor_cache_info()
+    assert cache_info["cached_sender_count"] == len(expanded_ids)
+    assert cache_info["cached_edge_count"] == len(candidates.sender_ids)
+    assert cache_info["cached_edge_count"] > int(sampled.degree[sampled.depth > 0].sum())
+    _assert_plan(sampled_builder.build(queries, query_ids, rounds=3), full)
+
+
+def test_repeated_build_resamples_cached_candidates_without_reseeding():
+    geometry, ids, observed, queries, query_ids, settings = _case()
+    builder = FixedTraceGraphSubgraphBuilder(geometry, ids, observed, **settings)
+    rng = np.random.default_rng(47)
+    plans = [
+        builder.build(queries, query_ids, rounds=3, fanout_per_relation=1, rng=rng)
+        for _ in range(2)
+    ]
+    assert not np.array_equal(plans[0].edge_index, plans[1].edge_index)
+    repeated = builder.build(
+        queries, query_ids, rounds=3, fanout_per_relation=1, rng=np.random.default_rng(47)
+    )
+    _assert_plan(plans[0], repeated)
+
+
+@pytest.mark.parametrize("fanout", [True, 0, -1, 1.5, 4])
+def test_builder_rejects_invalid_fanout_before_search(fanout):
+    geometry, ids, observed, queries, query_ids, settings = _case()
+    builder = FixedTraceGraphSubgraphBuilder(geometry, ids, observed, **settings)
+    with pytest.raises(ValueError, match="fanout_per_relation"):
+        builder.build(
+            queries, query_ids, rounds=2, fanout_per_relation=fanout, rng=np.random.default_rng(1)
+        )

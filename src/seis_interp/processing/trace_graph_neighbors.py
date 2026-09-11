@@ -136,22 +136,21 @@ def select_trace_graph_neighbors(
     )
 
 
-class FixedTraceGraphNeighborIndex:
-    """Exact radius search over one owned geometry and fixed visibility mask.
+class TraceGraphSpatialIndex:
+    """Owned geometry-only sorted axes shared across episode visibility views.
 
-    Sorted coordinate axes only remove candidates outside conservative boxes.
-    The original float64 distance formula and distance/ID ordering decide every
-    edge. Index storage is linear in candidates; no pairwise matrix is built.
-    Construct a new index when an episode's visibility or allowed mask changes.
+    Storage is linear in candidates. Eligibility is applied before exact
+    distance/radius selection and is never retained by this object.
     """
 
     def __init__(
         self,
         candidate_geometry: TraceGraphGeometry,
         candidate_trace_ids: np.ndarray,
-        observed_mask: np.ndarray,
         **search_settings,
     ) -> None:
+        if "allowed_mask" in search_settings:
+            raise ValueError("allowed_mask belongs to the episode visibility view")
         empty = TraceGraphGeometry(
             **{
                 field.name: getattr(candidate_geometry, field.name)[:0]
@@ -164,7 +163,7 @@ class FixedTraceGraphNeighborIndex:
             np.empty(0, dtype=np.int64),
             candidate_geometry,
             candidate_trace_ids,
-            observed_mask,
+            np.ones(len(candidate_geometry.offset_m), dtype=bool),
             **search_settings,
         )
         self.geometry = TraceGraphGeometry(
@@ -174,10 +173,6 @@ class FixedTraceGraphNeighborIndex:
             }
         )
         self.trace_ids = _owned_readonly(np.asarray(candidate_trace_ids, dtype=np.int64))
-        eligible = np.asarray(observed_mask).copy()
-        if search_settings.get("allowed_mask") is not None:
-            eligible &= np.asarray(search_settings["allowed_mask"])
-        self.eligible_mask = _owned_readonly(eligible)
         self._settings = {
             "neighbors_per_relation": 8,
             "radius": 1.0,
@@ -188,23 +183,28 @@ class FixedTraceGraphNeighborIndex:
             "single_4d_neighbors": 32,
             **deepcopy(search_settings),
         }
-        self._settings.pop("allowed_mask", None)
         self._scales = np.asarray(self._settings["relation_scales_m"], dtype=np.float64)
-        self._eligible_rows = np.flatnonzero(self.eligible_mask)
+        self._rows = _owned_readonly(np.arange(len(self.trace_ids), dtype=np.int64))
         self._axes = {}
         for name in ("source_xy_m", "receiver_xy_m", "midpoint_xy_m", "offset_xy_m"):
             for axis in range(2):
-                coordinates = getattr(self.geometry, name)[self._eligible_rows, axis]
+                coordinates = getattr(self.geometry, name)[:, axis]
                 order = np.argsort(coordinates, kind="stable")
-                self._axes[name, axis] = (coordinates[order], self._eligible_rows[order])
+                self._axes[name, axis] = (
+                    _owned_readonly(coordinates[order]),
+                    _owned_readonly(self._rows[order]),
+                )
 
     @property
     def search_settings(self) -> dict:
         """Return settings independently of the owned visibility and arrays."""
         return deepcopy(self._settings)
 
-    def select(
-        self, destination_geometry: TraceGraphGeometry, destination_trace_ids: np.ndarray
+    def _select(
+        self,
+        destination_geometry: TraceGraphGeometry,
+        destination_trace_ids: np.ndarray,
+        eligible_mask: np.ndarray,
     ) -> TraceGraphNeighbors:
         """Select exact incoming edges in destination, relation, distance/ID order."""
         ids = _trace_ids(destination_trace_ids, destination_geometry, "destination")
@@ -224,6 +224,7 @@ class FixedTraceGraphNeighborIndex:
         for row, trace_id in enumerate(ids):
             for relation in relations:
                 candidates = self._box_rows(destination_geometry, row, relation)
+                candidates = candidates[eligible_mask[candidates]]
                 candidates = candidates[self.trace_ids[candidates] != trace_id]
                 selected_ids = np.empty(0, dtype=np.int64)
                 selected_distances = np.empty(0, dtype=np.float64)
@@ -275,7 +276,7 @@ class FixedTraceGraphNeighborIndex:
                 stop = np.searchsorted(values, upper, side="right")
                 bounds.append((stop - start, indices, start, stop, name, axis, lower, upper))
         if not bounds:
-            return self._eligible_rows
+            return self._rows
         _, indices, start, stop, *_ = min(bounds, key=lambda bound: bound[0])
         rows = indices[start:stop]
         # The shortest sorted range avoids allocating a full-domain Boolean mask.
@@ -295,6 +296,67 @@ class FixedTraceGraphNeighborIndex:
         return np.sqrt(
             np.sum(delta_midpoint**2, axis=1) / common[0] ** 2
             + np.sum(delta_offset**2, axis=1) / common[1] ** 2
+        )
+
+
+class FixedTraceGraphNeighborIndex:
+    """An episode's owned visibility over a reusable geometry-only index."""
+
+    def __init__(
+        self,
+        candidate_geometry: TraceGraphGeometry,
+        candidate_trace_ids: np.ndarray,
+        observed_mask: np.ndarray,
+        **search_settings,
+    ) -> None:
+        allowed = search_settings.pop("allowed_mask", None)
+        spatial_index = TraceGraphSpatialIndex(
+            candidate_geometry, candidate_trace_ids, **search_settings
+        )
+        self._bind(spatial_index, observed_mask, allowed)
+
+    @classmethod
+    def from_spatial_index(
+        cls,
+        spatial_index: TraceGraphSpatialIndex,
+        observed_mask: np.ndarray,
+        *,
+        allowed_mask: np.ndarray | None = None,
+    ) -> FixedTraceGraphNeighborIndex:
+        """Bind masks in the shared index's candidate row order, without rebuilding."""
+        if not isinstance(spatial_index, TraceGraphSpatialIndex):
+            raise ValueError("spatial_index must be a TraceGraphSpatialIndex")
+        view = cls.__new__(cls)
+        view._bind(spatial_index, observed_mask, allowed_mask)
+        return view
+
+    def _bind(self, spatial_index, observed_mask, allowed_mask):
+        count = len(spatial_index.trace_ids)
+        observed = _boolean_mask(observed_mask, count, "observed_mask")
+        eligible = observed.copy()
+        if allowed_mask is not None:
+            eligible &= _boolean_mask(allowed_mask, count, "allowed_mask")
+        self.spatial_index = spatial_index
+        self.eligible_mask = _owned_readonly(eligible)
+
+    @property
+    def geometry(self) -> TraceGraphGeometry:
+        return self.spatial_index.geometry
+
+    @property
+    def trace_ids(self) -> np.ndarray:
+        return self.spatial_index.trace_ids
+
+    @property
+    def search_settings(self) -> dict:
+        return self.spatial_index.search_settings
+
+    def select(
+        self, destination_geometry: TraceGraphGeometry, destination_trace_ids: np.ndarray
+    ) -> TraceGraphNeighbors:
+        """Select exact incoming edges in destination, relation, distance/ID order."""
+        return self.spatial_index._select(
+            destination_geometry, destination_trace_ids, self.eligible_mask
         )
 
 
