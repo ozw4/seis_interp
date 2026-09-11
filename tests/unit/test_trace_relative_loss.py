@@ -1,9 +1,65 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
 
+from seis_interp.evaluation.physical_amplitude_metrics import (
+    physical_amplitude_mean_trace_relative_mse,
+)
 from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
+
+
+@pytest.mark.parametrize(
+    ("target", "prediction", "trace_mask"),
+    [
+        (
+            np.array([[1.0, -2.0, 3.0], [4.0, 2.0, -1.0]], dtype=np.float64),
+            np.array([[0.5, -1.0, 2.0], [5.0, 1.0, -2.0]], dtype=np.float64),
+            None,
+        ),
+        (
+            np.array([[0.0, 0.0, 0.0], [2.0, -2.0, 1.0]], dtype=np.float64),
+            np.array([[1.0, -1.0, 2.0], [1.0, -3.0, 1.5]], dtype=np.float64),
+            None,
+        ),
+        (
+            7.5e12 * np.array([[1.0, -3.0, 2.0], [5.0, 2.0, -4.0]], dtype=np.float64),
+            7.5e12 * np.array([[0.5, -2.0, 1.0], [4.0, 3.0, -2.0]], dtype=np.float64),
+            None,
+        ),
+        (
+            np.array(
+                [[1.0, -1.0], [float("nan"), float("nan")], [3.0, -3.0]],
+                dtype=np.float64,
+            ),
+            np.array(
+                [[0.5, -0.5], [float("nan"), float("nan")], [1.0, -2.0]],
+                dtype=np.float64,
+            ),
+            np.array([True, False, True]),
+        ),
+    ],
+    ids=("multiple-traces", "zero-energy-trace", "uniform-scale", "selected-mask-rows"),
+)
+def test_torch_training_loss_matches_numpy_evaluation_metric(
+    target: np.ndarray,
+    prediction: np.ndarray,
+    trace_mask: np.ndarray | None,
+) -> None:
+    torch_mask = None if trace_mask is None else torch.from_numpy(trace_mask)
+    torch_result = masked_trace_relative_mse(
+        torch.from_numpy(prediction),
+        torch.from_numpy(target),
+        torch_mask,
+    )
+    selected = np.ones(len(target), dtype=np.bool_) if trace_mask is None else trace_mask
+    numpy_result = physical_amplitude_mean_trace_relative_mse(
+        target[selected],
+        prediction[selected],
+    )
+
+    assert torch_result.item() == pytest.approx(numpy_result, rel=1.0e-12, abs=1.0e-15)
 
 
 def test_matches_mean_of_per_trace_relative_mse() -> None:
