@@ -5,17 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
+from seis_interp.data.c3_poc_inputs import (
+    C3_RANDOM80_POC_SELECTION,
+    load_c3_random80_poc_inputs,
+)
 from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
-
-POC_SELECTION = {
-    "time": [0, 384],
-    "source_line": [25, 41],
-    "shot_in_line": [28, 60],
-    "relative_receiver_x": [0, 8],
-    "relative_receiver_y": [18, 50],
-}
 
 
 def check_c3_poc_inputs(
@@ -25,7 +20,7 @@ def check_c3_poc_inputs(
     mask_dir: Path,
     case_dir: Path,
     volume_dir: Path,
-    selection: Mapping[str, object] = POC_SELECTION,
+    selection: Mapping[str, object] = C3_RANDOM80_POC_SELECTION,
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
 ) -> dict[str, object]:
     """Verify the intended full selection without reading evaluation-target truth."""

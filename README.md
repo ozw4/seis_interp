@@ -255,6 +255,12 @@ The dense physical prediction is scored by the common C3 evaluator. The command 
 
 ## Run outputs
 
+The fixed random-80 PoC benchmark is `c3_sl25_40_random80_observed_only_v1`.
+Its selection, benchmark ID, and 0.8 outer missing fraction are defined in
+`src/seis_interp/data/c3_poc_inputs.py`. Production inputs must match all five
+selection ranges before artifact loading; config/artifact agreement alone is insufficient.
+Input locks and run metadata use this same benchmark ID.
+
 The five random-80 PoC methods (POCS, DRR, NeRSI, CCNet5D, and relational trace graph) write:
 
 ```text

@@ -26,9 +26,16 @@ from seis_interp.processing.interpolation_masks import (
     RANDOM_TRACE_MASK_KIND,
 )
 
-C3_RANDOM80_POC_BENCHMARK_ID = "c3_sl25_40_random80_observed_only_poc_v2"
+C3_RANDOM80_POC_BENCHMARK_ID = "c3_sl25_40_random80_observed_only_v1"
 C3_RANDOM80_POC_DATASET_ID = "seg_c3_na"
 C3_RANDOM80_MISSING_FRACTION = 0.8
+C3_RANDOM80_POC_SELECTION = {
+    "time": [0, 384],
+    "source_line": [25, 41],
+    "shot_in_line": [28, 60],
+    "relative_receiver_x": [0, 8],
+    "relative_receiver_y": [18, 50],
+}
 
 
 def load_c3_random80_poc_inputs(
@@ -41,8 +48,13 @@ def load_c3_random80_poc_inputs(
     config: Mapping[str, object],
     dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
 ) -> C3VolumeRunInputs:
-    """Materialize only observed amplitudes and validate the shared PoC contract."""
-    _require_resolved_volume_selection(config)
+    """Validate the fixed PoC inputs; non-main dimensions are for synthetic fixtures."""
+    selection = _require_resolved_volume_selection(config)
+    if dimensions == MAIN_C3_DIMENSIONS and selection != C3_RANDOM80_POC_SELECTION:
+        raise ConfigurationError(
+            "benchmark_volume.selection must match the fixed PoC selection "
+            f"{C3_RANDOM80_POC_SELECTION}"
+        )
     inputs = load_c3_volume_run_inputs(
         config=config,
         interim_dir=interim_dir,
@@ -62,7 +74,9 @@ def load_c3_random80_poc_inputs(
     )
 
 
-def _require_resolved_volume_selection(config: Mapping[str, object]) -> None:
+def _require_resolved_volume_selection(
+    config: Mapping[str, object],
+) -> dict[str, list[int]]:
     if not isinstance(config, Mapping):
         raise TypeError("config must be a mapping")
     benchmark_volume = config.get("benchmark_volume")
@@ -70,7 +84,7 @@ def _require_resolved_volume_selection(config: Mapping[str, object]) -> None:
         benchmark_volume.get("selection"), Mapping
     ):
         raise ConfigurationError("resolved benchmark_volume.selection is required")
-    validated_c3_volume_selection(benchmark_volume["selection"])
+    return validated_c3_volume_selection(benchmark_volume["selection"])
 
 
 def _validate_poc_inputs(

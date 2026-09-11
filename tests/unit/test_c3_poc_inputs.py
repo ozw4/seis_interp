@@ -15,12 +15,14 @@ from seis_interp.data import c3_poc_inputs
 from seis_interp.data.c3_poc_inputs import (
     C3_RANDOM80_POC_BENCHMARK_ID,
     C3_RANDOM80_POC_DATASET_ID,
+    C3_RANDOM80_POC_SELECTION,
     load_c3_random80_poc_inputs,
 )
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs, load_c3_volume_run_inputs
 from seis_interp.data.interpolation_mask_store import load_interpolation_mask
-from seis_interp.processing.c3_benchmark_contract import C3BenchmarkDimensions
+from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
+from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.processing.interpolation_masks import (
     EVALUATION_TARGET_ROLE,
     OBSERVATION_ROLE_COLUMN,
@@ -230,6 +232,53 @@ def test_rejects_non_seg_c3_na_dataset(tmp_path: Path) -> None:
             config=_poc_config(artifacts.volume_metadata),
             dimensions=_fixture_dimensions(tuple(artifacts.volume_metadata["shape"])),
         )
+
+
+@pytest.mark.parametrize("axis", VOLUME_AXIS_ORDER)
+@pytest.mark.parametrize("explicit_dimensions", [False, True])
+def test_rejects_config_and_artifact_shift_before_loading(
+    monkeypatch: pytest.MonkeyPatch, axis: str, explicit_dimensions: bool
+) -> None:
+    inputs, _ = _memory_inputs()
+    metadata = deepcopy(inputs.volume_metadata)
+    metadata["shape"] = list(MAIN_C3_DIMENSIONS.shape)
+    metadata["selection"] = deepcopy(C3_RANDOM80_POC_SELECTION)
+    metadata["selection"][axis] = [bound + 1 for bound in metadata["selection"][axis]]
+    inputs = replace(inputs, volume_metadata=metadata)
+    config = _poc_config(metadata)
+    assert config["benchmark_volume"]["selection"] == inputs.volume_metadata["selection"]
+    assert [stop - start for start, stop in metadata["selection"].values()] == metadata["shape"]
+    calls = []
+
+    def load_shifted_artifact(**kwargs):
+        calls.append(kwargs)
+        return inputs
+
+    monkeypatch.setattr(c3_poc_inputs, "load_c3_volume_run_inputs", load_shifted_artifact)
+    dimensions = {"dimensions": replace(MAIN_C3_DIMENSIONS)} if explicit_dimensions else {}
+    with pytest.raises(ConfigurationError, match="must match the fixed PoC selection"):
+        load_c3_random80_poc_inputs(
+            config=config,
+            interim_dir=Path("interim"),
+            processed_dir=Path("processed"),
+            mask_dir=Path("mask"),
+            case_dir=Path("case"),
+            volume_dir=Path("volume"),
+            **dimensions,
+        )
+    assert calls == []
+
+
+def test_fixed_benchmark_identity_matches_specification():
+    assert C3_RANDOM80_POC_BENCHMARK_ID == "c3_sl25_40_random80_observed_only_v1"
+    assert C3_RANDOM80_POC_SELECTION == {
+        "time": [0, 384],
+        "source_line": [25, 41],
+        "shot_in_line": [28, 60],
+        "relative_receiver_x": [0, 8],
+        "relative_receiver_y": [18, 50],
+    }
+    assert c3_poc_inputs.C3_RANDOM80_MISSING_FRACTION == 0.8
 
 
 def test_rejects_overlapping_observed_and_target_masks(
