@@ -1,0 +1,16 @@
+study:
+  id: study_037_c3_neural_mse_loss_ablation
+  status: planned
+baseline:
+  study_id: study_036_c3_random80_observed_only_poc
+  run_id: 20260911T081726Z_466b41fae15c_formal
+  loss: masked_trace_relative_mse
+ablation:
+  methods: [nersi, ccnet5d, relational_trace_graph]
+  changed_field: training.loss
+  new_value: masked_trace_mse
+  all_other_fields_fixed: true
+  automatic_retry: false
+  hpo: false
+  validation_selection: false
+  multiple_seeds: false

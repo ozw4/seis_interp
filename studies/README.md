@@ -47,6 +47,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_034_c3_nersi_baseline](study_034_c3_nersi_baseline/README.md) | `validation_complete_candidate_c_selected` — Candidate C 15.9189 dB | observed-only profile-wise NeRSI / fixed QC validation | Four predeclared NeRSI candidates on the fixed validation case |
 | [study_035_c3_ccnet_full_train_sampling](study_035_c3_ccnet_full_train_sampling/README.md) | `completed_degraded` | QC full-train patch sampling / CCNet-5D | Full-train patch sampling against the adopted Study 033 model |
 | [study_036_c3_random80_observed_only_poc](study_036_c3_random80_observed_only_poc/README.md) | `stage_1_baseline_frozen` | fixed random-80 volume / five observed-only methods | Independent reconstruction under common inputs, target coverage, and compute reporting |
+| [study_037_c3_neural_mse_loss_ablation](study_037_c3_neural_mse_loss_ablation/README.md) | `planned` | fixed Stage-1 inputs / three neural methods | MSE-only loss ablation with all other settings fixed |
 
 ## Scratch workspaces
 

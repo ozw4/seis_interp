@@ -1,0 +1,4 @@
+extends: ../formal/ccnet5d.yaml
+training:
+  max_steps: 2
+  report_interval: 1
