@@ -1,10 +1,10 @@
-"""Frozen trace graph benchmark prediction followed by target-only physical scoring."""
+"""Per-volume observed-only GNN fit, complete prediction, and common evaluation."""
 
 from __future__ import annotations
 
-import platform
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -12,193 +12,196 @@ import torch
 
 from seis_interp import run_records
 from seis_interp.configuration import load_resolved_config
+from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
+from seis_interp.data.c3_poc_trace_graph import (
+    build_c3_poc_trace_graph_domain,
+    build_c3_poc_trace_graph_training_data,
+)
+from seis_interp.data.c3_trace_graph_prediction import scatter_c3_trace_graph_prediction
 from seis_interp.data.file_checksums import file_sha256
-from seis_interp.data.relational_trace_graph_run_inputs import (
-    trace_graph_run_input_metadata,
-    validate_trace_graph_checkpoint_provenance,
-)
-from seis_interp.data.trace_graph_domain import load_benchmark_trace_graph_domain
-from seis_interp.data.trace_graph_prediction_store import save_trace_graph_prediction
-from seis_interp.evaluation.trace_graph_diagnostic_metrics import (
-    evaluate_trace_graph_baselines,
-    evaluate_trace_graph_diagnostic_bands,
-)
-from seis_interp.evaluation.trace_graph_metrics import evaluate_trace_graph_prediction
-from seis_interp.processing.c3_volume_index import validated_index_range
-from seis_interp.processing.trace_graph_geometry import (
-    EDGE_FEATURE_NAMES,
-    NODE_FEATURE_NAMES,
-    RELATION_NAMES,
-)
-from seis_interp.relational_trace_graph_config import (
-    METHOD,
-    TRAINING_REGIME,
-    trace_graph_diagnostic_bands,
-    trace_graph_method_variant,
-    validate_relational_trace_graph_prediction_config,
-)
+from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
+from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
+from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
+from seis_interp.relational_trace_graph_poc_config import validate_relational_trace_graph_poc_config
+from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.devices import resolve_device
-from seis_interp.training.relational_trace_graph_checkpoints import (
-    load_relational_trace_graph_checkpoint,
-)
+from seis_interp.training.randomness import seed_global_model_initialization
+from seis_interp.training.relational_trace_graph_poc_trainer import train_relational_trace_graph_poc
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
 
 
 def interpolate_relational_trace_graph_run(
     *,
     config_path: Path,
-    checkpoint_path: Path,
     interim_dir: Path,
     processed_dir: Path,
     mask_dir: Path,
     case_dir: Path,
+    volume_dir: Path,
     output_dir: Path,
-    volume_dir: Path | None = None,
     device_override: str | None = None,
     progress_reporter: Callable[[str], None] | None = None,
+    dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
 ) -> dict[str, object]:
-    """Use checkpoint time/model/geometry with a verified native or selected dense case."""
+    """Fit only O and predict every T using the final state, with no external checkpoint."""
+    started = time.perf_counter()
     output = Path(output_dir)
     run_records.check_new_output_directory(output)
     config = load_resolved_config(Path(config_path))
-    validate_relational_trace_graph_prediction_config(config)
+    settings = validate_relational_trace_graph_poc_config(config)
+    options = dict(settings.training)
     device = resolve_device(
-        config["prediction"]["device"] if device_override is None else device_override,
-        config_key="prediction.device",
+        options.pop("device") if device_override is None else device_override,
+        config_key="training.device",
     )
-    config["prediction"]["device"] = str(device)
+    options.pop("device", None)
+    config["training"]["device"] = str(device)
     started_at = run_records.utc_timestamp()
-    git_metadata = run_records.current_git_metadata()
-    started = time.perf_counter()
     if progress_reporter:
-        progress_reporter("Loading frozen checkpoint and verifying benchmark inputs.")
-    checkpoint_hash = file_sha256(Path(checkpoint_path))
-    loaded = load_relational_trace_graph_checkpoint(Path(checkpoint_path), device=device)
-    selection = validated_index_range(
-        loaded.preprocessing.fit_domain["time_samples"], name="checkpoint.time_samples"
-    )
-    domain = load_benchmark_trace_graph_domain(
+        progress_reporter("Loading observed-only PoC inputs.")
+    inputs = load_c3_random80_poc_inputs(
+        config=config,
         interim_dir=interim_dir,
         processed_dir=processed_dir,
         mask_dir=mask_dir,
         case_dir=case_dir,
         volume_dir=volume_dir,
-        time_samples=selection,
+        dimensions=dimensions,
     )
-    input_metadata = trace_graph_run_input_metadata(
-        domain,
-        config=config,
-        processed_dir=processed_dir,
-        case_dir=case_dir,
+    volume = inputs.observed_volume
+    scale = compute_observed_global_rms(volume.values, volume.observed_trace_mask)
+    training = build_c3_poc_trace_graph_training_data(
+        inputs, amplitude_scale=scale, **settings.geometry
     )
-    validate_trace_graph_checkpoint_provenance(loaded.training_provenance, domain)
-    if not np.array_equal(domain.time_s, loaded.preprocessing.time_s):
-        raise ValueError("checkpoint time grid does not match the benchmark samples")
-    if progress_reporter:
-        progress_reporter("Predicting missing queries with the frozen observed domain.")
-    predicted = predict_relational_trace_graph(
-        loaded.model,
-        domain,
-        loaded.preprocessing,
-        graph_settings=loaded.graph_settings,
-        query_batch_size=config["prediction"]["query_batch_size"],
+    seed_global_model_initialization(options["random_seed"], device=device)
+    model = RelationalTraceGraphInterpolator(**settings.model)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.synchronize(device)
+    train_started = time.perf_counter()
+    trained = train_relational_trace_graph_poc(
+        model,
+        training,
+        graph_settings=settings.graph,
         device=device,
-        measure_resources=True,
+        reporter=progress_reporter,
+        **options,
     )
-    if progress_reporter:
-        progress_reporter("Evaluating target-only physical amplitudes.")
-    metrics = evaluate_trace_graph_prediction(
-        predicted.prediction,
-        domain,
-        query_trace_ids=predicted.query_trace_ids,
-        has_observed_context=predicted.has_observed_context,
-    )
-    bands = trace_graph_diagnostic_bands(config)
-    if bands is not None:
-        metrics["diagnostic_bands"] = evaluate_trace_graph_diagnostic_bands(
-            predicted.prediction,
-            domain,
-            query_trace_ids=predicted.query_trace_ids,
-            bands=bands,
-            azimuth_min_offset_m=loaded.preprocessing.azimuth_min_offset_m,
-        )
-        metrics["baselines"] = evaluate_trace_graph_baselines(
-            domain,
-            loaded.preprocessing,
-            graph_settings=loaded.graph_settings,
-            query_trace_ids=predicted.query_trace_ids,
-            query_batch_size=config["prediction"]["query_batch_size"],
-        )
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    training_seconds = time.perf_counter() - train_started
     identity = {
-        "method": METHOD,
-        "method_variant": trace_graph_method_variant(loaded.model.constructor_config()),
-        "training_regime": TRAINING_REGIME,
+        "method": "relational_trace_graph",
+        "training_domain": "O_with_inner_pseudo_mask",
+        "normalization": {"type": "global_rms", "source": "O_only", "scale": scale},
+        "loss": "masked_trace_relative_mse",
+        "inner_mask_fraction": options["inner_mask_fraction"],
+        "checkpoint_role": "final",
+        "output_amplitude_domain": "physical",
+        "case_id": inputs.case["case_id"],
+        "volume_id": inputs.volume_metadata["volume_id"],
     }
-    metrics.update({**identity, "case_id": input_metadata["case_id"]})
-    output.mkdir(parents=True, exist_ok=False)
-    prediction_metadata = save_trace_graph_prediction(
-        output / "artifacts",
-        predicted.prediction,
-        domain,
-        query_trace_ids=predicted.query_trace_ids,
-        has_observed_context=predicted.has_observed_context,
-        volume_dir=volume_dir,
-    )
-    checkpoint_record = {
-        "path": str(checkpoint_path),
-        "sha256": checkpoint_hash,
-        "role": loaded.checkpoint_role,
-        "step": loaded.global_step,
-        "training_provenance": loaded.training_provenance,
+    artifacts = output / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=False)
+    checkpoint = {
+        **identity,
+        "model_config": model.constructor_config(),
+        "model_state_dict": {
+            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+        },
+        "graph_settings": settings.graph.constructor_config(),
+        "preprocessing": asdict(training.preprocessing),
+        "training_random_seed": options["random_seed"],
+        "steps_completed": trained.steps_completed,
+        "inputs_lock": inputs.inputs_lock,
     }
-    inputs_lock = {
-        **domain.inputs_lock,
-        "checkpoint": checkpoint_record,
-        "configuration_sha256": file_sha256(Path(config_path)),
-    }
+    torch.save(checkpoint, artifacts / "final.pt")
     metadata = {
         **identity,
-        **git_metadata,
+        **run_records.current_git_metadata(),
         "started_at_utc": started_at,
-        "finished_at_utc": run_records.utc_timestamp(),
-        "status": "success",
+        "status": "running",
         "device": str(device),
         "random_seed": config["project"]["random_seed"],
-        "training_random_seed": loaded.training_random_seed,
-        "python_version": platform.python_version(),
-        "numpy_version": np.__version__,
-        "torch_version": str(torch.__version__),
-        "input": input_metadata,
-        "checkpoint": checkpoint_record,
-        "model": loaded.model.constructor_config(),
-        "parameter_count": sum(parameter.numel() for parameter in loaded.model.parameters()),
-        "graph": {
-            **loaded.graph_settings.constructor_config(),
-            "relation_names": ["untyped"]
-            if loaded.graph_settings.topology == "single_4d"
-            else list(RELATION_NAMES),
+        "training_random_seed": options["random_seed"],
+        "model": model.constructor_config(),
+        "graph": settings.graph.constructor_config(),
+        "preprocessing": asdict(training.preprocessing),
+        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+        "training": asdict(trained),
+        "checkpoint": {
+            "artifact": "artifacts/final.pt",
+            "role": "final",
+            "sha256": file_sha256(artifacts / "final.pt"),
         },
-        "amplitude": {
-            "scale_source": "checkpoint_fixed_training_pool",
-            "amplitude_scale": loaded.preprocessing.amplitude_scale,
-        },
-        "geometry_features": {
-            "node_feature_names": list(NODE_FEATURE_NAMES),
-            "edge_feature_names": list(EDGE_FEATURE_NAMES),
-            "position_scale_m": loaded.preprocessing.position_scale_m,
-            "offset_scale_m": loaded.preprocessing.offset_scale_m,
-            "midpoint_origin_m": list(loaded.preprocessing.midpoint_origin_m),
-            "azimuth_min_offset_m": loaded.preprocessing.azimuth_min_offset_m,
-        },
-        "prediction": {
-            **prediction_metadata,
-            "query_batch_size": config["prediction"]["query_batch_size"],
-            "diagnostics": predicted.diagnostics,
-        },
-        "resources": {
-            "elapsed_seconds": time.perf_counter() - started,
-            **run_records.runtime_resource_metadata(device),
-        },
+        "resources": {"training_seconds": training_seconds},
     }
-    run_records.write_run_outputs(output, config, inputs_lock, metrics, metadata)
+    run_records.write_run_outputs(output, config, inputs.inputs_lock, identity, metadata)
+    try:
+        if progress_reporter:
+            progress_reporter("Predicting every target with all observed context.")
+        prediction_started = time.perf_counter()
+        predicted = predict_relational_trace_graph(
+            model,
+            build_c3_poc_trace_graph_domain(inputs),
+            training.preprocessing,
+            graph_settings=settings.graph,
+            query_batch_size=settings.prediction_query_batch_size,
+            observed_waveforms=training.observed_amplitudes,
+            device=device,
+        )
+        dense, coverage = scatter_c3_trace_graph_prediction(
+            inputs, predicted.query_trace_ids, predicted.prediction
+        )
+        metadata["resources"]["prediction_seconds"] = time.perf_counter() - prediction_started
+        # Target truth is first materialized by this common evaluation boundary.
+        metrics = evaluate_c3_volume_prediction(
+            dense,
+            volume,
+            interim_dir=Path(interim_dir),
+            volume_metadata=inputs.volume_metadata,
+            target_coverage_mask=coverage,
+        )
+        metrics.update(
+            {
+                **identity,
+                "optimizer_updates": trained.steps_completed,
+                "training": asdict(trained),
+                "no_context_query_count": int(np.count_nonzero(~predicted.has_observed_context)),
+                "uncovered_trace_count": 0,
+                "uncovered_sample_count": 0,
+                "warnings": [],
+            }
+        )
+        np.save(artifacts / "prediction.npy", dense, allow_pickle=False)
+        np.save(artifacts / "target_coverage.npy", coverage, allow_pickle=False)
+        np.save(artifacts / "query_trace_ids.npy", predicted.query_trace_ids, allow_pickle=False)
+        metadata.update(
+            status="success",
+            prediction={
+                "artifact": "artifacts/prediction.npy",
+                "sha256": file_sha256(artifacts / "prediction.npy"),
+                "shape": list(dense.shape),
+                "diagnostics": predicted.diagnostics,
+                "query_batch_size": settings.prediction_query_batch_size,
+                "no_context_query_count": metrics["no_context_query_count"],
+            },
+            coverage={
+                "target_trace_count": int(np.count_nonzero(volume.evaluation_target_trace_mask)),
+                "covered_target_trace_count": int(np.count_nonzero(coverage)),
+            },
+        )
+    except (Exception, KeyboardInterrupt) as error:
+        metadata.update(
+            status="failed", error={"type": type(error).__name__, "message": str(error)}
+        )
+        metadata["finished_at_utc"] = run_records.utc_timestamp()
+        run_records.write_run_progress(output, identity, metadata)
+        raise
+    metadata["finished_at_utc"] = run_records.utc_timestamp()
+    metadata["resources"].update(
+        end_to_end_seconds=time.perf_counter() - started,
+        **run_records.runtime_resource_metadata(device),
+    )
+    run_records.write_run_progress(output, metrics, metadata)
     return metrics

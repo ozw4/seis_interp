@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from seis_interp.cli import build_parser
 from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
 from seis_interp.relational_trace_graph_config import (
@@ -25,30 +24,11 @@ TRAINING_CONFIGS = [
 
 
 @pytest.mark.parametrize("path", TRAINING_CONFIGS, ids=lambda path: str(path.relative_to(STUDY)))
-def test_study_training_configs_construct_current_models_and_parse_cli(path: Path) -> None:
+def test_study_training_configs_construct_declared_models(path: Path) -> None:
     config = load_resolved_config(path)
     model_config, graph, _ = validate_relational_trace_graph_training_config(config)
     model = RelationalTraceGraphInterpolator(**model_config)
     graph.validate_model_config(model.constructor_config())
-    parsed = build_parser().parse_args(
-        [
-            "train",
-            "relational-trace-graph",
-            "--config",
-            str(path),
-            "--interim",
-            "interim",
-            "--processed",
-            "processed",
-            "--validation-mask",
-            "fixed-mask",
-            "--validation-case",
-            "fixed-case",
-            "--output",
-            "new-run",
-        ]
-    )
-    assert parsed.config == path
 
 
 @pytest.mark.parametrize(
@@ -61,27 +41,6 @@ def test_frozen_configs_keep_training_and_model_settings_in_checkpoint(path: Pat
         not {"training", "training_data", "training_mask", "model", "graph", "geometry_features"}
         & config.keys()
     )
-    parsed = build_parser().parse_args(
-        [
-            "interpolate",
-            "relational-trace-graph",
-            "--config",
-            str(path),
-            "--checkpoint",
-            "best.pt",
-            "--interim",
-            "interim",
-            "--processed",
-            "processed",
-            "--mask",
-            "fixed-mask",
-            "--case",
-            "fixed-case",
-            "--output",
-            "new-run",
-        ]
-    )
-    assert parsed.config == path
 
 
 def test_ablation_table_keeps_pool_time_seed_budget_and_label_policy_fixed() -> None:

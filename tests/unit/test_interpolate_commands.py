@@ -13,6 +13,33 @@ from seis_interp.cli import build_parser, main
 _PIPELINE_MODULE = "seis_interp.pipelines.interpolate_pocs"
 
 
+def test_relational_trace_graph_dispatches_without_checkpoint(tmp_path, monkeypatch, capsys):
+    name = "seis_interp.pipelines.interpolate_relational_trace_graph"
+    module = ModuleType(name)
+    received = {}
+
+    def run(**kwargs):
+        received.update(kwargs)
+        return _summary() | {"method": "relational_trace_graph"}
+
+    module.interpolate_relational_trace_graph_run = run
+    monkeypatch.setitem(sys.modules, name, module)
+    assert main([*_arguments(tmp_path, "relational-trace-graph"), "--json"]) == 0
+    assert "checkpoint_path" not in received
+    assert received["volume_dir"] == tmp_path / "volume"
+    assert json.loads(capsys.readouterr().out)["method"] == "relational_trace_graph"
+
+
+def test_relational_trace_graph_requires_volume_and_rejects_checkpoint(tmp_path):
+    arguments = _arguments(tmp_path, "relational-trace-graph")
+    index = arguments.index("--volume")
+    without_volume = arguments[:index] + arguments[index + 2 :]
+    for args in (without_volume, [*arguments, "--checkpoint", "final.pt"]):
+        with pytest.raises(SystemExit) as error:
+            build_parser().parse_args(args)
+        assert error.value.code == 2
+
+
 def _arguments(tmp_path: Path, command: str = "pocs") -> list[str]:
     return [
         "interpolate",

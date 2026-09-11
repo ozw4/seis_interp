@@ -43,6 +43,21 @@ SEEDS = {
 }
 
 
+@pytest.mark.parametrize("action", ["gnn-train", "gnn-predict", "gnn-preflight"])
+@pytest.mark.parametrize("execute", [False, True])
+def test_gnn_partition_routes_are_not_active(tmp_path, action, execute):
+    with pytest.raises(ConfigurationError, match="unsupported action"):
+        run_c3_first_results(
+            config_path=tmp_path / "missing.yaml",
+            inputs_path=tmp_path / "missing-inputs.yaml",
+            action=action,
+            execute=execute,
+        )
+    with pytest.raises(ConfigurationError, match="unsupported action"):
+        dispatch_c3_first_results_action({"action": action})
+    assert not list(tmp_path.iterdir())
+
+
 @pytest.mark.parametrize("action", ["pocs", "drr", "nersi", "ccnet-train", "ccnet-predict"])
 @pytest.mark.parametrize("execute", [False, True])
 def test_replaced_methods_are_rejected_before_input_access_or_writes(tmp_path, action, execute):
@@ -356,35 +371,6 @@ def test_native_failure_is_recorded(tmp_path, suite_inputs):
     assert "max_steps" in result["reason"]
 
 
-def test_dispatch_gnn_training_passes_fixed_validation_only(tmp_path, suite_inputs, monkeypatch):
-    plan = _plan(tmp_path, "gnn-train", _fragment("gnn-train"))
-    result = run_c3_first_results(
-        config_path=plan,
-        inputs_path=_write_inputs(tmp_path, suite_inputs),
-        action="gnn-train",
-        dimensions=DIMENSIONS,
-    )
-    assert result["status"] == "dry_run", result
-    request = result["request"]
-    request.update(
-        native_config_path=str(tmp_path / "native.yaml"),
-        native_run_directory=str(tmp_path / "native"),
-    )
-    captured = {}
-
-    def spy(**kwargs):
-        captured.update(kwargs)
-        return {}
-
-    monkeypatch.setattr(
-        "seis_interp.pipelines.train_relational_trace_graph.train_relational_trace_graph_run",
-        spy,
-    )
-    dispatch_c3_first_results_action(request)
-    assert captured["validation_volume_dir"] == Path(request["paths"]["volume_dir"])
-    assert not {"train_case_dir", "train_mask_dir", "train_volume_dir"} & captured.keys()
-
-
 def test_action_timeout_is_retained(tmp_path, suite_inputs, monkeypatch):
     original = subprocess.run
 
@@ -499,76 +485,6 @@ def test_tiny_siren_bridge_trains_observed_and_scores_all_targets(
         assert not run["amplitude"]["target_amplitudes_used_for_scale"]
 
 
-def test_tiny_gnn_bridge_trains_and_predicts_native_final(tmp_path, suite_inputs):
-    method = "gnn"
-    training, prediction = _fragment(f"{method}-train"), _fragment(f"{method}-predict")
-    inputs = deepcopy(suite_inputs)
-    training["model"].update(
-        width=8,
-        message_passing_rounds=1,
-        temporal_dilations=[1],
-        attention_width=4,
-        relation_embedding_dim=2,
-    )
-    training["graph"]["neighbors_per_relation"] = 1
-    training["training"].update(max_steps=1, query_batch_size=2, validation_interval=1)
-    training["evaluation"]["query_batch_size"] = 8
-    prediction["prediction"]["query_batch_size"] = 8
-    plan = _cpu_plan(tmp_path, {f"{method}-train": training, f"{method}-predict": prediction})
-    inputs_path = _write_inputs(tmp_path, inputs)
-    trained = run_c3_first_results(
-        config_path=plan,
-        inputs_path=inputs_path,
-        action=f"{method}-train",
-        execute=True,
-        dimensions=DIMENSIONS,
-    )
-    assert trained["status"] == "success", trained
-    checkpoint = Path(trained["native_run_directory"]) / "artifacts/final.pt"
-    predicted = run_c3_first_results(
-        config_path=plan,
-        inputs_path=inputs_path,
-        action=f"{method}-predict",
-        execute=True,
-        checkpoint_path=checkpoint,
-        dimensions=DIMENSIONS,
-    )
-    assert predicted["status"] == "success", predicted
-    native = Path(predicted["native_run_directory"])
-    assert (native / "artifacts/prediction.npy").is_file()
-    resolved = yaml.safe_load((native / "config.resolved.yaml").read_text())
-    assert resolved["project"]["random_seed"] == 42
-    assert not {"model", "training"} & resolved.keys()
-
-
-def test_renaming_best_checkpoint_does_not_make_it_final(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-
-    checkpoint = tmp_path / "final.pt"
-    checkpoint.write_bytes(b"synthetic renamed checkpoint")
-    monkeypatch.setattr(
-        "seis_interp.training.relational_trace_graph_checkpoints.load_relational_trace_graph_checkpoint",
-        lambda path, device: SimpleNamespace(checkpoint_role="best_selection"),
-    )
-    request = {
-        "action": "gnn-predict",
-        "preflight": False,
-        "paths": {},
-        "native_config_path": str(tmp_path / "config.yaml"),
-        "native_run_directory": str(tmp_path / "native"),
-        "suite_manifest": str(tmp_path / "benchmark_suite.json"),
-        "dimensions": {
-            "time_range": DIMENSIONS.time_range,
-            "sail_line_numbers": DIMENSIONS.sail_line_numbers,
-            "shape": DIMENSIONS.shape,
-        },
-        "checkpoint": {"path": str(checkpoint), "sha256": file_sha256(checkpoint)},
-    }
-    with pytest.raises(ValueError, match="checkpoint_role=final"):
-        dispatch_c3_first_results_action(request)
-    assert not (tmp_path / "native").exists()
-
-
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), 0, -1])
 @pytest.mark.parametrize("key", ["action_timeout_seconds", "preflight_timeout_seconds"])
 def test_nonfinite_or_nonpositive_timeout_is_rejected_before_writes(
@@ -588,92 +504,3 @@ def test_nonfinite_or_nonpositive_timeout_is_rejected_before_writes(
             dimensions=DIMENSIONS,
         )
     assert not (tmp_path / "runs").exists()
-
-
-@pytest.mark.parametrize("query_counts", [(1,), (1, 8, 32)])
-def test_dispatch_gnn_preflight_uses_declared_query_counts(tmp_path, monkeypatch, query_counts):
-    request = {
-        "action": "gnn-preflight",
-        "preflight": True,
-        "paths": {},
-        "native_config_path": str(tmp_path / "config.yaml"),
-        "native_run_directory": str(tmp_path / "native"),
-        "suite_manifest": str(tmp_path / "benchmark_suite.json"),
-        "case_id": "validation_random_trace",
-        "dimensions": {
-            "time_range": DIMENSIONS.time_range,
-            "sail_line_numbers": DIMENSIONS.sail_line_numbers,
-            "shape": DIMENSIONS.shape,
-        },
-        "experiment_config": {
-            "methods": {
-                "gnn-train": {"preflight": {"validation_query_counts": list(query_counts)}},
-            },
-        },
-    }
-    captured = {}
-
-    def spy(action, **kwargs):
-        assert action == "gnn-preflight"
-        captured.update(kwargs)
-        return {"status": "success"}
-
-    monkeypatch.setattr(
-        "seis_interp.pipelines.preflight_c3_first_results_neural.run_c3_first_results_neural_preflight",
-        spy,
-    )
-    assert dispatch_c3_first_results_action(request)["status"] == "success"
-    assert captured["query_counts"] == query_counts
-    assert not (tmp_path / "native").exists()
-
-
-@pytest.mark.parametrize(
-    ("train_seconds", "predict_seconds", "status"),
-    [
-        (4000, 100, "blocked"),
-        (100, 4000, "blocked"),
-        (3500, 3500, "success"),
-        (None, 100, "blocked"),
-    ],
-)
-def test_gnn_preflight_success_requires_both_full_actions_fit_budget(
-    tmp_path, suite_inputs, monkeypatch, train_seconds, predict_seconds, status
-):
-    plan_path = _plan(tmp_path, "gnn-train", _fragment("gnn-train"))
-    plan = yaml.safe_load(plan_path.read_text())
-    plan["execution"]["action_timeout_seconds"] = 3600
-    plan_path.write_text(yaml.safe_dump(plan))
-    estimates = {
-        "estimated_train_action_seconds": train_seconds,
-        "estimated_final_predict_action_seconds": predict_seconds,
-    }
-    original = subprocess.run
-
-    def measured(command, **kwargs):
-        if "--worker" not in command:
-            return original(command, **kwargs)
-        output = Path(command[-1]).parent
-        (output / "worker.result.json").write_text(
-            json.dumps(
-                {
-                    "status": "success",
-                    "metrics": {"status": "success", "estimates": estimates},
-                }
-            )
-        )
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(subprocess, "run", measured)
-    result = run_c3_first_results(
-        config_path=plan_path,
-        inputs_path=_write_inputs(tmp_path, suite_inputs),
-        action="gnn-preflight",
-        execute=True,
-        dimensions=DIMENSIONS,
-    )
-    assert result["status"] == status
-    assert result["metrics"] == {"status": "success", "estimates": estimates}
-    outer = Path(result["outer_run_directory"])
-    assert json.loads((outer / "result.json").read_text())["status"] == status
-    assert json.loads((outer / "worker.result.json").read_text())["status"] == "success"
-    assert not Path(result["native_run_directory"]).exists()

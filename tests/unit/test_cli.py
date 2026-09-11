@@ -23,7 +23,7 @@ def test_top_level_parser_routes_doctor_data_train_and_interpolate(capsys) -> No
         assert name in help_text
 
 
-def test_train_parser_exposes_the_five_commands(capsys) -> None:
+def test_train_parser_exposes_the_four_commands(capsys) -> None:
     help_text = _help_text(["train"], capsys)
     assert "ccnet5d" not in help_text
 
@@ -32,7 +32,6 @@ def test_train_parser_exposes_the_five_commands(capsys) -> None:
         "neighbor-inpainter",
         "shot-gather-inpainter",
         "trace-graph",
-        "relational-trace-graph",
     ):
         assert name in help_text
 
@@ -56,7 +55,6 @@ def test_train_and_interpolate_siren_keep_distinct_input_contracts(capsys) -> No
         "neighbor-inpainter",
         "shot-gather-inpainter",
         "trace-graph",
-        "relational-trace-graph",
     ],
 )
 def test_train_commands_offer_no_overwrite_option(command: str, capsys) -> None:

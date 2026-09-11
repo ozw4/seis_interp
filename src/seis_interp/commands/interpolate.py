@@ -156,7 +156,6 @@ def _interpolate_relational_trace_graph(args: argparse.Namespace) -> int:
     try:
         summary = interpolate_relational_trace_graph_run(
             config_path=args.config,
-            checkpoint_path=args.checkpoint,
             interim_dir=args.interim,
             processed_dir=args.processed,
             mask_dir=args.mask,
@@ -261,19 +260,9 @@ def add_interpolate_commands(
     ccnet5d.add_argument("--device", help="Override the configured training device for this run.")
     ccnet5d.set_defaults(handler=_interpolate_ccnet5d)
     relational = interpolate_commands.add_parser(
-        "relational-trace-graph", help="Predict a native case or volume with a frozen trace graph."
+        "relational-trace-graph",
+        help="Fit observed traces and interpolate the same C3 volume with a trace graph.",
     )
-    for option, help_text in (
-        ("checkpoint", "Trained relational trace graph checkpoint."),
-        ("config", "Frozen inference configuration YAML."),
-        ("interim", "Interim trace dataset."),
-        ("processed", "Prepared split dataset."),
-        ("mask", "Interpolation mask artifact."),
-        ("case", "Benchmark case artifact."),
-        ("output", "New run output directory."),
-    ):
-        relational.add_argument(f"--{option}", type=Path, required=True, help=help_text)
-    relational.add_argument("--volume", type=Path, help="Optional C3 volume-index selection.")
-    relational.add_argument("--device", help="Override prediction.device for this environment.")
-    relational.add_argument("--json", action="store_true", help="Print metrics as strict JSON.")
+    _add_c3_volume_run_arguments(relational)
+    relational.add_argument("--device", help="Override the configured training device.")
     relational.set_defaults(handler=_interpolate_relational_trace_graph)

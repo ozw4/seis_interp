@@ -204,9 +204,10 @@ interpolate drr      CPU/NumPy damped rank-reduction 5D
 interpolate siren    per-volume observed-only SIREN internal learning
 interpolate nersi    per-volume observed-only profile-wise NeRSI reimplementation
 interpolate ccnet5d  per-volume observed-only CCNet5D training and inference
+interpolate relational-trace-graph  per-volume observed-only GNN training and inference
 ```
 
-All five commands require an existing prepared partition, interpolation mask, benchmark case,
+These commands require an existing prepared partition, interpolation mask, benchmark case,
 and dense C3 volume index, with the same seven input/output path arguments:
 
 ```bash
@@ -244,6 +245,14 @@ PoC volume, then predicts all evaluation targets. It uses observed-only global R
 trace-relative loss, and a fixed optimizer-step budget, and writes `artifacts/final.pt`.
 It accepts `--device`; progress goes to stderr and the final summary to stdout, with strict JSON
 when `--json` is supplied.
+
+`interpolate relational-trace-graph` trains on whole-trace pseudo-masks within the same volume's
+observed set, using shared observed-only global RMS and trace-relative loss. Geometry uses the
+full analysis domain's fixed midpoint bounds. `training.max_steps` fixes the AdamW update count;
+`training.inner_mask_fraction` fixes the random pseudo-mask fraction. The final state is saved to
+`artifacts/final.pt` before predicting every target, including queries without observed neighbors.
+The dense physical prediction is scored by the common C3 evaluator. The command requires
+`--volume`, accepts `--device`, and does not accept an external checkpoint or use validation.
 
 ## Run outputs
 

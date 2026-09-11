@@ -305,140 +305,66 @@ has_observed_context = result.has_observed_context  # [True]
 保存モデルでは`load_relational_trace_graph_checkpoint()`の戻り値にある
 `model`・`preprocessing`・`graph_settings`を、そのままこの予測関数へ渡す。
 
-## CLIの最小設定と実行
+## PoC CLI
 
-以下は小規模synthetic artifact向けのtoy例で、研究上の推奨パラメータではない。
-`train.yaml`へ保存し、dataset ID・partition seed・時間範囲を既存artifactへ合わせる。
-訓練とvalidationは同じinterim/partition artifact内のdisjointな行を使う。
-独立した設定ファイルとして使い、別手法の未使用sectionを継承しない。
+`interpolate relational-trace-graph`は固定C3 random-80 volume内の観測集合Oだけで学習し、
+最終stateから欠損集合T全体を予測する。`--volume`は必須で、外部checkpointは受け取らない。
+上記のpartition学習Python APIではなく、
+`training/relational_trace_graph_poc_trainer.py`のfixed-step trainerを使用する。
+
+設定には`project`、`data`、`benchmark_case`、`benchmark_volume`、`interpolation_mask`、
+`model`、`graph`、`geometry_features`、`training`、`prediction`、`evaluation`を指定する。
+datasetは`seg_c3_na`、volume selectionは全5軸のresolved範囲を宣言する。
+`project.random_seed`は外側mask、`training.random_seed`はモデル初期化とepisodeのlocal RNGに使用する。
+modelはrelational・global RMS modeとし、次のtraining項目をすべて指定する。
 
 ```yaml
-project: {random_seed: 42}
-data: {dataset_id: synthetic_c3_ccnet5d}
-model:
-  name: relational_trace_graph
-  width: 8
-  message_passing_rounds: 2
-  time_downsample_factor: 2
-  stem_kernel_size: 3
-  temporal_kernel_size: 3
-  temporal_dilations: [1, 2]
-  attention_width: 4
-  relation_embedding_dim: 3
-  relation_fusion: learned_gate
-graph:
-  neighbors_per_relation: 2
-  max_normalized_distance: 1.0
-  candidate_chunk_size: 16
-  relations:
-    source: {source_scale_m: 2000.0, receiver_scale_m: 5000.0}
-    receiver: {source_scale_m: 5000.0, receiver_scale_m: 2000.0}
-    cmp: {midpoint_scale_m: 2000.0, offset_vector_scale_m: 5000.0}
-    offset_azimuth: {midpoint_scale_m: 5000.0, offset_vector_scale_m: 2000.0}
-geometry_features:
-  position_scale_m: 1000.0
-  offset_scale_m: 1000.0
-  azimuth_min_offset_m: 0.1
-training_data: {pool: all_train_traces, time_samples: [1, 4]}
-training_mask:
-  kinds: [random_trace, random_whole_ffid]
-  kind_probabilities: [0.5, 0.5]
-  missing_fractions: [0.5]
 training:
-  device: cpu
+  device: cuda
   random_seed: 7
-  loss: masked_mse
-  max_steps: 2
-  query_batch_size: 4
-  validation_interval: 2
-  learning_rate: 0.01
+  optimizer: adamw
+  loss: masked_trace_relative_mse
+  amplitude_scaling: observed_volume_global_rms
+  max_steps: 5000
+  query_batch_size: 64
+  learning_rate: 0.001
   weight_decay: 0.0
   gradient_clip_norm: 1.0
-evaluation:
-  primary_metric: physical_amplitude_global_snr_db
-  domain: evaluation_target
-  query_batch_size: 4
-```
-
-`project.random_seed`は既存partitionの条件、`training.random_seed`はモデル初期化と人工episodeの条件である。
-episodeのlocal RNGはモデル初期化やvalidation頻度から独立する。
-validation/test maskのseedは各caseから取得し、訓練seedとの一致は要求しない。
-`time_samples: [1, 4]`は元配列のサンプル1・2・3を意味し、選択した実際のtime_sをcheckpointへ保存する。
-volume指定時も時間範囲の一致を要求する。
-
-既存artifactの場所を以下のpathへ置き換えて実行する。
-
-```bash
-rtg_run_id="$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)"
-seis-interp train relational-trace-graph \
-  --config train.yaml \
-  --interim data/interim/toy --processed data/processed/toy \
-  --validation-mask data/processed/toy/masks/validation \
-  --validation-case data/processed/toy/cases/validation \
-  --output "runs/trace-graph-toy/${rtg_run_id}-train" --device cpu --json
-```
-
-`all_train_traces`ではtrain mask/caseは不要であり、追加訓練アクセスをrunへ明示する。
-`training_data.pool: mask_observed`に変更する場合は、同時に
-`--train-mask data/processed/toy/masks/train --train-case data/processed/toy/cases/train`を指定する。
-`--train-volume`はtrain mask/caseが両方ある場合に使え、O0の観測をそのcropへ制限する。
-`--validation-volume`はvalidationの観測・queryをそのvolumeへ制限する。
-
-凍結推論用の`predict.yaml`は、checkpointの構成を再定義しない。
-次の`benchmark_case.id`は既存test caseのIDへ合わせる。
-
-```yaml
-project: {random_seed: 42}
-data: {dataset_id: synthetic_c3_ccnet5d}
-benchmark_case: {id: test}
-prediction: {device: cpu, query_batch_size: 3}
+  inner_mask_fraction: 0.5
+  report_interval: 100
+prediction: {query_batch_size: 64}
 evaluation:
   primary_metric: physical_amplitude_global_snr_db
   domain: evaluation_target
 ```
+
+数値は設定形式の例であり、精度や実行予算の推奨値ではない。
+Global RMSはO全体から一度だけ計算し、座標原点はD全体のmidpoint bounding box中心に固定する。
+各episodeではOの一部Hを全trace単位で隠し、context readerはO−Hの振幅だけを保持する。
+Hだけに共通lossを適用し、no-context queryも除外しない。validationやbest選択は行わない。
 
 ```bash
 seis-interp interpolate relational-trace-graph \
-  --checkpoint "runs/trace-graph-toy/${rtg_run_id}-train/artifacts/best.pt" \
-  --config predict.yaml \
-  --interim data/interim/toy --processed data/processed/toy \
-  --mask data/processed/toy/masks/test --case data/processed/toy/cases/test \
-  --output "runs/trace-graph-toy/${rtg_run_id}-test" --device cpu --json
+  --config poc.yaml \
+  --interim data/interim/c3 --processed data/processed/c3 \
+  --mask data/processed/c3/masks/random80 \
+  --case data/processed/c3/cases/random80 \
+  --volume data/processed/c3/volumes/random80 \
+  --output runs/gnn-poc/run-id --device cuda --json
 ```
 
-`--volume`を追加すると、同じcaseにbindingされた既存volumeを選択する。
-モデル・graph・前処理・time gridはcheckpointを正本とし、推論configでの上書きやtime resamplingは拒否する。
-benchmark入力はcheckpointの訓練元と同じinterim/processed hashを要求する。
+## PoC run出力
+
+既存の出力directoryは再使用しない。`artifacts/final.pt`には最終重み、constructor、
+graph設定、共通RMS、固定座標bounds、inner mask率、seed、完了step、inputs lockを保存する。
+推論にはO全体をcontextとして渡し、TのIDが重複・欠落なく一致することをscatter前に確認する。
+物理振幅への復元は予測関数内で一度だけ行い、Oを再挿入したdense volumeを共通C3 evaluatorで採点する。
+
+`artifacts/prediction.npy`、`target_coverage.npy`、`query_trace_ids.npy`と、
+`config.resolved.yaml`、`inputs.lock.json`、`metrics.json`、`run.json`を保存する。
+metadataは学習step・episode数・loss・query/no-context件数、parameter数、実行時間と取得可能なmemoryを含む。
+推論・評価の失敗はrun全体の失敗として記録し、推論前に保存したfinal checkpointを保持する。
 `--json`のstdoutはstrict JSON、進捗はstderrへ出力する。
-
-## run出力
-
-出力先は既存pathの再使用を拒否する。各runへ`config.resolved.yaml`、`inputs.lock.json`、
-`run.json`、`metrics.json`を保存し、実際の入力hash、seedの役割、訓練pool、time、モデル・graph・固定尺度、
-method variant、device、件数とlayoutを記録する。
-訓練runの`artifacts/best.pt`はvalidation SSE最小の状態、`artifacts/final.pt`は最終stepの状態である。
-訓練runに保存するpredictionはbestを再ロードしたvalidation予測であり、testの採点は凍結推論runで行う。
-
-訓練では入力・設定・人工maskの成立条件と固定前処理を検証してから出力先を作り、
-学習前にresolved config、input lock、開始時の`run.json`と`metrics.json`を保存する。
-`run.json`は`status: running`、`phase: training`で始まり、best更新ごとにpipelineが`best.pt`、
-bestのstep・指標、記録時点の進捗を保存する。最初のvalidation前はbest関連の指標・checkpointは存在しない。
-configとinput lockは開始後に書き換えない。
-
-trainer正常終了後、`final.pt`と全学習指標を先に保存し、`phase: validation_prediction`でbestの予測を出力する。
-予測の保存まで完了すると`status: success`、`phase: complete`と終了時刻を確定する。
-例外時は`failed`、KeyboardInterrupt時は`interrupted`として、失敗したphase・例外・終了時刻を記録する。
-強制終了など終了処理を実行できない場合は、最後に保存された`running`の記録とcheckpointが残る。
-更新するJSONは各ファイルを一時ファイルから置き換える。checkpointとJSON全体を一括更新する契約ではないため、
-更新途中で終了した場合、そのcheckpointのstep・選択指標はcheckpoint自身の内容で確認する。
-
-| layout | `artifacts/prediction.npy` | 出力対応 |
-|---|---|---|
-| `native_trace_list` | query順の物理振幅`[Q,T]` | `artifacts/query_index.parquet`にtrace ID、座標、context flag、存在する場合のarray_row |
-| `dense_volume` | `(time, source_line, shot_in_line, rx, ry)` | 既存volume index順へ復元し、観測は元の物理振幅をexact copy。query対応表も保存 |
-
-モデルはこの出力layoutを認識しない。予測・行対応保存は`data/trace_graph_prediction_store.py`、
-labelを使う採点は`evaluation/trace_graph_metrics.py`、runの接続は二つの専用pipelineが担当する。
 
 ## 診断・独立baseline・preflight
 

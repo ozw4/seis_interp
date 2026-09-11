@@ -191,38 +191,6 @@ def _print_progress_to_stderr(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def _train_relational_trace_graph(args: argparse.Namespace) -> int:
-    from seis_interp.pipelines.train_relational_trace_graph import train_relational_trace_graph_run
-
-    try:
-        summary = train_relational_trace_graph_run(
-            config_path=args.config,
-            interim_dir=args.interim,
-            processed_dir=args.processed,
-            output_dir=args.output,
-            validation_mask_dir=args.validation_mask,
-            validation_case_dir=args.validation_case,
-            validation_volume_dir=args.validation_volume,
-            train_mask_dir=args.train_mask,
-            train_case_dir=args.train_case,
-            train_volume_dir=args.train_volume,
-            device_override=args.device,
-            progress_reporter=_print_progress_to_stderr,
-        )
-    except (OSError, RuntimeError, ValueError) as error:
-        print(f"train relational-trace-graph failed: {error}", file=sys.stderr)
-        return 1
-    if args.json:
-        print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
-    else:
-        print(f"Output directory: {args.output}")
-        print(f"Completed steps: {summary['steps_completed']}")
-        print(f"Best step: {summary['best_step']}")
-        selection = summary["best_validation_metrics"]["evaluation_target"]
-        print(f"Best validation SSE: {selection['error_energy']:.4f}")
-    return 0
-
-
 def add_train_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     train = subparsers.add_parser("train", help="Train coordinate-based interpolation models.")
     train_commands = train.add_subparsers(dest="train_command", required=True)
@@ -277,20 +245,3 @@ def add_train_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     trace_graph.add_argument("--device", help="Override training.device for this environment.")
     trace_graph.add_argument("--json", action="store_true", help="Print metrics as JSON.")
     trace_graph.set_defaults(handler=_train_trace_graph)
-    relational = train_commands.add_parser(
-        "relational-trace-graph", help="Train a grid-free trace graph with fixed validation."
-    )
-    for option, help_text in (
-        ("config", "Study configuration YAML."),
-        ("interim", "Interim trace dataset."),
-        ("processed", "Prepared split dataset."),
-        ("output", "New run output directory."),
-        ("validation-mask", "Fixed validation interpolation mask."),
-        ("validation-case", "Fixed validation benchmark case."),
-    ):
-        relational.add_argument(f"--{option}", type=Path, required=True, help=help_text)
-    for option in ("validation-volume", "train-mask", "train-case", "train-volume"):
-        relational.add_argument(f"--{option}", type=Path, help="Optional input selection artifact.")
-    relational.add_argument("--device", help="Override training.device for this environment.")
-    relational.add_argument("--json", action="store_true", help="Print metrics as strict JSON.")
-    relational.set_defaults(handler=_train_relational_trace_graph)

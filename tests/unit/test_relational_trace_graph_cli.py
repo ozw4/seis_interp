@@ -1,4 +1,4 @@
-"""Argument contracts and lazy imports for the new trace graph commands."""
+"""Argument contracts and lazy imports for the observed-only trace graph command."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import pytest
 from seis_interp.cli import build_parser
 
 
-@pytest.mark.parametrize("command", ["train", "interpolate"])
-def test_help_imports_no_torch_or_pipeline(command):
+def test_help_imports_no_torch_or_pipeline():
+    command = "interpolate"
     probe = (
         "import sys\nfrom seis_interp.cli import main\n"
         "try:\n"
@@ -26,32 +26,14 @@ def test_help_imports_no_torch_or_pipeline(command):
     assert result.returncode == 0, result.stderr
     for option in ("--config", "--interim", "--processed", "--output", "--device", "--json"):
         assert option in result.stdout
-    if command == "train":
-        for option in (
-            "--validation-mask",
-            "--validation-case",
-            "--validation-volume",
-            "--train-mask",
-            "--train-case",
-            "--train-volume",
-        ):
-            assert option in result.stdout
-    else:
-        assert "--checkpoint" in result.stdout and "--volume" in result.stdout
+    assert "--checkpoint" not in result.stdout
+    assert "--volume" in result.stdout
 
 
-@pytest.mark.parametrize(
-    "command,missing",
-    [("train", "validation-case"), ("train", "validation-mask"), ("interpolate", "checkpoint")],
-)
-def test_required_arguments_are_checked_by_parser(command, missing):
-    options = ("config", "interim", "processed", "output")
-    options += (
-        ("validation-mask", "validation-case")
-        if command == "train"
-        else ("checkpoint", "mask", "case")
-    )
-    argv = [command, "relational-trace-graph"]
+@pytest.mark.parametrize("missing", ["volume", "mask", "case", "config"])
+def test_required_arguments_are_checked_by_parser(missing):
+    options = ("config", "interim", "processed", "output", "volume", "mask", "case")
+    argv = ["interpolate", "relational-trace-graph"]
     for option in options:
         if option != missing:
             argv += [f"--{option}", "unused"]

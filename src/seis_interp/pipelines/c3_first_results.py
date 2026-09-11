@@ -32,9 +32,6 @@ ACTIONS = (
     "check",
     "zero-fill",
     "siren",
-    "gnn-preflight",
-    "gnn-train",
-    "gnn-predict",
     "summarize",
 )
 
@@ -54,10 +51,7 @@ def run_c3_first_results(
     """Resolve read-only by default; explicit execution isolates a single timed action."""
     if action not in ACTIONS:
         raise ConfigurationError(f"unsupported action: {action}")
-    if preflight and action not in (
-        "siren",
-        "gnn-preflight",
-    ):
+    if preflight and action not in ("siren",):
         raise ConfigurationError(f"--preflight is not supported for {action}")
     config_path, inputs_path = Path(config_path).resolve(), Path(inputs_path).resolve()
     plan = read_first_results_yaml(config_path)
@@ -66,7 +60,7 @@ def run_c3_first_results(
     started = time.perf_counter()
     request = {
         "action": action,
-        "preflight": preflight or action == "gnn-preflight",
+        "preflight": preflight,
         "started_at": run_records.utc_timestamp(),
         "config_path": str(config_path),
         "inputs_path": str(inputs_path),
@@ -146,24 +140,11 @@ def _resolve_request(request, *, config_path, inputs_path, checkpoint_path, dime
     request["volume"] = binding.volume
     request["train_pool"] = binding.manifest["train_pool"]
     if checkpoint_path is not None:
-        if action != "gnn-predict":
-            raise ConfigurationError("--checkpoint is only supported for frozen prediction actions")
-        checkpoint_path = Path(checkpoint_path).resolve()
-        if checkpoint_path.name != "final.pt":
-            raise ConfigurationError(
-                "pilot primary predictions require the native final.pt checkpoint"
-            )
-        request["checkpoint"] = {
-            "path": str(checkpoint_path),
-            "sha256": file_sha256(checkpoint_path),
-            "role": "final",
-        }
-    elif action == "gnn-predict":
-        raise ConfigurationError(f"{action} requires an explicit final checkpoint")
+        raise ConfigurationError("--checkpoint is not supported for these actions")
     if action in ("check", "zero-fill", "summarize"):
         request["native_config"] = plan
         return
-    method = "gnn-train" if action == "gnn-preflight" else action
+    method = action
     fragment_path = config_path.parent / plan["methods"][method]["native_fragment"]
     fragment = read_first_results_yaml(fragment_path)
     native = build_c3_first_result_native_config(
@@ -247,35 +228,8 @@ def _execute_worker(request: dict, output: Path) -> dict:
         result = read_benchmark_json(worker_result)
         if completed.returncode and result.get("status") == "success":
             result.update(status="failed", reason=f"worker exited {completed.returncode}")
-        if request["action"] == "gnn-preflight" and result.get("status") == "success":
-            _classify_gnn_preflight_budget(result, execution["action_timeout_seconds"])
         return result
     return {"status": "failed", "reason": f"worker exited {completed.returncode} without a result"}
-
-
-def _classify_gnn_preflight_budget(result: dict, timeout: float) -> None:
-    # Measurement success is separate from a feasible budget for both full actions.
-    estimates = result.get("metrics", {}).get("estimates", {})
-    names = ("estimated_train_action_seconds", "estimated_final_predict_action_seconds")
-    for name in names:
-        value = estimates.get(name)
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or value < 0
-        ):
-            result.update(
-                status="blocked",
-                reason=f"GNN preflight lacks a finite full-run estimate: {name}",
-            )
-            return
-    exceeded = {name: estimates[name] for name in names if estimates[name] > timeout}
-    if exceeded:
-        result.update(
-            status="blocked",
-            reason=f"GNN preflight full-action estimate exceeds {timeout} seconds: {exceeded}",
-        )
 
 
 def dispatch_c3_first_results_action(request: dict) -> dict:
@@ -324,13 +278,6 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
             run_c3_first_results_neural_preflight,
         )
 
-        measurement_options = {}
-        if action == "gnn-preflight":
-            measurement_options["query_counts"] = tuple(
-                request["experiment_config"]["methods"]["gnn-train"]["preflight"][
-                    "validation_query_counts"
-                ]
-            )
         return run_c3_first_results_neural_preflight(
             action,
             config_path=config_path,
@@ -338,52 +285,13 @@ def dispatch_c3_first_results_action(request: dict) -> dict:
             case_id=request["case_id"],
             output_dir=output,
             dimensions=dimensions,
-            **measurement_options,
         )
     arguments = {"config_path": config_path, "output_dir": output, "progress_reporter": _progress}
-    if action == "gnn-train":
-        from seis_interp.pipelines.train_relational_trace_graph import (
-            train_relational_trace_graph_run,
-        )
-
-        return train_relational_trace_graph_run(
-            **arguments,
-            interim_dir=paths["interim_dir"],
-            processed_dir=paths["processed_dir"],
-            validation_mask_dir=paths["mask_dir"],
-            validation_case_dir=paths["case_dir"],
-            validation_volume_dir=paths["volume_dir"],
-        )
     if action == "siren":
         from seis_interp.pipelines.interpolate_siren import interpolate_siren_run
 
         return interpolate_siren_run(**arguments, **paths)
-    checkpoint = Path(request["checkpoint"]["path"])
-    if file_sha256(checkpoint) != request["checkpoint"]["sha256"]:
-        raise ValueError("checkpoint changed after the experiment request was recorded")
-    if action == "gnn-predict":
-        from seis_interp.pipelines.interpolate_relational_trace_graph import (
-            interpolate_relational_trace_graph_run,
-        )
-        from seis_interp.training.relational_trace_graph_checkpoints import (
-            load_relational_trace_graph_checkpoint,
-        )
-
-        _require_final_checkpoint(load_relational_trace_graph_checkpoint, checkpoint)
-        return interpolate_relational_trace_graph_run(
-            **arguments, **paths, checkpoint_path=checkpoint
-        )
     raise ConfigurationError(f"unsupported action: {action}")
-
-
-def _require_final_checkpoint(loader, path: Path) -> None:
-    # Read through the native validator: renaming a best checkpoint cannot make it final.
-    import torch
-
-    with torch.random.fork_rng(devices=[]):
-        loaded = loader(path, device=torch.device("cpu"))
-    if loaded.checkpoint_role != "final":
-        raise ValueError("pilot primary prediction requires checkpoint_role=final")
 
 
 def _progress(message: str) -> None:
