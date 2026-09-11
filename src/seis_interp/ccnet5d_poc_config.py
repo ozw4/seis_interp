@@ -55,9 +55,7 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
         },
     )
     config_values.require_exact(config, "model.name", "ccnet5d")
-    output_activation = model["output_activation"]
-    if not isinstance(output_activation, str) or output_activation not in {"linear", "relu"}:
-        raise ConfigurationError("model.output_activation must be 'linear' or 'relu'")
+    _require_literal(model, "output_activation", "linear")
     model_config: dict[str, object] = {
         "hidden_channels": config_values.positive_integer(
             model["hidden_channels"], "model.hidden_channels"
@@ -68,7 +66,7 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
         "kernel_size": config_values.odd_positive_integer(
             model["kernel_size"], "model.kernel_size"
         ),
-        "output_activation": output_activation,
+        "output_activation": model["output_activation"],
     }
 
     patches = config_values.exact_section(

@@ -62,6 +62,7 @@ def test_validates_single_fixed_step_observed_only_configuration() -> None:
         ("patches", "inner_mask_fraction", 1.0, "strictly less than 1"),
         ("patches", "mask_kind", "random_sample", "mask_kind"),
         ("model", "kernel_size", 2, "odd"),
+        ("model", "output_activation", "relu", "output_activation must be 'linear'"),
         ("model", "output_activation", [], "output_activation"),
     ],
 )
