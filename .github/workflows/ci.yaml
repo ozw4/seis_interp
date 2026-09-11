@@ -21,7 +21,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,data,segy,ml]"
+        run: >
+          python -m pip install --upgrade pip &&
+          python -m pip install -e ".[dev,data,segy,ml,visualization]"
       - name: Verify SEG-Y dependency
         run: python -c "import segyio"
       - name: Verify PyTorch dependency
