@@ -7,7 +7,7 @@ import torch
 from seis_interp.evaluation.physical_amplitude_metrics import (
     physical_amplitude_mean_trace_relative_mse,
 )
-from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
+from seis_interp.training.trace_relative_loss import masked_trace_loss, masked_trace_relative_mse
 
 
 @pytest.mark.parametrize(
@@ -182,3 +182,34 @@ def test_one_dimensional_input_is_one_complete_trace() -> None:
     prediction = torch.zeros_like(target)
 
     assert masked_trace_relative_mse(prediction, target).item() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+def test_explicit_accumulation_precision_preserves_default_value_and_gradients(loss_name):
+    target = torch.tensor([[1.0, -2.0], [0.0, 0.0]])
+    prediction = torch.tensor([[0.5, -1.0], [1.0, -1.0]], requires_grad=True)
+    default = masked_trace_loss(prediction, target, loss_name=loss_name)
+    explicit = masked_trace_loss(
+        prediction, target, loss_name=loss_name, accumulation_dtype=torch.float64
+    )
+    assert default.dtype == explicit.dtype == torch.float64
+    assert torch.equal(default, explicit)
+    assert torch.equal(
+        torch.autograd.grad(default, prediction)[0], torch.autograd.grad(explicit, prediction)[0]
+    )
+    single = masked_trace_loss(
+        prediction, target, loss_name=loss_name, accumulation_dtype=torch.float32
+    )
+    assert single.dtype == torch.float32
+    assert torch.isfinite(single)
+    assert torch.isfinite(torch.autograd.grad(single, prediction)[0]).all()
+    torch.testing.assert_close(single.double(), default)
+
+
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.int64, None])
+def test_loss_rejects_low_precision_accumulation(loss_name, dtype):
+    with pytest.raises(ValueError, match="accumulation_dtype"):
+        masked_trace_loss(
+            torch.ones(2), torch.ones(2), loss_name=loss_name, accumulation_dtype=dtype
+        )

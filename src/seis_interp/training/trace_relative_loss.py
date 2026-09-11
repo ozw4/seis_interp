@@ -13,12 +13,17 @@ def masked_trace_loss(
     trace_mask: torch.Tensor | None = None,
     *,
     loss_name: str,
+    accumulation_dtype: torch.dtype = torch.float64,
 ) -> torch.Tensor:
     """Apply one of the two complete-trace PoC objectives."""
     if loss_name == "masked_trace_mse":
-        return masked_trace_mse(prediction, target, trace_mask)
+        return masked_trace_mse(
+            prediction, target, trace_mask, accumulation_dtype=accumulation_dtype
+        )
     if loss_name == "masked_trace_relative_mse":
-        return masked_trace_relative_mse(prediction, target, trace_mask)
+        return masked_trace_relative_mse(
+            prediction, target, trace_mask, accumulation_dtype=accumulation_dtype
+        )
     raise ValueError(f"loss_name must be one of {POC_TRACE_LOSSES!r}")
 
 
@@ -26,29 +31,44 @@ def masked_trace_mse(
     prediction: torch.Tensor,
     target: torch.Tensor,
     trace_mask: torch.Tensor | None = None,
+    *,
+    accumulation_dtype: torch.dtype = torch.float64,
 ) -> torch.Tensor:
-    """Return float64 time-then-trace mean squared error without trace weighting."""
+    """Return time-then-trace MSE, accumulating in float64 unless requested otherwise."""
+    _validate_accumulation_dtype(accumulation_dtype)
     prediction_rows, target_rows = _validated_selected_rows(prediction, target, trace_mask)
     if prediction.dtype != target.dtype:
         raise TypeError("prediction and target must share a dtype")
-    return (prediction_rows.double() - target_rows.double()).square().mean()
+    return (
+        (prediction_rows.to(accumulation_dtype) - target_rows.to(accumulation_dtype))
+        .square()
+        .mean()
+    )
 
 
 def masked_trace_relative_mse(
     prediction: torch.Tensor,
     target: torch.Tensor,
     trace_mask: torch.Tensor | None = None,
+    *,
+    accumulation_dtype: torch.dtype = torch.float64,
 ) -> torch.Tensor:
     """Return relative MSE over selected complete traces with time last."""
+    _validate_accumulation_dtype(accumulation_dtype)
     prediction_rows, target_rows = _validated_selected_rows(prediction, target, trace_mask)
 
-    teacher = target_rows.detach().double()
+    teacher = target_rows.detach().to(accumulation_dtype)
     peak = teacher.abs().amax(dim=1, keepdim=True)
     safe_peak = torch.where(peak > 0, peak, torch.ones_like(peak))
     rms = peak * (teacher / safe_peak).square().mean(dim=1, keepdim=True).sqrt()
     divisor = torch.where(rms > 0, rms, torch.ones_like(rms))
-    residual = prediction_rows.double() - target_rows.double()
+    residual = prediction_rows.to(accumulation_dtype) - target_rows.to(accumulation_dtype)
     return (residual / divisor).square().mean()
+
+
+def _validate_accumulation_dtype(dtype: torch.dtype) -> None:
+    if dtype not in (torch.float32, torch.float64):
+        raise ValueError("accumulation_dtype must be torch.float32 or torch.float64")
 
 
 def _validated_selected_rows(

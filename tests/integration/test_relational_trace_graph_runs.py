@@ -45,6 +45,8 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(
     captured = []
 
     def predict(model, domain, preprocessing, **kwargs):
+        assert "mixed_precision" not in kwargs
+        assert not torch.is_autocast_enabled()
         assert domain.amplitudes_path is None
         assert domain.array_rows is None
         np.testing.assert_array_equal(
@@ -80,6 +82,10 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(
     assert (
         yaml.safe_load((output / "config.resolved.yaml").read_text())["training"]["loss"]
         == loss_name
+    )
+    assert (
+        yaml.safe_load((output / "config.resolved.yaml").read_text())["training"]["mixed_precision"]
+        == "off"
     )
     assert checkpoint["inner_mask_fraction"] == 0.5
     assert not {"best_step", "validation_history"} & checkpoint.keys()
@@ -183,7 +189,7 @@ def test_target_truth_changes_only_metrics_not_training_or_pre_evaluation_predic
         scores.append(metrics["evaluation_target"])
         histories.append(
             [
-                {k: v for k, v in row.items() if k != "seconds"}
+                {k: v for k, v in row.items() if not k.endswith("seconds")}
                 for row in metrics["training"]["history"]
             ]
         )

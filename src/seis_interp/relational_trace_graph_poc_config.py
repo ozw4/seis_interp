@@ -11,6 +11,8 @@ from seis_interp.relational_trace_graph_config import (
     validate_trace_graph_graph_config,
     validate_trace_graph_model_config,
 )
+from seis_interp.training.mixed_precision import validate_mixed_precision
+from seis_interp.training.trace_graph_sampling import validate_trace_graph_edge_sampling
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 
@@ -64,6 +66,13 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
     geometry["azimuth_min_offset_m"] = values.nonnegative_float(
         geometry["azimuth_min_offset_m"], "geometry_features.azimuth_min_offset_m"
     )
+    raw_training = config.get("training")
+    optional_training_keys = {"mixed_precision", "edge_sampling"}
+    present_optional = (
+        optional_training_keys.intersection(raw_training)
+        if isinstance(raw_training, Mapping)
+        else set()
+    )
     training = dict(
         values.exact_section(
             config,
@@ -82,9 +91,23 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
                 "gradient_clip_norm",
                 "inner_mask_fraction",
                 "report_interval",
-            },
+            }
+            | present_optional,
         )
     )
+    try:
+        training["mixed_precision"] = validate_mixed_precision(
+            training.get("mixed_precision", "off")
+        )
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
+    if "edge_sampling" in training:
+        try:
+            training["edge_sampling"] = validate_trace_graph_edge_sampling(
+                training["edge_sampling"], graph
+            )
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
     if training["loss"] not in POC_TRACE_LOSSES:
         raise ConfigurationError(f"training.loss must be one of {POC_TRACE_LOSSES!r}")
     for key, expected in {

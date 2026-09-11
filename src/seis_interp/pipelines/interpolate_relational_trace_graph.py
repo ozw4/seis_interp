@@ -67,6 +67,7 @@ def interpolate_relational_trace_graph_run(
     )
     options.pop("device", None)
     config["training"]["device"] = str(device)
+    config["training"]["mixed_precision"] = options["mixed_precision"]
     started_at = run_records.utc_timestamp()
     git_metadata = run_records.current_git_metadata()
     if progress_reporter:

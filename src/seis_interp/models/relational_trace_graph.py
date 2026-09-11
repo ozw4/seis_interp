@@ -157,7 +157,7 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         if edge_time_shifts is not None:
             values = shift_trace_graph_values(values, edge_time_shifts)
         weighted = attention[:, None, None] * gamma[:, :, None] * values
-        messages = latents.new_zeros(group_count, channels, frames)
+        messages = weighted.new_zeros(group_count, channels, frames)
         messages.index_add_(0, group, weighted)
         return messages.reshape(node_count, _RELATION_COUNT, channels, frames), valid
 
@@ -179,10 +179,9 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         )[:, :, 0]
         # Only valid entries enter softmax, including when an entire node is empty.
         node, relation_id = valid.nonzero(as_tuple=True)
-        weights = torch.zeros_like(logits)
-        weights[node, relation_id] = _group_softmax(
-            logits[node, relation_id], node, latents.shape[0]
-        )
+        normalized = _group_softmax(logits[node, relation_id], node, latents.shape[0])
+        weights = normalized.new_zeros(logits.shape)
+        weights[node, relation_id] = normalized
         return weights
 
 
@@ -407,6 +406,9 @@ def _mlp(input_width: int, hidden_width: int, output_width: int) -> nn.Sequentia
 
 
 def _group_softmax(logits: torch.Tensor, group: torch.Tensor, group_count: int) -> torch.Tensor:
+    # AMP linear logits may be low precision; softmax reductions stay in FP32.
+    if logits.dtype in (torch.float16, torch.bfloat16):
+        logits = logits.float()
     maxima = logits.new_full((group_count,), -torch.inf)
     maxima.scatter_reduce_(0, group, logits, reduce="amax", include_self=True)
     exponentials = torch.exp(logits - maxima[group])
