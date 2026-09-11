@@ -71,6 +71,28 @@ def test_relational_trace_graph_dispatches_without_checkpoint(tmp_path, monkeypa
     assert json.loads(capsys.readouterr().out)["method"] == "relational_trace_graph"
 
 
+def test_relational_trace_graph_uses_common_text_summary(tmp_path, monkeypatch, capsys):
+    name = "seis_interp.pipelines.interpolate_relational_trace_graph"
+    module = ModuleType(name)
+    module.interpolate_relational_trace_graph_run = lambda **kwargs: (
+        _summary()
+        | {
+            "method": "relational_trace_graph",
+            "uncovered_trace_count": 0,
+            "warnings": ["example warning"],
+        }
+    )
+    monkeypatch.setitem(sys.modules, name, module)
+    assert main(_arguments(tmp_path, "relational-trace-graph")) == 0
+    output = capsys.readouterr()
+    assert "Method: relational_trace_graph" in output.out
+    assert "Benchmark volume:" in output.out
+    assert "Observed maximum absolute error:" in output.out
+    assert "Uncovered traces: 0" in output.out
+    assert "Uncovered samples: 0" in output.out
+    assert "example warning" in output.err
+
+
 def test_relational_trace_graph_requires_volume_and_rejects_checkpoint(tmp_path):
     arguments = _arguments(tmp_path, "relational-trace-graph")
     index = arguments.index("--volume")

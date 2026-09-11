@@ -168,13 +168,7 @@ def _interpolate_relational_trace_graph(args: argparse.Namespace) -> int:
     except (OSError, RuntimeError, ValueError) as error:
         print(f"interpolate relational-trace-graph failed: {error}", file=sys.stderr)
         return 1
-    if args.json:
-        print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
-    else:
-        print(f"Output directory: {args.output}")
-        print(f"Benchmark case: {summary['case_id']}")
-        print(f"Target global S/N: {_format_snr(summary['evaluation_target'])}")
-        print(f"Target RMSE: {summary['evaluation_target']['rmse']:.4f}")
+    _print_run_summary(summary, args.output, json_output=args.json)
     return 0
 
 
