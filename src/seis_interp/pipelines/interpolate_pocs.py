@@ -14,15 +14,16 @@ import numpy as np
 
 from seis_interp import config_values, run_records
 from seis_interp.configuration import ConfigurationError, load_resolved_config
-from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
+from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
+from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.evaluation.c3_volume_metrics import (
     evaluate_c3_volume_prediction,
     validate_c3_volume_evaluation_config,
 )
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
-from seis_interp.processing.pocs_windows import interpolate_pocs_volume
+from seis_interp.processing.pocs_windows import WindowedPocsResult, interpolate_pocs_volume
 
-METHOD = "pocs_fourier_5d"
+METHOD = "pocs"
 PREDICTION_RELATIVE_PATH = Path("artifacts") / "prediction.npy"
 
 _POCS_KEYS = frozenset(
@@ -61,6 +62,7 @@ def interpolate_pocs_run(
     """Reconstruct, evaluate, and record one immutable Fourier POCS-5D run."""
     output_directory = Path(output_dir)
     run_records.check_new_output_directory(output_directory)
+    run_started = time.perf_counter()
     config = load_resolved_config(Path(config_path))
     settings = _pocs_settings(config)
     validate_c3_volume_evaluation_config(config)
@@ -75,7 +77,7 @@ def interpolate_pocs_run(
 
     _report(progress_reporter, "Loading and verifying C3 inputs.")
     load_started = time.perf_counter()
-    inputs = load_c3_volume_run_inputs(
+    inputs = load_c3_random80_poc_inputs(
         config=config,
         interim_dir=interim_directory,
         processed_dir=processed_directory,
@@ -101,6 +103,7 @@ def interpolate_pocs_run(
         overlap=settings.overlap,
     )
     reconstruction_seconds = time.perf_counter() - reconstruction_started
+    target_coverage_mask = _validate_complete_prediction(reconstructed, observed_volume)
 
     _report(progress_reporter, "Evaluating reconstruction on evaluation-target traces.")
     evaluation_started = time.perf_counter()
@@ -109,10 +112,11 @@ def interpolate_pocs_run(
         observed_volume,
         interim_dir=interim_directory,
         volume_metadata=volume_metadata,
+        target_coverage_mask=target_coverage_mask,
     )
     evaluation_seconds = time.perf_counter() - evaluation_started
 
-    warnings = _uncovered_warnings(reconstructed.uncovered_sample_count)
+    warnings: list[str] = []
     metrics = dict(evaluation)
     metrics.update(
         {
@@ -129,6 +133,7 @@ def interpolate_pocs_run(
     prediction_path = output_directory / PREDICTION_RELATIVE_PATH
     prediction_path.parent.mkdir(parents=True, exist_ok=False)
     np.save(prediction_path, reconstructed.values, allow_pickle=False)
+    end_to_end_seconds = time.perf_counter() - run_started
     finished_at_utc = run_records.utc_timestamp()
     run_metadata = _run_metadata(
         settings=settings,
@@ -145,6 +150,7 @@ def interpolate_pocs_run(
         load_and_verification_seconds=load_and_verification_seconds,
         reconstruction_seconds=reconstruction_seconds,
         evaluation_seconds=evaluation_seconds,
+        end_to_end_seconds=end_to_end_seconds,
     )
 
     run_records.write_run_outputs(
@@ -155,6 +161,35 @@ def interpolate_pocs_run(
         run_metadata,
     )
     return metrics
+
+
+def _validate_complete_prediction(
+    reconstructed: WindowedPocsResult,
+    observed_volume: ObservedC3Volume,
+) -> np.ndarray:
+    values = reconstructed.values
+    if not isinstance(values, np.ndarray) or values.shape != observed_volume.values.shape:
+        shape = getattr(values, "shape", None)
+        raise ValueError(
+            "POCS prediction shape does not match the prepared C3 volume: "
+            f"prediction={shape}, expected={observed_volume.values.shape}"
+        )
+    if values.dtype.kind not in "fiu" or values.dtype.kind == "b":
+        raise ValueError("POCS prediction must contain real numeric physical amplitudes")
+    if reconstructed.uncovered_sample_count != 0:
+        raise ValueError(
+            "POCS reconstruction must cover every target sample; "
+            f"uncovered_sample_count={reconstructed.uncovered_sample_count}"
+        )
+    if not np.isfinite(values).all():
+        raise ValueError("POCS prediction contains non-finite values")
+    observed_mask = observed_volume.observed_trace_mask
+    if not np.array_equal(
+        values[:, observed_mask],
+        observed_volume.values[:, observed_mask],
+    ):
+        raise ValueError("POCS prediction must preserve observed samples exactly")
+    return np.ones_like(observed_volume.evaluation_target_trace_mask, dtype=np.bool_)
 
 
 def _pocs_settings(config: Mapping[str, object]) -> _PocsSettings:
@@ -239,6 +274,7 @@ def _run_metadata(
     load_and_verification_seconds: float,
     reconstruction_seconds: float,
     evaluation_seconds: float,
+    end_to_end_seconds: float,
 ) -> dict[str, object]:
     mask = case["mask"]
     role_counts = volume_metadata["role_counts"]
@@ -256,6 +292,11 @@ def _run_metadata(
     ]
     return {
         "method": METHOD,
+        "input_amplitude_domain": "physical",
+        "output_amplitude_domain": "physical",
+        "benchmark_global_rms_normalization": False,
+        "observed_data_constraint": True,
+        "native_iterative_updates": True,
         "case_id": case["case_id"],
         "volume_id": volume_metadata["volume_id"],
         **git_metadata,
@@ -308,10 +349,17 @@ def _run_metadata(
             "empty_block_count": empty_block_count,
             "uncovered_sample_count": uncovered_sample_count,
         },
+        "coverage": {
+            "target_trace_count": target_count,
+            "covered_target_trace_count": target_count,
+            "target_coverage_fraction": 1.0,
+            "uncovered_sample_count": uncovered_sample_count,
+        },
         "resources": {
             "load_and_verification_seconds": load_and_verification_seconds,
             "reconstruction_seconds": reconstruction_seconds,
             "evaluation_seconds": evaluation_seconds,
+            "end_to_end_seconds": end_to_end_seconds,
             "process_max_rss_kib": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
             "process_max_rss_scope": "whole_process",
         },
@@ -323,15 +371,6 @@ def _run_metadata(
         },
         "warnings": list(warnings),
     }
-
-
-def _uncovered_warnings(uncovered_sample_count: int) -> list[str]:
-    if uncovered_sample_count == 0:
-        return []
-    return [
-        f"{uncovered_sample_count} samples were not covered by any non-empty POCS block "
-        "and remain zero"
-    ]
 
 
 def _report(reporter: ProgressReporter | None, message: str) -> None:

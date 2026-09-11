@@ -41,7 +41,7 @@ def _summary(
     warnings: list[str] | None = None,
 ) -> dict[str, object]:
     return {
-        "method": "pocs_fourier_5d",
+        "method": "pocs",
         "case_id": "synthetic_case",
         "volume_id": "synthetic_volume",
         "evaluation_domain": "evaluation_target",
@@ -96,7 +96,7 @@ def _install_nersi_pipeline_stub(monkeypatch: pytest.MonkeyPatch, function: obje
 
 def _drr_summary(**kwargs: object) -> dict[str, object]:
     return _summary(**kwargs) | {  # type: ignore[arg-type]
-        "method": "damped_rank_reduction_5d",
+        "method": "drr",
         "uncovered_trace_count": 0,
     }
 
@@ -212,7 +212,7 @@ def test_pocs_human_summary_preserves_exact_output(
     captured = capsys.readouterr()
     assert captured.out == (
         f"Output directory: {tmp_path / 'run'}\n"
-        "Method: pocs_fourier_5d\n"
+        "Method: pocs\n"
         "Benchmark case: synthetic_case\n"
         "Benchmark volume: synthetic_volume\n"
         "Target global S/N: 12.5 dB\n"
@@ -349,7 +349,7 @@ def test_drr_human_output_includes_primary_metrics_and_uncovered_counts(
 
     captured = capsys.readouterr()
     assert f"Output directory: {tmp_path / 'run'}" in captured.out
-    assert "Method: damped_rank_reduction_5d" in captured.out
+    assert "Method: drr" in captured.out
     assert "Benchmark case: synthetic_case" in captured.out
     assert "Benchmark volume: synthetic_volume" in captured.out
     assert f"Target global S/N: {snr_text}" in captured.out

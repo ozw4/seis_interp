@@ -14,17 +14,25 @@ import numpy as np
 
 from seis_interp import config_values, run_records
 from seis_interp.configuration import ConfigurationError, load_resolved_config
-from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs, load_c3_volume_run_inputs
+from seis_interp.data.c3_poc_inputs import (
+    C3_RANDOM80_POC_BENCHMARK_ID,
+    load_c3_random80_poc_inputs,
+)
+from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs
 from seis_interp.evaluation.c3_volume_metrics import (
     evaluate_c3_volume_prediction,
     validate_c3_volume_evaluation_config,
+)
+from seis_interp.processing.c3_benchmark_contract import (
+    MAIN_C3_DIMENSIONS,
+    C3BenchmarkDimensions,
 )
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.processing.drr import DrrFrequencySelection, select_drr_frequencies
 from seis_interp.processing.drr_windows import WindowedDrrResult, interpolate_drr_volume
 from seis_interp.processing.level_four_hankel import level_four_hankel_matrix_shape
 
-METHOD = "damped_rank_reduction_5d"
+METHOD = "drr"
 METHOD_VARIANT = "reconstruction_only_hard_consistency"
 PREDICTION_RELATIVE_PATH = Path("artifacts") / "prediction.npy"
 
@@ -63,10 +71,12 @@ def interpolate_drr_run(
     volume_dir: Path,
     output_dir: Path,
     progress_reporter: ProgressReporter | None = None,
+    dimensions: C3BenchmarkDimensions = MAIN_C3_DIMENSIONS,
 ) -> dict[str, object]:
     """Reconstruct, evaluate, and record one immutable CPU/NumPy DRR run."""
     output_directory = Path(output_dir)
     run_records.check_new_output_directory(output_directory)
+    end_to_end_started = time.perf_counter()
     config = load_resolved_config(Path(config_path))
     settings = _drr_settings(config)
     validate_c3_volume_evaluation_config(config)
@@ -75,13 +85,14 @@ def interpolate_drr_run(
 
     _report(progress_reporter, "Loading and verifying C3 inputs.")
     load_started = time.perf_counter()
-    inputs = load_c3_volume_run_inputs(
+    inputs = load_c3_random80_poc_inputs(
         config=config,
         interim_dir=Path(interim_dir),
         processed_dir=Path(processed_dir),
         mask_dir=Path(mask_dir),
         case_dir=Path(case_dir),
         volume_dir=Path(volume_dir),
+        dimensions=dimensions,
     )
     load_seconds = time.perf_counter() - load_started
     observed = inputs.observed_volume
@@ -106,6 +117,7 @@ def interpolate_drr_run(
         spatial_overlap=settings.spatial_overlap,
     )
     reconstruction_seconds = time.perf_counter() - reconstruction_started
+    target_coverage_mask = _validate_reconstruction(reconstructed, inputs)
 
     _report(progress_reporter, "Evaluating reconstruction on evaluation-target traces.")
     evaluation_started = time.perf_counter()
@@ -114,10 +126,11 @@ def interpolate_drr_run(
         observed,
         interim_dir=Path(interim_dir),
         volume_metadata=inputs.volume_metadata,
+        target_coverage_mask=target_coverage_mask,
     )
     evaluation_seconds = time.perf_counter() - evaluation_started
     uncovered_samples = reconstructed.uncovered_trace_count * observed.values.shape[0]
-    warnings = _uncovered_warnings(reconstructed.uncovered_trace_count, uncovered_samples)
+    warnings: list[str] = []
     metrics = dict(evaluation)
     metrics.update(
         {
@@ -137,6 +150,7 @@ def interpolate_drr_run(
     prediction_path.parent.mkdir(parents=True, exist_ok=False)
     np.save(prediction_path, reconstructed.values, allow_pickle=False)
     finished_at_utc = run_records.utc_timestamp()
+    end_to_end_seconds = time.perf_counter() - end_to_end_started
     metadata = _run_metadata(
         settings=settings,
         inputs=inputs,
@@ -148,6 +162,8 @@ def interpolate_drr_run(
         load_seconds=load_seconds,
         reconstruction_seconds=reconstruction_seconds,
         evaluation_seconds=evaluation_seconds,
+        end_to_end_seconds=end_to_end_seconds,
+        target_coverage_mask=target_coverage_mask,
         warnings=warnings,
     )
 
@@ -155,6 +171,33 @@ def interpolate_drr_run(
         output_directory, deepcopy(config), inputs.inputs_lock, metrics, metadata
     )
     return metrics
+
+
+def _validate_reconstruction(
+    reconstructed: WindowedDrrResult,
+    inputs: C3VolumeRunInputs,
+) -> np.ndarray:
+    values = reconstructed.values
+    observed = inputs.observed_volume
+    if not isinstance(values, np.ndarray) or values.shape != observed.values.shape:
+        shape = getattr(values, "shape", None)
+        raise ValueError(
+            "DRR reconstruction shape must match the observed volume, got "
+            f"{shape} and {observed.values.shape}"
+        )
+    if values.dtype.kind not in "fiu" or values.dtype.kind == "b":
+        raise ValueError("DRR reconstruction must contain real numeric physical amplitudes")
+    if reconstructed.uncovered_trace_count != 0:
+        raise ValueError(
+            "DRR reconstruction must cover the complete analysis volume; "
+            f"{reconstructed.uncovered_trace_count} traces are uncovered"
+        )
+    if not np.all(np.isfinite(values)):
+        raise ValueError("DRR reconstruction must be finite on the complete analysis volume")
+    observed_mask = observed.observed_trace_mask
+    if not np.array_equal(values[:, observed_mask], observed.values[:, observed_mask]):
+        raise ValueError("DRR reconstruction must preserve observed physical amplitudes exactly")
+    return np.ones_like(observed.evaluation_target_trace_mask, dtype=np.bool_)
 
 
 def _drr_settings(config: Mapping[str, object]) -> _DrrSettings:
@@ -222,6 +265,8 @@ def _run_metadata(
     load_seconds: float,
     reconstruction_seconds: float,
     evaluation_seconds: float,
+    end_to_end_seconds: float,
+    target_coverage_mask: np.ndarray,
     warnings: list[str],
 ) -> dict[str, object]:
     values = reconstructed.values
@@ -230,8 +275,14 @@ def _run_metadata(
     return {
         "method": METHOD,
         "method_variant": METHOD_VARIANT,
+        "benchmark_id": C3_RANDOM80_POC_BENCHMARK_ID,
         "case_id": inputs.case["case_id"],
         "volume_id": inputs.volume_metadata["volume_id"],
+        "input_amplitude_domain": "physical",
+        "output_amplitude_domain": "physical",
+        "benchmark_global_rms_normalization": False,
+        "native_rank_reduction": True,
+        "native_iterative_updates": True,
         **git_metadata,
         "started_at_utc": started_at_utc,
         "finished_at_utc": finished_at_utc,
@@ -256,10 +307,12 @@ def _run_metadata(
         },
         "fft": _fft_metadata(settings, frequencies),
         "window": _window_metadata(settings, reconstructed),
+        "coverage": _coverage_metadata(inputs, target_coverage_mask),
         "resources": {
             "load_and_verification_seconds": load_seconds,
             "reconstruction_seconds": reconstruction_seconds,
             "evaluation_seconds": evaluation_seconds,
+            "end_to_end_seconds": end_to_end_seconds,
             "process_max_rss_kib": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
             "process_max_rss_scope": "whole_process",
         },
@@ -270,6 +323,22 @@ def _run_metadata(
             "dtype": values.dtype.name,
         },
         "warnings": list(warnings),
+    }
+
+
+def _coverage_metadata(
+    inputs: C3VolumeRunInputs,
+    coverage_mask: np.ndarray,
+) -> dict[str, object]:
+    target_mask = inputs.observed_volume.evaluation_target_trace_mask
+    target_trace_count = int(np.count_nonzero(target_mask))
+    covered_target_trace_count = int(np.count_nonzero(coverage_mask & target_mask))
+    return {
+        "analysis_trace_count": int(coverage_mask.size),
+        "covered_analysis_trace_count": int(np.count_nonzero(coverage_mask)),
+        "target_trace_count": target_trace_count,
+        "covered_target_trace_count": covered_target_trace_count,
+        "complete": covered_target_trace_count == target_trace_count,
     }
 
 
@@ -341,15 +410,6 @@ def _window_metadata(settings: _DrrSettings, result: WindowedDrrResult) -> dict[
         "uncovered_trace_count": result.uncovered_trace_count,
         "uncovered_sample_count": result.uncovered_trace_count * result.values.shape[0],
     }
-
-
-def _uncovered_warnings(traces: int, samples: int) -> list[str]:
-    if traces == 0:
-        return []
-    return [
-        f"{traces} traces ({samples} samples) were not covered by any non-empty DRR block "
-        "and remain zero for evaluation"
-    ]
 
 
 def _report(reporter: ProgressReporter | None, message: str) -> None:

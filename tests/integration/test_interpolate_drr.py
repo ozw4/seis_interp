@@ -12,12 +12,19 @@ import yaml
 
 from seis_interp import run_records
 from seis_interp.cli import main
+from seis_interp.data.c3_poc_inputs import (
+    C3_RANDOM80_POC_BENCHMARK_ID,
+    C3_RANDOM80_POC_DATASET_ID,
+)
 from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
+from seis_interp.pipelines import interpolate_drr as drr_pipeline
 from seis_interp.pipelines.interpolate_drr import (
     METHOD,
     PREDICTION_RELATIVE_PATH,
     interpolate_drr_run,
 )
+from seis_interp.processing.c3_benchmark_contract import C3BenchmarkDimensions
+from seis_interp.processing.drr_windows import WindowedDrrResult
 from seis_interp.processing.interpolation_masks import (
     RANDOM_TRACE_MASK_KIND,
     RANDOM_WHOLE_FFID_MASK_KIND,
@@ -26,6 +33,28 @@ from tests.fixtures.c3_volume_run_artifacts import (
     PreparedC3VolumeRunArtifacts,
     prepare_c3_volume_run_artifacts,
 )
+
+
+def _prepare_poc_artifacts(
+    tmp_path: Path,
+    **kwargs: object,
+) -> PreparedC3VolumeRunArtifacts:
+    return prepare_c3_volume_run_artifacts(
+        tmp_path,
+        dataset_id=C3_RANDOM80_POC_DATASET_ID,
+        missing_fraction=0.8,
+        **kwargs,
+    )
+
+
+def _fixture_dimensions(artifacts: PreparedC3VolumeRunArtifacts) -> C3BenchmarkDimensions:
+    shape = tuple(artifacts.volume_metadata["shape"])
+    assert len(shape) == 5
+    return C3BenchmarkDimensions(
+        time_range=(0, shape[0]),
+        sail_line_numbers=(2, 3),
+        shape=shape,  # type: ignore[arg-type]
+    )
 
 
 def _write_config(
@@ -82,6 +111,7 @@ def _run(
         case_dir=artifacts.case,
         volume_dir=artifacts.volume,
         output_dir=output,
+        dimensions=_fixture_dimensions(artifacts),
     )
 
 
@@ -97,7 +127,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
 ) -> None:
     git_metadata = {"git_commit": "d" * 40, "git_worktree_dirty": windowed}
     monkeypatch.setattr(run_records, "current_git_metadata", lambda: dict(git_metadata))
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path, time_sample_count=time_sample_count)
+    artifacts = _prepare_poc_artifacts(tmp_path, time_sample_count=time_sample_count)
     config = _write_config(tmp_path / "config.yaml", artifacts, windowed=windowed)
     output = tmp_path / "run"
     progress: list[str] = []
@@ -126,6 +156,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
         volume_dir=artifacts.volume,
         output_dir=output,
         progress_reporter=progress.append,
+        dimensions=_fixture_dimensions(artifacts),
     )
 
     output_files = sorted(
@@ -161,6 +192,8 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     assert metrics["evaluation_target"]["trace_count"] == int(
         np.count_nonzero(observed.evaluation_target_trace_mask)
     )
+    for metric in ("snr_db", "rmse", "relative_l2", "mean_trace_relative_mse"):
+        assert metric in metrics["evaluation_target"]
     assert metrics["observed_max_abs_error"] == 0.0
     assert metrics["uncovered_trace_count"] == 0
     assert metrics["uncovered_sample_count"] == 0
@@ -175,8 +208,14 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
 
     assert run["method"] == METHOD
     assert run["method_variant"] == "reconstruction_only_hard_consistency"
+    assert run["benchmark_id"] == C3_RANDOM80_POC_BENCHMARK_ID
     assert run["case_id"] == "synthetic_case"
     assert run["volume_id"] == "synthetic_volume"
+    assert run["input_amplitude_domain"] == "physical"
+    assert run["output_amplitude_domain"] == "physical"
+    assert run["benchmark_global_rms_normalization"] is False
+    assert run["native_rank_reduction"] is True
+    assert run["native_iterative_updates"] is True
     assert run["git_commit"] == git_metadata["git_commit"]
     assert run["git_worktree_dirty"] is git_metadata["git_worktree_dirty"]
     assert run["status"] == "success"
@@ -231,9 +270,18 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     assert run["window"]["empty_block_count"] == 0
     assert run["window"]["uncovered_trace_count"] == 0
     assert run["window"]["uncovered_sample_count"] == 0
+    target_trace_count = int(np.count_nonzero(observed.evaluation_target_trace_mask))
+    assert run["coverage"] == {
+        "analysis_trace_count": observed.observed_trace_mask.size,
+        "covered_analysis_trace_count": observed.observed_trace_mask.size,
+        "target_trace_count": target_trace_count,
+        "covered_target_trace_count": target_trace_count,
+        "complete": True,
+    }
     assert run["resources"]["load_and_verification_seconds"] >= 0.0
     assert run["resources"]["reconstruction_seconds"] >= 0.0
     assert run["resources"]["evaluation_seconds"] >= 0.0
+    assert run["resources"]["end_to_end_seconds"] >= 0.0
     assert run["resources"]["process_max_rss_kib"] > 0
     assert run["prediction"] == {
         "artifact": "artifacts/prediction.npy",
@@ -243,35 +291,26 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     }
     assert inputs_lock["benchmark_case"]["case_id"] == "synthetic_case"
     assert inputs_lock["benchmark_volume"]["volume_id"] == "synthetic_volume"
+    assert inputs_lock["benchmark_id"] == C3_RANDOM80_POC_BENCHMARK_ID
     assert len(progress) == 4
 
 
-def test_random_whole_ffid_mask_runs_and_preserves_observations(tmp_path: Path) -> None:
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path, mask_kind=RANDOM_WHOLE_FFID_MASK_KIND)
+def test_random_whole_ffid_mask_is_rejected_by_drr_poc_contract(tmp_path: Path) -> None:
+    artifacts = _prepare_poc_artifacts(tmp_path, mask_kind=RANDOM_WHOLE_FFID_MASK_KIND)
     config = _write_config(tmp_path / "config.yaml", artifacts)
+    output = tmp_path / "run"
 
-    metrics = _run(artifacts, config, tmp_path / "run")
+    with pytest.raises(ValueError, match="PoC mask kind"):
+        _run(artifacts, config, output)
 
-    assert metrics["evaluation_target"]["trace_count"] > 0
-    prediction = np.load(tmp_path / "run" / PREDICTION_RELATIVE_PATH, allow_pickle=False)
-    observed = load_observed_c3_volume(
-        interim_dir=artifacts.interim,
-        processed_dir=artifacts.processed,
-        mask_dir=artifacts.mask,
-        case_dir=artifacts.case,
-        volume_dir=artifacts.volume,
-    )
-    np.testing.assert_array_equal(
-        prediction[:, observed.observed_trace_mask],
-        observed.values[:, observed.observed_trace_mask],
-    )
+    assert not output.exists()
 
 
 def test_target_truth_does_not_leak_and_repeated_runs_are_numerically_stable(
     tmp_path: Path,
 ) -> None:
-    first = prepare_c3_volume_run_artifacts(tmp_path / "first")
-    changed_truth = prepare_c3_volume_run_artifacts(tmp_path / "changed", target_offset=5000.0)
+    first = _prepare_poc_artifacts(tmp_path / "first")
+    changed_truth = _prepare_poc_artifacts(tmp_path / "changed", target_offset=5000.0)
     first_config = _write_config(tmp_path / "first.yaml", first)
     changed_config = _write_config(tmp_path / "changed.yaml", changed_truth)
 
@@ -291,7 +330,7 @@ def test_target_truth_does_not_leak_and_repeated_runs_are_numerically_stable(
 def test_declared_input_contradictions_and_broken_binding_create_no_output(
     tmp_path: Path,
 ) -> None:
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
+    artifacts = _prepare_poc_artifacts(tmp_path)
     base_path = _write_config(tmp_path / "base.yaml", artifacts)
     base = yaml.safe_load(base_path.read_text(encoding="utf-8"))
     contradictions = [
@@ -328,7 +367,7 @@ def test_declared_input_contradictions_and_broken_binding_create_no_output(
 
 
 def test_invalid_drr_and_evaluation_configurations_create_no_output(tmp_path: Path) -> None:
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
+    artifacts = _prepare_poc_artifacts(tmp_path)
     base_path = _write_config(tmp_path / "base.yaml", artifacts)
     base = yaml.safe_load(base_path.read_text(encoding="utf-8"))
     variants: list[tuple[dict[str, object], str]] = []
@@ -388,7 +427,7 @@ def test_invalid_drr_and_evaluation_configurations_create_no_output(tmp_path: Pa
 
 
 def test_existing_output_directory_is_not_modified(tmp_path: Path) -> None:
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
+    artifacts = _prepare_poc_artifacts(tmp_path)
     config = _write_config(tmp_path / "config.yaml", artifacts)
     output = tmp_path / "run"
     output.mkdir()
@@ -402,8 +441,11 @@ def test_existing_output_directory_is_not_modified(tmp_path: Path) -> None:
     assert list(output.iterdir()) == [marker]
 
 
-def test_empty_windows_remain_zero_are_evaluated_and_save_warning(tmp_path: Path) -> None:
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path, mask_kind=RANDOM_WHOLE_FFID_MASK_KIND)
+def test_partial_window_coverage_fails_before_evaluation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifacts = _prepare_poc_artifacts(tmp_path)
     config = _write_config(
         tmp_path / "config.yaml",
         artifacts,
@@ -413,10 +455,6 @@ def test_empty_windows_remain_zero_are_evaluated_and_save_warning(tmp_path: Path
         },
     )
     output = tmp_path / "run"
-
-    metrics = _run(artifacts, config, output)
-
-    prediction = np.load(output / PREDICTION_RELATIVE_PATH, allow_pickle=False)
     observed = load_observed_c3_volume(
         interim_dir=artifacts.interim,
         processed_dir=artifacts.processed,
@@ -424,28 +462,23 @@ def test_empty_windows_remain_zero_are_evaluated_and_save_warning(tmp_path: Path
         case_dir=artifacts.case,
         volume_dir=artifacts.volume,
     )
-    run = json.loads((output / "run.json").read_text(encoding="utf-8"))
-    expected_uncovered_traces = int(np.count_nonzero(observed.evaluation_target_trace_mask))
-    expected_uncovered_samples = observed.values.shape[0] * expected_uncovered_traces
-    np.testing.assert_array_equal(
-        prediction[:, observed.evaluation_target_trace_mask],
-        np.zeros((observed.values.shape[0], expected_uncovered_traces), dtype=prediction.dtype),
+    result = WindowedDrrResult(
+        values=observed.values.copy(),
+        block_count=2,
+        empty_block_count=1,
+        uncovered_trace_count=1,
     )
-    assert (
-        metrics["evaluation_target"]["error_energy"]
-        == metrics["evaluation_target"]["reference_energy"]
-    )
-    assert metrics["evaluation_target"]["relative_l2"] == 1.0
-    assert metrics["evaluation_target"]["snr_db"] == metrics["zero_fill"]["snr_db"]
-    assert metrics["evaluation_target"]["rmse"] == metrics["zero_fill"]["rmse"]
-    assert metrics["uncovered_trace_count"] == expected_uncovered_traces
-    assert metrics["uncovered_sample_count"] == expected_uncovered_samples
-    assert len(metrics["warnings"]) == 1
-    assert "remain zero for evaluation" in metrics["warnings"][0]
-    assert run["window"]["empty_block_count"] > 0
-    assert run["window"]["uncovered_trace_count"] == expected_uncovered_traces
-    assert run["window"]["uncovered_sample_count"] == expected_uncovered_samples
-    assert run["warnings"] == metrics["warnings"]
+    monkeypatch.setattr(drr_pipeline, "interpolate_drr_volume", lambda *args, **kwargs: result)
+
+    def unexpected_evaluation(*args: object, **kwargs: object) -> dict[str, object]:
+        raise AssertionError("partial DRR coverage must fail before evaluation")
+
+    monkeypatch.setattr(drr_pipeline, "evaluate_c3_volume_prediction", unexpected_evaluation)
+
+    with pytest.raises(ValueError, match="complete analysis volume"):
+        _run(artifacts, config, output)
+
+    assert not output.exists()
 
 
 def test_importing_cpu_drr_pipeline_does_not_import_torch() -> None:
@@ -474,11 +507,19 @@ assert 'torch' not in sys.modules
 
 def test_real_drr_cli_runs_real_pipeline_end_to_end(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    artifacts = prepare_c3_volume_run_artifacts(tmp_path)
+    artifacts = _prepare_poc_artifacts(tmp_path)
     config = _write_config(tmp_path / "config.yaml", artifacts)
     output = tmp_path / "cli-run"
+    load_poc_inputs = drr_pipeline.load_c3_random80_poc_inputs
+
+    def load_fixture_inputs(**kwargs: object) -> object:
+        kwargs["dimensions"] = _fixture_dimensions(artifacts)
+        return load_poc_inputs(**kwargs)
+
+    monkeypatch.setattr(drr_pipeline, "load_c3_random80_poc_inputs", load_fixture_inputs)
 
     exit_code = main(
         [
