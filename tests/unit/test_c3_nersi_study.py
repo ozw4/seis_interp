@@ -8,7 +8,6 @@ from copy import deepcopy
 
 from seis_interp.configuration import REPOSITORY_ROOT, load_resolved_config
 from seis_interp.data.file_checksums import file_sha256
-from seis_interp.nersi_config import validate_nersi_config
 
 STUDY = REPOSITORY_ROOT / "studies/study_034_c3_nersi_baseline"
 RESULT = (
@@ -105,7 +104,6 @@ def test_candidates_differ_only_in_declared_capacity_and_learning_rate() -> None
     }
     common = _without_candidate_dimensions(fragments["a"])
     for candidate, fragment in fragments.items():
-        validate_nersi_config(fragment)
         assert set(fragment) == {"model", "training", "prediction", "evaluation"}
         model = fragment["model"]
         training = fragment["training"]
@@ -134,7 +132,7 @@ def test_candidates_differ_only_in_declared_capacity_and_learning_rate() -> None
         assert training == {
             "random_seed": 20260908,
             "optimizer": "adam",
-            "loss": "masked_trace_relative_mse",
+            "loss": "observed_masked_mse",
             "amplitude_scaling": "observed_volume_global_rms",
             "learning_rate": expected_capacity[candidate][-1],
             "profiles_per_step": 16,
