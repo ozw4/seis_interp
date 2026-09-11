@@ -22,6 +22,7 @@ class FixedStepNersiResult:
     """Completed updates, final batch loss, and interval-mean loss history."""
 
     steps_completed: int
+    supervised_trace_presentations: int
     final_batch_loss: float
     history: tuple[dict[str, int | float], ...]
 
@@ -96,6 +97,7 @@ def train_nersi_fixed_steps(
     optimizer = torch.optim.Adam(model.parameters(), lr=rate)
     history: list[dict[str, int | float]] = []
     interval_losses: list[float] = []
+    supervised_trace_presentations = 0
 
     for step in range(1, steps + 1):
         selected = (
@@ -131,6 +133,7 @@ def train_nersi_fixed_steps(
             raise RuntimeError(f"non-finite training loss at step {step}")
         loss.backward()
         optimizer.step()
+        supervised_trace_presentations += int(np.count_nonzero(data.observed_trace_mask[selected]))
         interval_losses.append(final_batch_loss)
 
         if step % interval == 0 or step == steps:
@@ -142,6 +145,7 @@ def train_nersi_fixed_steps(
 
     return FixedStepNersiResult(
         steps_completed=steps,
+        supervised_trace_presentations=supervised_trace_presentations,
         final_batch_loss=final_batch_loss,
         history=tuple(history),
     )

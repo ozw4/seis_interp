@@ -21,6 +21,7 @@ class CCNet5DObservedTrainingResult:
     """Final fixed-step training counters and bounded loss history."""
 
     steps_completed: int
+    supervised_trace_presentations: int
     final_loss: float
     history: tuple[dict[str, object], ...]
 
@@ -51,6 +52,7 @@ def train_ccnet5d_observed_steps(
     interval_loss = 0.0
     interval_count = 0
     final_loss = float("nan")
+    supervised_trace_presentations = 0
 
     for step in range(1, update_count + 1):
         batch = source.sample()
@@ -83,6 +85,7 @@ def train_ccnet5d_observed_steps(
             raise RuntimeError(f"non-finite CCNet-5D training loss at step {step}")
         loss.backward()
         optimizer.step()
+        supervised_trace_presentations += int(batch.pseudo_target_mask.sum())
         interval_loss += final_loss
         interval_count += 1
 
@@ -105,6 +108,7 @@ def train_ccnet5d_observed_steps(
 
     return CCNet5DObservedTrainingResult(
         steps_completed=update_count,
+        supervised_trace_presentations=supervised_trace_presentations,
         final_loss=final_loss,
         history=tuple(history),
     )

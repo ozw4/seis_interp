@@ -333,6 +333,8 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
         output / PREDICTION_RELATIVE_PATH
     )
     assert run["coverage"] == {
+        "complete": True,
+        "boundary_targets_included": True,
         "target_trace_count": target_count,
         "covered_target_trace_count": target_count,
         "target_coverage_fraction": 1.0,
@@ -373,6 +375,11 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     assert loaded.global_step == 2
     assert loaded.model_initialization_seed == 314
     assert loaded.sampling_seed == run["method_details"]["sampling_seed"] == 201
+    assert run["compute"]["optimizer_updates"] == 2
+    assert run["compute"]["parameter_count"] == metrics["parameter_count"]
+    assert run["compute"]["supervised_trace_presentations"] > 0
+    for key, filename in (("prediction", "prediction.npy"), ("checkpoint", "final.pt")):
+        assert run["artifacts"][key] == {"path": filename, "sha256": file_sha256(output / filename)}
     current_data = build_c3_volume_nersi_data(
         observed,
         amplitude_scale=loaded.amplitude_scale,

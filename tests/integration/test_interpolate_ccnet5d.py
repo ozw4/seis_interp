@@ -13,6 +13,7 @@ import yaml
 from seis_interp import run_records
 from seis_interp.data.c3_poc_inputs import C3_RANDOM80_POC_DATASET_ID
 from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines import interpolate_ccnet5d as ccnet_pipeline
 from seis_interp.pipelines.interpolate_ccnet5d import interpolate_ccnet5d_run
 from seis_interp.processing.c3_benchmark_contract import C3BenchmarkDimensions
@@ -198,6 +199,11 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
         == metrics["evaluation_target"]["target_trace_count"]
     )
     assert run["training_or_reconstruction"]["optimizer_updates"] == 2
+    assert run["compute"] == {
+        "parameter_count": sum(parameter.numel() for parameter in checkpoint.model.parameters()),
+        "optimizer_updates": 2,
+        "supervised_trace_presentations": 2 * round(int(observed.observed_trace_mask.sum()) * 0.5),
+    }
     assert (
         checkpoint.model_initialization_seed
         == run["method_details"]["model_initialization_seed"]
@@ -205,9 +211,12 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
     )
     assert checkpoint.placement_seed == run["method_details"]["patches"]["placement_seed"] == 19
     assert checkpoint.inner_mask_seed == run["method_details"]["patches"]["inner_mask_seed"] == 401
+    assert run["coverage"]["complete"] is True
+    for key, filename in (("prediction", "prediction.npy"), ("checkpoint", "final.pt")):
+        assert run["artifacts"][key] == {"path": filename, "sha256": file_sha256(output / filename)}
     assert run["training_or_reconstruction"]["validation"] is False
     assert run["training_or_reconstruction"]["best_checkpoint_selection"] is False
-    assert run["coverage"]["minimum_target_coverage_count"] >= 1
+    assert run["method_details"]["coverage"]["minimum_target_coverage_count"] >= 1
     assert run["timing"]["training_seconds"] >= 0.0
     assert run["timing"]["prediction_seconds"] >= 0.0
     assert run["timing"]["end_to_end_seconds"] >= 0.0

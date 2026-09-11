@@ -22,6 +22,7 @@ from seis_interp.data.c3_poc_inputs import (
 )
 from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
 from seis_interp.data.c3_volume_index_store import load_c3_volume_index
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines.interpolate_pocs import (
     METHOD,
     PREDICTION_RELATIVE_PATH,
@@ -251,7 +252,19 @@ def test_run_writes_prediction_metrics_and_complete_records(
     assert run["method_details"]["window"]["requested_shape"] == (
         [3, 2, 3, 2, 3] if windowed else None
     )
+    assert run["compute"] == {
+        "parameter_count": None,
+        "optimizer_updates": None,
+        "supervised_trace_presentations": None,
+    }
+    assert run["artifacts"] == {
+        "prediction": {"path": "prediction.npy", "sha256": file_sha256(output / "prediction.npy")},
+        "checkpoint": None,
+    }
     assert run["coverage"] == {
+        "uncovered_trace_count": 0,
+        "complete": True,
+        "boundary_targets_included": True,
         "target_trace_count": int(observed.evaluation_target_trace_mask.sum()),
         "covered_target_trace_count": int(observed.evaluation_target_trace_mask.sum()),
         "target_coverage_fraction": 1.0,

@@ -15,6 +15,8 @@ import torch
 from seis_interp import config_values, run_records
 from seis_interp.c3_poc_run_records import (
     METADATA_FILE_NAME,
+    poc_compute_metadata,
+    poc_coverage_metadata,
     poc_run_metadata,
     validate_poc_prediction,
 )
@@ -225,6 +227,16 @@ def interpolate_nersi_run(
         normalization=metadata["normalization"],
         objective="masked_trace_relative_mse",
         operation=metadata["training"],
+        coverage=poc_coverage_metadata(
+            inputs.observed_volume.evaluation_target_trace_mask,
+            target_coverage_mask,
+            time_sample_count=len(inputs.observed_volume.time_s),
+        ),
+        compute=poc_compute_metadata(
+            parameter_count=sum(parameter.numel() for parameter in model.parameters()),
+            optimizer_updates=trained.steps_completed,
+            supervised_trace_presentations=trained.supervised_trace_presentations,
+        ),
     )
     run_records.write_run_outputs(
         output,

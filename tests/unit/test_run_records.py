@@ -302,7 +302,14 @@ def test_runtime_resource_metadata_on_cpu_has_no_cuda_keys() -> None:
 
 @pytest.mark.parametrize("method", ["pocs", "drr", "nersi", "ccnet5d", "relational_trace_graph"])
 def test_poc_records_share_metadata_and_canonical_metrics(tmp_path, method):
-    from seis_interp.c3_poc_run_records import METADATA_FILE_NAME, poc_run_metadata
+    import numpy as np
+
+    from seis_interp.c3_poc_run_records import (
+        METADATA_FILE_NAME,
+        poc_compute_metadata,
+        poc_coverage_metadata,
+        poc_run_metadata,
+    )
 
     classical = method in {"pocs", "drr"}
     normalization = (
@@ -336,6 +343,12 @@ def test_poc_records_share_metadata_and_canonical_metrics(tmp_path, method):
         normalization=normalization,
         objective="native" if classical else "masked_trace_relative_mse",
         operation={"steps": 2},
+        coverage=poc_coverage_metadata(
+            np.ones((1, 1, 1, 8), dtype=bool),
+            np.ones((1, 1, 1, 8), dtype=bool),
+            time_sample_count=4,
+        ),
+        compute=poc_compute_metadata(),
     )
     assert set(metadata) == {
         "method",
@@ -352,11 +365,13 @@ def test_poc_records_share_metadata_and_canonical_metrics(tmp_path, method):
         "timing",
         "resource_usage",
         "method_details",
+        "compute",
+        "artifacts",
     }
     assert metadata["normalization"] == normalization
     assert metadata["timing"] == {"end_to_end_seconds": 0.5}
     assert metadata["resource_usage"] == {"process_max_rss_kib": 1024}
-    assert metadata["method_details"] == {"seed": 42}
+    assert metadata["method_details"] == {"seed": 42, "coverage": details["coverage"]}
     metrics = {"evaluation_target": {"snr_db": None, "snr_status": "perfect_reconstruction"}}
     run_records.write_run_outputs(
         tmp_path, {}, lock, metrics, metadata, metadata_file_name=METADATA_FILE_NAME

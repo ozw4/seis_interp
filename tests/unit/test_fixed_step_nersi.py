@@ -90,6 +90,22 @@ def test_profile_loss_selects_observed_complete_traces_for_shared_loss() -> None
     torch.testing.assert_close(loss, masked_trace_relative_mse(prediction_traces, target_traces))
 
 
+@pytest.mark.parametrize("profiles_per_step", [2, 3])
+def test_supervised_trace_presentations_count_actual_selected_observed_rows(profiles_per_step):
+    data = _data()
+    rng = np.random.default_rng(201)
+    expected = 0
+    for _ in range(4):
+        selected = (
+            data.training_profile_indices
+            if profiles_per_step == 3
+            else rng.choice(data.training_profile_indices, size=profiles_per_step, replace=False)
+        )
+        expected += int(data.observed_trace_mask[selected].sum())
+    result = _train(_model(), data, random_seed=201, profiles_per_step=profiles_per_step)
+    assert result.supervised_trace_presentations == expected
+
+
 def test_profiles_with_different_observed_counts_reduce_over_selected_traces() -> None:
     prediction = torch.zeros((3, 1, 2, 3))
     target = torch.tensor(

@@ -276,8 +276,16 @@ The prediction is a finite full-shape physical-amplitude array with exact observ
 The input lock records the dataset, full selection, O/T counts, and nested volume-file hashes.
 Comparisons must verify the full input lock, not just the case and volume IDs.
 `metrics.json` is the unchanged common evaluator result. `metadata.json` separates common
-identity, normalization, objective, training/reconstruction, coverage, timing, and resource usage
+identity, normalization, objective, training/reconstruction, coverage, compute, artifacts, timing, and resource usage
 from nested `method_details`.
+
+Common `coverage` fields are `target_trace_count`, `covered_target_trace_count`,
+`target_coverage_fraction`, `uncovered_trace_count`, `uncovered_sample_count`, `complete`,
+and `boundary_targets_included`. Counts refer only to T, including the spatial boundary.
+`compute` records `parameter_count`, `optimizer_updates`, and `supervised_trace_presentations`
+(trace occurrences contributing to optimizer updates, not unique traces); classical methods use null.
+`artifacts.prediction` and `artifacts.checkpoint` bind run-relative `path` to `sha256`;
+classical checkpoints are null.
 
 Neural PoC seeds are explicit nonnegative integers, independently configurable and recorded in
 the checkpoint and metadata. `project.random_seed` remains the outer benchmark seed.

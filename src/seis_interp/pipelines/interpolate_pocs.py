@@ -15,12 +15,15 @@ import numpy as np
 from seis_interp import config_values, run_records
 from seis_interp.c3_poc_run_records import (
     METADATA_FILE_NAME,
+    poc_compute_metadata,
+    poc_coverage_metadata,
     poc_run_metadata,
     validate_poc_prediction,
 )
 from seis_interp.configuration import ConfigurationError, load_resolved_config
 from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import (
     evaluate_c3_volume_prediction,
     validate_c3_volume_evaluation_config,
@@ -158,12 +161,19 @@ def interpolate_pocs_run(
         end_to_end_seconds=end_to_end_seconds,
     )
 
+    run_metadata["prediction"]["sha256"] = file_sha256(prediction_path)
     run_metadata = poc_run_metadata(
         inputs.inputs_lock,
         run_metadata,
         normalization={"type": "none"},
         objective="fourier_hard_thresholding",
         operation=run_metadata["pocs"],
+        coverage=poc_coverage_metadata(
+            inputs.observed_volume.evaluation_target_trace_mask,
+            target_coverage_mask,
+            time_sample_count=len(inputs.observed_volume.time_s),
+        ),
+        compute=poc_compute_metadata(),
     )
     run_records.write_run_outputs(
         output_directory,

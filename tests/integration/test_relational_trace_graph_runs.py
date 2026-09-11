@@ -13,6 +13,7 @@ import yaml
 from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
 from seis_interp.data.c3_poc_trace_graph import build_c3_poc_trace_graph_domain
 from seis_interp.data.c3_trace_graph_prediction import scatter_c3_trace_graph_prediction
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
 from seis_interp.pipelines import interpolate_relational_trace_graph as pipeline
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
@@ -100,6 +101,15 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkey
     assert run["coverage"]["covered_target_trace_count"] == len(ids)
     assert run["method_details"]["parameter_count"] > 0
     assert run["training_or_reconstruction"]["steps_completed"] == 3
+    assert run["compute"] == {
+        "parameter_count": run["method_details"]["parameter_count"],
+        "optimizer_updates": 3,
+        "supervised_trace_presentations": metrics["training"]["query_count"],
+    }
+    assert run["coverage"]["complete"] is True
+    assert run["coverage"]["boundary_targets_included"] is True
+    for key, filename in (("prediction", "prediction.npy"), ("checkpoint", "final.pt")):
+        assert run["artifacts"][key] == {"path": filename, "sha256": file_sha256(output / filename)}
     assert (
         checkpoint["model_initialization_seed"] == config["training"]["model_initialization_seed"]
     )

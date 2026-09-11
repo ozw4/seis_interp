@@ -17,6 +17,7 @@ from seis_interp.data.c3_poc_inputs import (
     C3_RANDOM80_POC_DATASET_ID,
 )
 from seis_interp.data.c3_volume_adapter import load_observed_c3_volume
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.pipelines import interpolate_drr as drr_pipeline
 from seis_interp.pipelines.interpolate_drr import (
     METHOD,
@@ -283,9 +284,20 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     assert run["method_details"]["window"]["uncovered_trace_count"] == 0
     assert run["method_details"]["window"]["uncovered_sample_count"] == 0
     target_trace_count = int(np.count_nonzero(observed.evaluation_target_trace_mask))
+    assert run["compute"] == {
+        "parameter_count": None,
+        "optimizer_updates": None,
+        "supervised_trace_presentations": None,
+    }
+    assert run["artifacts"] == {
+        "prediction": {"path": "prediction.npy", "sha256": file_sha256(output / "prediction.npy")},
+        "checkpoint": None,
+    }
     assert run["coverage"] == {
-        "analysis_trace_count": observed.observed_trace_mask.size,
-        "covered_analysis_trace_count": observed.observed_trace_mask.size,
+        "uncovered_trace_count": 0,
+        "uncovered_sample_count": 0,
+        "target_coverage_fraction": 1.0,
+        "boundary_targets_included": True,
         "target_trace_count": target_trace_count,
         "covered_target_trace_count": target_trace_count,
         "complete": True,
@@ -297,6 +309,7 @@ def test_run_writes_prediction_metrics_and_complete_drr_records(
     assert run["resource_usage"]["process_max_rss_kib"] > 0
     assert run["method_details"]["prediction"] == {
         "artifact": "prediction.npy",
+        "sha256": file_sha256(output / "prediction.npy"),
         "axis_order": list(artifacts.volume_metadata["axis_order"]),
         "shape": list(prediction.shape),
         "dtype": prediction.dtype.name,

@@ -21,6 +21,8 @@ def poc_run_metadata(
     normalization: Mapping[str, object],
     objective: str,
     operation: Mapping[str, object],
+    coverage: Mapping[str, object],
+    compute: Mapping[str, object],
 ) -> dict[str, object]:
     """Group method details beneath the common, human-readable run fields."""
     remaining = deepcopy(dict(details))
@@ -38,7 +40,11 @@ def poc_run_metadata(
         "normalization": dict(normalization),
         "loss_or_native_objective": objective,
         "training_or_reconstruction": dict(operation),
-        "coverage": remaining.pop("coverage", {}),
+        "coverage": dict(coverage),
+        "compute": dict(compute),
+        "artifacts": poc_artifact_metadata(
+            prediction=remaining.get("prediction"), checkpoint=remaining.get("checkpoint")
+        ),
         "timing": timing,
         "resource_usage": resources,
     }
@@ -55,6 +61,61 @@ def poc_run_metadata(
         remaining.pop(key, None)
     record["method_details"] = remaining
     return record
+
+
+def poc_coverage_metadata(
+    target_mask: np.ndarray, coverage_mask: np.ndarray, *, time_sample_count: int
+) -> dict[str, object]:
+    """Summarize whole-trace coverage over T, including spatial boundary targets."""
+    if (
+        target_mask.dtype != np.bool_
+        or coverage_mask.dtype != np.bool_
+        or target_mask.ndim != 4
+        or coverage_mask.shape != target_mask.shape
+        or time_sample_count < 1
+    ):
+        raise ValueError(
+            "coverage requires matching boolean spatial masks and positive time length"
+        )
+    targets = int(np.count_nonzero(target_mask))
+    covered = int(np.count_nonzero(target_mask & coverage_mask))
+    missing = target_mask & ~coverage_mask
+    boundary_complete = all(
+        not np.any(np.take(missing, [0, -1], axis=axis)) for axis in range(target_mask.ndim)
+    )
+    return {
+        "target_trace_count": targets,
+        "covered_target_trace_count": covered,
+        "target_coverage_fraction": covered / targets if targets else 1.0,
+        "uncovered_trace_count": targets - covered,
+        "uncovered_sample_count": (targets - covered) * time_sample_count,
+        "complete": covered == targets,
+        "boundary_targets_included": boundary_complete,
+    }
+
+
+def poc_compute_metadata(
+    *,
+    parameter_count: int | None = None,
+    optimizer_updates: int | None = None,
+    supervised_trace_presentations: int | None = None,
+) -> dict[str, int | None]:
+    """Use null for compute counters that do not apply to classical reconstruction."""
+    return {
+        "parameter_count": parameter_count,
+        "optimizer_updates": optimizer_updates,
+        "supervised_trace_presentations": supervised_trace_presentations,
+    }
+
+
+def poc_artifact_metadata(
+    *, prediction: Mapping[str, object] | None, checkpoint: Mapping[str, object] | None
+) -> dict[str, object]:
+    """Bind produced artifacts to run-relative paths and their file digests."""
+    return {
+        name: None if record is None else {"path": record["artifact"], "sha256": record["sha256"]}
+        for name, record in (("prediction", prediction), ("checkpoint", checkpoint))
+    }
 
 
 def validate_poc_prediction(prediction: np.ndarray, observed_volume: ObservedC3Volume) -> None:

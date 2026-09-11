@@ -136,6 +136,7 @@ def test_fixed_step_training_calls_shared_loss_with_only_hidden_complete_traces(
     assert sample_count == 3
     assert len(loss_calls) == 3
     assert result.steps_completed == 3
+    assert result.supervised_trace_presentations == 3 * hidden_count
     assert np.isfinite(result.final_loss)
     assert [entry["step"] for entry in result.history] == [2, 3]
     assert all(

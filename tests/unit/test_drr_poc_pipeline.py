@@ -211,8 +211,10 @@ def test_drr_poc_run_passes_only_physical_observations_and_records_contract(
     assert metadata["method_details"]["drr"]["n_iterations"] == 2
     assert metadata["method_details"]["drr"]["amplitude_normalization"] == "none"
     assert metadata["coverage"] == {
-        "analysis_trace_count": 5,
-        "covered_analysis_trace_count": 5,
+        "uncovered_trace_count": 0,
+        "uncovered_sample_count": 0,
+        "target_coverage_fraction": 1.0,
+        "boundary_targets_included": True,
         "target_trace_count": 4,
         "covered_target_trace_count": 4,
         "complete": True,

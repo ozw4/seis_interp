@@ -14,6 +14,8 @@ import torch
 from seis_interp import run_records
 from seis_interp.c3_poc_run_records import (
     METADATA_FILE_NAME,
+    poc_compute_metadata,
+    poc_coverage_metadata,
     poc_run_metadata,
     validate_poc_prediction,
 )
@@ -154,6 +156,8 @@ def interpolate_relational_trace_graph_run(
         "resources": {"training_seconds": training_seconds},
     }
 
+    coverage = np.zeros_like(volume.evaluation_target_trace_mask)
+
     def common_metadata() -> dict[str, object]:
         return poc_run_metadata(
             inputs.inputs_lock,
@@ -161,6 +165,14 @@ def interpolate_relational_trace_graph_run(
             normalization=identity["normalization"],
             objective=identity["loss"],
             operation=metadata["training"],
+            coverage=poc_coverage_metadata(
+                volume.evaluation_target_trace_mask, coverage, time_sample_count=len(volume.time_s)
+            ),
+            compute=poc_compute_metadata(
+                parameter_count=metadata["parameter_count"],
+                optimizer_updates=trained.steps_completed,
+                supervised_trace_presentations=trained.query_count,
+            ),
         )
 
     run_records.write_run_outputs(
