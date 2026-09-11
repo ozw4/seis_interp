@@ -33,7 +33,9 @@ class LoadedCCNet5DPocCheckpoint:
     amplitude_scale: float
     patch_shape: tuple[int, ...]
     inner_mask_fraction: float
-    patch_random_seed: int
+    placement_seed: int
+    inner_mask_seed: int
+    model_initialization_seed: int
     optimizer_updates: int
 
 
@@ -44,7 +46,9 @@ def save_ccnet5d_poc_checkpoint(
     amplitude_scale: float,
     patch_shape: tuple[int, ...],
     inner_mask_fraction: float,
-    patch_random_seed: int,
+    placement_seed: int,
+    inner_mask_seed: int,
+    model_initialization_seed: int,
     optimizer_updates: int,
 ) -> None:
     """Save one non-resumable final CPU snapshot without optimizer state."""
@@ -53,7 +57,9 @@ def save_ccnet5d_poc_checkpoint(
     scale = _positive_finite_float(amplitude_scale, "amplitude_scale")
     shape = validate_ccnet5d_shape(patch_shape, "patch_shape")
     fraction = _fraction(inner_mask_fraction)
-    seed = _nonnegative_integer(patch_random_seed, "patch_random_seed")
+    placement = _nonnegative_integer(placement_seed, "placement_seed")
+    mask = _nonnegative_integer(inner_mask_seed, "inner_mask_seed")
+    initialization = _nonnegative_integer(model_initialization_seed, "model_initialization_seed")
     updates = _positive_integer(optimizer_updates, "optimizer_updates")
     payload = {
         "model_type": "ccnet5d",
@@ -69,8 +75,10 @@ def save_ccnet5d_poc_checkpoint(
         "patches": {
             "shape": list(shape),
             "inner_mask_fraction": fraction,
-            "random_seed": seed,
+            "placement_seed": placement,
+            "inner_mask_seed": mask,
         },
+        "model_initialization_seed": initialization,
         "optimizer_updates": updates,
         "loss": CCNET5D_POC_LOSS,
         "checkpoint_role": CCNET5D_POC_CHECKPOINT_ROLE,
@@ -94,6 +102,7 @@ def load_ccnet5d_poc_checkpoint(
         "normalization",
         "patches",
         "optimizer_updates",
+        "model_initialization_seed",
         "loss",
         "checkpoint_role",
     }
@@ -125,12 +134,19 @@ def load_ccnet5d_poc_checkpoint(
     if not isinstance(patches, Mapping) or set(patches) != {
         "shape",
         "inner_mask_fraction",
-        "random_seed",
+        "placement_seed",
+        "inner_mask_seed",
     }:
-        raise ValueError("checkpoint patches must contain shape, fraction, and random seed")
+        raise ValueError(
+            "checkpoint patches must contain shape, fraction, placement and inner mask seeds"
+        )
     shape = validate_ccnet5d_shape(patches["shape"], "patches.shape")
     fraction = _fraction(patches["inner_mask_fraction"])
-    seed = _nonnegative_integer(patches["random_seed"], "patches.random_seed")
+    placement = _nonnegative_integer(patches["placement_seed"], "patches.placement_seed")
+    mask = _nonnegative_integer(patches["inner_mask_seed"], "patches.inner_mask_seed")
+    initialization = _nonnegative_integer(
+        payload["model_initialization_seed"], "model_initialization_seed"
+    )
     updates = _positive_integer(payload["optimizer_updates"], "optimizer_updates")
     model = _model_from_payload(payload["model_config"], payload["state_dict"])
     model.to(device)
@@ -139,7 +155,9 @@ def load_ccnet5d_poc_checkpoint(
         amplitude_scale=scale,
         patch_shape=shape,
         inner_mask_fraction=fraction,
-        patch_random_seed=seed,
+        placement_seed=placement,
+        inner_mask_seed=mask,
+        model_initialization_seed=initialization,
         optimizer_updates=updates,
     )
 

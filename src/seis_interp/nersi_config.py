@@ -14,7 +14,8 @@ from seis_interp.training.c3_volume_nersi_data import PROFILE_COORDINATE_ORDER
 class NersiTrainingSettings:
     """Fixed-step observed-profile training settings."""
 
-    random_seed: int
+    model_initialization_seed: int
+    sampling_seed: int
     learning_rate: float
     profiles_per_step: int
     max_steps: int
@@ -106,7 +107,8 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
         config,
         "training",
         {
-            "random_seed",
+            "model_initialization_seed",
+            "sampling_seed",
             "optimizer",
             "loss",
             "amplitude_scaling",
@@ -124,8 +126,11 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
     training_settings = NersiTrainingSettings(
-        random_seed=config_values.nonnegative_integer(
-            training["random_seed"], "training.random_seed"
+        model_initialization_seed=config_values.nonnegative_integer(
+            training["model_initialization_seed"], "training.model_initialization_seed"
+        ),
+        sampling_seed=config_values.nonnegative_integer(
+            training["sampling_seed"], "training.sampling_seed"
         ),
         learning_rate=config_values.positive_float(
             training["learning_rate"], "training.learning_rate"

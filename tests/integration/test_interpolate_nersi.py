@@ -111,7 +111,8 @@ def _config(artifacts: PreparedC3VolumeRunArtifacts, *, training_seed: int = 314
             "output_activation": "linear",
         },
         "training": {
-            "random_seed": training_seed,
+            "model_initialization_seed": training_seed,
+            "sampling_seed": 201,
             "optimizer": "adam",
             "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
@@ -169,6 +170,42 @@ def _loaded_inputs(artifacts: PreparedC3VolumeRunArtifacts, config: Path):
         case_dir=artifacts.case,
         volume_dir=artifacts.volume,
     )
+
+
+def test_model_initialization_and_profile_sampling_seeds_are_independent(
+    tmp_path, nersi_artifacts, monkeypatch
+):
+    original_train = pipeline.train_nersi_fixed_steps
+    captures = []
+
+    def train(model, data, **kwargs):
+        initial = deepcopy(model.state_dict())
+        batches = []
+        hook = model.register_forward_pre_hook(
+            lambda _model, args: batches.append(args[0].detach().cpu().clone())
+        )
+        try:
+            result = original_train(model, data, **kwargs)
+        finally:
+            hook.remove()
+        captures.append((initial, batches))
+        return result
+
+    monkeypatch.setattr(pipeline, "train_nersi_fixed_steps", train)
+    for index, (model_seed, sampling_seed) in enumerate(((101, 201), (102, 201), (101, 202))):
+        config = _config(nersi_artifacts)
+        config["training"].update(model_initialization_seed=model_seed, sampling_seed=sampling_seed)
+        path = tmp_path / f"seed_{index}.yaml"
+        path.write_text(yaml.safe_dump(config))
+        output = tmp_path / f"seed_{index}"
+        _run(nersi_artifacts, path, output)
+        loaded = load_fixed_step_nersi_checkpoint(output / "final.pt")
+        assert loaded.model_initialization_seed == model_seed
+        assert loaded.sampling_seed == sampling_seed
+    assert all(torch.equal(value, captures[2][0][key]) for key, value in captures[0][0].items())
+    assert any(not torch.equal(value, captures[1][0][key]) for key, value in captures[0][0].items())
+    assert all(torch.equal(a, b) for a, b in zip(captures[0][1], captures[1][1], strict=True))
+    assert any(not torch.equal(a, b) for a, b in zip(captures[0][1], captures[2][1], strict=True))
 
 
 def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
@@ -258,7 +295,7 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     assert run["loss_or_native_objective"] == "masked_trace_relative_mse"
     assert run["method_details"]["checkpoint_role"] == "final"
     assert run["method_details"]["random_seed"] == 42
-    assert run["method_details"]["training_random_seed"] == 314
+    assert run["method_details"]["model_initialization_seed"] == 314
     assert run["method_details"]["profiles"]["axis_order"] == list(PROFILE_AXIS_ORDER)
     assert run["method_details"]["profiles"]["coordinate_order"] == list(PROFILE_COORDINATE_ORDER)
     assert run["method_details"]["profiles"]["coordinate_normalization"] == (
@@ -334,6 +371,8 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     assert loaded.spatial_shape == (2, 3, 2, 8)
     assert loaded.profile_shape == (8, 8)
     assert loaded.global_step == 2
+    assert loaded.model_initialization_seed == 314
+    assert loaded.sampling_seed == run["method_details"]["sampling_seed"] == 201
     current_data = build_c3_volume_nersi_data(
         observed,
         amplitude_scale=loaded.amplitude_scale,

@@ -1,6 +1,8 @@
 """End-to-end observed-only GNN training and common dense-volume evaluation."""
 
 import json
+import platform
+from copy import deepcopy
 from dataclasses import replace
 
 import numpy as np
@@ -8,8 +10,15 @@ import pytest
 import torch
 import yaml
 
+from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
+from seis_interp.data.c3_poc_trace_graph import build_c3_poc_trace_graph_domain
+from seis_interp.data.c3_trace_graph_prediction import scatter_c3_trace_graph_prediction
+from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
 from seis_interp.pipelines import interpolate_relational_trace_graph as pipeline
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
+from seis_interp.training.relational_trace_graph_checkpoints import (
+    load_relational_trace_graph_poc_checkpoint,
+)
 from tests.fixtures.c3_poc_trace_graph import prepare_poc_trace_graph_inputs
 
 
@@ -91,11 +100,45 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(tmp_path, monkey
     assert run["coverage"]["covered_target_trace_count"] == len(ids)
     assert run["method_details"]["parameter_count"] > 0
     assert run["training_or_reconstruction"]["steps_completed"] == 3
+    assert (
+        checkpoint["model_initialization_seed"] == config["training"]["model_initialization_seed"]
+    )
+    assert checkpoint["episode_seed"] == config["training"]["episode_seed"]
     assert run["timing"]["training_seconds"] > 0
     assert (
         json.loads((output / "metrics.json").read_text())["evaluation_target"]
         == metrics["evaluation_target"]
     )
+    current = load_c3_random80_poc_inputs(config=config, **paths)
+    assert current.inputs_lock == json.loads((output / "inputs.lock.json").read_text())
+    restored = load_relational_trace_graph_poc_checkpoint(
+        output / "final.pt", inputs_lock=current.inputs_lock, device="cpu"
+    )
+    assert restored.graph_settings.neighbor_search == search
+    assert restored.model.constructor_config() == checkpoint["model_config"]
+    assert not restored.model.training
+    restored_volume = current.observed_volume
+    predicted = original_predict(
+        restored.model,
+        build_c3_poc_trace_graph_domain(current),
+        restored.preprocessing,
+        graph_settings=restored.graph_settings,
+        observed_waveforms=restored_volume.values[:, restored_volume.observed_trace_mask].T,
+        query_batch_size=config["prediction"]["query_batch_size"],
+        device="cpu",
+    )
+    dense, restored_coverage = scatter_c3_trace_graph_prediction(
+        current, predicted.query_trace_ids, predicted.prediction
+    )
+    np.testing.assert_array_equal(restored_coverage, restored_volume.evaluation_target_trace_mask)
+    np.testing.assert_allclose(dense, prediction, rtol=1e-6, atol=1e-7)
+    assert evaluate_c3_volume_prediction(
+        dense,
+        restored_volume,
+        interim_dir=paths["interim_dir"],
+        volume_metadata=current.volume_metadata,
+        target_coverage_mask=restored_coverage,
+    ) == json.loads((output / "metrics.json").read_text())
     with pytest.raises(FileExistsError, match="already exists"):
         _run(tmp_path, paths, config)
 
@@ -140,6 +183,51 @@ def test_no_context_queries_are_trained_predicted_and_evaluated(tmp_path):
     prediction = np.load(output / "prediction.npy")
     assert np.isfinite(prediction).all()
     assert np.count_nonzero(prediction[:, inputs.observed_volume.evaluation_target_trace_mask]) == 0
+
+
+def test_model_and_episode_seeds_are_independent_and_git_is_captured_before_inputs(
+    tmp_path, monkeypatch
+):
+    _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
+    original_load = pipeline.load_c3_random80_poc_inputs
+    original_train = pipeline.train_relational_trace_graph_poc
+    captured = []
+    git_calls = []
+    current_git = {"git_commit": "a" * 40, "git_worktree_dirty": False}
+
+    def git():
+        git_calls.append(True)
+        return dict(current_git)
+
+    def inputs(**kwargs):
+        assert len(git_calls) == len(captured) + 1
+        current_git.update(git_commit="b" * 40, git_worktree_dirty=True)
+        return original_load(**kwargs)
+
+    def train(model, *args, **kwargs):
+        captured.append((deepcopy(model.state_dict()), kwargs["random_seed"]))
+        return original_train(model, *args, **kwargs)
+
+    monkeypatch.setattr(pipeline.run_records, "current_git_metadata", git)
+    monkeypatch.setattr(pipeline, "load_c3_random80_poc_inputs", inputs)
+    monkeypatch.setattr(pipeline, "train_relational_trace_graph_poc", train)
+    for index, (model_seed, episode_seed) in enumerate(((101, 201), (102, 201), (101, 202))):
+        config["training"].update(model_initialization_seed=model_seed, episode_seed=episode_seed)
+        current_git.update(git_commit="a" * 40, git_worktree_dirty=False)
+        _, output = _run(tmp_path, paths, config, name=f"seed_{index}")
+        details = json.loads((output / "metadata.json").read_text())["method_details"]
+        assert details["git_commit"] == "a" * 40
+        assert details["git_worktree_dirty"] is False
+        assert details["model_initialization_seed"] == model_seed
+        assert details["episode_seed"] == episode_seed
+        assert details["python_version"] == platform.python_version()
+        assert details["numpy_version"] == np.__version__
+        assert details["torch_version"] == str(torch.__version__)
+    assert len(git_calls) == 3
+    assert captured[0][1] == captured[1][1] == 201
+    assert captured[2][1] == 202
+    assert all(torch.equal(value, captured[2][0][key]) for key, value in captured[0][0].items())
+    assert any(not torch.equal(value, captured[1][0][key]) for key, value in captured[0][0].items())
 
 
 @pytest.mark.parametrize("corruption", ["missing", "duplicate", "foreign", "nonfinite"])

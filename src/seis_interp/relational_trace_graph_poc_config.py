@@ -69,7 +69,8 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
             "training",
             {
                 "device",
-                "random_seed",
+                "model_initialization_seed",
+                "episode_seed",
                 "loss",
                 "amplitude_scaling",
                 "optimizer",
@@ -92,9 +93,8 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
         training.pop(key)
     if not isinstance(training["device"], str) or not training["device"].strip():
         raise ConfigurationError("training.device must be a nonempty string")
-    training["random_seed"] = values.nonnegative_integer(
-        training["random_seed"], "training.random_seed"
-    )
+    for key in ("model_initialization_seed", "episode_seed"):
+        training[key] = values.nonnegative_integer(training[key], f"training.{key}")
     for key in ("max_steps", "query_batch_size", "report_interval"):
         training[key] = values.positive_integer(training[key], f"training.{key}")
     for key in ("learning_rate", "inner_mask_fraction"):

@@ -70,7 +70,8 @@ def poc_trace_graph_config(selection):
         },
         "training": {
             "device": "cpu",
-            "random_seed": 7,
+            "model_initialization_seed": 7,
+            "episode_seed": 201,
             "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
             "optimizer": "adamw",

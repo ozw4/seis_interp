@@ -279,6 +279,15 @@ Comparisons must verify the full input lock, not just the case and volume IDs.
 identity, normalization, objective, training/reconstruction, coverage, timing, and resource usage
 from nested `method_details`.
 
+Neural PoC seeds are explicit nonnegative integers, independently configurable and recorded in
+the checkpoint and metadata. `project.random_seed` remains the outer benchmark seed.
+
+| Method | Native seed fields |
+| --- | --- |
+| NeRSI | `training.model_initialization_seed`, `training.sampling_seed` |
+| CCNet5D | `training.model_initialization_seed`, `patches.placement_seed`, `patches.inner_mask_seed` |
+| Relational trace graph | `training.model_initialization_seed`, `training.episode_seed` |
+
 Check the fixed input selection, mask, counts, and observed-only RMS without creating a run:
 
 ```bash

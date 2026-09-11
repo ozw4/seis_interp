@@ -56,6 +56,8 @@ class LoadedFixedStepNersiCheckpoint:
     global_step: int
     final_batch_loss: float
     input_binding: dict[str, object]
+    model_initialization_seed: int
+    sampling_seed: int
 
 
 def save_fixed_step_nersi_checkpoint(
@@ -66,6 +68,8 @@ def save_fixed_step_nersi_checkpoint(
     global_step: int,
     final_batch_loss: float,
     input_binding: Mapping[str, object],
+    model_initialization_seed: int,
+    sampling_seed: int,
 ) -> None:
     """Save a non-resumable final function and observed-only preprocessing metadata."""
     if not isinstance(model, Nersi):
@@ -96,7 +100,14 @@ def save_fixed_step_nersi_checkpoint(
             "amplitude_scaling": AMPLITUDE_SCALING,
             "amplitude_scale": scale,
         },
-        "training": {"global_step": step, "final_batch_loss": loss},
+        "training": {
+            "global_step": step,
+            "final_batch_loss": loss,
+            "model_initialization_seed": _seed(
+                model_initialization_seed, "model_initialization_seed"
+            ),
+            "sampling_seed": _seed(sampling_seed, "sampling_seed"),
+        },
     }
     torch.save(payload, Path(path))
 
@@ -206,6 +217,10 @@ def load_fixed_step_nersi_checkpoint(
         global_step=step,
         final_batch_loss=loss,
         input_binding=binding,
+        model_initialization_seed=_seed(
+            training.get("model_initialization_seed"), "model_initialization_seed"
+        ),
+        sampling_seed=_seed(training.get("sampling_seed"), "sampling_seed"),
     )
 
 
@@ -320,6 +335,12 @@ def _validated_input_binding(value: object) -> dict[str, object]:
             "benchmark_volume": deepcopy(normalized_volume_hashes),
         },
     }
+
+
+def _seed(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
+        raise ValueError(f"{name} must be a nonnegative integer")
+    return int(value)
 
 
 def _nonempty_string(value: object, name: str) -> str:

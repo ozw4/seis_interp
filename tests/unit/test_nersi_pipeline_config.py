@@ -30,7 +30,8 @@ def _config() -> dict[str, object]:
             "output_activation": "linear",
         },
         "training": {
-            "random_seed": 20260908,
+            "model_initialization_seed": 20260908,
+            "sampling_seed": 201,
             "optimizer": "adam",
             "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
@@ -53,7 +54,7 @@ def test_valid_config_preserves_separate_mask_and_training_seeds() -> None:
     settings = validate_nersi_poc_config(config)
 
     assert config["project"]["random_seed"] == 142
-    assert settings.training.random_seed == 20260908
+    assert settings.training.model_initialization_seed == 20260908
     assert settings.model_constructor_config((384, 32)) == {
         "input_features": 3,
         "fourier_components": 40,
@@ -92,6 +93,8 @@ def test_method_sections_reject_unexpected_keys(section: str) -> None:
         ("model", "activation", "relu"),
         ("model", "output_activation", "relu"),
         ("training", "optimizer", "sgd"),
+        ("training", "model_initialization_seed", True),
+        ("training", "sampling_seed", -1),
         ("training", "loss", "l2"),
         ("training", "loss", "observed_masked_mse"),
         ("training", "amplitude_scaling", "per_trace_rms"),

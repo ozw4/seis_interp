@@ -15,7 +15,7 @@ from seis_interp.training.ccnet5d_poc_checkpoints import CCNET5D_POC_LOSS
 class CCNet5DPocTrainingSettings:
     """Fixed-step optimizer and device settings."""
 
-    random_seed: int
+    model_initialization_seed: int
     learning_rate: float
     max_steps: int
     report_interval: int
@@ -28,7 +28,8 @@ class CCNet5DPocPatchSettings:
 
     shape: tuple[int, ...]
     inner_mask_fraction: float
-    random_seed: int
+    placement_seed: int
+    inner_mask_seed: int
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,7 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
     patches = config_values.exact_section(
         config,
         "patches",
-        {"shape", "inner_mask_fraction", "mask_kind", "random_seed"},
+        {"shape", "inner_mask_fraction", "mask_kind", "placement_seed", "inner_mask_seed"},
     )
     if patches["mask_kind"] != "random_trace":
         raise ConfigurationError("patches.mask_kind must be 'random_trace'")
@@ -88,8 +89,11 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
     patch_settings = CCNet5DPocPatchSettings(
         shape=patch_shape,
         inner_mask_fraction=fraction,
-        random_seed=config_values.nonnegative_integer(
-            patches["random_seed"], "patches.random_seed"
+        placement_seed=config_values.nonnegative_integer(
+            patches["placement_seed"], "patches.placement_seed"
+        ),
+        inner_mask_seed=config_values.nonnegative_integer(
+            patches["inner_mask_seed"], "patches.inner_mask_seed"
         ),
     )
 
@@ -97,7 +101,7 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
         config,
         "training",
         {
-            "random_seed",
+            "model_initialization_seed",
             "optimizer",
             "loss",
             "amplitude_scaling",
@@ -114,8 +118,8 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
     training_settings = CCNet5DPocTrainingSettings(
-        random_seed=config_values.nonnegative_integer(
-            training["random_seed"], "training.random_seed"
+        model_initialization_seed=config_values.nonnegative_integer(
+            training["model_initialization_seed"], "training.model_initialization_seed"
         ),
         learning_rate=config_values.positive_float(
             training["learning_rate"], "training.learning_rate"

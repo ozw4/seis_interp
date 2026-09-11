@@ -109,11 +109,12 @@ def interpolate_ccnet5d_run(
         amplitude_scale=amplitude_scale,
         patch_shape=settings.patches.shape,
         inner_mask_fraction=settings.patches.inner_mask_fraction,
-        random_seed=settings.patches.random_seed,
+        placement_seed=settings.patches.placement_seed,
+        inner_mask_seed=settings.patches.inner_mask_seed,
     )
     timings["training_data_seconds"] = time.perf_counter() - started
 
-    seed_global_model_initialization(settings.training.random_seed, device=device)
+    seed_global_model_initialization(settings.training.model_initialization_seed, device=device)
     model = CCNet5D(**settings.model)
     _report(progress_reporter, "Training CCNet-5D with observed-only pseudo-target traces.")
     _synchronize_before_timing(device)
@@ -198,7 +199,9 @@ def interpolate_ccnet5d_run(
         amplitude_scale=amplitude_scale,
         patch_shape=settings.patches.shape,
         inner_mask_fraction=settings.patches.inner_mask_fraction,
-        patch_random_seed=settings.patches.random_seed,
+        placement_seed=settings.patches.placement_seed,
+        inner_mask_seed=settings.patches.inner_mask_seed,
+        model_initialization_seed=settings.training.model_initialization_seed,
         optimizer_updates=trained.steps_completed,
     )
     np.save(output / PREDICTION_RELATIVE_PATH, predicted.values, allow_pickle=False)
@@ -300,7 +303,7 @@ def _run_metadata(
         "status": "success",
         "device": str(device),
         "random_seed": benchmark_seed,
-        "training_random_seed": settings.training.random_seed,
+        "model_initialization_seed": settings.training.model_initialization_seed,
         "python_version": platform.python_version(),
         "numpy_version": np.__version__,
         "torch_version": str(torch.__version__),
@@ -322,7 +325,8 @@ def _run_metadata(
             "shape": list(settings.patches.shape),
             "sampling": "random_uniform_eligible_observed_patch",
             "inner_mask_fraction": settings.patches.inner_mask_fraction,
-            "random_seed": settings.patches.random_seed,
+            "placement_seed": settings.patches.placement_seed,
+            "inner_mask_seed": settings.patches.inner_mask_seed,
             "pseudo_target_source": "O_only",
             "whole_trace": True,
         },

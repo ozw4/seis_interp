@@ -315,13 +315,15 @@ has_observed_context = result.has_observed_context  # [True]
 設定には`project`、`data`、`benchmark_case`、`benchmark_volume`、`interpolation_mask`、
 `model`、`graph`、`geometry_features`、`training`、`prediction`、`evaluation`を指定する。
 datasetは`seg_c3_na`、volume selectionは全5軸のresolved範囲を宣言する。
-`project.random_seed`は外側mask、`training.random_seed`はモデル初期化とepisodeのlocal RNGに使用する。
+`project.random_seed`は外側mask、`training.model_initialization_seed`はモデル初期化、
+`training.episode_seed`はinner maskとquery順序を生成するepisodeのlocal RNGに使用する。
 modelはrelational・global RMS modeとし、次のtraining項目をすべて指定する。
 
 ```yaml
 training:
   device: cuda
-  random_seed: 7
+  model_initialization_seed: 7
+  episode_seed: 201
   optimizer: adamw
   loss: masked_trace_relative_mse
   amplitude_scaling: observed_volume_global_rms
@@ -357,6 +359,12 @@ seis-interp interpolate relational-trace-graph \
 
 既存の出力directoryは再使用しない。`final.pt`には最終重み、constructor、
 graph設定、共通RMS、固定座標bounds、inner mask率、seed、完了step、inputs lockを保存する。
+保存には`save_relational_trace_graph_poc_checkpoint()`を使い、一時ファイルからatomic replaceする。
+`load_relational_trace_graph_poc_checkpoint(path, inputs_lock=inputs.inputs_lock, device="cpu")`
+は検証済みの現在の入力lock全体（nested volume hashを含む）を照合し、constructor、state、
+feature順序、graph設定、時間軸とPoC前処理を検査してmodel・preprocessing・graph settingsを復元する。
+再推論は復元した値と`build_c3_poc_trace_graph_domain(inputs)`、Oの物理波形を
+`predict_relational_trace_graph()`へ渡す。前処理の再fitは行わない。
 推論にはO全体をcontextとして渡し、TのIDが重複・欠落なく一致することをscatter前に確認する。
 物理振幅への復元は予測関数内で一度だけ行い、Oを再挿入したdense volumeを共通C3 evaluatorで採点する。
 

@@ -34,8 +34,8 @@ class CCNet5DObservedPatchSource:
         amplitude_scale: float,
         patch_shape: tuple[int, ...],
         inner_mask_fraction: float,
-        random_seed: int | None = None,
-        generator: np.random.Generator | None = None,
+        placement_seed: int,
+        inner_mask_seed: int,
     ) -> None:
         volume, observed_mask = _validated_observed_volume(observed_volume)
         self.patch_shape = validate_ccnet5d_shape(patch_shape, "patch_shape")
@@ -47,7 +47,8 @@ class CCNet5DObservedPatchSource:
             raise ValueError("patch_shape must span the complete trace time axis")
         self.inner_mask_fraction = _inner_mask_fraction(inner_mask_fraction)
         self.amplitude_scale = _positive_finite_scale(amplitude_scale)
-        self._generator = _random_generator(random_seed=random_seed, generator=generator)
+        self._placement_generator = _random_generator(placement_seed, "placement_seed")
+        self._mask_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
         self._observed_mask = np.array(observed_mask, dtype=np.bool_, copy=True, order="C")
 
         observed_values = np.where(self._observed_mask[None, ...], volume, 0)
@@ -70,8 +71,10 @@ class CCNet5DObservedPatchSource:
         return self._normalized_observed.shape
 
     def sample(self) -> CCNet5DObservedPatch:
-        """Draw one patch and a whole-trace pseudo-mask from the source RNG."""
-        placement_index = int(self._generator.integers(len(self._eligible_spatial_starts)))
+        """Draw placement and a whole-trace pseudo-mask from independent streams."""
+        placement_index = int(
+            self._placement_generator.integers(len(self._eligible_spatial_starts))
+        )
         starts = (0, *self._eligible_spatial_starts[placement_index])
         patch_slices = tuple(
             slice(start, start + extent)
@@ -82,7 +85,7 @@ class CCNet5DObservedPatchSource:
         hidden = _draw_pseudo_target_mask(
             available,
             fraction=self.inner_mask_fraction,
-            generator=self._generator,
+            generator=self._mask_generator,
         )
         visible = available & ~hidden
 
@@ -189,17 +192,7 @@ def _positive_finite_scale(value: object) -> float:
     return scale
 
 
-def _random_generator(
-    *,
-    random_seed: int | None,
-    generator: np.random.Generator | None,
-) -> np.random.Generator:
-    if random_seed is not None and generator is not None:
-        raise ValueError("pass either random_seed or generator, not both")
-    if generator is not None:
-        if not isinstance(generator, np.random.Generator):
-            raise TypeError("generator must be a NumPy Generator")
-        return generator
+def _random_generator(random_seed: int, name: str) -> np.random.Generator:
     if isinstance(random_seed, bool) or not isinstance(random_seed, Integral) or random_seed < 0:
-        raise ValueError("random_seed must be a non-negative integer")
+        raise ValueError(f"{name} must be a non-negative integer")
     return np.random.default_rng(int(random_seed))

@@ -82,7 +82,8 @@ def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> Non
             "output_activation": "linear",
         },
         "training": {
-            "random_seed": 314,
+            "model_initialization_seed": 314,
+            "sampling_seed": 201,
             "optimizer": "adam",
             "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",

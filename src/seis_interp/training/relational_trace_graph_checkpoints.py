@@ -58,6 +58,123 @@ class LoadedRelationalTraceGraphCheckpoint:
     selection_metrics: dict[str, object]
 
 
+@dataclass(frozen=True)
+class LoadedRelationalTraceGraphPocCheckpoint:
+    """Strictly restored per-volume inference state and training metadata."""
+
+    model: RelationalTraceGraphInterpolator
+    preprocessing: TraceGraphPreprocessing
+    graph_settings: TraceGraphSettings
+    metadata: dict[str, object]
+
+
+def save_relational_trace_graph_poc_checkpoint(
+    path: Path,
+    *,
+    model_config: Mapping[str, object],
+    state_dict: Mapping[str, torch.Tensor],
+    preprocessing: TraceGraphPreprocessing,
+    graph_settings: TraceGraphSettings,
+    metadata: Mapping[str, object],
+    inputs_lock: Mapping[str, object],
+) -> None:
+    """Validate and atomically save a CPU final snapshot without advancing RNG."""
+    config = _model_config(model_config)
+    payload = {
+        **_json_mapping(metadata, "metadata"),
+        "model_type": RELATIONAL_TRACE_GRAPH_MODEL_TYPE,
+        "model_config": config,
+        "model_state_dict": _snapshot(state_dict),
+        "graph_settings": graph_settings.constructor_config(),
+        "relation_names": ["untyped"]
+        if graph_settings.topology == "single_4d"
+        else list(RELATION_NAMES),
+        "node_feature_names": list(NODE_FEATURE_NAMES),
+        "edge_feature_names": list(EDGE_FEATURE_NAMES),
+        "preprocessing": _json_mapping(asdict(preprocessing), "preprocessing"),
+        "time": {
+            "time_s": list(preprocessing.time_s),
+            "sample_count": len(preprocessing.time_s),
+            "time_downsample_factor": config["time_downsample_factor"],
+        },
+        "inputs_lock": _json_mapping(inputs_lock, "inputs_lock"),
+    }
+    with torch.random.fork_rng(devices=[]):
+        _load_poc_payload(payload, inputs_lock=inputs_lock, device="cpu")
+    _atomic_save(path, payload)
+
+
+def load_relational_trace_graph_poc_checkpoint(
+    path: Path,
+    *,
+    inputs_lock: Mapping[str, object],
+    device: torch.device | str = "cpu",
+) -> LoadedRelationalTraceGraphPocCheckpoint:
+    """Restore inference state only when the entire verified current input lock matches."""
+    payload = torch.load(Path(path), map_location="cpu", weights_only=True)
+    return _load_poc_payload(payload, inputs_lock=inputs_lock, device=device)
+
+
+def _load_poc_payload(
+    payload: object, *, inputs_lock: Mapping[str, object], device: torch.device | str
+) -> LoadedRelationalTraceGraphPocCheckpoint:
+    if not isinstance(payload, Mapping):
+        raise ValueError("PoC checkpoint must contain a mapping")
+    expected_lock = _json_mapping(inputs_lock, "inputs_lock")
+    if not expected_lock or payload.get("inputs_lock") != expected_lock:
+        raise ValueError("checkpoint inputs_lock does not match current inputs")
+    for name, expected in {
+        "method": RELATIONAL_TRACE_GRAPH_MODEL_TYPE,
+        "training_domain": "O_with_inner_pseudo_mask",
+        "loss": "masked_trace_relative_mse",
+        "checkpoint_role": "final",
+        "output_amplitude_domain": "physical",
+        "case_id": expected_lock.get("case_id"),
+        "volume_id": expected_lock.get("volume_id"),
+    }.items():
+        if expected is None or payload.get(name) != expected:
+            raise ValueError(f"checkpoint {name} does not match the PoC contract")
+    for key in ("model_initialization_seed", "episode_seed"):
+        _integer(payload.get(key), key, minimum=0)
+    _integer(payload.get("steps_completed"), "steps_completed", minimum=1)
+    fraction = payload.get("inner_mask_fraction")
+    if not _finite_number(fraction) or not 0 < fraction < 1:
+        raise ValueError("checkpoint inner_mask_fraction must be in (0, 1)")
+    model, preprocessing, graph = _load_inference(
+        {**payload, "state_dict": payload.get("model_state_dict")}, device=device
+    )
+    fit = preprocessing.fit_domain
+    if (
+        not isinstance(fit, Mapping)
+        or set(fit) != {"coordinate_source", "midpoint_bounds_m", "amplitude_source", "inputs_lock"}
+        or fit.get("coordinate_source") != "fixed_analysis_domain"
+        or fit.get("amplitude_source") != "external_observed_global_rms"
+        or fit.get("inputs_lock") != expected_lock
+    ):
+        raise ValueError("checkpoint preprocessing.fit_domain must match the PoC inputs")
+    bounds = np.asarray(fit["midpoint_bounds_m"], dtype=np.float64)
+    if (
+        bounds.shape != (2, 2)
+        or not np.all(np.isfinite(bounds))
+        or np.any(bounds[1] < bounds[0])
+        or not np.array_equal(
+            bounds[0] + (bounds[1] - bounds[0]) / 2, preprocessing.midpoint_origin_m
+        )
+    ):
+        raise ValueError("checkpoint midpoint bounds do not match preprocessing origin")
+    if payload.get("normalization") != {
+        "type": "global_rms",
+        "source": "O_only",
+        "scale": preprocessing.amplitude_scale,
+    }:
+        raise ValueError("checkpoint normalization does not match preprocessing")
+    metadata = _json_mapping(
+        {key: value for key, value in payload.items() if key != "model_state_dict"}, "metadata"
+    )
+    model.eval()
+    return LoadedRelationalTraceGraphPocCheckpoint(model, preprocessing, graph, metadata)
+
+
 def save_relational_trace_graph_checkpoint(
     path: Path,
     *,
@@ -112,6 +229,10 @@ def save_relational_trace_graph_checkpoint(
     # keeping a checkpoint save from advancing the caller's model RNG stream.
     with torch.random.fork_rng(devices=[]):
         _load_payload(payload, device="cpu")
+    _atomic_save(path, payload)
+
+
+def _atomic_save(path: Path, payload: Mapping) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -138,6 +259,25 @@ def load_relational_trace_graph_checkpoint(
 def _load_payload(
     payload: object, *, device: torch.device | str
 ) -> LoadedRelationalTraceGraphCheckpoint:
+    model, preprocessing, graph_settings = _load_inference(payload, device=device)
+    _training_fit_domain(preprocessing)
+    try:
+        mask = _training_mask(payload["training_mask"])
+        provenance = _json_mapping(payload["training_provenance"], "training_provenance")
+        seed = _integer(payload["training_random_seed"], "training_random_seed", minimum=0)
+        role = _role(payload["checkpoint_role"])
+        step = _integer(payload["global_step"], "global_step", minimum=0)
+        metrics = _json_mapping(payload["selection_metrics"], "selection_metrics")
+    except KeyError as error:
+        raise ValueError(f"checkpoint is missing required field {error.args[0]!r}") from error
+    return LoadedRelationalTraceGraphCheckpoint(
+        model, preprocessing, graph_settings, mask, provenance, seed, role, step, metrics
+    )
+
+
+def _load_inference(
+    payload: object, *, device: torch.device | str
+) -> tuple[RelationalTraceGraphInterpolator, TraceGraphPreprocessing, TraceGraphSettings]:
     if not isinstance(payload, Mapping):
         raise ValueError("relational trace graph checkpoint must contain a mapping")
     if payload.get("model_type") != RELATIONAL_TRACE_GRAPH_MODEL_TYPE:
@@ -175,12 +315,6 @@ def _load_payload(
             raise ValueError("checkpoint relation_names does not match the required order")
         preprocessing = _preprocessing(payload["preprocessing"])
         _time_metadata(payload["time"], preprocessing, config)
-        mask = _training_mask(payload["training_mask"])
-        provenance = _json_mapping(payload["training_provenance"], "training_provenance")
-        seed = _integer(payload["training_random_seed"], "training_random_seed", minimum=0)
-        role = _role(payload["checkpoint_role"])
-        step = _integer(payload["global_step"], "global_step", minimum=0)
-        metrics = _json_mapping(payload["selection_metrics"], "selection_metrics")
         state_dict = payload["state_dict"]
     except KeyError as error:
         raise ValueError(f"checkpoint is missing required field {error.args[0]!r}") from error
@@ -198,17 +332,7 @@ def _load_payload(
     except RuntimeError as error:
         raise ValueError("checkpoint state_dict does not match model_config") from error
     model.to(device)
-    return LoadedRelationalTraceGraphCheckpoint(
-        model=model,
-        preprocessing=preprocessing,
-        graph_settings=graph_settings,
-        training_mask=mask,
-        training_provenance=provenance,
-        training_random_seed=seed,
-        checkpoint_role=role,
-        global_step=step,
-        selection_metrics=metrics,
-    )
+    return model, preprocessing, graph_settings
 
 
 def _model_config(value: object) -> dict[str, object]:
@@ -239,6 +363,10 @@ def _preprocessing(value: object) -> TraceGraphPreprocessing:
         preprocessing = TraceGraphPreprocessing(**config)
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(f"checkpoint preprocessing is invalid: {error}") from error
+    return preprocessing
+
+
+def _training_fit_domain(preprocessing: TraceGraphPreprocessing) -> None:
     fit = preprocessing.fit_domain
     if not isinstance(fit, Mapping) or fit.get("pool") not in ("all_train_traces", "mask_observed"):
         raise ValueError("checkpoint preprocessing.fit_domain must identify the training pool")
@@ -249,7 +377,6 @@ def _preprocessing(value: object) -> TraceGraphPreprocessing:
     stop = _integer(samples[1], "fit_domain.time_samples stop", minimum=1)
     if stop - start != len(preprocessing.time_s):
         raise ValueError("checkpoint fit_domain.time_samples must match the time grid length")
-    return preprocessing
 
 
 def _time_metadata(value: object, preprocessing: TraceGraphPreprocessing, config: Mapping) -> None:

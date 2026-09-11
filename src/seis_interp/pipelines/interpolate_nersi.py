@@ -106,7 +106,7 @@ def interpolate_nersi_run(
     data = build_c3_volume_nersi_data(observed, amplitude_scale=amplitude_scale)
     timings["training_data_seconds"] = time.perf_counter() - started
     model_config = settings.model_constructor_config(data.profile_shape)
-    seed_global_model_initialization(settings.training.random_seed, device=device)
+    seed_global_model_initialization(settings.training.model_initialization_seed, device=device)
     model = Nersi(**model_config)
 
     _report(progress_reporter, "Training NeRSI on observed benchmark profile samples.")
@@ -120,7 +120,7 @@ def interpolate_nersi_run(
         profiles_per_step=settings.training.profiles_per_step,
         max_steps=settings.training.max_steps,
         report_interval=settings.training.report_interval,
-        random_seed=settings.training.random_seed,
+        random_seed=settings.training.sampling_seed,
         reporter=progress_reporter,
     )
     _synchronize(device)
@@ -194,6 +194,8 @@ def interpolate_nersi_run(
         global_step=trained.steps_completed,
         final_batch_loss=trained.final_batch_loss,
         input_binding=nersi_checkpoint_input_binding(inputs.inputs_lock),
+        model_initialization_seed=settings.training.model_initialization_seed,
+        sampling_seed=settings.training.sampling_seed,
     )
     np.save(output / PREDICTION_RELATIVE_PATH, predicted.values, allow_pickle=False)
     checkpoint_sha256 = file_sha256(output / CHECKPOINT_RELATIVE_PATH)
@@ -281,7 +283,8 @@ def _run_metadata(
         "numpy_version": np.__version__,
         "torch_version": str(torch.__version__),
         "random_seed": benchmark_seed,
-        "training_random_seed": settings.training.random_seed,
+        "model_initialization_seed": settings.training.model_initialization_seed,
+        "sampling_seed": settings.training.sampling_seed,
         "input": _input_metadata(inputs),
         "profiles": {
             "coordinate_order": list(PROFILE_COORDINATE_ORDER),

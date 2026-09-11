@@ -19,10 +19,11 @@ def _config() -> dict[str, object]:
             "shape": [384, 2, 3, 1, 4],
             "inner_mask_fraction": 0.5,
             "mask_kind": "random_trace",
-            "random_seed": 17,
+            "placement_seed": 17,
+            "inner_mask_seed": 401,
         },
         "training": {
-            "random_seed": 19,
+            "model_initialization_seed": 19,
             "optimizer": "adam",
             "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
@@ -58,6 +59,9 @@ def test_validates_single_fixed_step_observed_only_configuration() -> None:
     ("section", "field", "replacement", "match"),
     [
         ("training", "loss", "mse", "loss"),
+        ("training", "model_initialization_seed", True, "model_initialization_seed"),
+        ("patches", "placement_seed", -1, "placement_seed"),
+        ("patches", "inner_mask_seed", 1.5, "inner_mask_seed"),
         ("training", "amplitude_scaling", "per_patch_rms", "amplitude_scaling"),
         ("patches", "inner_mask_fraction", 1.0, "strictly less than 1"),
         ("patches", "mask_kind", "random_sample", "mask_kind"),

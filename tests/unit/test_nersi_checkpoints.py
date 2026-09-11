@@ -82,6 +82,8 @@ def _save(path: Path) -> tuple[Nersi, C3VolumeNersiData]:
         global_step=7,
         final_batch_loss=0.125,
         input_binding=nersi_checkpoint_input_binding(_inputs_lock()),
+        model_initialization_seed=101,
+        sampling_seed=201,
     )
     return model, data
 
@@ -145,7 +147,12 @@ def test_payload_is_cpu_snapshot_without_resume_or_target_information(tmp_path: 
         "amplitude_scaling": AMPLITUDE_SCALING,
         "amplitude_scale": 2.5,
     }
-    assert payload["training"] == {"global_step": 7, "final_batch_loss": 0.125}
+    assert payload["training"] == {
+        "global_step": 7,
+        "final_batch_loss": 0.125,
+        "model_initialization_seed": 101,
+        "sampling_seed": 201,
+    }
     assert "optimizer" not in payload
     assert "rng" not in payload
     assert "evaluation" not in payload
@@ -183,6 +190,18 @@ def test_rejects_wrong_checkpoint_identity(tmp_path: Path, field: str, replaceme
     torch.save(payload, path)
 
     with pytest.raises(ValueError, match=field):
+        load_fixed_step_nersi_checkpoint(path)
+
+
+@pytest.mark.parametrize("key", ["model_initialization_seed", "sampling_seed"])
+@pytest.mark.parametrize("value", [None, True, -1, 1.5])
+def test_checkpoint_requires_explicit_nonnegative_seed_integers(tmp_path, key, value):
+    path = tmp_path / "final.pt"
+    _save(path)
+    payload = torch.load(path, weights_only=True)
+    payload["training"][key] = value
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match=key):
         load_fixed_step_nersi_checkpoint(path)
 
 
@@ -274,6 +293,8 @@ def test_save_rejects_invalid_final_training_metadata(
             global_step=step,
             final_batch_loss=loss,
             input_binding=nersi_checkpoint_input_binding(_inputs_lock()),
+            model_initialization_seed=101,
+            sampling_seed=201,
         )
 
 
@@ -287,4 +308,6 @@ def test_save_rejects_invalid_amplitude_scale(tmp_path: Path, scale: object) -> 
             global_step=1,
             final_batch_loss=0.0,
             input_binding=nersi_checkpoint_input_binding(_inputs_lock()),
+            model_initialization_seed=101,
+            sampling_seed=201,
         )

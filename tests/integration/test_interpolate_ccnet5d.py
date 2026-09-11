@@ -60,10 +60,11 @@ def _config(artifacts: PreparedC3VolumeRunArtifacts) -> dict[str, object]:
             "shape": list(artifacts.volume_metadata["shape"]),
             "inner_mask_fraction": 0.5,
             "mask_kind": "random_trace",
-            "random_seed": 19,
+            "placement_seed": 19,
+            "inner_mask_seed": 401,
         },
         "training": {
-            "random_seed": 23,
+            "model_initialization_seed": 23,
             "optimizer": "adam",
             "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
@@ -197,6 +198,13 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
         == metrics["evaluation_target"]["target_trace_count"]
     )
     assert run["training_or_reconstruction"]["optimizer_updates"] == 2
+    assert (
+        checkpoint.model_initialization_seed
+        == run["method_details"]["model_initialization_seed"]
+        == 23
+    )
+    assert checkpoint.placement_seed == run["method_details"]["patches"]["placement_seed"] == 19
+    assert checkpoint.inner_mask_seed == run["method_details"]["patches"]["inner_mask_seed"] == 401
     assert run["training_or_reconstruction"]["validation"] is False
     assert run["training_or_reconstruction"]["best_checkpoint_selection"] is False
     assert run["coverage"]["minimum_target_coverage_count"] >= 1

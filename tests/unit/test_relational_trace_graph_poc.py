@@ -26,6 +26,8 @@ def test_shared_loss_receives_exact_hidden_rows_and_every_optimizer_step(
     )
     options = dict(settings.training)
     options.pop("device")
+    options.pop("model_initialization_seed")
+    options["random_seed"] = options.pop("episode_seed")
     options["max_steps"] = 5
     episode_generator = PocTraceGraphEpisodeGenerator(
         training,
@@ -94,7 +96,8 @@ def test_dense_scatter_preserves_query_id_mapping_and_does_not_rescale(tmp_path)
         ("training", "optimizer", "sgd"),
         ("training", "validation_interval", 1),
         ("training", "max_steps", 0),
-        ("training", "random_seed", -1),
+        ("training", "episode_seed", -1),
+        ("training", "model_initialization_seed", True),
         ("training", "gradient_clip_norm", -1),
         ("prediction", "query_batch_size", 0),
         ("geometry_features", "position_scale_m", 0),

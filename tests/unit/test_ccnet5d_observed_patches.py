@@ -55,7 +55,8 @@ def test_patch_contains_only_normalized_observed_pseudo_targets_and_visible_cont
         amplitude_scale=2.0,
         patch_shape=volume.values.shape,
         inner_mask_fraction=0.5,
-        random_seed=7,
+        placement_seed=7,
+        inner_mask_seed=7,
     )
     batch = source.sample()
 
@@ -84,10 +85,16 @@ def test_seed_replays_pseudo_mask_without_using_global_numpy_rng() -> None:
         "inner_mask_fraction": 0.5,
     }
     np.random.seed(123)
-    first = CCNet5DObservedPatchSource(volume, random_seed=11, **arguments).sample()
+    first = CCNet5DObservedPatchSource(
+        volume, placement_seed=11, inner_mask_seed=11, **arguments
+    ).sample()
     np.random.seed(999)
-    replay = CCNet5DObservedPatchSource(volume, random_seed=11, **arguments).sample()
-    other = CCNet5DObservedPatchSource(volume, random_seed=12, **arguments).sample()
+    replay = CCNet5DObservedPatchSource(
+        volume, placement_seed=11, inner_mask_seed=11, **arguments
+    ).sample()
+    other = CCNet5DObservedPatchSource(
+        volume, placement_seed=12, inner_mask_seed=12, **arguments
+    ).sample()
 
     np.testing.assert_array_equal(first.pseudo_target_mask, replay.pseudo_target_mask)
     assert not np.array_equal(first.pseudo_target_mask, other.pseudo_target_mask)
@@ -110,7 +117,8 @@ def test_patch_source_rejects_domain_without_target_and_context() -> None:
             amplitude_scale=1.0,
             patch_shape=volume.values.shape,
             inner_mask_fraction=0.5,
-            random_seed=1,
+            placement_seed=1,
+            inner_mask_seed=1,
         )
 
 
@@ -121,7 +129,8 @@ def test_sampled_patch_uses_bounded_spatial_placement_and_complete_trace_mask() 
         amplitude_scale=2.0,
         patch_shape=(384, 1, 2, 1, 2),
         inner_mask_fraction=0.5,
-        random_seed=5,
+        placement_seed=5,
+        inner_mask_seed=5,
     )
 
     batch = source.sample()
@@ -141,5 +150,35 @@ def test_patch_must_span_the_complete_trace_time_axis() -> None:
             amplitude_scale=2.0,
             patch_shape=(128, 1, 2, 1, 2),
             inner_mask_fraction=0.5,
-            random_seed=5,
+            placement_seed=5,
+            inner_mask_seed=5,
+        )
+
+
+def test_placement_and_inner_mask_streams_have_independent_random_consumption():
+    volume = _observed_volume()
+    arguments = dict(
+        amplitude_scale=1.0,
+        patch_shape=(384, 1, 2, 1, 2),
+        inner_mask_fraction=0.5,
+        placement_seed=301,
+        inner_mask_seed=401,
+    )
+    baseline = CCNet5DObservedPatchSource(volume, **arguments)
+    changed_mask = CCNet5DObservedPatchSource(volume, **{**arguments, "inner_mask_seed": 402})
+    for _ in range(12):
+        changed_mask._mask_generator.random(37)
+        assert baseline.sample().patch_slices == changed_mask.sample().patch_slices
+
+    # Equal candidate observed counts isolate mask draws from placement differences.
+    observed = np.ones_like(volume.observed_trace_mask)
+    volume = replace(
+        volume, observed_trace_mask=observed, evaluation_target_trace_mask=np.zeros_like(observed)
+    )
+    baseline = CCNet5DObservedPatchSource(volume, **arguments)
+    changed_placement = CCNet5DObservedPatchSource(volume, **{**arguments, "placement_seed": 302})
+    for _ in range(12):
+        changed_placement._placement_generator.random(37)
+        np.testing.assert_array_equal(
+            baseline.sample().pseudo_target_mask, changed_placement.sample().pseudo_target_mask
         )

@@ -80,7 +80,8 @@ def test_fixed_step_training_calls_shared_loss_with_only_hidden_complete_traces(
         amplitude_scale=2.0,
         patch_shape=volume.values.shape,
         inner_mask_fraction=0.5,
-        random_seed=7,
+        placement_seed=7,
+        inner_mask_seed=401,
     )
     batch = _fixed_training_batch(source)
     hidden_count = int(np.count_nonzero(batch.pseudo_target_mask))
@@ -160,7 +161,9 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
         amplitude_scale=2.75,
         patch_shape=(4, 1, 1, 1, 4),
         inner_mask_fraction=0.5,
-        patch_random_seed=23,
+        placement_seed=23,
+        inner_mask_seed=401,
+        model_initialization_seed=101,
         optimizer_updates=3,
     )
     with torch.no_grad():
@@ -177,6 +180,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
         "normalization",
         "patches",
         "optimizer_updates",
+        "model_initialization_seed",
         "loss",
         "checkpoint_role",
     }
@@ -191,7 +195,8 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
     assert payload["patches"] == {
         "shape": [4, 1, 1, 1, 4],
         "inner_mask_fraction": 0.5,
-        "random_seed": 23,
+        "placement_seed": 23,
+        "inner_mask_seed": 401,
     }
     assert payload["optimizer_updates"] == 3
     assert payload["loss"] == CCNET5D_POC_LOSS
@@ -207,7 +212,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
     assert loaded.amplitude_scale == 2.75
     assert loaded.patch_shape == (4, 1, 1, 1, 4)
     assert loaded.inner_mask_fraction == 0.5
-    assert loaded.patch_random_seed == 23
+    assert loaded.placement_seed == 23
     assert loaded.optimizer_updates == 3
     assert loaded.model.constructor_config() == model.constructor_config()
     torch.testing.assert_close(loaded.model(values), expected_prediction, rtol=0, atol=0)
@@ -237,7 +242,9 @@ def test_checkpoint_rejects_nonfinal_or_non_observed_normalization_metadata(
         amplitude_scale=2.75,
         patch_shape=(4, 1, 1, 1, 4),
         inner_mask_fraction=0.5,
-        patch_random_seed=23,
+        placement_seed=23,
+        inner_mask_seed=401,
+        model_initialization_seed=101,
         optimizer_updates=3,
     )
     payload = torch.load(path, map_location="cpu", weights_only=True)
@@ -245,4 +252,27 @@ def test_checkpoint_rejects_nonfinal_or_non_observed_normalization_metadata(
     torch.save(payload, path)
 
     with pytest.raises(ValueError, match=match):
+        load_ccnet5d_poc_checkpoint(path)
+
+
+@pytest.mark.parametrize("key", ["model_initialization_seed", "placement_seed", "inner_mask_seed"])
+@pytest.mark.parametrize("value", [None, True, -1, 1.5])
+def test_checkpoint_requires_explicit_nonnegative_seed_integers(tmp_path, key, value):
+    path = tmp_path / "final.pt"
+    save_ccnet5d_poc_checkpoint(
+        path,
+        _model(),
+        amplitude_scale=2.75,
+        patch_shape=(4, 1, 1, 1, 4),
+        inner_mask_fraction=0.5,
+        placement_seed=301,
+        inner_mask_seed=401,
+        model_initialization_seed=101,
+        optimizer_updates=3,
+    )
+    payload = torch.load(path, weights_only=True)
+    section = payload if key == "model_initialization_seed" else payload["patches"]
+    section[key] = value
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match=key):
         load_ccnet5d_poc_checkpoint(path)

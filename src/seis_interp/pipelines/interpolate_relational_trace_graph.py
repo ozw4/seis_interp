@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 import time
 from collections.abc import Callable
 from dataclasses import asdict
@@ -31,6 +32,9 @@ from seis_interp.relational_trace_graph_poc_config import validate_relational_tr
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.devices import resolve_device
 from seis_interp.training.randomness import seed_global_model_initialization
+from seis_interp.training.relational_trace_graph_checkpoints import (
+    save_relational_trace_graph_poc_checkpoint,
+)
 from seis_interp.training.relational_trace_graph_poc_trainer import train_relational_trace_graph_poc
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
 
@@ -62,6 +66,7 @@ def interpolate_relational_trace_graph_run(
     options.pop("device", None)
     config["training"]["device"] = str(device)
     started_at = run_records.utc_timestamp()
+    git_metadata = run_records.current_git_metadata()
     if progress_reporter:
         progress_reporter("Loading observed-only PoC inputs.")
     inputs = load_c3_random80_poc_inputs(
@@ -78,7 +83,9 @@ def interpolate_relational_trace_graph_run(
     training = build_c3_poc_trace_graph_training_data(
         inputs, amplitude_scale=scale, **settings.geometry
     )
-    seed_global_model_initialization(options["random_seed"], device=device)
+    model_seed = options.pop("model_initialization_seed")
+    episode_seed = options.pop("episode_seed")
+    seed_global_model_initialization(model_seed, device=device)
     model = RelationalTraceGraphInterpolator(**settings.model)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
@@ -90,6 +97,7 @@ def interpolate_relational_trace_graph_run(
         graph_settings=settings.graph,
         device=device,
         reporter=progress_reporter,
+        random_seed=episode_seed,
         **options,
     )
     if device.type == "cuda":
@@ -107,27 +115,32 @@ def interpolate_relational_trace_graph_run(
         "volume_id": inputs.volume_metadata["volume_id"],
     }
     output.mkdir(parents=True, exist_ok=False)
-    checkpoint = {
-        **identity,
-        "model_config": model.constructor_config(),
-        "model_state_dict": {
-            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+    save_relational_trace_graph_poc_checkpoint(
+        output / "final.pt",
+        model_config=model.constructor_config(),
+        state_dict=model.state_dict(),
+        preprocessing=training.preprocessing,
+        graph_settings=settings.graph,
+        metadata={
+            **identity,
+            "model_initialization_seed": model_seed,
+            "episode_seed": episode_seed,
+            "steps_completed": trained.steps_completed,
         },
-        "graph_settings": settings.graph.constructor_config(),
-        "preprocessing": asdict(training.preprocessing),
-        "training_random_seed": options["random_seed"],
-        "steps_completed": trained.steps_completed,
-        "inputs_lock": inputs.inputs_lock,
-    }
-    torch.save(checkpoint, output / "final.pt")
+        inputs_lock=inputs.inputs_lock,
+    )
     metadata = {
         **identity,
-        **run_records.current_git_metadata(),
+        **git_metadata,
         "started_at_utc": started_at,
         "status": "running",
         "device": str(device),
         "random_seed": config["project"]["random_seed"],
-        "training_random_seed": options["random_seed"],
+        "model_initialization_seed": model_seed,
+        "episode_seed": episode_seed,
+        "python_version": platform.python_version(),
+        "numpy_version": np.__version__,
+        "torch_version": str(torch.__version__),
         "model": model.constructor_config(),
         "graph": settings.graph.constructor_config(),
         "preprocessing": asdict(training.preprocessing),
