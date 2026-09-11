@@ -32,7 +32,7 @@ def _config() -> dict[str, object]:
         "training": {
             "random_seed": 20260908,
             "optimizer": "adam",
-            "loss": "observed_masked_mse",
+            "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
             "learning_rate": 1e-3,
             "profiles_per_step": 4,

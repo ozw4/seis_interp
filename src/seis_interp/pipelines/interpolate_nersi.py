@@ -14,12 +14,15 @@ import torch
 
 from seis_interp import config_values, run_records
 from seis_interp.configuration import get_required_config_value, load_resolved_config
-from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs, load_c3_volume_run_inputs
+from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
+from seis_interp.data.c3_volume_adapter import ObservedC3Volume
+from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
 from seis_interp.models.nersi import Nersi
 from seis_interp.nersi_config import NersiSettings, validate_nersi_config
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
+from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
     PROFILE_COORDINATE_ORDER,
@@ -33,6 +36,7 @@ from seis_interp.training.c3_volume_nersi_prediction import (
 from seis_interp.training.devices import resolve_device
 from seis_interp.training.fixed_step_nersi import FixedStepNersiResult, train_nersi_fixed_steps
 from seis_interp.training.nersi_checkpoints import (
+    COORDINATE_NORMALIZATION,
     FIXED_STEP_FINAL_CHECKPOINT_ROLE,
     NERSI_METHOD_VARIANT,
     nersi_checkpoint_input_binding,
@@ -60,6 +64,7 @@ def interpolate_nersi_run(
     progress_reporter: ProgressReporter | None = None,
 ) -> dict[str, object]:
     """Fit observed profiles, predict the full volume, then score target truth."""
+    end_to_end_started = time.perf_counter()
     output = Path(output_dir)
     run_records.check_new_output_directory(output)
     config = load_resolved_config(Path(config_path))
@@ -76,7 +81,7 @@ def interpolate_nersi_run(
 
     _report(progress_reporter, "Loading and verifying C3 inputs.")
     started = time.perf_counter()
-    inputs = load_c3_volume_run_inputs(
+    inputs = load_c3_random80_poc_inputs(
         config=config,
         interim_dir=Path(interim_dir),
         processed_dir=Path(processed_dir),
@@ -88,7 +93,12 @@ def interpolate_nersi_run(
 
     _report(progress_reporter, "Building observed-only NeRSI profile data.")
     started = time.perf_counter()
-    data = build_c3_volume_nersi_data(inputs.observed_volume)
+    observed = inputs.observed_volume
+    amplitude_scale = compute_observed_global_rms(
+        observed.values,
+        observed.observed_trace_mask,
+    )
+    data = build_c3_volume_nersi_data(observed, amplitude_scale=amplitude_scale)
     timings["training_data_seconds"] = time.perf_counter() - started
     model_config = settings.model_constructor_config(data.profile_shape)
     seed_global_model_initialization(settings.training.random_seed, device=device)
@@ -109,7 +119,7 @@ def interpolate_nersi_run(
         reporter=progress_reporter,
     )
     _synchronize(device)
-    timings["training_seconds"] = time.perf_counter() - started
+    timings["fit_seconds"] = time.perf_counter() - started
 
     _report(progress_reporter, "Predicting the complete benchmark volume.")
     started = time.perf_counter()
@@ -122,6 +132,10 @@ def interpolate_nersi_run(
     )
     _synchronize(device)
     timings["prediction_seconds"] = time.perf_counter() - started
+    target_coverage_mask = _validate_complete_prediction(
+        predicted,
+        inputs.observed_volume,
+    )
 
     # This is the first call that can materialize evaluation-target amplitudes.
     _report(progress_reporter, "Evaluating reconstruction on evaluation-target traces.")
@@ -131,6 +145,7 @@ def interpolate_nersi_run(
         inputs.observed_volume,
         interim_dir=Path(interim_dir),
         volume_metadata=inputs.volume_metadata,
+        target_coverage_mask=target_coverage_mask,
     )
     timings["evaluation_seconds"] = time.perf_counter() - started
     metrics.update(
@@ -141,9 +156,16 @@ def interpolate_nersi_run(
             "volume_id": inputs.volume_metadata["volume_id"],
             "training": {
                 "steps_completed": trained.steps_completed,
+                "optimizer_updates": trained.steps_completed,
                 "final_batch_loss": trained.final_batch_loss,
                 "history": [dict(record) for record in trained.history],
             },
+            "timing": {
+                "fit_seconds": timings["fit_seconds"],
+                "prediction_seconds": timings["prediction_seconds"],
+            },
+            "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+            "optimizer_updates": trained.steps_completed,
             "observed_model_rmse_before_reinsertion": (
                 predicted.observed_model_rmse_before_reinsertion
             ),
@@ -170,6 +192,8 @@ def interpolate_nersi_run(
     np.save(output / PREDICTION_RELATIVE_PATH, predicted.values, allow_pickle=False)
     checkpoint_sha256 = file_sha256(output / CHECKPOINT_RELATIVE_PATH)
     prediction_sha256 = file_sha256(output / PREDICTION_RELATIVE_PATH)
+    timings["end_to_end_seconds"] = time.perf_counter() - end_to_end_started
+    metrics["timing"]["end_to_end_seconds"] = timings["end_to_end_seconds"]
     finished_at_utc = run_records.utc_timestamp()
     metadata = _run_metadata(
         inputs=inputs,
@@ -211,9 +235,20 @@ def _run_metadata(
     training = asdict(settings.training)
     del training["device"]
     observed_trace_count = int(np.count_nonzero(data.observed_trace_mask))
+    target_trace_count = int(np.count_nonzero(inputs.observed_volume.evaluation_target_trace_mask))
     profile_count = int(data.normalized_coordinates.shape[0])
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
     return {
         "method": METHOD,
+        "fit_domain": "O_only",
+        "inner_corruption_mask": False,
+        "normalization": {
+            "type": "global_rms",
+            "source": "O_only",
+            "scale": data.amplitude_scale,
+        },
+        "loss": "masked_trace_relative_mse",
+        "checkpoint_role": "final",
         "method_variant": METHOD_VARIANT,
         "case_id": inputs.case["case_id"],
         "volume_id": inputs.volume_metadata["volume_id"],
@@ -230,7 +265,9 @@ def _run_metadata(
         "input": _input_metadata(inputs),
         "profiles": {
             "coordinate_order": list(PROFILE_COORDINATE_ORDER),
-            "coordinate_normalization": "local_regular_grid_index_minmax_0_1",
+            "coordinate_normalization": COORDINATE_NORMALIZATION,
+            "coordinate_normalization_source": "fixed_analysis_domain",
+            "coordinate_bounds": [list(bounds) for bounds in data.coordinate_bounds],
             "axis_order": list(PROFILE_AXIS_ORDER),
             "shape": list(data.profile_shape),
             "count": profile_count,
@@ -248,12 +285,13 @@ def _run_metadata(
             **model.constructor_config(),
             "parameter_dtype": str(next(model.parameters()).dtype).removeprefix("torch."),
         },
-        "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+        "parameter_count": parameter_count,
         "training": {
             "optimizer": "adam",
-            "loss": "observed_masked_mse",
+            "loss": "masked_trace_relative_mse",
             **training,
             "steps_completed": trained.steps_completed,
+            "optimizer_updates": trained.steps_completed,
             "sampling": "profiles_without_replacement_per_optimizer_update",
             "stopping_rule": "fixed_optimizer_steps",
             "candidate_profile_count": int(len(data.training_profile_indices)),
@@ -273,6 +311,13 @@ def _run_metadata(
             "amplitude_domain": "physical",
             "observed_data_consistency": "hard_reinsertion_after_model_prediction",
         },
+        "coverage": {
+            "target_trace_count": target_trace_count,
+            "covered_target_trace_count": target_trace_count,
+            "target_coverage_fraction": 1.0,
+            "uncovered_trace_count": 0,
+            "uncovered_sample_count": 0,
+        },
         "checkpoint": {
             "artifact": CHECKPOINT_RELATIVE_PATH.as_posix(),
             "sha256": checkpoint_sha256,
@@ -280,6 +325,11 @@ def _run_metadata(
             "scope": "one_verified_case_volume_only",
             "input_binding": nersi_checkpoint_input_binding(inputs.inputs_lock),
             "training_resume_supported": False,
+        },
+        "timing": {
+            "fit_seconds": timings["fit_seconds"],
+            "prediction_seconds": timings["prediction_seconds"],
+            "end_to_end_seconds": timings["end_to_end_seconds"],
         },
         "paper_alignment": {
             "paper_specified": {
@@ -306,6 +356,39 @@ def _run_metadata(
         },
         "warnings": [],
     }
+
+
+def _validate_complete_prediction(
+    prediction: C3VolumeNersiPrediction,
+    observed: ObservedC3Volume,
+) -> np.ndarray:
+    if not isinstance(prediction, C3VolumeNersiPrediction):
+        raise TypeError("prediction must be a C3VolumeNersiPrediction")
+    if not isinstance(observed, ObservedC3Volume):
+        raise TypeError("observed must be an ObservedC3Volume")
+    values = prediction.values
+    observed_values = observed.values
+    target_mask = observed.evaluation_target_trace_mask
+    if (
+        not isinstance(values, np.ndarray)
+        or values.ndim != 5
+        or values.dtype.kind not in "fiu"
+        or values.dtype.kind == "b"
+    ):
+        raise ValueError("NeRSI prediction must be a real five-dimensional NumPy array")
+    if not isinstance(observed_values, np.ndarray) or observed_values.ndim != 5:
+        raise ValueError("observed values must be a five-dimensional NumPy array")
+    if values.shape != observed_values.shape:
+        raise ValueError("NeRSI prediction shape must match the full analysis domain")
+    expected_profile_count = int(np.prod(values.shape[1:-1], dtype=np.int64))
+    if prediction.predicted_profile_count != expected_profile_count:
+        raise ValueError("NeRSI prediction must evaluate every analysis-domain profile")
+    if target_mask.dtype != np.bool_ or target_mask.shape != values.shape[1:]:
+        raise ValueError("evaluation target mask must match the prediction spatial shape")
+    coverage = np.all(np.isfinite(values), axis=0)
+    if not np.all(coverage[target_mask]):
+        raise ValueError("NeRSI prediction must provide finite values for every target trace")
+    return np.ascontiguousarray(coverage, dtype=np.bool_)
 
 
 def _input_metadata(inputs: C3VolumeRunInputs) -> dict[str, object]:

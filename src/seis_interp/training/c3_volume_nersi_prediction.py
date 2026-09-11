@@ -11,6 +11,7 @@ import torch
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.models.nersi import Nersi
+from seis_interp.training.amplitude_scaling import restore_physical_amplitude
 from seis_interp.training.c3_volume_nersi_data import (
     C3VolumeNersiData,
     nersi_profiles_to_volume,
@@ -68,10 +69,9 @@ def predict_c3_volume_nersi(
         model.train(was_training)
 
     physical_profiles = np.ascontiguousarray(
-        normalized_profiles * np.float32(data.amplitude_scale), dtype=np.float32
+        restore_physical_amplitude(normalized_profiles, data.amplitude_scale),
+        dtype=np.float32,
     )
-    if not np.all(np.isfinite(physical_profiles)):
-        raise ValueError("physical model prediction must contain finite values")
     predicted_values = np.ascontiguousarray(
         nersi_profiles_to_volume(physical_profiles, tuple(data.spatial_shape)),
         dtype=np.float32,

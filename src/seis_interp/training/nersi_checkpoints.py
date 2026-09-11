@@ -16,11 +16,13 @@ from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
     PROFILE_COORDINATE_ORDER,
     C3VolumeNersiData,
+    ProfileCoordinateBounds,
+    profile_coordinate_bounds,
 )
 
 FIXED_STEP_FINAL_CHECKPOINT_ROLE = "fixed_step_final"
 NERSI_METHOD_VARIANT = "profile_wise_per_volume_internal_learning_fixed_steps_reimplementation"
-COORDINATE_NORMALIZATION = "local_regular_grid_index_minmax_0_1"
+COORDINATE_NORMALIZATION = "fixed_analysis_domain_index_bounds_to_unit_interval"
 AMPLITUDE_SCALING = "observed_volume_global_rms"
 TRAINING_DOMAIN = "benchmark_observed_samples"
 
@@ -46,6 +48,7 @@ class LoadedFixedStepNersiCheckpoint:
     model: Nersi
     coordinate_order: tuple[str, str, str]
     profile_axis_order: tuple[str, str]
+    coordinate_bounds: ProfileCoordinateBounds
     spatial_shape: tuple[int, int, int, int]
     profile_shape: tuple[int, int]
     amplitude_scaling: str
@@ -86,6 +89,7 @@ def save_fixed_step_nersi_checkpoint(
         "preprocessing": {
             "coordinate_order": list(PROFILE_COORDINATE_ORDER),
             "coordinate_normalization": COORDINATE_NORMALIZATION,
+            "coordinate_bounds": [list(bounds) for bounds in data.coordinate_bounds],
             "profile_axis_order": list(PROFILE_AXIS_ORDER),
             "spatial_shape": list(spatial_shape),
             "profile_shape": list(profile_shape),
@@ -153,6 +157,7 @@ def load_fixed_step_nersi_checkpoint(
     preprocessing_fields = {
         "coordinate_order",
         "coordinate_normalization",
+        "coordinate_bounds",
         "profile_axis_order",
         "spatial_shape",
         "profile_shape",
@@ -175,6 +180,10 @@ def load_fixed_step_nersi_checkpoint(
         raise ValueError("checkpoint spatial_shape receiver-y must match profile_shape")
     if tuple(model.profile_shape) != profile_shape:
         raise ValueError("checkpoint model profile_shape does not match preprocessing")
+    coordinate_bounds = _coordinate_bounds(
+        preprocessing["coordinate_bounds"],
+        spatial_shape=spatial_shape,
+    )
     scale = _positive_finite_float(preprocessing["amplitude_scale"], "amplitude_scale")
 
     training = payload["training"]
@@ -189,6 +198,7 @@ def load_fixed_step_nersi_checkpoint(
         model=model,
         coordinate_order=PROFILE_COORDINATE_ORDER,
         profile_axis_order=PROFILE_AXIS_ORDER,
+        coordinate_bounds=coordinate_bounds,
         spatial_shape=spatial_shape,
         profile_shape=profile_shape,
         amplitude_scaling=AMPLITUDE_SCALING,
@@ -246,6 +256,7 @@ def validate_fixed_step_nersi_checkpoint_input_binding(
     if (
         checkpoint.coordinate_order != PROFILE_COORDINATE_ORDER
         or checkpoint.profile_axis_order != PROFILE_AXIS_ORDER
+        or checkpoint.coordinate_bounds != data.coordinate_bounds
         or checkpoint.spatial_shape != tuple(data.spatial_shape)
         or checkpoint.profile_shape != tuple(data.profile_shape)
         or checkpoint.amplitude_scale != float(data.amplitude_scale)
@@ -338,6 +349,29 @@ def _positive_shape(value: object, length: int, name: str) -> tuple[int, ...]:
     ):
         raise ValueError(f"{name} must contain {length} positive integers")
     return tuple(int(item) for item in value)
+
+
+def _coordinate_bounds(
+    value: object,
+    *,
+    spatial_shape: tuple[int, int, int, int],
+) -> ProfileCoordinateBounds:
+    expected = profile_coordinate_bounds(spatial_shape)
+    if not isinstance(value, (tuple, list)) or len(value) != len(expected):
+        raise ValueError("checkpoint coordinate_bounds must contain three index bounds")
+    normalized: list[tuple[int, int]] = []
+    for bounds in value:
+        if (
+            not isinstance(bounds, (tuple, list))
+            or len(bounds) != 2
+            or any(isinstance(item, bool) or not isinstance(item, Integral) for item in bounds)
+        ):
+            raise ValueError("checkpoint coordinate_bounds must contain integer pairs")
+        normalized.append((int(bounds[0]), int(bounds[1])))
+    result = tuple(normalized)
+    if result != expected:
+        raise ValueError("checkpoint coordinate_bounds must match the full analysis domain")
+    return result  # type: ignore[return-value]
 
 
 def _positive_finite_float(value: object, name: str) -> float:

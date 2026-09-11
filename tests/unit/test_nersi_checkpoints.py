@@ -100,6 +100,7 @@ def test_cpu_round_trip_restores_function_constructor_and_preprocessing(tmp_path
         torch.testing.assert_close(loaded.model.state_dict()[name], tensor, rtol=0, atol=0)
     assert loaded.coordinate_order == PROFILE_COORDINATE_ORDER
     assert loaded.profile_axis_order == PROFILE_AXIS_ORDER
+    assert loaded.coordinate_bounds == data.coordinate_bounds == ((0, 1), (0, 0), (0, 0))
     assert loaded.spatial_shape == data.spatial_shape
     assert loaded.profile_shape == data.profile_shape
     assert loaded.amplitude_scaling == AMPLITUDE_SCALING
@@ -136,7 +137,8 @@ def test_payload_is_cpu_snapshot_without_resume_or_target_information(tmp_path: 
     assert payload["input_binding"] == nersi_checkpoint_input_binding(_inputs_lock())
     assert payload["preprocessing"] == {
         "coordinate_order": list(PROFILE_COORDINATE_ORDER),
-        "coordinate_normalization": "local_regular_grid_index_minmax_0_1",
+        "coordinate_normalization": "fixed_analysis_domain_index_bounds_to_unit_interval",
+        "coordinate_bounds": [[0, 1], [0, 0], [0, 0]],
         "profile_axis_order": list(PROFILE_AXIS_ORDER),
         "spatial_shape": [2, 1, 1, 8],
         "profile_shape": [8, 8],
@@ -147,6 +149,7 @@ def test_payload_is_cpu_snapshot_without_resume_or_target_information(tmp_path: 
     assert "optimizer" not in payload
     assert "rng" not in payload
     assert "evaluation" not in payload
+    assert "best" not in repr(payload).lower()
     assert "target" not in repr(payload).lower()
     for name, tensor in payload["model_state_dict"].items():
         assert tensor.device.type == "cpu"
@@ -189,6 +192,7 @@ def test_rejects_wrong_checkpoint_identity(tmp_path: Path, field: str, replaceme
         ("missing_config", "model_config"),
         ("shape", "profile_shape"),
         ("coordinate_order", "coordinate_order"),
+        ("coordinate_bounds", "coordinate_bounds"),
         ("profile_order", "profile_axis_order"),
         ("scale", "amplitude_scale"),
         ("state", "model_state_dict"),
@@ -206,6 +210,8 @@ def test_rejects_incomplete_or_inconsistent_payload(
         payload["preprocessing"]["profile_shape"] = [16, 8]
     elif change == "coordinate_order":
         payload["preprocessing"]["coordinate_order"] = ["wrong"]
+    elif change == "coordinate_bounds":
+        payload["preprocessing"]["coordinate_bounds"] = [[0, 2], [0, 0], [0, 0]]
     elif change == "profile_order":
         payload["preprocessing"]["profile_axis_order"] = ["receiver_y", "time"]
     elif change == "scale":

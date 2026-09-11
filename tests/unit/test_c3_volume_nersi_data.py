@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
+from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
     PROFILE_COORDINATE_ORDER,
@@ -32,6 +33,15 @@ def _observed_volume(
         observed_trace_mask=observed_mask,
         evaluation_target_trace_mask=~observed_mask,
     )
+
+
+def _build(volume: ObservedC3Volume, *, amplitude_scale: float | None = None):
+    scale = (
+        compute_observed_global_rms(volume.values, volume.observed_trace_mask)
+        if amplitude_scale is None
+        else amplitude_scale
+    )
+    return build_c3_volume_nersi_data(volume, amplitude_scale=scale)
 
 
 def test_profile_order_matches_c_order_profile_keys() -> None:
@@ -79,7 +89,7 @@ def test_profile_volume_round_trip_preserves_shape_values_and_dtype(dtype: type)
 
 def test_profile_mask_reshape_matches_profile_value_order() -> None:
     volume = _observed_volume()
-    data = build_c3_volume_nersi_data(volume)
+    data = _build(volume)
 
     expected = volume.observed_trace_mask.reshape(-1, volume.values.shape[-1])
     np.testing.assert_array_equal(data.observed_trace_mask, expected)
@@ -95,7 +105,7 @@ def test_profile_mask_reshape_matches_profile_value_order() -> None:
 def test_coordinates_use_independent_unit_intervals_and_singleton_zero() -> None:
     volume = _observed_volume(shape=(8, 2, 1, 3, 4))
 
-    data = build_c3_volume_nersi_data(volume)
+    data = _build(volume)
 
     expected = np.array(
         [
@@ -114,9 +124,22 @@ def test_coordinates_use_independent_unit_intervals_and_singleton_zero() -> None
         "relative_receiver_x",
     )
     assert PROFILE_AXIS_ORDER == ("time", "relative_receiver_y")
+    assert data.coordinate_bounds == ((0, 1), (0, 0), (0, 2))
+
+    changed_mask = ~volume.observed_trace_mask
+    changed = _build(
+        replace(
+            volume,
+            observed_trace_mask=changed_mask,
+            evaluation_target_trace_mask=~changed_mask,
+        ),
+        amplitude_scale=data.amplitude_scale,
+    )
+    np.testing.assert_array_equal(changed.normalized_coordinates, data.normalized_coordinates)
+    assert changed.coordinate_bounds == data.coordinate_bounds
 
 
-def test_global_rms_uses_only_observed_samples_with_float64_accumulation() -> None:
+def test_data_uses_the_external_shared_observed_global_rms_without_recomputing() -> None:
     volume = _observed_volume(shape=(2, 1, 2, 1, 2), dtype=np.float32)
     values = np.array(
         [
@@ -133,9 +156,10 @@ def test_global_rms_uses_only_observed_samples_with_float64_accumulation() -> No
         evaluation_target_trace_mask=~observed_mask,
     )
 
-    data = build_c3_volume_nersi_data(volume)
+    shared_scale = compute_observed_global_rms(values, observed_mask)
+    data = _build(volume, amplitude_scale=shared_scale)
 
-    assert data.amplitude_scale == pytest.approx(np.sqrt((3.0**2 + 4.0**2 + 12.0**2) / 4.0))
+    assert data.amplitude_scale == shared_scale
     selected = (
         data.normalized_profiles[:, 0]
         .transpose(1, 0, 2)
@@ -146,45 +170,49 @@ def test_global_rms_uses_only_observed_samples_with_float64_accumulation() -> No
         values[:, observed_mask] / data.amplitude_scale,
     )
 
+    supplied_scale = shared_scale * 2.0
+    externally_scaled = _build(volume, amplitude_scale=supplied_scale)
+    assert externally_scaled.amplitude_scale == supplied_scale
+    externally_selected = (
+        externally_scaled.normalized_profiles[:, 0]
+        .transpose(1, 0, 2)
+        .reshape(2, -1)[:, observed_mask.reshape(-1)]
+    )
+    np.testing.assert_allclose(externally_selected, values[:, observed_mask] / supplied_scale)
+
 
 def test_target_storage_does_not_change_scale_or_masked_training_values() -> None:
     volume = _observed_volume(shape=(8, 2, 1, 1, 2), dtype=np.float64)
     target_mask = volume.evaluation_target_trace_mask
+    shared_scale = compute_observed_global_rms(volume.values, volume.observed_trace_mask)
     variants = []
     for target_value in (0.0, 1.0e100):
         values = volume.values.copy()
         values[:, target_mask] = target_value
-        variants.append(build_c3_volume_nersi_data(replace(volume, values=values)))
+        variants.append(_build(replace(volume, values=values), amplitude_scale=shared_scale))
 
     first, changed = variants
     assert changed.amplitude_scale == first.amplitude_scale
     np.testing.assert_array_equal(changed.observed_trace_mask, first.observed_trace_mask)
-    observed_samples = np.broadcast_to(
-        first.observed_trace_mask[:, None, None, :], first.normalized_profiles.shape
-    )
-    np.testing.assert_array_equal(
-        changed.normalized_profiles[observed_samples],
-        first.normalized_profiles[observed_samples],
-    )
+    np.testing.assert_array_equal(changed.normalized_profiles, first.normalized_profiles)
 
 
 def test_fully_missing_profile_is_excluded_only_from_training_candidates() -> None:
     volume = _observed_volume(shape=(8, 2, 1, 1, 4))
-    data = build_c3_volume_nersi_data(volume)
+    data = _build(volume)
 
     assert data.normalized_coordinates.shape[0] == 2
     assert data.normalized_profiles.shape == (2, 1, 8, 4)
     np.testing.assert_array_equal(data.training_profile_indices, [1])
 
 
-@pytest.mark.parametrize("invalid", ["zero_rms", "mask_shape", "overlap", "nonfinite"])
+@pytest.mark.parametrize("invalid", ["scale", "mask_shape", "overlap", "nonfinite"])
 def test_invalid_observed_volume_is_rejected(invalid: str) -> None:
     volume = _observed_volume(shape=(8, 2, 1, 1, 4))
-    if invalid == "zero_rms":
-        values = volume.values.copy()
-        values[:, volume.observed_trace_mask] = 0
-        volume = replace(volume, values=values)
-        match = "RMS must be positive"
+    scale = compute_observed_global_rms(volume.values, volume.observed_trace_mask)
+    if invalid == "scale":
+        scale = 0.0
+        match = "amplitude_scale"
     elif invalid == "mask_shape":
         volume = replace(volume, observed_trace_mask=volume.observed_trace_mask[..., :-1])
         match = "observed_trace_mask"
@@ -200,7 +228,7 @@ def test_invalid_observed_volume_is_rejected(invalid: str) -> None:
         match = "finite"
 
     with pytest.raises(ValueError, match=match):
-        build_c3_volume_nersi_data(volume)
+        _build(volume, amplitude_scale=scale)
 
 
 @pytest.mark.parametrize(

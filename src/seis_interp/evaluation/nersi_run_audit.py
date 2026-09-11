@@ -20,6 +20,7 @@ from seis_interp.data.c3_benchmark_suite import (
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
 from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
+from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import build_c3_volume_nersi_data
 from seis_interp.training.c3_volume_nersi_prediction import predict_c3_volume_nersi
 from seis_interp.training.nersi_checkpoints import (
@@ -188,7 +189,13 @@ def audit_c3_nersi_run(
         volume_metadata=inputs.volume_metadata,
     )
 
-    data = build_c3_volume_nersi_data(observed)
+    data = build_c3_volume_nersi_data(
+        observed,
+        amplitude_scale=compute_observed_global_rms(
+            observed.values,
+            observed.observed_trace_mask,
+        ),
+    )
     loaded = load_fixed_step_nersi_checkpoint(checkpoint_path, device="cpu")
     validate_fixed_step_nersi_checkpoint_input_binding(loaded, inputs.inputs_lock, data)
     _require(

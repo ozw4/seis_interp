@@ -47,6 +47,7 @@ from seis_interp.processing.trace_graph_preprocessing import (
 from seis_interp.relational_trace_graph_config import (
     validate_relational_trace_graph_training_config,
 )
+from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_first_results_neural_preflight import (
     estimate_c3_first_results_graph_budget,
     measure_c3_first_results_graph_training_batch,
@@ -215,7 +216,12 @@ def _nersi_preflight(
     if isinstance(smoke_steps, bool) or not isinstance(smoke_steps, int) or smoke_steps <= 0:
         raise ValueError("NeRSI smoke_steps must be a positive integer")
     started = perf_counter()
-    data = build_c3_volume_nersi_data(inputs.observed_volume)
+    observed = inputs.observed_volume
+    amplitude_scale = compute_observed_global_rms(
+        observed.values,
+        observed.observed_trace_mask,
+    )
+    data = build_c3_volume_nersi_data(observed, amplitude_scale=amplitude_scale)
     data_seconds = perf_counter() - started
     model_config = settings.model_constructor_config(data.profile_shape)
     devices = list(range(torch.cuda.device_count())) if device.type == "cuda" else []

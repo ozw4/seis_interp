@@ -10,6 +10,7 @@ from numbers import Integral
 import numpy as np
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
+from seis_interp.training.amplitude_scaling import normalize_by_global_rms
 
 PROFILE_COORDINATE_ORDER = (
     "source_line",
@@ -17,6 +18,7 @@ PROFILE_COORDINATE_ORDER = (
     "relative_receiver_x",
 )
 PROFILE_AXIS_ORDER = ("time", "relative_receiver_y")
+ProfileCoordinateBounds = tuple[tuple[int, int], tuple[int, int], tuple[int, int]]
 
 
 @dataclass(frozen=True)
@@ -25,7 +27,7 @@ class C3VolumeNersiData:
 
     Profiles and coordinates use C-order keys over ``(source_line,
     shot_in_line, relative_receiver_x)``.  ``observed_trace_mask`` stays at
-    trace resolution and is broadcast over time by the trainer.
+    trace resolution so the trainer can select complete time traces.
     """
 
     normalized_coordinates: np.ndarray
@@ -36,14 +38,24 @@ class C3VolumeNersiData:
     spatial_shape: tuple[int, int, int, int]
     profile_shape: tuple[int, int]
 
+    @property
+    def coordinate_bounds(self) -> ProfileCoordinateBounds:
+        """Return the mask-independent local-index bounds for the full domain."""
+        return profile_coordinate_bounds(self.spatial_shape)
 
-def build_c3_volume_nersi_data(observed: ObservedC3Volume) -> C3VolumeNersiData:
+
+def build_c3_volume_nersi_data(
+    observed: ObservedC3Volume,
+    *,
+    amplitude_scale: float,
+) -> C3VolumeNersiData:
     """Convert one observed-only volume into stable NeRSI profile arrays.
 
-    The global RMS is computed in float64 from observed trace samples only.
-    Evaluation-target values therefore cannot influence the amplitude scale.
+    ``amplitude_scale`` is the shared observed-only global RMS computed by the
+    caller. Evaluation-target storage is discarded before targets are built.
     """
     values, observed_mask, _ = _validated_observed_volume(observed)
+    scale = _positive_finite_float(amplitude_scale, "amplitude_scale")
     time_count, source_lines, shots, receiver_x, receiver_y = values.shape
     spatial_shape = (source_lines, shots, receiver_x, receiver_y)
     profile_count = source_lines * shots * receiver_x
@@ -59,29 +71,20 @@ def build_c3_volume_nersi_data(observed: ObservedC3Volume) -> C3VolumeNersiData:
         np.flatnonzero(np.any(profile_mask, axis=1)), dtype=np.int64
     )
 
-    observed_values = values[:, observed_mask]
-    with np.errstate(over="ignore", invalid="ignore"):
-        energy = np.sum(np.square(observed_values, dtype=np.float64), dtype=np.float64)
-        amplitude_scale = float(np.sqrt(energy / observed_values.size))
-    if not math.isfinite(amplitude_scale) or amplitude_scale <= 0.0:
-        raise ValueError("observed amplitude RMS must be positive and finite")
-
-    profiles = volume_to_nersi_profiles(values)
-    normalized_dtype = np.result_type(profiles.dtype, np.float32)
-    with np.errstate(over="ignore", invalid="ignore"):
-        normalized_profiles = np.ascontiguousarray(
-            profiles / amplitude_scale,
-            dtype=normalized_dtype,
-        )
-    if not np.all(np.isfinite(normalized_profiles)):
-        raise ValueError("normalized profiles must contain only finite values")
+    normalized_dtype = np.result_type(values.dtype, np.float32)
+    normalized_values = np.zeros(values.shape, dtype=normalized_dtype)
+    normalized_values[:, observed_mask] = normalize_by_global_rms(
+        values[:, observed_mask],
+        scale,
+    )
+    normalized_profiles = volume_to_nersi_profiles(normalized_values)
 
     return C3VolumeNersiData(
         normalized_coordinates=coordinates,
         normalized_profiles=normalized_profiles,
         observed_trace_mask=profile_mask,
         training_profile_indices=training_indices,
-        amplitude_scale=amplitude_scale,
+        amplitude_scale=scale,
         spatial_shape=spatial_shape,
         profile_shape=(time_count, receiver_y),
     )
@@ -128,7 +131,7 @@ def _validated_observed_volume(
     if not isinstance(observed, ObservedC3Volume):
         raise ValueError("observed must be an ObservedC3Volume")
     values = observed.values
-    _validate_real_array(values, name="observed values", dimensions=5)
+    _validate_real_array_shape(values, name="observed values", dimensions=5)
     spatial_shape = values.shape[1:]
     observed_mask = _validated_trace_mask(
         observed.observed_trace_mask,
@@ -146,6 +149,8 @@ def _validated_observed_volume(
         )
     if not np.any(observed_mask):
         raise ValueError("volume must contain at least one observed trace")
+    if not np.all(np.isfinite(values[:, observed_mask])):
+        raise ValueError("observed values must contain only finite amplitudes")
     return values, observed_mask, target_mask
 
 
@@ -161,12 +166,16 @@ def _validated_trace_mask(
 
 
 def _validate_real_array(values: np.ndarray, *, name: str, dimensions: int) -> None:
+    _validate_real_array_shape(values, name=name, dimensions=dimensions)
+    if not np.all(np.isfinite(values)):
+        raise ValueError(f"{name} must contain only finite values")
+
+
+def _validate_real_array_shape(values: np.ndarray, *, name: str, dimensions: int) -> None:
     if not isinstance(values, np.ndarray) or values.ndim != dimensions or not values.size:
         raise ValueError(f"{name} must be a nonempty {dimensions}-dimensional NumPy array")
     if values.dtype.kind not in "fiu" or values.dtype.kind == "b":
         raise ValueError(f"{name} must contain real numeric values")
-    if not np.all(np.isfinite(values)):
-        raise ValueError(f"{name} must contain only finite values")
 
 
 def _validated_spatial_shape(spatial_shape: Sequence[object]) -> tuple[int, int, int, int]:
@@ -183,11 +192,35 @@ def _validated_spatial_shape(spatial_shape: Sequence[object]) -> tuple[int, int,
 def _normalized_profile_coordinates(
     key_shape: tuple[int, int, int],
 ) -> np.ndarray:
+    bounds = _coordinate_bounds_from_key_shape(key_shape)
     axes = tuple(
         np.zeros(length, dtype=np.float32)
-        if length == 1
-        else np.arange(length, dtype=np.float32) / np.float32(length - 1)
-        for length in key_shape
+        if lower == upper
+        else (np.arange(length, dtype=np.float32) - np.float32(lower)) / np.float32(upper - lower)
+        for length, (lower, upper) in zip(key_shape, bounds, strict=True)
     )
     grids = np.meshgrid(*axes, indexing="ij")
     return np.ascontiguousarray(np.stack(grids, axis=-1).reshape(-1, 3), dtype=np.float32)
+
+
+def profile_coordinate_bounds(
+    spatial_shape: Sequence[object],
+) -> ProfileCoordinateBounds:
+    """Return full-domain local-index bounds in profile-coordinate order."""
+    source_lines, shots, receiver_x, _ = _validated_spatial_shape(spatial_shape)
+    return _coordinate_bounds_from_key_shape((source_lines, shots, receiver_x))
+
+
+def _coordinate_bounds_from_key_shape(
+    key_shape: tuple[int, int, int],
+) -> ProfileCoordinateBounds:
+    return tuple((0, length - 1) for length in key_shape)  # type: ignore[return-value]
+
+
+def _positive_finite_float(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise ValueError(f"{name} must be positive and finite")
+    converted = float(value)
+    if not math.isfinite(converted) or converted <= 0.0:
+        raise ValueError(f"{name} must be positive and finite")
+    return converted

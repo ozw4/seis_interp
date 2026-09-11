@@ -23,6 +23,7 @@ from seis_interp.pipelines.interpolate_nersi import (
     PREDICTION_RELATIVE_PATH,
     interpolate_nersi_run,
 )
+from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
     PROFILE_COORDINATE_ORDER,
@@ -47,6 +48,11 @@ def nersi_artifacts(tmp_path_factory: pytest.TempPathFactory) -> PreparedC3Volum
         time_sample_count=8,
         receiver_y_count=8,
     )
+
+
+@pytest.fixture(autouse=True)
+def _use_tiny_synthetic_input_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pipeline, "load_c3_random80_poc_inputs", load_c3_volume_run_inputs)
 
 
 def _config(artifacts: PreparedC3VolumeRunArtifacts, *, training_seed: int = 314) -> dict:
@@ -80,7 +86,7 @@ def _config(artifacts: PreparedC3VolumeRunArtifacts, *, training_seed: int = 314
         "training": {
             "random_seed": training_seed,
             "optimizer": "adam",
-            "loss": "observed_masked_mse",
+            "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
             "learning_rate": 1.0e-3,
             "profiles_per_step": 1,
@@ -174,11 +180,27 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     assert metrics["evaluation_domain"] == "evaluation_target"
     assert metrics["amplitude_domain"] == "physical"
     assert metrics["evaluation_target"]["trace_count"] == target_count
+    assert metrics["evaluation_target"]["covered_target_trace_count"] == target_count
     assert metrics["evaluation_target"]["sample_count"] == target_count * 8
     assert metrics["observed_max_abs_error"] == 0.0
     assert metrics["uncovered_trace_count"] == metrics["uncovered_sample_count"] == 0
     assert metrics["training"]["steps_completed"] == 2
+    assert metrics["training"]["optimizer_updates"] == 2
+    assert metrics["optimizer_updates"] == 2
+    assert metrics["parameter_count"] > 0
     assert math.isfinite(metrics["training"]["final_batch_loss"])
+    assert set(metrics["timing"]) == {
+        "fit_seconds",
+        "prediction_seconds",
+        "end_to_end_seconds",
+    }
+    assert all(math.isfinite(value) and value >= 0.0 for value in metrics["timing"].values())
+    assert {
+        "snr_db",
+        "rmse",
+        "relative_l2",
+        "mean_trace_relative_mse",
+    }.issubset(metrics["evaluation_target"])
 
     assert prediction.shape == (8, 2, 3, 2, 8)
     assert prediction.dtype == np.float32
@@ -190,11 +212,24 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     )
 
     assert run["method_variant"] == METHOD_VARIANT
+    assert run["fit_domain"] == "O_only"
+    assert run["inner_corruption_mask"] is False
+    assert run["normalization"] == {
+        "type": "global_rms",
+        "source": "O_only",
+        "scale": compute_observed_global_rms(observed.values, observed.observed_trace_mask),
+    }
+    assert run["loss"] == "masked_trace_relative_mse"
+    assert run["checkpoint_role"] == "final"
     assert run["random_seed"] == 42
     assert run["training_random_seed"] == 314
     assert run["profiles"]["axis_order"] == list(PROFILE_AXIS_ORDER)
     assert run["profiles"]["coordinate_order"] == list(PROFILE_COORDINATE_ORDER)
-    assert run["profiles"]["coordinate_normalization"] == ("local_regular_grid_index_minmax_0_1")
+    assert run["profiles"]["coordinate_normalization"] == (
+        "fixed_analysis_domain_index_bounds_to_unit_interval"
+    )
+    assert run["profiles"]["coordinate_normalization_source"] == "fixed_analysis_domain"
+    assert run["profiles"]["coordinate_bounds"] == [[0, 1], [0, 2], [0, 1]]
     assert run["profiles"]["count"] == 12
     assert run["profiles"]["shape"] == [8, 8]
     assert run["profiles"]["stable_order"] == (
@@ -214,11 +249,19 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     assert run["prediction"]["shape"] == [8, 2, 3, 2, 8]
     assert run["prediction"]["dtype"] == "float32"
     assert run["prediction"]["sha256"] == file_sha256(output / PREDICTION_RELATIVE_PATH)
+    assert run["coverage"] == {
+        "target_trace_count": target_count,
+        "covered_target_trace_count": target_count,
+        "target_coverage_fraction": 1.0,
+        "uncovered_trace_count": 0,
+        "uncovered_sample_count": 0,
+    }
     for name in (
         "load_and_verification_seconds",
         "training_data_seconds",
-        "training_seconds",
+        "fit_seconds",
         "prediction_seconds",
+        "end_to_end_seconds",
         "evaluation_seconds",
     ):
         assert math.isfinite(run["resources"][name]) and run["resources"][name] >= 0.0
@@ -233,10 +276,14 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     loaded = load_fixed_step_nersi_checkpoint(output / CHECKPOINT_RELATIVE_PATH, device="cpu")
     assert loaded.coordinate_order == PROFILE_COORDINATE_ORDER
     assert loaded.profile_axis_order == PROFILE_AXIS_ORDER
+    assert loaded.coordinate_bounds == ((0, 1), (0, 2), (0, 1))
     assert loaded.spatial_shape == (2, 3, 2, 8)
     assert loaded.profile_shape == (8, 8)
     assert loaded.global_step == 2
-    current_data = build_c3_volume_nersi_data(observed)
+    current_data = build_c3_volume_nersi_data(
+        observed,
+        amplitude_scale=loaded.amplitude_scale,
+    )
     validate_fixed_step_nersi_checkpoint_input_binding(
         loaded,
         inputs.inputs_lock,
@@ -328,7 +375,9 @@ def test_same_seed_cpu_runs_are_deterministic(
     ]
     runs = [json.loads((output / "run.json").read_text(encoding="utf-8")) for output in outputs]
 
-    assert metrics[0] == metrics[1]
+    assert {key: value for key, value in metrics[0].items() if key != "timing"} == {
+        key: value for key, value in metrics[1].items() if key != "timing"
+    }
     assert metrics[0]["training"] == metrics[1]["training"]
     np.testing.assert_array_equal(predictions[0], predictions[1])
     assert (outputs[0] / "config.resolved.yaml").read_bytes() == (
@@ -372,6 +421,8 @@ def test_training_and_prediction_complete_before_target_evaluation(
     def evaluate(*args, **kwargs):
         assert events == ["trained", "predicted"]
         assert not output.exists()
+        coverage = kwargs["target_coverage_mask"]
+        assert np.all(coverage[args[1].evaluation_target_trace_mask])
         result = original_evaluate(*args, **kwargs)
         events.append("evaluated")
         return result

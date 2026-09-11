@@ -4,11 +4,14 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 import yaml
 
 from seis_interp.data.c3_benchmark_suite import c3_suite_case, suite_path
+from seis_interp.data.c3_volume_run_inputs import load_c3_volume_run_inputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.nersi_run_audit import audit_c3_nersi_run
+from seis_interp.pipelines import interpolate_nersi as nersi_pipeline
 from seis_interp.pipelines.interpolate_nersi import interpolate_nersi_run
 from seis_interp.pipelines.prepare_c3_benchmark import prepare_c3_benchmark_artifacts
 from seis_interp.processing.c3_benchmark_contract import C3BenchmarkDimensions
@@ -19,6 +22,15 @@ from tests.fixtures.c3_benchmark import (
 )
 
 DIMENSIONS = C3BenchmarkDimensions((0, 8), (1, 2), (8, 2, 2, 2, 8))
+
+
+@pytest.fixture(autouse=True)
+def _use_tiny_synthetic_input_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        nersi_pipeline,
+        "load_c3_random80_poc_inputs",
+        load_c3_volume_run_inputs,
+    )
 
 
 def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> None:
@@ -63,7 +75,7 @@ def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> Non
         "training": {
             "random_seed": 314,
             "optimizer": "adam",
-            "loss": "observed_masked_mse",
+            "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
             "learning_rate": 1.0e-3,
             "profiles_per_step": 1,

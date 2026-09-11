@@ -118,7 +118,7 @@ def validate_nersi_config(config: Mapping[str, object]) -> NersiSettings:
         },
     )
     _require_literal(training, "optimizer", "adam")
-    _require_literal(training, "loss", "observed_masked_mse")
+    _require_literal(training, "loss", "masked_trace_relative_mse")
     _require_literal(training, "amplitude_scaling", "observed_volume_global_rms")
     device = training["device"]
     if not isinstance(device, str) or not device.strip():

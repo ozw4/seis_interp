@@ -134,7 +134,7 @@ def test_candidates_differ_only_in_declared_capacity_and_learning_rate() -> None
         assert training == {
             "random_seed": 20260908,
             "optimizer": "adam",
-            "loss": "observed_masked_mse",
+            "loss": "masked_trace_relative_mse",
             "amplitude_scaling": "observed_volume_global_rms",
             "learning_rate": expected_capacity[candidate][-1],
             "profiles_per_step": 16,

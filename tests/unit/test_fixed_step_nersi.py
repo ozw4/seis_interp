@@ -12,9 +12,10 @@ from seis_interp.models.nersi import Nersi
 from seis_interp.training import fixed_step_nersi as training_module
 from seis_interp.training.c3_volume_nersi_data import C3VolumeNersiData
 from seis_interp.training.fixed_step_nersi import (
-    observed_profile_mse,
+    observed_profile_trace_relative_mse,
     train_nersi_fixed_steps,
 )
+from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
 
 
 def _model(*, seed: int = 7) -> Nersi:
@@ -71,7 +72,7 @@ def _train(model: Nersi, data: C3VolumeNersiData, **changes):
     return train_nersi_fixed_steps(model, data, **arguments)
 
 
-def test_observed_profile_mse_uses_fixed_expected_sample_denominator() -> None:
+def test_profile_loss_selects_observed_complete_traces_for_shared_loss() -> None:
     prediction = torch.zeros((2, 1, 2, 3))
     target = torch.tensor(
         [
@@ -79,21 +80,17 @@ def test_observed_profile_mse_uses_fixed_expected_sample_denominator() -> None:
             [[[3.0, 4.0, 50.0], [5.0, 6.0, 60.0]]],
         ]
     )
-    mask = torch.tensor([[True, False, False], [True, True, False]])
+    mask = torch.tensor([[True, False, False], [False, True, False]])
 
-    loss = observed_profile_mse(
-        prediction,
-        target,
-        mask,
-        expected_batch_observed_sample_count=8.0,
-    )
+    loss = observed_profile_trace_relative_mse(prediction, target, mask)
+    prediction_traces = prediction[:, 0].transpose(1, 2)[mask]
+    target_traces = target[:, 0].transpose(1, 2)[mask]
 
-    # The sampled batch contains six observed samples, but the fixed expected
-    # count is eight and therefore does not vary with the sampled profiles.
-    assert loss.item() == pytest.approx((1 + 4 + 9 + 16 + 25 + 36) / 8)
+    assert prediction_traces.shape == target_traces.shape == (2, 2)
+    torch.testing.assert_close(loss, masked_trace_relative_mse(prediction_traces, target_traces))
 
 
-def test_uniform_profile_loss_expectation_equals_global_observed_mse() -> None:
+def test_profiles_with_different_observed_counts_reduce_over_selected_traces() -> None:
     prediction = torch.zeros((3, 1, 2, 3))
     target = torch.tensor(
         [
@@ -103,22 +100,13 @@ def test_uniform_profile_loss_expectation_equals_global_observed_mse() -> None:
         ]
     )
     mask = torch.tensor([[True, False, False], [True, True, False], [True, False, False]])
-    total_observed_samples = int(mask.sum()) * target.shape[2]
-    expected_batch_observed_samples = total_observed_samples / len(mask)
+    actual = observed_profile_trace_relative_mse(prediction, target, mask)
+    selected_targets = target[:, 0].transpose(1, 2)[mask]
 
-    profile_estimators = [
-        observed_profile_mse(
-            prediction[index : index + 1],
-            target[index : index + 1],
-            mask[index : index + 1],
-            expected_batch_observed_sample_count=expected_batch_observed_samples,
-        )
-        for index in range(len(mask))
-    ]
-    sample_mask = mask[:, None, None, :].expand_as(target)
-    global_mse = torch.mean(torch.square(torch.masked_select(target, sample_mask)))
-
-    torch.testing.assert_close(torch.mean(torch.stack(profile_estimators)), global_mse)
+    torch.testing.assert_close(
+        actual,
+        masked_trace_relative_mse(torch.zeros_like(selected_targets), selected_targets),
+    )
 
 
 def test_masked_targets_do_not_affect_loss_or_gradient_even_when_nan() -> None:
@@ -132,12 +120,7 @@ def test_masked_targets_do_not_affect_loss_or_gradient_even_when_nan() -> None:
     gradients = []
     for target in (baseline_target, poisoned_target):
         prediction = base_prediction.clone().requires_grad_()
-        loss = observed_profile_mse(
-            prediction,
-            target,
-            mask,
-            expected_batch_observed_sample_count=4.0,
-        )
+        loss = observed_profile_trace_relative_mse(prediction, target, mask)
         loss.backward()
         losses.append(loss.detach())
         gradients.append(prediction.grad.detach().clone())
@@ -172,28 +155,28 @@ def test_fixed_steps_history_reporting_and_cpu_reproducibility() -> None:
     assert all(parameter.device.type == "cpu" for parameter in first_model.parameters())
 
 
-def test_fixed_steps_use_constant_expected_batch_observed_sample_count(monkeypatch) -> None:
+def test_fixed_steps_call_shared_loss_with_only_selected_time_last_traces(monkeypatch) -> None:
     data = _data()
-    denominators: list[float] = []
-    original = training_module.observed_profile_mse
+    selected_shapes: list[tuple[int, int]] = []
+    original = training_module.masked_trace_relative_mse
 
-    def recording_loss(*args, expected_batch_observed_sample_count, **kwargs):
-        denominators.append(expected_batch_observed_sample_count)
-        return original(
-            *args,
-            expected_batch_observed_sample_count=expected_batch_observed_sample_count,
-            **kwargs,
-        )
+    def recording_loss(prediction, target, trace_mask=None):
+        assert trace_mask is None
+        assert prediction.shape == target.shape
+        selected_shapes.append(tuple(prediction.shape))
+        return original(prediction, target)
 
-    monkeypatch.setattr(training_module, "observed_profile_mse", recording_loss)
+    monkeypatch.setattr(training_module, "masked_trace_relative_mse", recording_loss)
 
-    _train(_model(), data, profiles_per_step=2, max_steps=4)
-
-    total_observed_samples = data.profile_shape[0] * int(
-        data.observed_trace_mask[data.training_profile_indices].sum()
+    _train(
+        _model(),
+        data,
+        profiles_per_step=len(data.training_profile_indices),
+        max_steps=4,
     )
-    expected = 2 * total_observed_samples / len(data.training_profile_indices)
-    assert denominators == pytest.approx([expected] * 4)
+
+    expected_trace_count = int(data.observed_trace_mask[data.training_profile_indices].sum())
+    assert selected_shapes == [(expected_trace_count, data.profile_shape[0])] * 4
 
 
 def test_different_sampling_seed_changes_a_partial_profile_update() -> None:
@@ -251,13 +234,13 @@ def test_invalid_training_settings_are_rejected(changes, message) -> None:
         _train(_model(), _data(), **changes)
 
 
-def test_nonfinite_observed_loss_reports_the_step_number() -> None:
+def test_nonfinite_selected_observed_target_is_rejected_by_shared_loss() -> None:
     data = _data()
     profiles = data.normalized_profiles.copy()
     profiles[0, 0, 0, 0] = np.nan
     poisoned = replace(data, normalized_profiles=profiles)
 
-    with pytest.raises(RuntimeError, match="non-finite training loss at step 1"):
+    with pytest.raises(ValueError, match="selected prediction and target traces must be finite"):
         _train(
             _model(),
             poisoned,
