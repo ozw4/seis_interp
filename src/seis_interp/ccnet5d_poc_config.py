@@ -140,10 +140,10 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
     except ValueError as error:
         raise ConfigurationError(str(error)) from error
     evaluation = config_values.exact_section(config, "evaluation", {"primary_metric", "domain"})
-    if evaluation != {
-        "primary_metric": "physical_amplitude_global_snr_db",
-        "domain": "evaluation_target",
-    }:
+    if evaluation["domain"] != "evaluation_target" or evaluation["primary_metric"] not in (
+        "physical_amplitude_global_snr_db",
+        "physical_amplitude_mean_trace_snr_db",
+    ):
         raise ConfigurationError("evaluation must use target-only physical-amplitude global S/N")
     return CCNet5DPocSettings(
         model=model_config,

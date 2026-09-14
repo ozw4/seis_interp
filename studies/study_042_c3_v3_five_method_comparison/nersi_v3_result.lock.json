@@ -1,0 +1,49 @@
+{
+  "condition_id": "c3_random80_v3",
+  "method": "nersi",
+  "status": "adopted",
+  "adopted_at_utc": "2026-09-14T01:21:26.721441+00:00",
+  "selection_basis": "explicit_user_adoption",
+  "independent_evaluation": false,
+  "primary_metric": "mean_trace_snr_db",
+  "time_shear": false,
+  "config_path": "studies/study_042_c3_v3_five_method_comparison/nersi_no_time_shear.yaml",
+  "config_sha256": "849b11f30368ff89a54f3e73bf86b9aaefd4b98ebf39719e0c5c5bb98a2b3a1c",
+  "run_directory": "runs/study_042_c3_v3_five_method_comparison/20260914T010033Z_03c2fc83df18_nersi_no_time_shear/nersi",
+  "run_file_sha256": {
+    "config.resolved.yaml": "849b11f30368ff89a54f3e73bf86b9aaefd4b98ebf39719e0c5c5bb98a2b3a1c",
+    "inputs.lock.json": "e0419f9ceb63ead31bfd819ac67e718ddf0c6053d89f89d3056d169708a20e63",
+    "metadata.json": "8fe61fc7b8c934ac6a270c673bf8f6c13b4c21fd34a72df4a4216f0912d096cc",
+    "metrics.json": "7d0f3a35d622283e0327f2da2668258f31aa9a7371890620c8e82bd7a9becbc8",
+    "prediction.npy": "8d8c53a4785bae2a8e9355930e9082f4216a5e0bd9d8abd33efaf4ca774cd360",
+    "final.pt": "189ded9bfa46651b746f7d7f36c01177f4d2c7965bd5e9a0dba46377b3acc557"
+  },
+  "normalization": {
+    "scale": 9.27911442626805,
+    "source": "O_only",
+    "type": "global_rms"
+  },
+  "evaluation_target": {
+    "covered_target_trace_count": 104750,
+    "error_energy": 129323938.04716241,
+    "mean_trace_relative_mse": 0.03790987002842885,
+    "mean_trace_snr_db": 15.585628348312675,
+    "mean_trace_snr_status": "finite",
+    "reference_energy": 3454179731.534178,
+    "relative_l2": 0.19349377368208598,
+    "rmse": 1.793068299089009,
+    "sample_count": 40224000,
+    "snr_db": 14.266660106339977,
+    "snr_status": "finite",
+    "target_trace_count": 104750,
+    "trace_count": 104750,
+    "trace_snr_negative_infinity_count": 0,
+    "trace_snr_positive_infinity_count": 0,
+    "trace_snr_trace_count": 104750,
+    "trace_snr_undefined_count": 0
+  },
+  "source_archive": {
+    "path": "runs/study_042_c3_v3_five_method_comparison/20260914T010033Z_03c2fc83df18_nersi_no_time_shear/source.tar",
+    "sha256": "75dc4b8309ba63640502dabca6466d54ff49add065a6078eae834f55e3f7ca27"
+  }
+}

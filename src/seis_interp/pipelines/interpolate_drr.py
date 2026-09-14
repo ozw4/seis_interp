@@ -24,6 +24,7 @@ from seis_interp.configuration import ConfigurationError, load_resolved_config
 from seis_interp.data.c3_poc_inputs import (
     C3_RANDOM80_POC_BENCHMARK_ID,
     load_c3_random80_poc_inputs,
+    load_c3_random80_v3_inputs,
 )
 from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs
 from seis_interp.data.file_checksums import file_sha256
@@ -86,6 +87,9 @@ def interpolate_drr_run(
     run_records.check_new_output_directory(output_directory)
     end_to_end_started = time.perf_counter()
     config = load_resolved_config(Path(config_path))
+    input_protocol = config.get("input_protocol", "c3_random80_poc")
+    if input_protocol not in ("c3_random80_poc", "c3_random80_v3"):
+        raise ValueError("unsupported input_protocol")
     settings = _drr_settings(config)
     validate_c3_volume_evaluation_config(config)
     started_at_utc = run_records.utc_timestamp()
@@ -93,14 +97,19 @@ def interpolate_drr_run(
 
     _report(progress_reporter, "Loading and verifying C3 inputs.")
     load_started = time.perf_counter()
-    inputs = load_c3_random80_poc_inputs(
+    input_loader = (
+        load_c3_random80_v3_inputs
+        if input_protocol == "c3_random80_v3"
+        else load_c3_random80_poc_inputs
+    )
+    inputs = input_loader(
         config=config,
         interim_dir=Path(interim_dir),
         processed_dir=Path(processed_dir),
         mask_dir=Path(mask_dir),
         case_dir=Path(case_dir),
         volume_dir=Path(volume_dir),
-        dimensions=dimensions,
+        **({"dimensions": dimensions} if input_protocol == "c3_random80_poc" else {}),
     )
     load_seconds = time.perf_counter() - load_started
     observed = inputs.observed_volume
@@ -136,6 +145,9 @@ def interpolate_drr_run(
         interim_dir=Path(interim_dir),
         volume_metadata=inputs.volume_metadata,
         target_coverage_mask=target_coverage_mask,
+        include_trace_snr=(
+            config["evaluation"]["primary_metric"] == "physical_amplitude_mean_trace_snr_db"
+        ),
     )
     evaluation_seconds = time.perf_counter() - evaluation_started
     uncovered_samples = reconstructed.uncovered_trace_count * observed.values.shape[0]
@@ -189,6 +201,12 @@ def interpolate_drr_run(
         ),
         compute=poc_compute_metadata(),
     )
+    if input_protocol == "c3_random80_v3":
+        metadata.update(
+            input_protocol=input_protocol,
+            condition_id="c3_random80_v3",
+            primary_metric="mean_trace_snr_db",
+        )
     run_records.write_run_outputs(
         output_directory,
         deepcopy(config),

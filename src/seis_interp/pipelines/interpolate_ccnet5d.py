@@ -24,6 +24,7 @@ from seis_interp.configuration import load_resolved_config
 from seis_interp.data.c3_poc_inputs import (
     C3_RANDOM80_POC_DATASET_ID,
     load_c3_random80_poc_inputs,
+    load_c3_random80_v3_inputs,
 )
 from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs
 from seis_interp.data.file_checksums import file_sha256
@@ -77,6 +78,9 @@ def interpolate_ccnet5d_run(
     output = Path(output_dir)
     run_records.check_new_output_directory(output)
     config = load_resolved_config(Path(config_path))
+    input_protocol = config.get("input_protocol", "c3_random80_poc")
+    if input_protocol not in ("c3_random80_poc", "c3_random80_v3"):
+        raise ValueError("unsupported input_protocol")
     settings = validate_ccnet5d_poc_config(config)
     benchmark_seed = _validate_shared_config(config)
     requested_device = settings.training.device if device_override is None else device_override
@@ -88,14 +92,19 @@ def interpolate_ccnet5d_run(
 
     _report(progress_reporter, "Loading and verifying observed-only C3 PoC inputs.")
     started = time.perf_counter()
-    inputs = load_c3_random80_poc_inputs(
+    input_loader = (
+        load_c3_random80_v3_inputs
+        if input_protocol == "c3_random80_v3"
+        else load_c3_random80_poc_inputs
+    )
+    inputs = input_loader(
         config=config,
         interim_dir=Path(interim_dir),
         processed_dir=Path(processed_dir),
         mask_dir=Path(mask_dir),
         case_dir=Path(case_dir),
         volume_dir=Path(volume_dir),
-        dimensions=dimensions,
+        **({"dimensions": dimensions} if input_protocol == "c3_random80_poc" else {}),
     )
     timings["load_and_verification_seconds"] = time.perf_counter() - started
 
@@ -156,6 +165,9 @@ def interpolate_ccnet5d_run(
         interim_dir=Path(interim_dir),
         volume_metadata=inputs.volume_metadata,
         target_coverage_mask=target_coverage,
+        include_trace_snr=(
+            config["evaluation"]["primary_metric"] == "physical_amplitude_mean_trace_snr_db"
+        ),
     )
     timings["evaluation_seconds"] = time.perf_counter() - started
     metrics = dict(evaluation)
@@ -245,6 +257,12 @@ def interpolate_ccnet5d_run(
             supervised_trace_presentations=trained.supervised_trace_presentations,
         ),
     )
+    if input_protocol == "c3_random80_v3":
+        metadata.update(
+            input_protocol=input_protocol,
+            condition_id="c3_random80_v3",
+            primary_metric="mean_trace_snr_db",
+        )
     run_records.write_run_outputs(
         output,
         deepcopy(config),

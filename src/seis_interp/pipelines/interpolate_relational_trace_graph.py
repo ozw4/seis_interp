@@ -20,7 +20,7 @@ from seis_interp.c3_poc_run_records import (
     validate_poc_prediction,
 )
 from seis_interp.configuration import load_resolved_config
-from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
+from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs, load_c3_random80_v3_inputs
 from seis_interp.data.c3_poc_trace_graph import (
     build_c3_poc_trace_graph_domain,
     build_c3_poc_trace_graph_training_data,
@@ -63,6 +63,9 @@ def interpolate_relational_trace_graph_run(
     output = Path(output_dir)
     run_records.check_new_output_directory(output)
     config = load_resolved_config(Path(config_path))
+    input_protocol = config.get("input_protocol", "c3_random80_poc")
+    if input_protocol not in ("c3_random80_poc", "c3_random80_v3"):
+        raise ValueError("unsupported input_protocol")
     settings = validate_relational_trace_graph_poc_config(config)
     options = dict(settings.training)
     device = resolve_device(
@@ -76,14 +79,19 @@ def interpolate_relational_trace_graph_run(
     git_metadata = run_records.current_git_metadata()
     if progress_reporter:
         progress_reporter("Loading observed-only PoC inputs.")
-    inputs = load_c3_random80_poc_inputs(
+    input_loader = (
+        load_c3_random80_v3_inputs
+        if input_protocol == "c3_random80_v3"
+        else load_c3_random80_poc_inputs
+    )
+    inputs = input_loader(
         config=config,
         interim_dir=interim_dir,
         processed_dir=processed_dir,
         mask_dir=mask_dir,
         case_dir=case_dir,
         volume_dir=volume_dir,
-        dimensions=dimensions,
+        **({"dimensions": dimensions} if input_protocol == "c3_random80_poc" else {}),
     )
     volume = inputs.observed_volume
     scale = compute_observed_global_rms(volume.values, volume.observed_trace_mask)
@@ -183,7 +191,7 @@ def interpolate_relational_trace_graph_run(
     coverage = np.zeros_like(volume.evaluation_target_trace_mask)
 
     def common_metadata() -> dict[str, object]:
-        return poc_run_metadata(
+        record = poc_run_metadata(
             inputs.inputs_lock,
             metadata,
             normalization=identity["normalization"],
@@ -198,6 +206,14 @@ def interpolate_relational_trace_graph_run(
                 supervised_trace_presentations=trained.query_count,
             ),
         )
+
+        if input_protocol == "c3_random80_v3":
+            record.update(
+                input_protocol=input_protocol,
+                condition_id="c3_random80_v3",
+                primary_metric="mean_trace_snr_db",
+            )
+        return record
 
     run_records.write_run_outputs(
         output,
@@ -233,6 +249,9 @@ def interpolate_relational_trace_graph_run(
             interim_dir=Path(interim_dir),
             volume_metadata=inputs.volume_metadata,
             target_coverage_mask=coverage,
+            include_trace_snr=(
+                config["evaluation"]["primary_metric"] == "physical_amplitude_mean_trace_snr_db"
+            ),
         )
         metadata["resources"]["evaluation_seconds"] = time.perf_counter() - evaluation_started
         metrics = dict(evaluation)

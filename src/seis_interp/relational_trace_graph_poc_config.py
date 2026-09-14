@@ -42,6 +42,8 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
         "prediction",
         "evaluation",
     }
+    if config.get("input_protocol") == "c3_random80_v3":
+        allowed |= {"input_protocol", "input_conditions_lock", "input_conditions_sha256"}
     if set(config) != allowed:
         raise ConfigurationError(f"PoC configuration requires exactly {sorted(allowed)}")
     project = values.exact_section(config, "project", {"random_seed"})

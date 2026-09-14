@@ -1,0 +1,15 @@
+study:
+  id: study_042_c3_v3_five_method_comparison
+  status: running
+condition_id: c3_random80_v3
+primary_metric: mean_trace_snr_db
+evaluation_domain: all_target_traces_physical_amplitude
+independent_evaluation: false
+equal_compute_budget: false
+automatic_retry: false
+methods: [pocs, drr, nersi, ccnet5d, relational_trace_graph]
+official_results:
+  nersi:
+    status: adopted
+    config: nersi_no_time_shear.yaml
+    result_lock: nersi_v3_result.lock.json

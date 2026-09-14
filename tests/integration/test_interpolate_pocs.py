@@ -135,6 +135,53 @@ def _run(
     )
 
 
+def test_v3_pipeline_uses_real_pinned_loader_and_mean_trace_snr(tmp_path, monkeypatch):
+    from seis_interp.data import c3_poc_inputs
+    from seis_interp.evaluation.c3_v3_comparison import validate_v3_run_artifacts
+
+    artifacts = _prepare_poc_artifacts(tmp_path)
+    path = _write_config(tmp_path / "config.yaml", artifacts)
+    config = yaml.safe_load(path.read_text())
+    selection = artifacts.volume_metadata["selection"]
+    dimensions = C3BenchmarkDimensions(
+        time_range=tuple(selection["time"]),
+        sail_line_numbers=(selection["source_line"][0], selection["source_line"][1] - 1),
+        shape=tuple(artifacts.volume_metadata["shape"]),
+    )
+    baseline = deepcopy(selection)
+    baseline["shot_in_line"] = [value + 1 for value in selection["shot_in_line"]]
+    monkeypatch.setattr(c3_poc_inputs, "MAIN_C3_DIMENSIONS", dimensions)
+    monkeypatch.setattr(c3_poc_inputs, "C3_RANDOM80_POC_SELECTION", baseline)
+    inputs = c3_poc_inputs.load_c3_random80_window_inputs(
+        config=config,
+        interim_dir=artifacts.interim,
+        processed_dir=artifacts.processed,
+        mask_dir=artifacts.mask,
+        case_dir=artifacts.case,
+        volume_dir=artifacts.volume,
+    )
+    conditions = tmp_path / "conditions.json"
+    conditions.write_text(
+        json.dumps(
+            {
+                "condition_id": "c3_random80_v3",
+                "status": "fixed",
+                "inputs_lock": inputs.inputs_lock,
+            }
+        )
+    )
+    config.update(
+        input_protocol="c3_random80_v3",
+        input_conditions_lock=str(conditions),
+        input_conditions_sha256=file_sha256(conditions),
+    )
+    config["evaluation"]["primary_metric"] = "physical_amplitude_mean_trace_snr_db"
+    path.write_text(yaml.safe_dump(config))
+    output = tmp_path / "v3_run"
+    _run(artifacts, path, output)
+    assert validate_v3_run_artifacts("pocs", output, inputs.inputs_lock)["status"] == "success"
+
+
 @pytest.mark.parametrize("windowed", [False, True])
 @pytest.mark.parametrize("time_sample_count", [3, 4])
 def test_run_writes_prediction_metrics_and_complete_records(
