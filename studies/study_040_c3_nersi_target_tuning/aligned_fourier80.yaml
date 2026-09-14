@@ -1,0 +1,3 @@
+extends: aligned_large.yaml
+model:
+  fourier_components: 80

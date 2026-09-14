@@ -1,0 +1,96 @@
+study:
+  id: study_040_c3_nersi_target_tuning
+  status: target_unmet
+reference: study_037_c3_neural_mse_loss_ablation
+selection_domain: evaluation_target
+primary_metric: mean_trace_snr_db
+primary_metric_amplitude_domain: physical
+target_snr_db: 15.0
+target_comparison: strictly_greater
+independent_evaluation: false
+fair_comparison_to_untuned_methods: false
+normalized_reference:
+  status: target_unmet
+  target_snr_db: 15.0
+  target_comparison: strictly_greater
+  prediction_domain: model_output_before_O_only_RMS_restoration
+  reference_domain: each_target_trace_divided_by_own_RMS
+  target_rms_used_only_for_evaluation: true
+  physical_goal_unchanged: true
+  candidates: [normalized_ema, normalized_ema_mixup, normalized_ema_steps200000, normalized_ema_accumulate8]
+local_models:
+  status: target_unmet
+  authorized: true
+  separate_from_single_model_comparison: true
+  candidates:
+    - local_lines8
+    - local_lines4
+    - local_lines1
+    - local_lines8_large_steps20000
+    - local_lines8_large_accumulate8
+    - local_lines8_large_fitted_shear
+candidates:
+  - frequency_105
+  - frequency_110
+  - frequency_115
+  - learning_rate_003
+  - batch_64
+  - batch_128
+  - frequency_110_lr_0003
+  - kernel_5
+  - kernel_7
+  - frequency_102
+  - kernel_5_steps_20000
+  - kernel_5_steps_50000
+  - long_lr_0003
+  - long_frequency_105
+  - long_compact
+  - long_wide
+  - jitter_002
+  - jitter_010
+  - long_wide_frequency125
+  - large_frequency125_steps5000
+  - large_frequency125_steps50000
+  - idw_base
+  - idw_large
+  - siren_batch256_lr0001
+  - siren_batch256_lr001
+  - aligned_base
+  - aligned_idw
+  - aligned_large
+  - aligned_idw_large
+  - aligned_low_frequency
+  - aligned_fourier8
+  - aligned_fourier16
+  - aligned_fourier80
+  - aligned_fourier160
+  - aligned_decoder_bottleneck
+  - aligned_mixup020
+  - aligned_mixup050
+  - aligned_encoder4096
+  - aligned_latent384
+  - aligned_kernel9
+  - aligned_lr0003
+  - aligned_steps200000
+  - aligned_zero_pad
+  - aligned_kernel9_lr0001
+  - aligned_fourier16_jitter005
+  - aligned_fourier16_jitter020
+  - aligned_fractional30625
+  - aligned_fractional29375
+  - aligned_kernel1
+  - aligned_kernel3
+  - aligned_cosine
+  - aligned_ema0999
+  - aligned_nyquist
+  - aligned_cartesian
+  - aligned_cartesian_nyquist_cosine_ema
+  - aligned_ema09999
+  - aligned_nyquist_dense
+  - aligned_cartesian_nyquist_dense_cosine_ema
+  - normalized_ema
+  - normalized_ema_steps200000
+  - normalized_ema_mixup
+  - normalized_ema_accumulate8
+  - aligned_ema_accumulate8
+  - aligned_ema_accumulate16

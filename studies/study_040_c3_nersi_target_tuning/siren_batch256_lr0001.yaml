@@ -1,0 +1,5 @@
+extends: ../study_037_c3_neural_mse_loss_ablation/formal/nersi.yaml
+training:
+  profiles_per_step: 256
+  learning_rate: 0.0001
+  max_steps: 10000

@@ -1,0 +1,4 @@
+extends: long_wide.yaml
+augmentation:
+  coordinate_jitter_cells: 0.02
+  random_seed: 501

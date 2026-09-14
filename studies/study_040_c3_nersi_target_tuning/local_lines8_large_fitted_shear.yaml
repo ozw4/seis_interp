@@ -1,0 +1,5 @@
+extends: local_lines8_large_steps20000.yaml
+local_models:
+  alignment_search:
+    candidates: [3.0, 3.015625, 3.03125, 3.046875, 3.0625, 3.078125, 3.09375, 3.109375, 3.125]
+    distances: [8, 9, 10, 11, 12, 13, 14, 15, 16]

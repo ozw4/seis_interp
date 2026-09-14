@@ -1,0 +1,4 @@
+extends: normalized_ema.yaml
+augmentation:
+  profile_mixup_max_fraction: 0.5
+  random_seed: 501

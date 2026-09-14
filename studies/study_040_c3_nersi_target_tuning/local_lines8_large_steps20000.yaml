@@ -1,0 +1,5 @@
+extends: normalized_ema.yaml
+local_models:
+  source_line_width: 8
+training:
+  max_steps: 20000

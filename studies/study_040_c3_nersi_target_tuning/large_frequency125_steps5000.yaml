@@ -1,0 +1,7 @@
+extends: long_wide_frequency125.yaml
+model:
+  encoder_width: 1536
+  latent_channels: 192
+  decoder_channels: [192, 96, 48]
+training:
+  max_steps: 5000

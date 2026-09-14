@@ -1,0 +1,3 @@
+extends: normalized_ema.yaml
+training:
+  max_steps: 200000

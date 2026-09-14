@@ -1,0 +1,8 @@
+interim: data/interim/c3_na/all_ffids
+processed: data/processed/c3_na/study_029_c3_amplitude_qc/partition
+mask: data/processed/c3_na/study_029_c3_amplitude_qc/masks/c3_benchmark_test_random_trace_80_seed42
+window_artifacts: data/processed/c3_na/study_041_c3_nersi_translated_window
+completed_window:
+  case: data/processed/c3_na/study_041_c3_nersi_translated_window/shot18_ry18/case
+  volume: data/processed/c3_na/study_041_c3_nersi_translated_window/shot18_ry18/volume
+  inputs_lock: data/processed/c3_na/study_041_c3_nersi_translated_window/shot18_ry18/inputs.lock.json

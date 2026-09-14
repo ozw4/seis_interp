@@ -1,0 +1,4 @@
+extends: idw_base.yaml
+time_alignment:
+  receiver_y_shift_samples_per_cell: 3
+  boundary: circular

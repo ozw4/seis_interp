@@ -1,0 +1,7 @@
+extends: aligned_ema0999.yaml
+training:
+  amplitude_scaling: observed_trace_rms_idw
+trace_rms_idw:
+  radius: 2
+  power: 2
+  axis_scales: [1, 1, 1, 1]

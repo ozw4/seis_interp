@@ -1,0 +1,16 @@
+extends: ../study_037_c3_neural_mse_loss_ablation/formal/nersi.yaml
+local_models:
+  source_line_width: 8
+training:
+  amplitude_scaling: observed_trace_rms_idw
+time_alignment:
+  receiver_y_shift_samples_per_cell: 3.0625
+  boundary: fourier_periodic
+trace_rms_idw:
+  radius: 2
+  power: 2
+  axis_scales: [1, 1, 1, 1]
+optimization:
+  learning_rate_schedule: constant
+  minimum_learning_rate: 0.001
+  ema_decay: 0.999

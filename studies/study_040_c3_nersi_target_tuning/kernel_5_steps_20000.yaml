@@ -1,0 +1,3 @@
+extends: kernel_5.yaml
+training:
+  max_steps: 20000

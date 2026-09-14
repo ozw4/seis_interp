@@ -1,0 +1,3 @@
+extends: large_frequency125_steps5000.yaml
+training:
+  max_steps: 50000

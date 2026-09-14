@@ -1,0 +1,3 @@
+extends: aligned_fourier160.yaml
+model:
+  kernel_size: 1

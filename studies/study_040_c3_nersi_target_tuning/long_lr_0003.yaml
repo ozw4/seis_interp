@@ -1,0 +1,3 @@
+extends: kernel_5_steps_50000.yaml
+training:
+  learning_rate: 0.0003

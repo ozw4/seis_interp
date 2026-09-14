@@ -1,0 +1,3 @@
+extends: frequency_110.yaml
+training:
+  profiles_per_step: 64

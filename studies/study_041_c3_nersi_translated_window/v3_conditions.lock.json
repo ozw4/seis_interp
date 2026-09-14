@@ -1,0 +1,133 @@
+{
+  "condition_id": "c3_random80_v3",
+  "status": "fixed",
+  "fixed_scope": [
+    "input_geometry",
+    "verified_input_artifacts",
+    "outer_mask",
+    "primary_metric"
+  ],
+  "primary_metric": "mean_trace_snr_db",
+  "evaluation_domain": "all_evaluation_target_traces",
+  "evaluation_amplitude_domain": "physical",
+  "selection_basis": "target_informed_window_translation",
+  "independent_evaluation": false,
+  "inputs_lock": {
+    "benchmark_case": {
+      "case_id": "c3_window_shot18_ry18_random80_seed42",
+      "file": "benchmark_case.json",
+      "input_files": {
+        "interim": {
+          "amplitudes.npy": {
+            "sha256": "7037d750d227a6cfce5ade61d4bc0ca05ac846b294885b8c9d8d945cf2af6e92"
+          },
+          "dataset.json": {
+            "sha256": "c2a741d5af447b2f413334c047db11a3ef65e9915d3399bc553aa284d5bc187a"
+          },
+          "time_s.npy": {
+            "sha256": "35ffa4765a7e2877618451d961cdcccb7272ade8e084282754e8cc6c5af1181b"
+          },
+          "traces.parquet": {
+            "sha256": "cfb8ecb6310adeed54cc00a28c09da5cdb714ba0a064517cca5249879201ef6f"
+          }
+        },
+        "mask": {
+          "interpolation_mask.json": {
+            "sha256": "ce3c3965df75b0e18110902132d31b0c57ce91b3718bc6155f074c0a7408b926"
+          },
+          "observation_mask.parquet": {
+            "sha256": "ad3e8de32b65fb6c3029fbd7dbc4380e2563e72f2c3a3a5e603c523bfb51c4f7"
+          }
+        },
+        "processed": {
+          "normalization.json": {
+            "sha256": "99bf3cb7b96f4446d92c63d0cafe9fbf5907f2302a7b6c663ebb62619fce24ba"
+          },
+          "preparation.json": {
+            "sha256": "10fdf0b2f312d701447c651ecf650e3fe6cc10aeec269e1cc79ca2a32fbcec97"
+          },
+          "trace_split.parquet": {
+            "sha256": "a1e9abc55cfc8e13ae7fef39bc459b86fa8ea82e25f88444b90c99d53fad801c"
+          }
+        }
+      },
+      "sha256": "2cae4e0bac2118e02bb26aa8e54d460a198d7e3af4c262838279e8308e022d04"
+    },
+    "benchmark_id": "c3_random80_translated_window_0-384_25-41_18-50_0-8_18-50",
+    "benchmark_volume": {
+      "files": {
+        "volume.json": {
+          "sha256": "87769a8835dc666f6c1cf96d99dd42d718705f09ae86147a1ab8aaa6588796a6"
+        },
+        "volume_index.parquet": {
+          "sha256": "74f1e51a29cbd90e4690953fc86622847d3ac36560ced67176b20ad4c7ef1a6e"
+        }
+      },
+      "volume_id": "c3_window_shot18_ry18_random80_seed42_volume"
+    },
+    "case_id": "c3_window_shot18_ry18_random80_seed42",
+    "dataset_id": "seg_c3_na",
+    "mask": {
+      "files": {
+        "interpolation_mask.json": {
+          "sha256": "ce3c3965df75b0e18110902132d31b0c57ce91b3718bc6155f074c0a7408b926"
+        },
+        "observation_mask.parquet": {
+          "sha256": "ad3e8de32b65fb6c3029fbd7dbc4380e2563e72f2c3a3a5e603c523bfb51c4f7"
+        }
+      },
+      "kind": "random_trace",
+      "missing_fraction": 0.8,
+      "random_seed": 42,
+      "unit": "complete_trace"
+    },
+    "observed_trace_count": 26322,
+    "selection": {
+      "relative_receiver_x": [
+        0,
+        8
+      ],
+      "relative_receiver_y": [
+        18,
+        50
+      ],
+      "shot_in_line": [
+        18,
+        50
+      ],
+      "source_line": [
+        25,
+        41
+      ],
+      "time": [
+        0,
+        384
+      ]
+    },
+    "shape": [
+      384,
+      16,
+      32,
+      8,
+      32
+    ],
+    "target_trace_count": 104750,
+    "volume_id": "c3_window_shot18_ry18_random80_seed42_volume"
+  },
+  "input_lock_file": {
+    "path": "../../runs/study_041_c3_nersi_translated_window/20260913T232356Z_03c2fc83df18_shot18_ry18/inputs.lock.json",
+    "sha256": "e0419f9ceb63ead31bfd819ac67e718ddf0c6053d89f89d3056d169708a20e63"
+  },
+  "reference_run": {
+    "path": "../../runs/study_041_c3_nersi_translated_window/20260913T232356Z_03c2fc83df18_shot18_ry18",
+    "config_sha256": "caa2ee84138fa10d7043300b23c9a0272fe3bff5535062a93c6eb60698992816",
+    "metadata_sha256": "7e0154e84eae2f5edf90d59ab782a4b771f4eda2614952247c870ebe38443215",
+    "metrics_sha256": "08f418a1e6c573e21416e476e25322e1929bd1cd9c47fcb057d1ff50a669bda3"
+  },
+  "reference_run_normalization": {
+    "scale": 9.27911442626805,
+    "source": "O_only",
+    "type": "global_rms"
+  },
+  "normalization_is_part_of_fixed_scope": false
+}

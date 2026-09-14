@@ -1,0 +1,7 @@
+extends: ../study_037_c3_neural_mse_loss_ablation/formal/nersi.yaml
+training:
+  amplitude_scaling: observed_trace_rms_idw
+trace_rms_idw:
+  radius: 2
+  power: 2
+  axis_scales: [1, 1, 1, 1]

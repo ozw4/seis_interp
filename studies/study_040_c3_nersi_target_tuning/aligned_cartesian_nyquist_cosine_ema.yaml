@@ -1,0 +1,8 @@
+extends: aligned_fractional30625.yaml
+profile_coordinates: cartesian_cmp_half_offset
+fourier_bandlimit:
+  nyquist_fraction: [1.0, 1.0, 1.0]
+optimization:
+  learning_rate_schedule: cosine
+  minimum_learning_rate: 0.00001
+  ema_decay: 0.999

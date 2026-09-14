@@ -1,0 +1,3 @@
+extends: local_lines8.yaml
+local_models:
+  source_line_width: 4

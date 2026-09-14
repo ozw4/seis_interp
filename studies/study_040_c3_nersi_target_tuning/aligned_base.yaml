@@ -1,0 +1,4 @@
+extends: ../study_037_c3_neural_mse_loss_ablation/formal/nersi.yaml
+time_alignment:
+  receiver_y_shift_samples_per_cell: 3
+  boundary: circular

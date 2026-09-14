@@ -1,0 +1,4 @@
+extends: aligned_fourier16.yaml
+augmentation:
+  coordinate_jitter_cells: 0.2
+  random_seed: 501

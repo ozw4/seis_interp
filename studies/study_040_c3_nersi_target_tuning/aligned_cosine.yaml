@@ -1,0 +1,5 @@
+extends: aligned_fractional30625.yaml
+optimization:
+  learning_rate_schedule: cosine
+  minimum_learning_rate: 0.00001
+  ema_decay: null

@@ -1,0 +1,3 @@
+extends: siren_batch256_lr0001.yaml
+training:
+  learning_rate: 0.001

@@ -1,0 +1,7 @@
+extends: large_frequency125_steps50000.yaml
+training:
+  amplitude_scaling: observed_trace_rms_idw
+trace_rms_idw:
+  radius: 2
+  power: 2
+  axis_scales: [1, 1, 1, 1]

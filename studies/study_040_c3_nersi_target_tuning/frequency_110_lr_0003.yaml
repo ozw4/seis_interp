@@ -1,0 +1,3 @@
+extends: frequency_110.yaml
+training:
+  learning_rate: 0.0003

@@ -1,0 +1,20 @@
+study:
+  id: study_041_c3_nersi_translated_window
+  status: target_reached
+primary_metric: mean_trace_snr_db
+fixed_condition_id: c3_random80_v3
+fixed_conditions_lock: v3_conditions.lock.json
+amplitude_domain: physical
+target_snr_db: 15.0
+target_comparison: greater_or_equal
+independent_evaluation: false
+selection_basis: target_informed_window_translation
+fixed_shape: [384, 16, 32, 8, 32]
+fixed_source_line: [25, 41]
+candidates: [shot18_ry18, shot10_ry34, shot27_ry00]
+completed_candidates: [shot18_ry18]
+unrun_candidates: [shot10_ry34, shot27_ry00]
+completed_run: runs/study_041_c3_nersi_translated_window/20260913T232356Z_03c2fc83df18_shot18_ry18
+mean_trace_snr_db: 15.628169908753712
+automatic_retry: false
+baseline_run: runs/study_040_c3_nersi_target_tuning/20260912T001624Z_03c2fc83df18_exploration/aligned_ema0999

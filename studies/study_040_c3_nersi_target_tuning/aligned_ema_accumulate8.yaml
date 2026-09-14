@@ -1,0 +1,4 @@
+extends: aligned_ema0999.yaml
+training:
+  gradient_accumulation_steps: 8
+  max_steps: 10000

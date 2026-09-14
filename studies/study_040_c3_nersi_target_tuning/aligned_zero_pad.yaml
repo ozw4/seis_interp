@@ -1,0 +1,3 @@
+extends: aligned_fourier160.yaml
+time_alignment:
+  boundary: zero_pad

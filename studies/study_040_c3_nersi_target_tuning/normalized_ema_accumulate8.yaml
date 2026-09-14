@@ -1,0 +1,4 @@
+extends: normalized_ema.yaml
+training:
+  gradient_accumulation_steps: 8
+  max_steps: 10000

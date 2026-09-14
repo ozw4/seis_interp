@@ -1,0 +1,3 @@
+extends: aligned_fractional30625.yaml
+fourier_bandlimit:
+  nyquist_fraction: [1.0, 1.0, 1.0]

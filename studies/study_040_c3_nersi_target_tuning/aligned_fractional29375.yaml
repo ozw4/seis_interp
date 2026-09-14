@@ -1,0 +1,4 @@
+extends: aligned_fourier160.yaml
+time_alignment:
+  receiver_y_shift_samples_per_cell: 2.9375
+  boundary: fourier_periodic

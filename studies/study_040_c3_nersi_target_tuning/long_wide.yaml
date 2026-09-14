@@ -1,0 +1,5 @@
+extends: kernel_5_steps_50000.yaml
+model:
+  encoder_width: 768
+  latent_channels: 128
+  decoder_channels: [128, 64, 32]

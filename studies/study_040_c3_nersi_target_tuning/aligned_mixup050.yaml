@@ -1,0 +1,4 @@
+extends: aligned_large.yaml
+augmentation:
+  profile_mixup_max_fraction: 0.5
+  random_seed: 501
