@@ -47,8 +47,17 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_034_c3_nersi_baseline](study_034_c3_nersi_baseline/README.md) | `validation_complete_candidate_c_selected` — Candidate C 15.9189 dB | observed-only profile-wise NeRSI / fixed QC validation | Four predeclared NeRSI candidates on the fixed validation case |
 | [study_035_c3_ccnet_full_train_sampling](study_035_c3_ccnet_full_train_sampling/README.md) | `completed_degraded` | QC full-train patch sampling / CCNet-5D | Full-train patch sampling against the adopted Study 033 model |
 | [study_036_c3_random80_observed_only_poc](study_036_c3_random80_observed_only_poc/README.md) | `stage_1_baseline_frozen` | fixed random-80 volume / five observed-only methods | Independent reconstruction under common inputs, target coverage, and compute reporting |
-| [study_037_c3_neural_mse_loss_ablation](study_037_c3_neural_mse_loss_ablation/README.md) | `planned` | fixed Stage-1 inputs / three neural methods | MSE-only loss ablation with all other settings fixed |
+| [study_037_c3_neural_mse_loss_ablation](study_037_c3_neural_mse_loss_ablation/README.md) | `results_frozen` — MSE adopted for prior-research alignment | fixed Stage-1 inputs / three neural methods | MSE-only loss ablation with all other settings fixed |
 | [study_039_c3_drr_target_tuning](study_039_c3_drr_target_tuning/README.md) | `target_achieved` — 12.1328 dB | DRR / target-informed parameter selection | Fixed study_036 inputs and full-target scoring; >11.3 dB achieved, not an independent evaluation |
+| [study_040_c3_nersi_target_tuning](study_040_c3_nersi_target_tuning/README.md) | `target_unmet` — 64 verified single-model runs + 6 local-model candidates; physical best 12.3879 dB; normalized reference best 12.4088 dB | NeRSI / target-informed tuning, time alignment, EMA and gradient accumulation | Can NeRSI exceed 15 dB on the fixed target? Not an independent evaluation |
+
+## Window-selection studies
+
+| Study | Status | Scope |
+|---|---|---|
+| [study_041_c3_nersi_translated_window](study_041_c3_nersi_translated_window/README.md) | `target_reached` — mean trace SNR 15.6282 dB | Fixed source lines and shape; target-informed window selection, not original-window improvement |
+| [study_042_c3_v3_five_method_comparison](study_042_c3_v3_five_method_comparison/README.md) | `running` | Fixed v3 inputs / five methods / physical mean trace SNR; unequal compute, target-informed |
+| [study_043_c3_v3_ccnet_target_tuning](study_043_c3_v3_ccnet_target_tuning/README.md) | `completed` | v3 CCNet, Global RMS, no shear; target-informed mean trace SNR 14.4375 dB |
 
 ## Scratch workspaces
 
