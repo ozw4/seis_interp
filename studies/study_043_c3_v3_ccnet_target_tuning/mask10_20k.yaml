@@ -1,0 +1,4 @@
+extends: mask10_5k.yaml
+training:
+  max_steps: 20000
+  report_interval: 500

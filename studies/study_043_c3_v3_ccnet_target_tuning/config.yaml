@@ -1,0 +1,14 @@
+study:
+  id: study_043_c3_v3_ccnet_target_tuning
+  status: completed
+objective:
+  metric: physical_amplitude_mean_trace_snr_db
+  threshold_db: 14.0
+  comparison: strictly_greater
+constraints:
+  input_protocol: c3_random80_v3
+  amplitude_scaling: observed_volume_global_rms
+  time_shear: false
+  training_amplitudes: observed_only
+  evaluation: all_target_traces
+  target_informed_selection: true
