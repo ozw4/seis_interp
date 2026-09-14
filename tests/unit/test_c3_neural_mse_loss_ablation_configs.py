@@ -64,7 +64,7 @@ def test_study_contract_and_inputs_are_fixed_without_classical_methods():
         in (STUDY / "README.md").read_text()
     )
     config = load_resolved_config(STUDY / "config.yaml")
-    assert config["study"] == {"id": STUDY.name, "status": "planned"}
+    assert config["study"] == {"id": STUDY.name, "status": "results_frozen"}
     assert config["ablation"] == {
         "methods": ["nersi", "ccnet5d", "relational_trace_graph"],
         "changed_field": "training.loss",

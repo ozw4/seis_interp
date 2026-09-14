@@ -1,6 +1,30 @@
 # Stage-1b Neural MSE Loss Ablation
 
-Status: `planned`。これは探索的Stage-1b loss ablationである。Stage-1 baselineを置換しない。
+Status: `results_frozen`。これは探索的Stage-1b loss ablationである。Stage-1 baselineを置換しない。
+
+## 凍結結果と採用判断
+
+完了run：`20260911T095500Z_dcd38161ae39_formal`。
+[凍結記録](stage_1b_results.lock.json)に3手法のfull input lock、3 formal設定・20 runファイルのSHA-256、
+実行provenance、全精度の比較値を保存する。3手法とも5000 updates、T全104710 traceのcoverage、
+observed exact reinsertionを確認済み。Stage-1とのresolved設定差分はlossだけである。
+
+| Method | MSE SNR [dB] | Δ SNR [dB] | MSE RMSE |
+|---|---:|---:|---:|
+| NeRSI | 10.1017 | -0.1812 | 2.8868 |
+| CCNet-5D | 6.1874 | -0.4115 | 4.5304 |
+| Proposed GNN | 9.0393 | -0.2337 | 3.2625 |
+
+ΔはMSE−Stage-1。表示は小数4桁。
+**学習lossにはMSEを採用する。理由は先行研究との整合を優先するユーザー判断であり、
+本runの性能による選択ではない。** 今回は3手法ともSNRが低下した結果をそのまま保持する。
+先行研究の個別実装との一致を本実験で検証したという主張はしない。
+
+全3手法のmetadataはcommit `5829a11482edd8adafd29b4be25f910fe5545425`、worktree cleanを記録する。
+run名のSHA部分`dcd38161ae39`とは異なるが、元のpath・metadataを書き換えない。
+凍結はhashによる保存契約であり、OSの書込み禁止やバックアップではない。
+元runの内容・権限は変更せず、checkpointからの再推論は実施していない。
+今後の変更は別設定・別runで行い、このformal設定と凍結成果物を上書きしない。
 
 ## 比較条件
 
@@ -17,8 +41,8 @@ prediction、O-only Global RMS、target-only physical evaluator、full-target co
 observed traceのexact reinsertion、final checkpoint roleを固定する。
 smokeは2 updates / report interval 1だけを変更し、そのmetricを性能比較・採否判断に使用しない。
 
-(T) はすでにStage-1で参照済みなので、今回の結果だけで正式lossを採択しない。
-正式採択は将来のStage Aでvalidation targetを使って行う。
+(T) はすでにStage-1で参照済みなので、今回の結果を独立な汎化性能の証拠とは扱わない。
+今後の性能検証にはStage Aのvalidation targetを用いる。
 改善・悪化に関係なく全3runを保存する。
 test SNRを見たtraining延長やlearning-rate変更を行わない。
 発散した場合は「同一learning-rate条件では不安定」と記録する。
