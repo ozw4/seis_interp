@@ -40,6 +40,84 @@ def _fixture_dimensions(shape: tuple[int, ...]) -> C3BenchmarkDimensions:
     )
 
 
+@pytest.mark.parametrize("mismatch", [None, "sha256", "selection", "nested_hash", "metric"])
+def test_v3_requires_complete_pinned_input_lock(tmp_path, monkeypatch, mismatch):
+    from seis_interp.data.file_checksums import file_sha256
+
+    inputs, _ = _memory_inputs()
+    lock = deepcopy(inputs.inputs_lock)
+    lock["selection"] = deepcopy(inputs.volume_metadata["selection"])
+    lock["benchmark_volume"]["files"] = {"volume.json": {"sha256": "a" * 64}}
+    inputs = replace(inputs, inputs_lock=lock)
+    conditions = {
+        "condition_id": "c3_random80_v3",
+        "status": "fixed",
+        "inputs_lock": deepcopy(lock),
+    }
+    if mismatch == "nested_hash":
+        conditions["inputs_lock"]["benchmark_volume"]["files"]["volume.json"]["sha256"] = "b" * 64
+    path = tmp_path / "conditions.json"
+    path.write_text(json.dumps(conditions))
+    config = _poc_config(inputs.volume_metadata)
+    config.update(
+        input_conditions_lock=str(path),
+        input_conditions_sha256=file_sha256(path),
+        evaluation={
+            "primary_metric": "physical_amplitude_mean_trace_snr_db",
+            "domain": "evaluation_target",
+        },
+    )
+    if mismatch == "sha256":
+        config["input_conditions_sha256"] = "c" * 64
+    if mismatch == "selection":
+        config["benchmark_volume"]["selection"]["shot_in_line"] = [0, 1]
+    if mismatch == "metric":
+        config["evaluation"]["primary_metric"] = "physical_amplitude_global_snr_db"
+    monkeypatch.setattr(c3_poc_inputs, "load_c3_random80_window_inputs", lambda **kwargs: inputs)
+    args = dict.fromkeys(
+        ("interim_dir", "processed_dir", "mask_dir", "case_dir", "volume_dir"), tmp_path
+    )
+    if mismatch:
+        with pytest.raises(ConfigurationError):
+            c3_poc_inputs.load_c3_random80_v3_inputs(config=config, **args)
+    else:
+        assert c3_poc_inputs.load_c3_random80_v3_inputs(config=config, **args).inputs_lock == lock
+
+
+def test_translated_window_has_distinct_identity_and_retains_contract(monkeypatch):
+    inputs, dimensions = _memory_inputs()
+    inputs.case["mask"]["random_seed"] = 42
+    baseline = deepcopy(inputs.volume_metadata["selection"])
+    baseline["shot_in_line"] = [2, 3]
+    monkeypatch.setattr(c3_poc_inputs, "MAIN_C3_DIMENSIONS", dimensions)
+    monkeypatch.setattr(c3_poc_inputs, "C3_RANDOM80_POC_SELECTION", baseline)
+    monkeypatch.setattr(c3_poc_inputs, "load_c3_volume_run_inputs", lambda **kwargs: inputs)
+    args = dict.fromkeys(
+        ("interim_dir", "processed_dir", "mask_dir", "case_dir", "volume_dir"), Path("unused")
+    )
+    config = _poc_config(inputs.volume_metadata)
+    result = c3_poc_inputs.load_c3_random80_window_inputs(config=config, **args)
+    assert result.inputs_lock["benchmark_id"].startswith("c3_random80_translated_window_")
+    assert result.inputs_lock["benchmark_id"] != C3_RANDOM80_POC_BENCHMARK_ID
+    assert result.inputs_lock["selection"] == inputs.volume_metadata["selection"]
+    assert result.inputs_lock["mask"]["files"] == inputs.case["input_files"]["mask"]
+    for axis in VOLUME_AXIS_ORDER:
+        bad = deepcopy(config)
+        bad["benchmark_volume"]["selection"][axis][1] += 1
+        with pytest.raises(ConfigurationError):
+            c3_poc_inputs.load_c3_random80_window_inputs(config=bad, **args)
+    for axis in ("time", "source_line"):
+        bad = deepcopy(config)
+        bad["benchmark_volume"]["selection"][axis] = [
+            v + 1 for v in bad["benchmark_volume"]["selection"][axis]
+        ]
+        with pytest.raises(ConfigurationError):
+            c3_poc_inputs.load_c3_random80_window_inputs(config=bad, **args)
+    inputs.case["mask"]["random_seed"] = 1
+    with pytest.raises(ConfigurationError, match="seed 42"):
+        c3_poc_inputs.load_c3_random80_window_inputs(config=config, **args)
+
+
 def _artifact_arguments(artifacts: object) -> dict[str, Path]:
     return {
         "interim_dir": artifacts.interim,

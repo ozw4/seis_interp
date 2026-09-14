@@ -9,21 +9,30 @@ from dataclasses import dataclass
 from numbers import Integral, Real
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from seis_interp.models.nersi import Nersi
+from seis_interp.processing.trace_time_alignment import (
+    alignment_time_padding,
+    validate_time_alignment,
+)
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
     PROFILE_COORDINATE_ORDER,
     C3VolumeNersiData,
     ProfileCoordinateBounds,
     profile_coordinate_bounds,
+    validate_trace_amplitude_scale,
 )
+from seis_interp.training.nersi_optimization import validate_nersi_optimization
 
 FIXED_STEP_FINAL_CHECKPOINT_ROLE = "fixed_step_final"
 NERSI_METHOD_VARIANT = "profile_wise_per_volume_internal_learning_fixed_steps_reimplementation"
 COORDINATE_NORMALIZATION = "fixed_analysis_domain_index_bounds_to_unit_interval"
 AMPLITUDE_SCALING = "observed_volume_global_rms"
+TRACE_RMS_IDW_SCALING = "observed_trace_rms_idw"
+NERSI_IDW_METHOD_VARIANT = f"{NERSI_METHOD_VARIANT}_trace_rms_idw"
 TRAINING_DOMAIN = "benchmark_observed_samples"
 
 _MODEL_CONFIG_FIELDS = {
@@ -39,6 +48,7 @@ _MODEL_CONFIG_FIELDS = {
     "activation",
     "output_activation",
 }
+_OPTIONAL_MODEL_CONFIG_FIELDS = {"coordinate_mapping", "axis_frequency_limits"}
 
 
 @dataclass(frozen=True)
@@ -58,6 +68,25 @@ class LoadedFixedStepNersiCheckpoint:
     input_binding: dict[str, object]
     model_initialization_seed: int
     sampling_seed: int
+    trace_amplitude_scale: np.ndarray | None = None
+    time_alignment: dict[str, object] | None = None
+    optimization: dict | None = None
+
+
+def nersi_method_variant(
+    *, trace_rms_idw: bool, time_alignment: Mapping[str, object] | None
+) -> str:
+    """Identify the amplitude and time preprocessing used by a NeRSI function."""
+    variant = NERSI_IDW_METHOD_VARIANT if trace_rms_idw else NERSI_METHOD_VARIANT
+    if time_alignment is None:
+        return variant
+    boundary = validate_time_alignment(time_alignment)["boundary"]
+    suffix = {
+        "circular": "circular_time_alignment",
+        "zero_pad": "zero_padded_time_alignment",
+        "fourier_periodic": "fourier_time_alignment",
+    }[boundary]
+    return f"{variant}_{suffix}"
 
 
 def save_fixed_step_nersi_checkpoint(
@@ -70,6 +99,7 @@ def save_fixed_step_nersi_checkpoint(
     input_binding: Mapping[str, object],
     model_initialization_seed: int,
     sampling_seed: int,
+    optimization: dict | None = None,
 ) -> None:
     """Save a non-resumable final function and observed-only preprocessing metadata."""
     if not isinstance(model, Nersi):
@@ -80,7 +110,10 @@ def save_fixed_step_nersi_checkpoint(
     step, loss = _validated_training_values(global_step, final_batch_loss)
     binding = _validated_input_binding(input_binding)
     model_config = model.constructor_config()
-    if not isinstance(model_config, Mapping) or set(model_config) != _MODEL_CONFIG_FIELDS:
+    if (
+        not isinstance(model_config, Mapping)
+        or set(model_config) - _OPTIONAL_MODEL_CONFIG_FIELDS != _MODEL_CONFIG_FIELDS
+    ):
         raise ValueError("model constructor_config must contain every NeRSI constructor field")
     payload = {
         "model_type": "nersi",
@@ -109,6 +142,24 @@ def save_fixed_step_nersi_checkpoint(
             "sampling_seed": _seed(sampling_seed, "sampling_seed"),
         },
     }
+    if data.trace_amplitude_scale is not None:
+        validate_trace_amplitude_scale(data.trace_amplitude_scale, spatial_shape)
+        payload["method_variant"] = NERSI_IDW_METHOD_VARIANT
+        payload["preprocessing"]["amplitude_scaling"] = TRACE_RMS_IDW_SCALING
+        payload["preprocessing"]["trace_amplitude_scale"] = torch.from_numpy(
+            data.trace_amplitude_scale.copy()
+        )
+    if data.time_alignment is not None:
+        payload["preprocessing"]["time_alignment"] = validate_time_alignment(data.time_alignment)
+    payload["method_variant"] = nersi_method_variant(
+        trace_rms_idw=data.trace_amplitude_scale is not None,
+        time_alignment=data.time_alignment,
+    )
+    if optimization is not None:
+        payload["training"]["optimization"] = deepcopy(optimization)
+        payload["training"]["prediction_weights"] = (
+            "final_ema" if optimization["ema_decay"] is not None else "final_raw"
+        )
     torch.save(payload, Path(path))
 
 
@@ -138,18 +189,20 @@ def load_fixed_step_nersi_checkpoint(
     for key, expected in (
         ("model_type", "nersi"),
         ("checkpoint_role", FIXED_STEP_FINAL_CHECKPOINT_ROLE),
-        ("method_variant", NERSI_METHOD_VARIANT),
         ("training_domain", TRAINING_DOMAIN),
     ):
         if payload[key] != expected:
             raise ValueError(f"checkpoint {key} must be {expected!r}")
 
     model_config = payload["model_config"]
-    if not isinstance(model_config, Mapping) or set(model_config) != _MODEL_CONFIG_FIELDS:
+    if (
+        not isinstance(model_config, Mapping)
+        or set(model_config) - _OPTIONAL_MODEL_CONFIG_FIELDS != _MODEL_CONFIG_FIELDS
+    ):
         raise ValueError("checkpoint model_config must contain every NeRSI constructor field")
     try:
         model = Nersi(**dict(model_config))
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, KeyError) as error:
         raise ValueError("checkpoint model_config contains invalid constructor fields") from error
     state_dict = payload["model_state_dict"]
     if not isinstance(state_dict, Mapping) or not all(
@@ -158,6 +211,12 @@ def load_fixed_step_nersi_checkpoint(
     ):
         raise ValueError("checkpoint model_state_dict must map names to tensors")
     try:
+        for name, expected in model.named_buffers():
+            actual = state_dict.get(name)
+            if not isinstance(actual, torch.Tensor) or not torch.equal(actual, expected):
+                raise ValueError(
+                    f"checkpoint model_state_dict fixed encoding buffer mismatch: {name}"
+                )
         model.load_state_dict(state_dict, strict=True)
     except (RuntimeError, TypeError) as error:
         raise ValueError(
@@ -183,10 +242,37 @@ def load_fixed_step_nersi_checkpoint(
         raise ValueError("checkpoint coordinate_normalization does not match the NeRSI contract")
     if preprocessing["profile_axis_order"] != list(PROFILE_AXIS_ORDER):
         raise ValueError("checkpoint profile_axis_order does not match the NeRSI contract")
-    if preprocessing["amplitude_scaling"] != AMPLITUDE_SCALING:
+    scaling = preprocessing["amplitude_scaling"]
+    if scaling not in (AMPLITUDE_SCALING, TRACE_RMS_IDW_SCALING):
         raise ValueError("checkpoint amplitude_scaling does not match the NeRSI contract")
     spatial_shape = _positive_shape(preprocessing["spatial_shape"], 4, "spatial_shape")
+    if model.coordinate_mapping is not None and model.coordinate_grid_shape != spatial_shape[:3]:
+        raise ValueError("checkpoint coordinate grid differs from spatial_shape")
+    trace_scale = None
+    if scaling == TRACE_RMS_IDW_SCALING:
+        tensor = preprocessing.get("trace_amplitude_scale")
+        if not isinstance(tensor, torch.Tensor) or tensor.dtype != torch.float64:
+            raise ValueError("checkpoint trace_amplitude_scale must be a float64 tensor")
+        trace_scale = tensor.numpy().copy()
+        validate_trace_amplitude_scale(trace_scale, spatial_shape)
+    else:
+        if "trace_amplitude_scale" in preprocessing:
+            raise ValueError("global RMS checkpoint must not contain trace_amplitude_scale")
+    alignment = (
+        validate_time_alignment(preprocessing["time_alignment"])
+        if "time_alignment" in preprocessing
+        else None
+    )
+    expected_variant = nersi_method_variant(
+        trace_rms_idw=trace_scale is not None, time_alignment=alignment
+    )
+    if payload["method_variant"] != expected_variant:
+        raise ValueError("checkpoint method_variant does not match preprocessing")
     profile_shape = _positive_shape(preprocessing["profile_shape"], 2, "profile_shape")
+    if alignment is not None and profile_shape[0] <= alignment_time_padding(
+        spatial_shape[-1], alignment
+    ):
+        raise ValueError("checkpoint alignment padding leaves no physical time samples")
     if spatial_shape[-1] != profile_shape[-1]:
         raise ValueError("checkpoint spatial_shape receiver-y must match profile_shape")
     if tuple(model.profile_shape) != profile_shape:
@@ -204,6 +290,15 @@ def load_fixed_step_nersi_checkpoint(
         raise ValueError("checkpoint training is missing required fields")
     step, loss = _validated_training_values(training["global_step"], training["final_batch_loss"])
     binding = _validated_input_binding(payload["input_binding"])
+    optimization = training.get("optimization")
+    if optimization is not None:
+        # Initial LR lives in resolved config; inference requires the option structure only.
+        optimization = validate_nersi_optimization(
+            optimization, optimization["minimum_learning_rate"]
+        )
+        expected_weights = "final_ema" if optimization["ema_decay"] is not None else "final_raw"
+        if training.get("prediction_weights") != expected_weights:
+            raise ValueError("checkpoint prediction_weights differs from optimization")
     model.to(device)
     return LoadedFixedStepNersiCheckpoint(
         model=model,
@@ -212,7 +307,10 @@ def load_fixed_step_nersi_checkpoint(
         coordinate_bounds=coordinate_bounds,
         spatial_shape=spatial_shape,
         profile_shape=profile_shape,
-        amplitude_scaling=AMPLITUDE_SCALING,
+        amplitude_scaling=scaling,
+        trace_amplitude_scale=trace_scale,
+        time_alignment=alignment,
+        optimization=optimization,
         amplitude_scale=scale,
         global_step=step,
         final_batch_loss=loss,
@@ -275,6 +373,8 @@ def validate_fixed_step_nersi_checkpoint_input_binding(
         or checkpoint.spatial_shape != tuple(data.spatial_shape)
         or checkpoint.profile_shape != tuple(data.profile_shape)
         or checkpoint.amplitude_scale != float(data.amplitude_scale)
+        or not np.array_equal(checkpoint.trace_amplitude_scale, data.trace_amplitude_scale)
+        or checkpoint.time_alignment != data.time_alignment
     ):
         raise ValueError("checkpoint preprocessing differs from current NeRSI data")
 

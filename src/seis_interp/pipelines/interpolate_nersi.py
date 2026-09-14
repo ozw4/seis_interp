@@ -21,7 +21,11 @@ from seis_interp.c3_poc_run_records import (
     validate_poc_prediction,
 )
 from seis_interp.configuration import get_required_config_value, load_resolved_config
-from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
+from seis_interp.data.c3_poc_inputs import (
+    load_c3_random80_poc_inputs,
+    load_c3_random80_v3_inputs,
+    load_c3_random80_window_inputs,
+)
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.data.c3_volume_run_inputs import C3VolumeRunInputs
 from seis_interp.data.file_checksums import file_sha256
@@ -29,6 +33,8 @@ from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_predicti
 from seis_interp.models.nersi import Nersi
 from seis_interp.nersi_config import NersiPocSettings, validate_nersi_poc_config
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
+from seis_interp.processing.nersi_coordinate_mapping import nersi_profile_encoding
+from seis_interp.processing.trace_rms_idw import interpolate_trace_rms_idw
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
@@ -47,6 +53,7 @@ from seis_interp.training.nersi_checkpoints import (
     FIXED_STEP_FINAL_CHECKPOINT_ROLE,
     NERSI_METHOD_VARIANT,
     nersi_checkpoint_input_binding,
+    nersi_method_variant,
     save_fixed_step_nersi_checkpoint,
 )
 from seis_interp.training.randomness import seed_global_model_initialization
@@ -75,7 +82,12 @@ def interpolate_nersi_run(
     output = Path(output_dir)
     run_records.check_new_output_directory(output)
     config = load_resolved_config(Path(config_path))
+    if "local_models" in config:
+        raise ValueError("local_models requires the independent local NeRSI runner")
     settings = validate_nersi_poc_config(config)
+    input_protocol = config.get("input_protocol", "c3_random80_poc")
+    if input_protocol not in ("c3_random80_poc", "c3_random80_window", "c3_random80_v3"):
+        raise ValueError("unsupported NeRSI input_protocol")
     benchmark_seed = config_values.nonnegative_integer(
         get_required_config_value(config, "project.random_seed"), "project.random_seed"
     )
@@ -88,7 +100,13 @@ def interpolate_nersi_run(
 
     _report(progress_reporter, "Loading and verifying C3 inputs.")
     started = time.perf_counter()
-    inputs = load_c3_random80_poc_inputs(
+    if input_protocol == "c3_random80_v3":
+        input_loader = load_c3_random80_v3_inputs
+    elif input_protocol == "c3_random80_window":
+        input_loader = load_c3_random80_window_inputs
+    else:
+        input_loader = load_c3_random80_poc_inputs
+    inputs = input_loader(
         config=config,
         interim_dir=Path(interim_dir),
         processed_dir=Path(processed_dir),
@@ -105,15 +123,46 @@ def interpolate_nersi_run(
         observed.values,
         observed.observed_trace_mask,
     )
-    data = build_c3_volume_nersi_data(observed, amplitude_scale=amplitude_scale)
+    trace_scale = (
+        None
+        if settings.trace_rms_idw is None
+        else interpolate_trace_rms_idw(
+            observed.values, observed.observed_trace_mask, **settings.trace_rms_idw
+        )
+    )
+    data = build_c3_volume_nersi_data(
+        observed,
+        amplitude_scale=amplitude_scale,
+        trace_amplitude_scale=trace_scale,
+        time_alignment=settings.time_alignment,
+    )
+    method_variant = nersi_method_variant(
+        trace_rms_idw=trace_scale is not None, time_alignment=settings.time_alignment
+    )
     timings["training_data_seconds"] = time.perf_counter() - started
     model_config = settings.model_constructor_config(data.profile_shape)
+    model_config.update(
+        nersi_profile_encoding(
+            inputs.index_table,
+            data.spatial_shape,
+            cartesian=settings.cartesian_profile_coordinates,
+            fractions=settings.nyquist_fractions,
+        )
+    )
     seed_global_model_initialization(settings.training.model_initialization_seed, device=device)
     model = Nersi(**model_config)
 
     _report(progress_reporter, "Training NeRSI on observed benchmark profile samples.")
     _synchronize_before_timing(device)
     started = time.perf_counter()
+    augmentation_options = (
+        {}
+        if settings.augmentation is None
+        else {
+            **{key: value for key, value in settings.augmentation.items() if key != "random_seed"},
+            "augmentation_seed": settings.augmentation["random_seed"],
+        }
+    )
     trained = train_nersi_fixed_steps(
         model,
         data,
@@ -124,7 +173,10 @@ def interpolate_nersi_run(
         max_steps=settings.training.max_steps,
         report_interval=settings.training.report_interval,
         random_seed=settings.training.sampling_seed,
+        gradient_accumulation_steps=settings.training.gradient_accumulation_steps,
         reporter=progress_reporter,
+        **({"optimization": settings.optimization} if settings.optimization is not None else {}),
+        **augmentation_options,
     )
     _synchronize(device)
     timings["fit_seconds"] = time.perf_counter() - started
@@ -155,13 +207,16 @@ def interpolate_nersi_run(
         interim_dir=Path(interim_dir),
         volume_metadata=inputs.volume_metadata,
         target_coverage_mask=target_coverage_mask,
+        include_trace_snr=(
+            config["evaluation"]["primary_metric"] == "physical_amplitude_mean_trace_snr_db"
+        ),
     )
     timings["evaluation_seconds"] = time.perf_counter() - started
     metrics = dict(evaluation)
     metrics.update(
         {
             "method": METHOD,
-            "method_variant": METHOD_VARIANT,
+            "method_variant": method_variant,
             "case_id": inputs.case["case_id"],
             "volume_id": inputs.volume_metadata["volume_id"],
             "training": {
@@ -199,6 +254,7 @@ def interpolate_nersi_run(
         input_binding=nersi_checkpoint_input_binding(inputs.inputs_lock),
         model_initialization_seed=settings.training.model_initialization_seed,
         sampling_seed=settings.training.sampling_seed,
+        optimization=settings.optimization,
     )
     np.save(output / PREDICTION_RELATIVE_PATH, predicted.values, allow_pickle=False)
     checkpoint_sha256 = file_sha256(output / CHECKPOINT_RELATIVE_PATH)
@@ -239,6 +295,12 @@ def interpolate_nersi_run(
             supervised_trace_presentations=trained.supervised_trace_presentations,
         ),
     )
+    if input_protocol == "c3_random80_window":
+        metadata["input_protocol"] = input_protocol
+    if input_protocol == "c3_random80_v3":
+        metadata.update(input_protocol=input_protocol, condition_id="c3_random80_v3")
+    if config["evaluation"]["primary_metric"] == "physical_amplitude_mean_trace_snr_db":
+        metadata["primary_metric"] = "mean_trace_snr_db"
     run_records.write_run_outputs(
         output,
         deepcopy(config),
@@ -269,22 +331,62 @@ def _run_metadata(
 ) -> dict[str, object]:
     training = asdict(settings.training)
     del training["device"]
+    if settings.augmentation is not None:
+        training["augmentation"] = dict(settings.augmentation)
     observed_trace_count = int(np.count_nonzero(data.observed_trace_mask))
+    physical_time_count = inputs.observed_volume.values.shape[0]
+    padding = data.profile_shape[0] - physical_time_count
+    if padding:
+        training.update(
+            padding_samples_per_trace=padding,
+            synthetic_padding_sample_count=observed_trace_count * padding,
+            objective_time_sample_count=data.profile_shape[0],
+        )
     target_trace_count = int(np.count_nonzero(inputs.observed_volume.evaluation_target_trace_mask))
     profile_count = int(data.normalized_coordinates.shape[0])
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    scaling = (
+        "observed_volume_global_rms" if settings.trace_rms_idw is None else "observed_trace_rms_idw"
+    )
+    normalization = {
+        "type": "global_rms",
+        "source": "O_only",
+        "scale": data.amplitude_scale,
+    }
+    if settings.trace_rms_idw is not None:
+        normalization = {
+            "type": scaling,
+            "source": "O_only",
+            "observed_global_rms_reference": data.amplitude_scale,
+            "idw": dict(settings.trace_rms_idw),
+            "zero_energy_training_divisor": 1.0,
+            "target_rms_source": "IDW_of_observed_trace_RMS",
+        }
     return {
         "method": METHOD,
         "fit_domain": "O_only",
         "inner_corruption_mask": False,
-        "normalization": {
-            "type": "global_rms",
-            "source": "O_only",
-            "scale": data.amplitude_scale,
-        },
+        "normalization": normalization,
         "loss": settings.training.loss,
+        **(
+            {
+                "optimization": {
+                    **settings.optimization,
+                    "prediction_weights": "final_ema"
+                    if settings.optimization["ema_decay"] is not None
+                    else "final_raw",
+                    "ema_initialization": "first_post_update_weights",
+                }
+            }
+            if settings.optimization is not None
+            else {}
+        ),
         "checkpoint_role": "final",
-        "method_variant": METHOD_VARIANT,
+        "method_variant": nersi_method_variant(
+            trace_rms_idw=settings.trace_rms_idw is not None,
+            time_alignment=settings.time_alignment,
+        ),
+        **({"time_alignment": dict(settings.time_alignment)} if settings.time_alignment else {}),
         "case_id": inputs.case["case_id"],
         "volume_id": inputs.volume_metadata["volume_id"],
         **git_metadata,
@@ -306,12 +408,13 @@ def _run_metadata(
             "coordinate_bounds": [list(bounds) for bounds in data.coordinate_bounds],
             "axis_order": list(PROFILE_AXIS_ORDER),
             "shape": list(data.profile_shape),
+            **({"physical_shape": [physical_time_count, data.profile_shape[1]]} if padding else {}),
             "count": profile_count,
             "training_profile_count": int(len(data.training_profile_indices)),
             "stable_order": "C_order_source_line_shot_in_line_relative_receiver_x",
         },
         "amplitude": {
-            "scaling": "observed_volume_global_rms",
+            "scaling": scaling,
             "training_domain": "benchmark_observed_samples",
             "scale_source": "observed_volume_trace_samples_only",
             "amplitude_scale": data.amplitude_scale,
@@ -332,7 +435,7 @@ def _run_metadata(
             "stopping_rule": "fixed_optimizer_steps",
             "candidate_profile_count": int(len(data.training_profile_indices)),
             "observed_trace_count": observed_trace_count,
-            "observed_sample_count": observed_trace_count * data.profile_shape[0],
+            "observed_sample_count": observed_trace_count * physical_time_count,
             "input_dtype": "float32",
             "target_dtype": "float32",
         },
@@ -380,7 +483,7 @@ def _run_metadata(
                 "frequency_base": model.frequency_base,
                 "activation": model.activation,
                 "output_activation": model.output_activation,
-                "amplitude_scaling": "observed_volume_global_rms",
+                "amplitude_scaling": scaling,
             },
             "claim": "NeRSI (repository reimplementation), not an official implementation",
         },

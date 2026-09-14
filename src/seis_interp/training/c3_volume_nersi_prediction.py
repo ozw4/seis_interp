@@ -11,10 +11,15 @@ import torch
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.models.nersi import Nersi
+from seis_interp.processing.trace_time_alignment import (
+    align_receiver_y_time,
+    alignment_time_padding,
+)
 from seis_interp.training.amplitude_scaling import restore_physical_amplitude
 from seis_interp.training.c3_volume_nersi_data import (
     C3VolumeNersiData,
     nersi_profiles_to_volume,
+    validate_trace_amplitude_scale,
 )
 
 
@@ -76,6 +81,18 @@ def predict_c3_volume_nersi(
         nersi_profiles_to_volume(physical_profiles, tuple(data.spatial_shape)),
         dtype=np.float32,
     )
+    if data.trace_amplitude_scale is not None:
+        validate_trace_amplitude_scale(data.trace_amplitude_scale, tuple(data.spatial_shape))
+        predicted_values = np.ascontiguousarray(
+            nersi_profiles_to_volume(normalized_profiles, tuple(data.spatial_shape))
+            * data.trace_amplitude_scale[None],
+            dtype=np.float32,
+        )
+
+    if data.time_alignment is not None:
+        predicted_values = align_receiver_y_time(
+            predicted_values, data.time_alignment, inverse=True
+        )
 
     observed_values = observed.values[:, observed.observed_trace_mask]
     predicted_observed = predicted_values[:, observed.observed_trace_mask]
@@ -119,7 +136,12 @@ def _validate_prediction_inputs(
     spatial_shape = tuple(int(value) for value in values.shape[1:])
     if tuple(data.spatial_shape) != spatial_shape:
         raise ValueError("data spatial_shape must match the observed volume spatial shape")
-    profile_shape = (values.shape[0], values.shape[-1])
+    padding = (
+        0
+        if data.time_alignment is None
+        else alignment_time_padding(spatial_shape[-1], data.time_alignment)
+    )
+    profile_shape = (values.shape[0] + padding, values.shape[-1])
     if tuple(data.profile_shape) != profile_shape:
         raise ValueError("data profile_shape must match the observed volume time and receiver-y")
     model_profile_shape = getattr(model, "profile_shape", None)

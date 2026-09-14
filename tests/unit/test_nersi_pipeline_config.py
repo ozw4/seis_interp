@@ -49,6 +49,32 @@ def _config() -> dict[str, object]:
     }
 
 
+def test_gradient_accumulation_is_optional_and_strict():
+    config = _config()
+    assert validate_nersi_poc_config(config).training.gradient_accumulation_steps == 1
+    config["training"]["gradient_accumulation_steps"] = 8
+    assert validate_nersi_poc_config(config).training.gradient_accumulation_steps == 8
+    for value in [0, -1, True, 1.5]:
+        config["training"]["gradient_accumulation_steps"] = value
+        with pytest.raises(ConfigurationError, match="gradient_accumulation_steps"):
+            validate_nersi_poc_config(config)
+
+
+def test_trace_rms_idw_requires_explicit_scaling_and_valid_parameters():
+    config = _config()
+    assert validate_nersi_poc_config(config).trace_rms_idw is None
+    config["trace_rms_idw"] = {"radius": 2, "power": 2, "axis_scales": [1] * 4}
+    with pytest.raises(ConfigurationError, match="requires"):
+        validate_nersi_poc_config(config)
+    config["training"]["amplitude_scaling"] = "observed_trace_rms_idw"
+    assert validate_nersi_poc_config(config).trace_rms_idw == config["trace_rms_idw"]
+    for key, value in (("radius", 0), ("power", float("inf")), ("axis_scales", [1, 0, 1, 1])):
+        invalid = deepcopy(config)
+        invalid["trace_rms_idw"][key] = value
+        with pytest.raises(ConfigurationError):
+            validate_nersi_poc_config(invalid)
+
+
 def test_valid_config_preserves_separate_mask_and_training_seeds() -> None:
     config = _config()
     settings = validate_nersi_poc_config(config)
@@ -119,3 +145,50 @@ def test_profile_shape_must_fit_three_two_x_upsampling_stages(shape: object) -> 
 
     with pytest.raises(ConfigurationError, match="profile"):
         settings.model_constructor_config(shape)  # type: ignore[arg-type]
+
+
+def test_optional_augmentation_is_explicit_and_keeps_its_own_seed():
+    config = _config()
+    assert validate_nersi_poc_config(config).augmentation is None
+    config["augmentation"] = {"coordinate_jitter_cells": 0.1, "random_seed": 501}
+    assert validate_nersi_poc_config(config).augmentation == config["augmentation"]
+    config["augmentation"] = {"profile_mixup_max_fraction": 0.2, "random_seed": 501}
+    assert validate_nersi_poc_config(config).augmentation == config["augmentation"]
+
+
+@pytest.mark.parametrize(
+    "augmentation",
+    [
+        {},
+        {"coordinate_jitter_cells": 0.1},
+        {"coordinate_jitter_cells": 0, "random_seed": 501},
+        {"coordinate_jitter_cells": 0.51, "random_seed": 501},
+        {"coordinate_jitter_cells": float("nan"), "random_seed": 501},
+        {"coordinate_jitter_cells": 0.1, "random_seed": -1},
+        {"coordinate_jitter_cells": 0.1, "random_seed": True},
+        {"coordinate_jitter_cells": 0.1, "random_seed": 501, "flip": True},
+        {"profile_mixup_max_fraction": 0.2, "coordinate_jitter_cells": 0.1, "random_seed": 501},
+        {"profile_mixup_max_fraction": 0.51, "random_seed": 501},
+        {"profile_mixup_max_fraction": 0, "random_seed": 501},
+    ],
+)
+def test_invalid_augmentation_is_rejected(augmentation):
+    config = _config()
+    config["augmentation"] = augmentation
+    with pytest.raises(ConfigurationError):
+        validate_nersi_poc_config(config)
+
+
+def test_time_alignment_requires_explicit_integer_shift_and_boundary():
+    config = _config()
+    assert validate_nersi_poc_config(config).time_alignment is None
+    config["time_alignment"] = {"receiver_y_shift_samples_per_cell": 3, "boundary": "circular"}
+    assert validate_nersi_poc_config(config).time_alignment == config["time_alignment"]
+    for value in (
+        {},
+        {"receiver_y_shift_samples_per_cell": 0, "boundary": "circular"},
+        {"receiver_y_shift_samples_per_cell": 3, "boundary": "zero"},
+    ):
+        config["time_alignment"] = value
+        with pytest.raises(ConfigurationError):
+            validate_nersi_poc_config(config)

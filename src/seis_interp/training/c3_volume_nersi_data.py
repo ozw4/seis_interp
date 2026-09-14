@@ -10,6 +10,10 @@ from numbers import Integral
 import numpy as np
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
+from seis_interp.processing.trace_time_alignment import (
+    align_receiver_y_time,
+    validate_time_alignment,
+)
 from seis_interp.training.amplitude_scaling import normalize_by_global_rms
 
 PROFILE_COORDINATE_ORDER = (
@@ -37,6 +41,8 @@ class C3VolumeNersiData:
     amplitude_scale: float
     spatial_shape: tuple[int, int, int, int]
     profile_shape: tuple[int, int]
+    trace_amplitude_scale: np.ndarray | None = None
+    time_alignment: dict[str, object] | None = None
 
     @property
     def coordinate_bounds(self) -> ProfileCoordinateBounds:
@@ -48,11 +54,15 @@ def build_c3_volume_nersi_data(
     observed: ObservedC3Volume,
     *,
     amplitude_scale: float,
+    trace_amplitude_scale: np.ndarray | None = None,
+    time_alignment: dict[str, object] | None = None,
 ) -> C3VolumeNersiData:
     """Convert one observed-only volume into stable NeRSI profile arrays.
 
     ``amplitude_scale`` is the shared observed-only global RMS computed by the
-    caller. Evaluation-target storage is discarded before targets are built.
+    caller. With ``trace_amplitude_scale``, training instead uses each O trace's
+    physical RMS (divisor 1 for zero energy); global RMS remains a reference.
+    Evaluation-target storage is discarded before targets are built.
     """
     values, observed_mask, _ = _validated_observed_volume(observed)
     scale = _positive_finite_float(amplitude_scale, "amplitude_scale")
@@ -77,6 +87,15 @@ def build_c3_volume_nersi_data(
         values[:, observed_mask],
         scale,
     )
+    if trace_amplitude_scale is not None:
+        validate_trace_amplitude_scale(trace_amplitude_scale, spatial_shape)
+        divisors = trace_amplitude_scale[observed_mask]
+        normalized_values[:, observed_mask] = values[:, observed_mask] / np.where(
+            divisors > 0, divisors, 1.0
+        )
+    alignment = None if time_alignment is None else validate_time_alignment(time_alignment)
+    if alignment is not None:
+        normalized_values = align_receiver_y_time(normalized_values, alignment)
     normalized_profiles = volume_to_nersi_profiles(normalized_values)
 
     return C3VolumeNersiData(
@@ -86,8 +105,24 @@ def build_c3_volume_nersi_data(
         training_profile_indices=training_indices,
         amplitude_scale=scale,
         spatial_shape=spatial_shape,
-        profile_shape=(time_count, receiver_y),
+        profile_shape=(normalized_values.shape[0], receiver_y),
+        trace_amplitude_scale=(
+            None if trace_amplitude_scale is None else trace_amplitude_scale.copy()
+        ),
+        time_alignment=alignment,
     )
+
+
+def validate_trace_amplitude_scale(value: np.ndarray, spatial_shape: tuple[int, ...]) -> None:
+    """Validate an O-fitted, physical-unit trace RMS field including zero-energy traces."""
+    if (
+        not isinstance(value, np.ndarray)
+        or value.shape != spatial_shape
+        or value.dtype != np.float64
+        or not np.isfinite(value).all()
+        or np.any(value < 0)
+    ):
+        raise ValueError("trace_amplitude_scale must be finite nonnegative spatial float64 RMS")
 
 
 def volume_to_nersi_profiles(values: np.ndarray) -> np.ndarray:

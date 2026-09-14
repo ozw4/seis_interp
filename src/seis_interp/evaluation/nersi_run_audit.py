@@ -20,14 +20,16 @@ from seis_interp.data.c3_benchmark_suite import (
 from seis_interp.data.c3_poc_inputs import load_c3_random80_poc_inputs
 from seis_interp.data.file_checksums import file_sha256
 from seis_interp.evaluation.c3_volume_metrics import evaluate_c3_volume_prediction
+from seis_interp.nersi_config import validate_nersi_poc_config
 from seis_interp.processing.c3_benchmark_contract import MAIN_C3_DIMENSIONS, C3BenchmarkDimensions
+from seis_interp.processing.trace_rms_idw import interpolate_trace_rms_idw
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import build_c3_volume_nersi_data
 from seis_interp.training.c3_volume_nersi_prediction import predict_c3_volume_nersi
 from seis_interp.training.nersi_checkpoints import (
     FIXED_STEP_FINAL_CHECKPOINT_ROLE,
-    NERSI_METHOD_VARIANT,
     load_fixed_step_nersi_checkpoint,
+    nersi_method_variant,
     validate_fixed_step_nersi_checkpoint_input_binding,
 )
 
@@ -131,6 +133,7 @@ def audit_c3_nersi_run(
         dimensions=dimensions,
     )
     metadata = _read(run / "metadata.json")
+    settings = validate_nersi_poc_config(yaml.safe_load((run / "config.resolved.yaml").read_text()))
     metrics = _read(run / "metrics.json")
     inputs_lock = _read(run / "inputs.lock.json")
     _require(metadata.get("status") == "success", "audit requires a successful run")
@@ -139,7 +142,11 @@ def audit_c3_nersi_run(
         "audit requires a NeRSI run",
     )
     _require(
-        metadata["method_details"].get("method_variant") == NERSI_METHOD_VARIANT,
+        metadata["method_details"].get("method_variant")
+        == nersi_method_variant(
+            trace_rms_idw=settings.trace_rms_idw is not None,
+            time_alignment=settings.time_alignment,
+        ),
         "NeRSI method variant differs",
     )
     _require(
@@ -197,12 +204,45 @@ def audit_c3_nersi_run(
 
     data = build_c3_volume_nersi_data(
         observed,
+        time_alignment=settings.time_alignment,
         amplitude_scale=compute_observed_global_rms(
             observed.values,
             observed.observed_trace_mask,
         ),
+        trace_amplitude_scale=(
+            None
+            if settings.trace_rms_idw is None
+            else interpolate_trace_rms_idw(
+                observed.values, observed.observed_trace_mask, **settings.trace_rms_idw
+            )
+        ),
     )
     loaded = load_fixed_step_nersi_checkpoint(checkpoint_path, device="cpu")
+    from seis_interp.processing.nersi_coordinate_mapping import nersi_profile_encoding
+
+    expected_model = settings.model_constructor_config(data.profile_shape)
+    expected_model.update(
+        nersi_profile_encoding(
+            inputs.index_table,
+            data.spatial_shape,
+            cartesian=settings.cartesian_profile_coordinates,
+            fractions=settings.nyquist_fractions,
+        )
+    )
+    actual_model = loaded.model.constructor_config()
+    _require(
+        all(
+            np.array_equal(actual_model[key], value)
+            if isinstance(value, (list, tuple))
+            else actual_model[key] == value
+            for key, value in expected_model.items()
+        )
+        and set(actual_model) == set(expected_model),
+        "checkpoint model encoding differs from verified geometry/config",
+    )
+    _require(
+        loaded.optimization == settings.optimization, "checkpoint optimization differs from config"
+    )
     validate_fixed_step_nersi_checkpoint_input_binding(loaded, inputs.inputs_lock, data)
     _require(
         loaded.global_step == metadata["training_or_reconstruction"]["max_steps"],

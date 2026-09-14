@@ -39,7 +39,11 @@ def _use_tiny_synthetic_input_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> None:
+@pytest.mark.parametrize("idw", [False, True])
+@pytest.mark.parametrize("alignment", [None, "circular", "zero_pad", "fourier_periodic"])
+def test_audit_rescores_and_restores_a_complete_nersi_run(
+    tmp_path: Path, idw: bool, alignment: str | None
+) -> None:
     interim = make_benchmark_interim(tmp_path / "source", dataset_id="seg_c3_na")
     suite = tmp_path / "suite"
     benchmark_config = synthetic_benchmark_config()
@@ -99,6 +103,14 @@ def test_audit_rescores_and_restores_a_complete_nersi_run(tmp_path: Path) -> Non
             "domain": "evaluation_target",
         },
     }
+    if alignment:
+        config["time_alignment"] = {
+            "receiver_y_shift_samples_per_cell": 3.0625 if alignment == "fourier_periodic" else 3,
+            "boundary": alignment,
+        }
+    if idw:
+        config["training"]["amplitude_scaling"] = "observed_trace_rms_idw"
+        config["trace_rms_idw"] = {"radius": 3, "power": 2, "axis_scales": [1] * 4}
     config_path = tmp_path / "nersi.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     run = tmp_path / "run"

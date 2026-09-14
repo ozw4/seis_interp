@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from copy import deepcopy
 from numbers import Integral, Real
 
 import torch
@@ -24,6 +25,7 @@ class FourierFeatureMapping(nn.Module):
         input_features: int = 3,
         fourier_components: int = 40,
         frequency_base: float = 1.25,
+        axis_frequency_limits: Sequence[float] | None = None,
     ) -> None:
         super().__init__()
         self.input_features = _positive_integer(input_features, "input_features")
@@ -41,6 +43,21 @@ class FourierFeatureMapping(nn.Module):
         ):
             raise ValueError("Fourier frequencies must be finite float32 values")
         self.register_buffer("frequencies", torch.tensor(frequencies, dtype=torch.float32))
+        self.axis_frequency_limits = None
+        if axis_frequency_limits is not None:
+            if len(axis_frequency_limits) != self.input_features or any(
+                isinstance(v, bool) or not isinstance(v, Real) or not math.isfinite(v) or v < 0
+                for v in axis_frequency_limits
+            ):
+                raise ValueError(
+                    "axis_frequency_limits must contain finite nonnegative angular frequencies"
+                )
+            self.axis_frequency_limits = tuple(float(v) for v in axis_frequency_limits)
+            limits = torch.tensor(self.axis_frequency_limits, dtype=torch.float64)
+            self.register_buffer(
+                "frequency_mask",
+                torch.tensor(frequencies, dtype=torch.float64)[None, :] <= limits[:, None],
+            )
 
     @property
     def output_features(self) -> int:
@@ -55,8 +72,13 @@ class FourierFeatureMapping(nn.Module):
             )
         if not torch.is_floating_point(coordinates):
             raise ValueError("coordinates must contain floating-point values")
-        angles = coordinates.unsqueeze(-1) * self.frequencies
+        frequencies = self.frequencies
+        if self.axis_frequency_limits is not None:
+            frequencies = frequencies * self.frequency_mask
+        angles = coordinates.unsqueeze(-1) * frequencies
         encoded = torch.stack((torch.cos(angles), torch.sin(angles)), dim=-1)
+        if self.axis_frequency_limits is not None:
+            encoded = encoded * self.frequency_mask[None, :, :, None]
         return encoded.reshape(coordinates.shape[0], self.output_features)
 
 
@@ -121,6 +143,8 @@ class Nersi(nn.Module):
         kernel_size: int = 3,
         activation: str = "gelu",
         output_activation: str = "linear",
+        coordinate_mapping: dict | None = None,
+        axis_frequency_limits: Sequence[float] | None = None,
     ) -> None:
         super().__init__()
         if isinstance(input_features, bool) or not isinstance(input_features, Integral):
@@ -142,6 +166,26 @@ class Nersi(nn.Module):
             raise ValueError("output_activation must be 'linear'")
         self.activation = activation
         self.output_activation = output_activation
+        self.coordinate_mapping = deepcopy(coordinate_mapping)
+        if coordinate_mapping is not None:
+            anchors = torch.tensor(coordinate_mapping["normalized_anchors"], dtype=torch.float32)
+            shape = _three_positive_integers(
+                coordinate_mapping["profile_grid_shape"], name="profile_grid_shape"
+            )
+            if (
+                anchors.shape != (math.prod(shape), 3)
+                or not torch.isfinite(anchors).all()
+                or torch.any(anchors < 0)
+                or torch.any(anchors > 1)
+            ):
+                raise ValueError(
+                    "coordinate_mapping requires unit-interval anchors for every profile"
+                )
+            self.register_buffer("coordinate_anchors", anchors)
+            self.register_buffer(
+                "coordinate_index_scale", torch.tensor([n - 1 for n in shape], dtype=torch.float32)
+            )
+            self.coordinate_grid_shape = shape
 
         total_scale = math.prod(self.upsample_scales)
         time_count, receiver_y = self.profile_shape
@@ -152,6 +196,7 @@ class Nersi(nn.Module):
             input_features=self.input_features,
             fourier_components=self.fourier_components,
             frequency_base=self.frequency_base,
+            axis_frequency_limits=axis_frequency_limits,
         )
         self.encoder = nn.Sequential(
             nn.Linear(self.fourier_mapping.output_features, self.encoder_width),
@@ -179,6 +224,12 @@ class Nersi(nn.Module):
         self.output_convolution = nn.Conv2d(self.decoder_channels[-1], 1, kernel_size=1)
 
     def forward(self, coordinates: torch.Tensor) -> torch.Tensor:
+        if self.coordinate_mapping is not None:
+            indices = torch.round(coordinates * self.coordinate_index_scale).long()
+            flat = (
+                indices[:, 0] * self.coordinate_grid_shape[1] + indices[:, 1]
+            ) * self.coordinate_grid_shape[2] + indices[:, 2]
+            coordinates = self.coordinate_anchors[flat]
         encoded = self.encoder(self.fourier_mapping(coordinates))
         latent = encoded.reshape(
             coordinates.shape[0],
@@ -205,6 +256,16 @@ class Nersi(nn.Module):
             "kernel_size": self.kernel_size,
             "activation": self.activation,
             "output_activation": self.output_activation,
+            **(
+                {"coordinate_mapping": deepcopy(self.coordinate_mapping)}
+                if self.coordinate_mapping is not None
+                else {}
+            ),
+            **(
+                {"axis_frequency_limits": self.fourier_mapping.axis_frequency_limits}
+                if self.fourier_mapping.axis_frequency_limits is not None
+                else {}
+            ),
         }
 
 

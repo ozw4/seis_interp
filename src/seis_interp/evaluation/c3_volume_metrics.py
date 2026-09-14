@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from seis_interp import config_values
+from seis_interp.configuration import ConfigurationError, get_required_config_value
 from seis_interp.data.c3_volume_adapter import (
     ObservedC3Volume,
     volume_to_trace_predictions,
@@ -20,16 +21,21 @@ from seis_interp.evaluation.physical_amplitude_metrics import (
     physical_amplitude_snr,
     physical_amplitude_target_metrics,
 )
+from seis_interp.evaluation.trace_snr import summarize_trace_snr, trace_snr_db
 from seis_interp.processing.c3_volume_index import validated_index_range
 
 _TARGET_TRACE_CHUNK_SIZE = 1024
 
 
 def validate_c3_volume_evaluation_config(config: Mapping[str, object]) -> None:
-    """Require target-only, physical-amplitude global SNR evaluation settings."""
-    config_values.require_exact(
-        config, "evaluation.primary_metric", "physical_amplitude_global_snr_db"
-    )
+    """Require target-only physical global SNR or mean trace SNR."""
+    if get_required_config_value(config, "evaluation.primary_metric") not in (
+        "physical_amplitude_global_snr_db",
+        "physical_amplitude_mean_trace_snr_db",
+    ):
+        raise ConfigurationError(
+            "evaluation.primary_metric must be physical global or mean trace SNR"
+        )
     config_values.require_exact(config, "evaluation.domain", "evaluation_target")
 
 
@@ -40,6 +46,7 @@ def evaluate_c3_volume_prediction(
     interim_dir: Path,
     volume_metadata: Mapping[str, object],
     target_coverage_mask: np.ndarray | None = None,
+    include_trace_snr: bool = False,
 ) -> dict[str, object]:
     """Evaluate one prediction on the volume's evaluation-target traces.
 
@@ -47,6 +54,8 @@ def evaluate_c3_volume_prediction(
     time interval. Energies are accumulated across all target samples, so the SNR
     is a physical-amplitude global SNR rather than an average of per-trace values.
     """
+    if not isinstance(include_trace_snr, bool):
+        raise ValueError("include_trace_snr must be boolean")
     time_start, time_stop = _validated_evaluation_inputs(
         predicted_values,
         observed_volume,
@@ -78,6 +87,7 @@ def evaluate_c3_volume_prediction(
     reference_energy = 0.0
     error_energy = 0.0
     trace_relative_mse_sum = 0.0
+    trace_scores = []
     for start in range(0, len(target_positions), _TARGET_TRACE_CHUNK_SIZE):
         positions = target_positions[start : start + _TARGET_TRACE_CHUNK_SIZE]
         rows = array_rows[positions]
@@ -89,6 +99,8 @@ def evaluate_c3_volume_prediction(
             trace_predictions[positions],
             name="evaluation target predictions",
         )
+        if include_trace_snr:
+            trace_scores.append(trace_snr_db(reference, prediction))
         chunk_reference_energy, chunk_error_energy = physical_amplitude_energies(
             reference, prediction
         )
@@ -117,6 +129,8 @@ def evaluate_c3_volume_prediction(
         covered_target_trace_count=covered_target_trace_count,
         target_trace_count=target_trace_count,
     )
+    if include_trace_snr:
+        target_metrics.update(summarize_trace_snr(np.concatenate(trace_scores)))
     zero_fill_metrics = _zero_fill_metrics(
         sample_count=sample_count,
         reference_energy=reference_energy,

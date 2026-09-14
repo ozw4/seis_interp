@@ -7,7 +7,9 @@ from dataclasses import dataclass
 
 from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
+from seis_interp.processing.trace_time_alignment import validate_time_alignment
 from seis_interp.training.c3_volume_nersi_data import PROFILE_COORDINATE_ORDER
+from seis_interp.training.nersi_optimization import validate_nersi_optimization
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 
@@ -23,6 +25,7 @@ class NersiTrainingSettings:
     report_interval: int
     device: str
     loss: str
+    gradient_accumulation_steps: int = 1
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,12 @@ class NersiPocSettings:
     model: dict[str, object]
     training: NersiTrainingSettings
     prediction_batch_size: int
+    augmentation: dict[str, float | int] | None = None
+    trace_rms_idw: dict[str, object] | None = None
+    time_alignment: dict[str, object] | None = None
+    optimization: dict | None = None
+    cartesian_profile_coordinates: bool = False
+    nyquist_fractions: tuple[float, ...] | None = None
 
     def model_constructor_config(self, profile_shape: tuple[int, int]) -> dict[str, object]:
         """Return complete constructor metadata after the input profile shape is known."""
@@ -105,26 +114,49 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
         "output_activation": "linear",
     }
 
-    training = config_values.exact_section(
-        config,
-        "training",
-        {
-            "model_initialization_seed",
-            "sampling_seed",
-            "optimizer",
-            "loss",
-            "amplitude_scaling",
-            "learning_rate",
-            "profiles_per_step",
-            "max_steps",
-            "report_interval",
-            "device",
-        },
-    )
+    training_keys = {
+        "model_initialization_seed",
+        "sampling_seed",
+        "optimizer",
+        "loss",
+        "amplitude_scaling",
+        "learning_rate",
+        "profiles_per_step",
+        "max_steps",
+        "report_interval",
+        "device",
+    }
+    if (
+        isinstance(config.get("training"), Mapping)
+        and "gradient_accumulation_steps" in config["training"]
+    ):
+        training_keys.add("gradient_accumulation_steps")
+    training = config_values.exact_section(config, "training", training_keys)
     _require_literal(training, "optimizer", "adam")
     if training["loss"] not in POC_TRACE_LOSSES:
         raise ConfigurationError(f"training.loss must be one of {POC_TRACE_LOSSES!r}")
-    _require_literal(training, "amplitude_scaling", "observed_volume_global_rms")
+    scaling = training["amplitude_scaling"]
+    if scaling not in ("observed_volume_global_rms", "observed_trace_rms_idw"):
+        raise ConfigurationError(
+            "amplitude_scaling must be observed_volume_global_rms or observed_trace_rms_idw"
+        )
+    idw = None
+    if scaling == "observed_trace_rms_idw":
+        section = config_values.exact_section(
+            config, "trace_rms_idw", {"radius", "power", "axis_scales"}
+        )
+        scales = section["axis_scales"]
+        if not isinstance(scales, list) or len(scales) != 4:
+            raise ConfigurationError("trace_rms_idw.axis_scales must contain four values")
+        idw = {
+            "radius": config_values.positive_integer(section["radius"], "trace_rms_idw.radius"),
+            "power": config_values.positive_float(section["power"], "trace_rms_idw.power"),
+            "axis_scales": [
+                config_values.positive_float(v, "trace_rms_idw.axis_scales") for v in scales
+            ],
+        }
+    elif "trace_rms_idw" in config:
+        raise ConfigurationError("trace_rms_idw requires observed_trace_rms_idw amplitude_scaling")
     device = training["device"]
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
@@ -147,18 +179,72 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
             training["report_interval"], "training.report_interval"
         ),
         device=device,
+        gradient_accumulation_steps=config_values.positive_integer(
+            training.get("gradient_accumulation_steps", 1), "training.gradient_accumulation_steps"
+        ),
     )
 
     prediction = config_values.exact_section(config, "prediction", {"batch_size"})
     evaluation = config_values.exact_section(config, "evaluation", {"primary_metric", "domain"})
-    if evaluation != {
-        "primary_metric": "physical_amplitude_global_snr_db",
-        "domain": "evaluation_target",
-    }:
+    if evaluation["domain"] != "evaluation_target" or evaluation["primary_metric"] not in (
+        "physical_amplitude_global_snr_db",
+        "physical_amplitude_mean_trace_snr_db",
+    ):
         raise ConfigurationError("evaluation must use target-only physical-amplitude global S/N")
+    augmentation = None
+    if "augmentation" in config:
+        raw_augmentation = config["augmentation"]
+        field = (
+            "profile_mixup_max_fraction"
+            if isinstance(raw_augmentation, Mapping)
+            and "profile_mixup_max_fraction" in raw_augmentation
+            else "coordinate_jitter_cells"
+        )
+        section = config_values.exact_section(config, "augmentation", {field, "random_seed"})
+        radius = config_values.positive_float(section[field], f"augmentation.{field}")
+        if radius > 0.5:
+            raise ConfigurationError(f"augmentation.{field} must not exceed 0.5")
+        augmentation = {
+            field: radius,
+            "random_seed": config_values.nonnegative_integer(
+                section["random_seed"], "augmentation.random_seed"
+            ),
+        }
+    alignment = None
+    if "time_alignment" in config:
+        try:
+            alignment = validate_time_alignment(config["time_alignment"])
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
+    cartesian = config.get("profile_coordinates", "index")
+    if cartesian not in ("index", "cartesian_cmp_half_offset"):
+        raise ConfigurationError("profile_coordinates must be index or cartesian_cmp_half_offset")
+    fractions = None
+    if "fourier_bandlimit" in config:
+        band = config_values.exact_section(config, "fourier_bandlimit", {"nyquist_fraction"})
+        values = band["nyquist_fraction"]
+        if not isinstance(values, list) or len(values) != 3:
+            raise ConfigurationError("nyquist_fraction requires three profile-axis values")
+        fractions = tuple(config_values.positive_float(v, "nyquist_fraction") for v in values)
+        if any(v > 1 for v in fractions):
+            raise ConfigurationError("nyquist_fraction must not exceed one")
+    if cartesian != "index" and augmentation is not None:
+        raise ConfigurationError(
+            "Cartesian profile candidates do not support index-space augmentation"
+        )
     return NersiPocSettings(
+        cartesian_profile_coordinates=cartesian != "index",
+        nyquist_fractions=fractions,
         model=model_config,
         training=training_settings,
+        augmentation=augmentation,
+        trace_rms_idw=idw,
+        time_alignment=alignment,
+        optimization=(
+            validate_nersi_optimization(config["optimization"], training_settings.learning_rate)
+            if "optimization" in config
+            else None
+        ),
         prediction_batch_size=config_values.positive_integer(
             prediction["batch_size"], "prediction.batch_size"
         ),

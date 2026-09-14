@@ -29,6 +29,7 @@ from seis_interp.pipelines.interpolate_nersi import (
     interpolate_nersi_run,
 )
 from seis_interp.processing.c3_benchmark_contract import C3BenchmarkDimensions
+from seis_interp.processing.trace_rms_idw import interpolate_trace_rms_idw
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
@@ -50,6 +51,56 @@ from tests.fixtures.c3_volume_run_artifacts import (
 @pytest.fixture(scope="module")
 def nersi_artifacts(tmp_path_factory: pytest.TempPathFactory) -> PreparedC3VolumeRunArtifacts:
     return _prepare_poc_artifacts(tmp_path_factory.mktemp("nersi-volume"))
+
+
+def test_translated_window_pipeline_records_mean_trace_snr(tmp_path, monkeypatch, nersi_artifacts):
+    from seis_interp.data import c3_poc_inputs
+    from seis_interp.data.c3_volume_adapter import volume_to_trace_predictions
+    from seis_interp.evaluation.trace_snr import summarize_trace_snr, trace_snr_db
+
+    selection = deepcopy(nersi_artifacts.volume_metadata["selection"])
+    shape = tuple(nersi_artifacts.volume_metadata["shape"])
+    dimensions = C3BenchmarkDimensions(
+        time_range=tuple(selection["time"]),
+        sail_line_numbers=(selection["source_line"][0], selection["source_line"][1] - 1),
+        shape=shape,
+    )
+    baseline = deepcopy(selection)
+    baseline["shot_in_line"] = [v + 1 for v in selection["shot_in_line"]]
+    monkeypatch.setattr(c3_poc_inputs, "MAIN_C3_DIMENSIONS", dimensions)
+    monkeypatch.setattr(c3_poc_inputs, "C3_RANDOM80_POC_SELECTION", baseline)
+    config = _config(nersi_artifacts)
+    config["input_protocol"] = "c3_random80_window"
+    config["evaluation"]["primary_metric"] = "physical_amplitude_mean_trace_snr_db"
+    path = _write_config(tmp_path / "method.yaml", nersi_artifacts, contents=config)
+    output = tmp_path / "run"
+    _run(nersi_artifacts, path, output)
+    metadata = json.loads((output / "metadata.json").read_text())
+    metrics = json.loads((output / "metrics.json").read_text())["evaluation_target"]
+    lock = json.loads((output / "inputs.lock.json").read_text())
+    assert metadata["input_protocol"] == "c3_random80_window"
+    assert metadata["primary_metric"] == "mean_trace_snr_db"
+    assert lock["benchmark_id"].startswith("c3_random80_translated_window_")
+    inputs = c3_poc_inputs.load_c3_random80_window_inputs(
+        config=config,
+        interim_dir=nersi_artifacts.interim,
+        processed_dir=nersi_artifacts.processed,
+        mask_dir=nersi_artifacts.mask,
+        case_dir=nersi_artifacts.case,
+        volume_dir=nersi_artifacts.volume,
+    )
+    rows, predictions = volume_to_trace_predictions(
+        np.load(output / "prediction.npy"), inputs.observed_volume.array_rows
+    )
+    mask = inputs.observed_volume.evaluation_target_trace_mask.ravel()
+    truth = np.load(nersi_artifacts.interim / "amplitudes.npy")[rows[mask], : shape[0]]
+    expected = summarize_trace_snr(trace_snr_db(truth, predictions[mask]))
+    for key, value in expected.items():
+        assert (
+            metrics[key] == pytest.approx(value)
+            if isinstance(value, float)
+            else metrics[key] == value
+        )
 
 
 def _prepare_poc_artifacts(
@@ -209,13 +260,19 @@ def test_model_initialization_and_profile_sampling_seeds_are_independent(
 
 
 @pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+@pytest.mark.parametrize(
+    "augmentation", [None, {"coordinate_jitter_cells": 0.1, "random_seed": 501}]
+)
 def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     loss_name,
+    augmentation,
     tmp_path: Path,
     nersi_artifacts: PreparedC3VolumeRunArtifacts,
 ) -> None:
     contents = _config(nersi_artifacts)
     contents["training"]["loss"] = loss_name
+    if augmentation is not None:
+        contents["augmentation"] = augmentation
     config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts, contents=contents)
     output = tmp_path / "run"
 
@@ -300,6 +357,9 @@ def test_tiny_pipeline_artifacts_restore_and_independent_rescore(
     assert "loss" not in run["method_details"]
     assert load_resolved_config(output / "config.resolved.yaml")["training"]["loss"] == loss_name
     assert run["training_or_reconstruction"]["loss"] == loss_name
+    resolved = load_resolved_config(output / "config.resolved.yaml")
+    assert resolved.get("augmentation") == augmentation
+    assert run["training_or_reconstruction"].get("augmentation") == augmentation
     assert run["method_details"]["checkpoint_role"] == "final"
     assert run["method_details"]["random_seed"] == 42
     assert run["method_details"]["model_initialization_seed"] == 314
@@ -505,9 +565,20 @@ def test_same_seed_cpu_runs_are_deterministic(
         assert torch.equal(checkpoints[1].model.state_dict()[name], expected), name
 
 
+@pytest.mark.parametrize(
+    "augmentation", [None, "coordinate_jitter_cells", "profile_mixup_max_fraction"]
+)
+@pytest.mark.parametrize("idw", [False, True])
+@pytest.mark.parametrize("alignment", [None, "circular", "zero_pad", "fourier_periodic"])
+@pytest.mark.parametrize("loss", ["masked_trace_mse", "masked_trace_relative_mse"])
 def test_target_truth_changes_only_evaluation_not_training_or_prediction(
+    augmentation,
+    idw,
+    alignment,
+    loss,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    extra_config=None,
 ) -> None:
     predictions = []
     original_predict = pipeline.predict_c3_volume_nersi
@@ -524,11 +595,33 @@ def test_target_truth_changes_only_evaluation_not_training_or_prediction(
     for name, offset in (("base", 0.0), ("changed", 10000.0)):
         root = tmp_path / name
         artifacts = _prepare_poc_artifacts(root / "data", target_offset=offset)
-        config = _write_config(root / "nersi.yaml", artifacts, training_seed=2718)
+        contents = _config(artifacts, training_seed=2718)
+        if extra_config:
+            contents.update(extra_config)
+        contents["training"]["loss"] = loss
+        if alignment:
+            contents["time_alignment"] = {
+                "receiver_y_shift_samples_per_cell": 3.0625
+                if alignment == "fourier_periodic"
+                else 3,
+                "boundary": alignment,
+            }
+        if augmentation:
+            contents["augmentation"] = {augmentation: 0.1, "random_seed": 501}
+        if idw:
+            contents["training"]["amplitude_scaling"] = "observed_trace_rms_idw"
+            contents["trace_rms_idw"] = {"radius": 3, "power": 2, "axis_scales": [1] * 4}
+        config = _write_config(root / "nersi.yaml", artifacts, contents=contents)
         output = root / "run"
         observed_volumes.append(_loaded_inputs(artifacts, config).observed_volume)
         metrics.append(_run(artifacts, config, output))
         checkpoints.append(load_fixed_step_nersi_checkpoint(output / CHECKPOINT_RELATIVE_PATH))
+
+        if augmentation:
+            recorded = json.loads((output / "metadata.json").read_text())
+            assert (
+                recorded["training_or_reconstruction"]["augmentation"] == contents["augmentation"]
+            )
 
     first, changed = observed_volumes
     np.testing.assert_array_equal(first.observed_trace_mask, changed.observed_trace_mask)
@@ -546,6 +639,144 @@ def test_target_truth_changes_only_evaluation_not_training_or_prediction(
     np.testing.assert_array_equal(predictions[0], predictions[1])
     assert metrics[0]["training"] == metrics[1]["training"]
     assert metrics[0]["evaluation_target"] != metrics[1]["evaluation_target"]
+
+
+def test_cartesian_bandlimit_schedule_ema_do_not_use_target_truth(tmp_path, monkeypatch):
+    test_target_truth_changes_only_evaluation_not_training_or_prediction(
+        None,
+        False,
+        "fourier_periodic",
+        "masked_trace_mse",
+        tmp_path,
+        monkeypatch,
+        extra_config={
+            "profile_coordinates": "cartesian_cmp_half_offset",
+            "fourier_bandlimit": {"nyquist_fraction": [1.0, 1.0, 1.0]},
+            "optimization": {
+                "learning_rate_schedule": "cosine",
+                "minimum_learning_rate": 0.00001,
+                "ema_decay": 0.999,
+            },
+        },
+    )
+
+
+@pytest.mark.parametrize("new_options", [False, True])
+@pytest.mark.parametrize("alignment", [None, "circular", "zero_pad", "fourier_periodic"])
+def test_idw_checkpoint_restore_and_physical_rescore(
+    tmp_path, nersi_artifacts, alignment, new_options
+):
+    contents = _config(nersi_artifacts)
+    if new_options:
+        contents.update(
+            profile_coordinates="cartesian_cmp_half_offset",
+            fourier_bandlimit={"nyquist_fraction": [1.0, 1.0, 1.0]},
+            optimization={
+                "learning_rate_schedule": "cosine",
+                "minimum_learning_rate": 0.00001,
+                "ema_decay": 0.999,
+            },
+        )
+    contents["training"].update(loss="masked_trace_mse", amplitude_scaling="observed_trace_rms_idw")
+    contents["trace_rms_idw"] = {"radius": 3, "power": 2, "axis_scales": [1, 2, 1, 1]}
+    if alignment:
+        contents["time_alignment"] = {
+            "receiver_y_shift_samples_per_cell": 3.0625 if alignment == "fourier_periodic" else 3,
+            "boundary": alignment,
+        }
+    config = _write_config(tmp_path / "idw.yaml", nersi_artifacts, contents=contents)
+    output = tmp_path / "run"
+    _run(nersi_artifacts, config, output)
+    loaded = load_fixed_step_nersi_checkpoint(output / "final.pt")
+    inputs = _loaded_inputs(nersi_artifacts, config)
+    observed = inputs.observed_volume
+    field = interpolate_trace_rms_idw(
+        observed.values, observed.observed_trace_mask, **contents["trace_rms_idw"]
+    )
+    np.testing.assert_array_equal(loaded.trace_amplitude_scale, field)
+    data = build_c3_volume_nersi_data(
+        observed,
+        amplitude_scale=loaded.amplitude_scale,
+        trace_amplitude_scale=loaded.trace_amplitude_scale,
+        time_alignment=loaded.time_alignment,
+    )
+    validate_fixed_step_nersi_checkpoint_input_binding(loaded, inputs.inputs_lock, data)
+    trace_values = data.normalized_profiles.transpose(0, 1, 3, 2).reshape(-1, data.profile_shape[0])
+    np.testing.assert_allclose(
+        np.mean(trace_values[data.observed_trace_mask.ravel()] ** 2, axis=1),
+        observed.values.shape[0] / data.profile_shape[0],
+        rtol=1e-6,
+    )
+    prediction = predict_c3_volume_nersi(loaded.model, data, observed, batch_size=5, device="cpu")
+    np.testing.assert_array_equal(prediction.values, np.load(output / "prediction.npy"))
+    metrics = evaluate_c3_volume_prediction(
+        prediction.values,
+        observed,
+        interim_dir=nersi_artifacts.interim,
+        volume_metadata=inputs.volume_metadata,
+        target_coverage_mask=observed.evaluation_target_trace_mask,
+    )
+    assert metrics == json.loads((output / "metrics.json").read_text())
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert loaded.optimization == contents.get("optimization")
+    if new_options:
+        assert metadata["method_details"]["optimization"]["prediction_weights"] == "final_ema"
+        assert (
+            metadata["method_details"]["model"]["coordinate_mapping"]
+            == loaded.model.coordinate_mapping
+        )
+    assert metadata["normalization"]["type"] == loaded.amplitude_scaling == "observed_trace_rms_idw"
+    assert metadata["normalization"]["idw"] == contents["trace_rms_idw"]
+    assert metadata["loss_or_native_objective"] == "masked_trace_mse"
+    assert loaded.time_alignment == contents.get("time_alignment")
+    expected_suffix = {
+        None: "_trace_rms_idw",
+        "circular": "_circular_time_alignment",
+        "zero_pad": "_zero_padded_time_alignment",
+        "fourier_periodic": "_fourier_time_alignment",
+    }[alignment]
+    assert metadata["method_details"]["method_variant"].endswith(expected_suffix)
+    assert metadata["method_details"].get("time_alignment") == loaded.time_alignment
+    if alignment == "zero_pad":
+        training = metadata["training_or_reconstruction"]
+        assert training["observed_sample_count"] == int(observed.observed_trace_mask.sum()) * 8
+        assert training["padding_samples_per_trace"] == 24
+        assert training["objective_time_sample_count"] == 32
+        assert (
+            training["synthetic_padding_sample_count"]
+            == int(observed.observed_trace_mask.sum()) * 24
+        )
+        assert metadata["method_details"]["profiles"]["physical_shape"] == [8, 8]
+    wrong_data = build_c3_volume_nersi_data(
+        observed, amplitude_scale=loaded.amplitude_scale, trace_amplitude_scale=field + 0.1
+    )
+    with pytest.raises(ValueError, match="preprocessing differs"):
+        validate_fixed_step_nersi_checkpoint_input_binding(loaded, inputs.inputs_lock, wrong_data)
+    original = torch.load(output / "final.pt", weights_only=True)
+    if alignment:
+        payload = deepcopy(original)
+        payload["preprocessing"]["time_alignment"]["boundary"] = "zero"
+        torch.save(payload, tmp_path / "invalid.pt")
+        with pytest.raises(ValueError, match="circular"):
+            load_fixed_step_nersi_checkpoint(tmp_path / "invalid.pt")
+        payload = deepcopy(original)
+        del payload["preprocessing"]["time_alignment"]
+        torch.save(payload, tmp_path / "invalid.pt")
+        with pytest.raises(ValueError, match="method_variant"):
+            load_fixed_step_nersi_checkpoint(tmp_path / "invalid.pt")
+        wrong_data = build_c3_volume_nersi_data(
+            observed, amplitude_scale=loaded.amplitude_scale, trace_amplitude_scale=field
+        )
+        with pytest.raises(ValueError, match="preprocessing differs"):
+            validate_fixed_step_nersi_checkpoint_input_binding(
+                loaded, inputs.inputs_lock, wrong_data
+            )
+    for wrong in (torch.zeros(1), torch.full(field.shape, float("nan"), dtype=torch.float64)):
+        payload = deepcopy(original)
+        payload["preprocessing"]["trace_amplitude_scale"] = wrong
+        torch.save(payload, tmp_path / "invalid.pt")
+        with pytest.raises(ValueError, match="trace_amplitude_scale"):
+            load_fixed_step_nersi_checkpoint(tmp_path / "invalid.pt")
 
 
 def test_training_and_prediction_complete_before_target_evaluation(

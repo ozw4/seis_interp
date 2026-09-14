@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
@@ -9,12 +10,13 @@ from pathlib import Path
 
 import numpy as np
 
-from seis_interp.configuration import ConfigurationError
+from seis_interp.configuration import REPOSITORY_ROOT, ConfigurationError
 from seis_interp.data.c3_volume_run_inputs import (
     C3VolumeRunInputs,
     load_c3_volume_run_inputs,
     validated_c3_volume_selection,
 )
+from seis_interp.data.file_checksums import file_sha256
 from seis_interp.processing.c3_benchmark_contract import (
     MAIN_C3_DIMENSIONS,
     C3BenchmarkDimensions,
@@ -36,6 +38,82 @@ C3_RANDOM80_POC_SELECTION = {
     "relative_receiver_x": [0, 8],
     "relative_receiver_y": [18, 50],
 }
+
+
+def load_c3_random80_v3_inputs(
+    *,
+    interim_dir: Path,
+    processed_dir: Path,
+    mask_dir: Path,
+    case_dir: Path,
+    volume_dir: Path,
+    config: Mapping[str, object],
+) -> C3VolumeRunInputs:
+    """Require exact agreement with the explicitly pinned v3 condition lock."""
+    declared = config.get("input_conditions_lock")
+    if not isinstance(declared, str) or not declared:
+        raise ConfigurationError("v3 requires input_conditions_lock")
+    path = REPOSITORY_ROOT / declared
+    if file_sha256(path) != config.get("input_conditions_sha256"):
+        raise ConfigurationError("v3 conditions lock SHA-256 differs")
+    conditions = json.loads(path.read_text(encoding="utf-8"))
+    if conditions.get("condition_id") != "c3_random80_v3" or conditions.get("status") != "fixed":
+        raise ConfigurationError("v3 requires the fixed c3_random80_v3 conditions")
+    if config.get("evaluation") != {
+        "primary_metric": "physical_amplitude_mean_trace_snr_db",
+        "domain": "evaluation_target",
+    }:
+        raise ConfigurationError("v3 requires target-only physical mean trace SNR")
+    if _require_resolved_volume_selection(config) != conditions["inputs_lock"]["selection"]:
+        raise ConfigurationError("v3 selection differs from fixed conditions")
+    inputs = load_c3_random80_window_inputs(
+        config=config,
+        interim_dir=interim_dir,
+        processed_dir=processed_dir,
+        mask_dir=mask_dir,
+        case_dir=case_dir,
+        volume_dir=volume_dir,
+    )
+    if inputs.inputs_lock != conditions["inputs_lock"]:
+        raise ConfigurationError("v3 verified inputs differ from the complete frozen input lock")
+    return inputs
+
+
+def load_c3_random80_window_inputs(
+    *,
+    interim_dir: Path,
+    processed_dir: Path,
+    mask_dir: Path,
+    case_dir: Path,
+    volume_dir: Path,
+    config: Mapping[str, object],
+) -> C3VolumeRunInputs:
+    """Load a translated window with fixed time, sail lines and axis lengths."""
+    selection = _require_resolved_volume_selection(config)
+    for axis, length in zip(VOLUME_AXIS_ORDER, MAIN_C3_DIMENSIONS.shape, strict=True):
+        start, stop = selection[axis]
+        if stop - start != length:
+            raise ConfigurationError(f"window {axis} must retain {length} samples")
+    for axis in ("time", "source_line"):
+        if selection[axis] != C3_RANDOM80_POC_SELECTION[axis]:
+            raise ConfigurationError(f"window {axis} must remain fixed")
+    if selection == C3_RANDOM80_POC_SELECTION:
+        raise ConfigurationError("unchanged selection must use the fixed PoC loader")
+    inputs = load_c3_volume_run_inputs(
+        config=config,
+        interim_dir=interim_dir,
+        processed_dir=processed_dir,
+        mask_dir=mask_dir,
+        case_dir=case_dir,
+        volume_dir=volume_dir,
+    )
+    observed_count, target_count = _validate_poc_inputs(inputs, dimensions=MAIN_C3_DIMENSIONS)
+    if inputs.case["mask"].get("random_seed") != 42:
+        raise ConfigurationError("window experiment must retain outer mask seed 42")
+    lock = _poc_inputs_lock(inputs, observed_count=observed_count, target_count=target_count)
+    ranges = "_".join(f"{selection[axis][0]}-{selection[axis][1]}" for axis in VOLUME_AXIS_ORDER)
+    lock["benchmark_id"] = f"c3_random80_translated_window_{ranges}"
+    return replace(inputs, inputs_lock=lock)
 
 
 def load_c3_random80_poc_inputs(

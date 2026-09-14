@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
+from seis_interp.processing.trace_time_alignment import align_receiver_y_time
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
     PROFILE_AXIS_ORDER,
@@ -70,6 +71,36 @@ def test_profile_order_matches_c_order_profile_keys() -> None:
                 np.testing.assert_array_equal(
                     profiles[index, 0], values[:, source_line, shot, receiver_x, :]
                 )
+
+
+@pytest.mark.parametrize("target_value", [np.nan, np.inf, -np.inf, 1e30])
+@pytest.mark.parametrize("boundary", ["circular", "zero_pad", "fourier_periodic"])
+def test_alignment_uses_only_observations_and_preserves_trace_mask(target_value, boundary):
+    volume = _observed_volume()
+    baseline = _build(volume)
+    values = volume.values.copy()
+    values[:, volume.evaluation_target_trace_mask] = target_value
+    options = {
+        "receiver_y_shift_samples_per_cell": 3.0625 if boundary == "fourier_periodic" else 3,
+        "boundary": boundary,
+    }
+    actual = build_c3_volume_nersi_data(
+        replace(volume, values=values),
+        amplitude_scale=baseline.amplitude_scale,
+        time_alignment=options,
+    )
+    expected_volume = align_receiver_y_time(
+        nersi_profiles_to_volume(baseline.normalized_profiles, baseline.spatial_shape), options
+    )
+    np.testing.assert_array_equal(
+        actual.normalized_profiles, volume_to_nersi_profiles(expected_volume)
+    )
+    np.testing.assert_array_equal(actual.observed_trace_mask, baseline.observed_trace_mask)
+    np.testing.assert_array_equal(actual.normalized_coordinates, baseline.normalized_coordinates)
+    np.testing.assert_array_equal(
+        actual.training_profile_indices, baseline.training_profile_indices
+    )
+    assert actual.time_alignment == options
 
 
 @pytest.mark.parametrize("dtype", [np.int16, np.float32, np.float64])

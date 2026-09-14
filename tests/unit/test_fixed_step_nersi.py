@@ -72,6 +72,65 @@ def _train(model: Nersi, data: C3VolumeNersiData, **changes):
     return train_nersi_fixed_steps(model, data, **arguments)
 
 
+@pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+@pytest.mark.parametrize("logical_batch", [2, 3])
+@pytest.mark.parametrize(
+    "augmentation", [{}, {"coordinate_jitter_cells": 0.1}, {"profile_mixup_max_fraction": 0.2}]
+)
+def test_accumulation_matches_full_batch_gradients_with_unequal_trace_counts(
+    monkeypatch, loss_name, augmentation, logical_batch
+):
+    gradients = []
+    step = torch.optim.Adam.step
+
+    def capture(optimizer, *args, **kwargs):
+        gradients.append(
+            [p.grad.clone() for group in optimizer.param_groups for p in group["params"]]
+        )
+        return step(optimizer, *args, **kwargs)
+
+    monkeypatch.setattr(torch.optim.Adam, "step", capture)
+    full, micro = _model(), _model()
+    options = dict(
+        max_steps=2,
+        loss_name=loss_name,
+        **augmentation,
+        optimization={
+            "learning_rate_schedule": "cosine",
+            "minimum_learning_rate": 1e-4,
+            "ema_decay": 0.9,
+        },
+    )
+    a = _train(full, _data(), profiles_per_step=logical_batch, **options)
+    b = _train(
+        micro, _data(), profiles_per_step=1, gradient_accumulation_steps=logical_batch, **options
+    )
+    assert len(gradients) == 4
+    for i in range(2):
+        for x, y in zip(gradients[i], gradients[i + 2], strict=True):
+            torch.testing.assert_close(x, y, rtol=2e-5, atol=2e-6)
+    for x, y in zip(full.parameters(), micro.parameters(), strict=True):
+        torch.testing.assert_close(x, y, rtol=2e-5, atol=2e-6)
+    assert a.final_batch_loss == pytest.approx(b.final_batch_loss, rel=2e-6)
+    assert a.supervised_trace_presentations == b.supervised_trace_presentations
+    assert a.steps_completed == b.steps_completed == 2
+
+
+def test_accumulation_one_preserves_sampling_and_updates_exactly():
+    a, b = _model(), _model()
+    first = _train(a, _data())
+    second = _train(b, _data(), gradient_accumulation_steps=1)
+    assert first == second
+    for x, y in zip(a.parameters(), b.parameters(), strict=True):
+        torch.testing.assert_close(x, y, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, 4])
+def test_invalid_accumulation_rejected(value):
+    with pytest.raises(ValueError, match="gradient_accumulation_steps"):
+        _train(_model(), _data(), profiles_per_step=1, gradient_accumulation_steps=value)
+
+
 def test_profile_loss_selects_observed_complete_traces_for_shared_loss() -> None:
     prediction = torch.zeros((2, 1, 2, 3))
     target = torch.tensor(
@@ -171,6 +230,46 @@ def test_fixed_steps_history_reporting_and_cpu_reproducibility() -> None:
     assert all(parameter.device.type == "cpu" for parameter in first_model.parameters())
 
 
+def test_disabled_augmentation_preserves_exact_training():
+    first, second = _model(), _model()
+    assert _train(first, _data()) == _train(
+        second, _data(), coordinate_jitter_cells=0.0, augmentation_seed=501
+    )
+    for name, value in first.state_dict().items():
+        assert torch.equal(value, second.state_dict()[name])
+
+
+def test_jitter_keeps_sampling_and_observed_labels_independent(monkeypatch):
+    original = training_module.masked_trace_loss
+    captured_targets = []
+
+    def record_loss(prediction, target, **kwargs):
+        captured_targets.append(target.detach().clone())
+        return original(prediction, target, **kwargs)
+
+    monkeypatch.setattr(training_module, "masked_trace_loss", record_loss)
+    runs = []
+    for radius, seed in [(0, 501), (0.1, 501), (0.1, 502), (0.1, 501)]:
+        model = _model()
+        coordinates = []
+        handle = model.register_forward_pre_hook(
+            lambda module, args, storage=coordinates: storage.append(args[0].detach().clone())
+        )
+        captured_targets.clear()
+        result = _train(model, _data(), coordinate_jitter_cells=radius, augmentation_seed=seed)
+        handle.remove()
+        runs.append((coordinates, list(captured_targets), result, model.state_dict()))
+    for run in runs[1:]:
+        for first, changed in zip(runs[0][1], run[1], strict=True):
+            assert torch.equal(first, changed)
+        assert run[2].supervised_trace_presentations == runs[0][2].supervised_trace_presentations
+    assert not torch.equal(runs[0][0][0], runs[1][0][0])
+    assert not torch.equal(runs[1][0][0], runs[2][0][0])
+    assert runs[1][2] == runs[3][2]
+    for name, value in runs[1][3].items():
+        assert torch.equal(value, runs[3][3][name])
+
+
 @pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
 @pytest.mark.parametrize("profiles_per_step", [2, 3])
 def test_fixed_steps_call_shared_loss_with_only_selected_time_last_traces(
@@ -231,6 +330,47 @@ def test_different_sampling_seed_changes_a_partial_profile_update() -> None:
     )
 
 
+def test_mixup_keeps_original_sampling_and_counts_synthetic_supervision(monkeypatch):
+    data = _data()
+    sampling_rng = np.random.default_rng(0)
+    expected = [
+        sampling_rng.choice(data.training_profile_indices, size=2, replace=False) for _ in range(4)
+    ]
+    original_loss = training_module.observed_profile_trace_loss
+    counts = []
+
+    def capture(prediction, target, mask, *, loss_name):
+        selected = expected[len(counts)]
+        np.testing.assert_array_equal(target[:2].numpy(), data.normalized_profiles[selected])
+        np.testing.assert_array_equal(mask[:2].numpy(), data.observed_trace_mask[selected])
+        assert loss_name == "masked_trace_mse"
+        counts.append(int(mask.sum()))
+        assert len(mask) > 2
+        return original_loss(prediction, target, mask, loss_name=loss_name)
+
+    monkeypatch.setattr(training_module, "observed_profile_trace_loss", capture)
+    result = _train(
+        _model(),
+        data,
+        loss_name="masked_trace_mse",
+        profile_mixup_max_fraction=0.2,
+        augmentation_seed=501,
+    )
+    assert len(counts) == result.steps_completed == 4
+    assert result.supervised_trace_presentations == sum(counts)
+    assert sum(counts) > sum(int(data.observed_trace_mask[selected].sum()) for selected in expected)
+
+
+def test_disabled_mixup_preserves_baseline_training_exactly():
+    first = _model()
+    second = copy.deepcopy(first)
+    before = _train(first, _data())
+    after = _train(second, _data(), profile_mixup_max_fraction=0.0, augmentation_seed=501)
+    assert before == after
+    for name, value in first.state_dict().items():
+        assert torch.equal(value, second.state_dict()[name])
+
+
 def test_full_candidate_batch_uses_stable_order_without_rng_draw(monkeypatch) -> None:
     class NoDrawGenerator:
         def choice(self, *args, **kwargs):
@@ -266,6 +406,8 @@ def test_all_missing_profiles_are_not_valid_training_candidates() -> None:
         ({"max_steps": True}, "max_steps"),
         ({"report_interval": -1}, "report_interval"),
         ({"random_seed": -1}, "random_seed"),
+        ({"profile_mixup_max_fraction": 0.6}, "profile_mixup"),
+        ({"profile_mixup_max_fraction": 0.1, "coordinate_jitter_cells": 0.1}, "combined"),
     ],
 )
 def test_invalid_training_settings_are_rejected(changes, message) -> None:
