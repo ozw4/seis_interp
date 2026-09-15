@@ -45,6 +45,28 @@ def _source():
     return source, domain, reader
 
 
+def test_assembly_validates_before_device_transfer(monkeypatch):
+    from seis_interp.data import masked_trace_source as module
+
+    events = []
+    original_validate = module.validate_masked_trace_graph_inputs
+    original_to = MaskedTraceGraphInputs.to
+
+    def validate(inputs):
+        events.append(("validate", inputs.waveforms.device.type))
+        return original_validate(inputs)
+
+    def transfer(inputs, device):
+        events.append(("transfer", str(device)))
+        return original_to(inputs, device)
+
+    monkeypatch.setattr(module, "validate_masked_trace_graph_inputs", validate)
+    monkeypatch.setattr(MaskedTraceGraphInputs, "to", transfer)
+    source, domain, _ = _source()
+    source.inputs(make_relational_trace_plan(domain))
+    assert events == [("validate", "cpu"), ("transfer", "cpu")]
+
+
 def test_only_support_rows_are_read_and_query_waveforms_start_at_exact_zero() -> None:
     source, domain, reader = _source()
     assert reader.reads == []

@@ -110,34 +110,105 @@ def test_builder_matches_every_plan_array_in_both_query_orders_and_splits(rounds
         _assert_plan(actual, wanted)
 
 
-def test_inclusive_radius_ties_and_nextafter_values_match_brute():
-    query = _geometry([[0.0, 0.0]], [[0.0, -1000.0]])
+@pytest.mark.parametrize("query_count", [1, 3])
+def test_inclusive_radius_ties_and_nextafter_values_match_brute(query_count):
+    query = _geometry([[0.0, 0.0]] * query_count, [[0.0, -1000.0]] * query_count)
+    query_ids = np.arange(-query_count, 0)
     x = np.array([640.0, np.nextafter(640.0, 0.0), np.nextafter(640.0, np.inf), -640.0])
     geometry = _geometry(np.zeros((4, 2)), np.column_stack((x, np.full(4, -1000.0))))
     ids = np.array([40, 30, 20, 10])
     settings = {"relation_scales_m": [[160.0, 640.0]] * 4, "neighbors_per_relation": 4}
     index = FixedTraceGraphNeighborIndex(geometry, ids, np.ones(4, bool), **settings)
-    actual = index.select(query, [-1])
+    actual = index.select(query, query_ids)
     expected = select_trace_graph_neighbors(
-        query, [-1], geometry, ids, np.ones(4, bool), **settings
+        query, query_ids, geometry, ids, np.ones(4, bool), **settings
     )
     _assert_edges(actual, expected)
     relation = actual.sender_ids[actual.edge_type == 0]
     assert 40 in relation and 10 in relation and 20 not in relation
 
 
+@pytest.mark.parametrize("variant", [{}, {"excluded_relation": "cmp"}, {"topology": "single_4d"}])
+def test_many_destination_ranges_match_brute_in_reordered_and_split_batches(variant):
+    geometry, ids, observed, _, _, settings = _case()
+    settings.update(candidate_chunk_size=7, **variant)
+    # Include tied coordinates, self IDs and off-grid queries with different bounds.
+    rows = np.random.default_rng(19).integers(len(ids), size=129)
+    queries = _select(geometry, rows)
+    queries.source_xy_m[::2] += [0.5, -0.25]
+    queries = _geometry(queries.source_xy_m, queries.receiver_xy_m)
+    query_ids = np.arange(-129, 0, dtype=np.int64)
+    query_ids[1::2] = ids[np.arange(64)]
+    index = FixedTraceGraphNeighborIndex(geometry, ids, observed, **settings)
+    for order in (np.arange(129), np.arange(128, -1, -1)):
+        ordered_geometry = _select(queries, order)
+        ordered_ids = query_ids[order]
+        expected = select_trace_graph_neighbors(
+            ordered_geometry, ordered_ids, geometry, ids, observed, **settings
+        )
+        for batch_size in (17, 64, 129):
+            batches = [
+                index.select(
+                    _select(ordered_geometry, slice(start, start + batch_size)),
+                    ordered_ids[start : start + batch_size],
+                )
+                for start in range(0, len(order), batch_size)
+            ]
+            for field in fields(expected):
+                np.testing.assert_array_equal(
+                    np.concatenate([getattr(batch, field.name) for batch in batches]),
+                    getattr(expected, field.name),
+                )
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e160])
+def test_empty_destination_batch_matches_brute(scale):
+    geometry = _geometry([[0, 0], [1, 0]])
+    queries = _geometry([])
+    settings = {"relation_scales_m": [[scale, scale]] * 4}
+    index = FixedTraceGraphNeighborIndex(geometry, [10, 20], [True, True], **settings)
+    _assert_edges(
+        index.select(queries, []),
+        select_trace_graph_neighbors(queries, [], geometry, [10, 20], [True, True], **settings),
+    )
+
+
+@pytest.mark.parametrize("scales", [[[1.0, 1.0]] * 4, [[1e160, 1.0]] * 4, [[1e160, 1e160]] * 4])
+def test_nonfinite_destination_bounds_do_not_affect_other_destinations(scales):
+    geometry = _geometry([[0, 0], [1, 0], [2, 0], [3, 0]])
+    queries = _geometry([[0, 0], [0, 0], [2, 0], [1, 0], [3, 0]])
+    # The neighbor boundary accepts geometry arrays directly, including bounds
+    # that cannot prune a destination. Keep this behavior local to each row.
+    geometry.source_xy_m[2:, 0] = [np.nan, np.inf]
+    queries.source_xy_m[[0, 2, 4]] = [[np.nan, np.nan], [np.inf, 0], [0, np.nan]]
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        query_ids = np.arange(-5, 0)
+        settings = {"relation_scales_m": scales}
+        index = FixedTraceGraphNeighborIndex(geometry, np.arange(4), np.ones(4, bool), **settings)
+        _assert_edges(
+            index.select(queries, query_ids),
+            select_trace_graph_neighbors(
+                queries, query_ids, geometry, np.arange(4), np.ones(4, bool), **settings
+            ),
+        )
+
+
 @pytest.mark.parametrize("scale", [1e-170, 1e-150, 1.0, 1e160])
 @pytest.mark.parametrize("radius", [1e-200, 1.0, 1e200])
-def test_extreme_finite_scales_retain_brute_rounding_and_underflow_behavior(scale, radius):
+@pytest.mark.parametrize("query_count", [1, 3])
+def test_extreme_finite_scales_retain_brute_rounding_and_underflow_behavior(
+    scale, radius, query_count
+):
     geometry = _geometry([[0, 0], [1e-160, 0], [1, 0], [1e150, 0]])
-    query = _geometry([[0, 0]])
+    query = _geometry([[0, 0], [1e-160, 0], [1, 0]][:query_count])
+    query_ids = np.arange(-query_count, 0)
     settings = {"relation_scales_m": [[scale, scale]] * 4, "radius": radius}
     with np.errstate(over="ignore", invalid="ignore", divide="ignore", under="ignore"):
         actual = FixedTraceGraphNeighborIndex(
             geometry, np.arange(4), np.ones(4, bool), **settings
-        ).select(query, [-1])
+        ).select(query, query_ids)
         expected = select_trace_graph_neighbors(
-            query, [-1], geometry, np.arange(4), np.ones(4, bool), **settings
+            query, query_ids, geometry, np.arange(4), np.ones(4, bool), **settings
         )
     _assert_edges(actual, expected)
 
@@ -207,20 +278,135 @@ def test_builder_rejects_visible_query_and_changed_geometry_for_shared_id():
         builder.build(changed, query_ids, rounds=2)
 
 
+def test_reused_box_widths_and_per_relation_distances_match_the_general_forms():
+    """Lock the two shortcuts the index takes over the four-relation forms."""
+    geometry, ids, observed, _, _, settings = _case()
+    index = TraceGraphSpatialIndex(
+        geometry, ids, **{k: v for k, v in settings.items() if k != "allowed_mask"}
+    )
+    radius = index.search_settings["radius"]
+    for relation in range(4):
+        assert index._box_widths[relation] == tuple(
+            neighbors_module._conservative_box_width(radius, scale)
+            for scale in index._scales[relation]
+        )
+    rng = np.random.default_rng(11)
+    for _ in range(20):
+        row = int(rng.integers(len(ids)))
+        rows = np.sort(rng.choice(len(ids), size=int(rng.integers(1, len(ids))), replace=False))
+        for relation in range(4):
+            expected = neighbors_module._relation_distances(
+                geometry, row, geometry, rows, index._scales
+            )[:, relation]
+            assert np.array_equal(index._distances(geometry, row, rows, relation), expected)
+
+
 def test_index_prunes_distant_candidates_before_exact_distance_work(monkeypatch):
     geometry = _geometry(np.column_stack((np.arange(1000) * 100.0, np.zeros(1000))))
     settings = {"relation_scales_m": [[160.0, 640.0]] * 4, "candidate_chunk_size": 4096}
     index = FixedTraceGraphNeighborIndex(geometry, np.arange(1000), np.ones(1000, bool), **settings)
     counts = []
-    original = neighbors_module._relation_distances
+    original = neighbors_module.TraceGraphSpatialIndex._distances
 
-    def capture(destination, row, candidates, rows, scales):
+    def capture(self, destination, row, rows, relation):
         counts.append(len(rows))
-        return original(destination, row, candidates, rows, scales)
+        return original(self, destination, row, rows, relation)
 
-    monkeypatch.setattr(neighbors_module, "_relation_distances", capture)
+    monkeypatch.setattr(neighbors_module.TraceGraphSpatialIndex, "_distances", capture)
     index.select(_geometry([[50, 0]]), [-1])
     assert counts and max(counts) < 10
+
+
+@pytest.mark.parametrize("chunk_size", [1, 13, 4096, 10**9])
+@pytest.mark.parametrize("k", [1, 7, 64])
+@pytest.mark.parametrize("topology", ["multi_relation", "single_4d"])
+def test_batched_topk_merges_chunk_ties_and_skips_empty_destinations(chunk_size, k, topology):
+    geometry = _geometry(np.zeros((41, 2)))
+    ids = np.arange(41, 0, -1, dtype=np.int64)
+    observed = ids % 3 != 0
+    allowed = ids % 5 != 0
+    queries = _geometry([[0, 0], [1e6, 0], [0, 0], [0, 0]])
+    query_ids = np.array([40, -20, 1, -10])
+    settings = {
+        "relation_scales_m": [[160.0, 640.0]] * 4,
+        "neighbors_per_relation": k,
+        "single_4d_neighbors": k,
+        "common_distance_scales_m": [320.0, 320.0],
+        "candidate_chunk_size": chunk_size,
+        "allowed_mask": allowed,
+        "topology": topology,
+    }
+    index = FixedTraceGraphNeighborIndex(geometry, ids, observed, **settings)
+    actual = index.select(queries, query_ids)
+    _assert_edges(
+        actual,
+        select_trace_graph_neighbors(queries, query_ids, geometry, ids, observed, **settings),
+    )
+    # Nearest candidates tie, so late chunks containing smaller IDs must win.
+    assert actual.sender_ids[0] == 1
+    assert -20 not in actual.destination_ids
+    assert not np.any(actual.sender_ids == actual.destination_ids)
+
+
+@pytest.mark.parametrize("chunk_size", [31, 4096])
+def test_dense_batch_limits_distance_workspace_and_evaluates_multiple_destinations(
+    monkeypatch, chunk_size
+):
+    geometry = _geometry(np.zeros((257, 2)))
+    queries = _geometry(np.zeros((129, 2)))
+    query_ids = np.arange(-129, 0)
+    counts = []
+    original = TraceGraphSpatialIndex._distances
+
+    def capture(index, destination, rows, candidates, relation):
+        counts.append((len(candidates), len(np.unique(rows))))
+        return original(index, destination, rows, candidates, relation)
+
+    monkeypatch.setattr(TraceGraphSpatialIndex, "_distances", capture)
+    settings = {"relation_scales_m": [[1.0, 1.0]] * 4, "candidate_chunk_size": chunk_size}
+    observed = np.arange(257) % 2 == 0
+    actual = FixedTraceGraphNeighborIndex(geometry, np.arange(257), observed, **settings).select(
+        queries, query_ids
+    )
+    _assert_edges(
+        actual,
+        select_trace_graph_neighbors(
+            queries, query_ids, geometry, np.arange(257), observed, **settings
+        ),
+    )
+    assert counts and max(count for count, _ in counts) <= min(chunk_size, 257)
+    assert any(destinations > 1 for _, destinations in counts)
+
+
+def test_empty_visible_batch_does_not_evaluate_overflowing_distance_scales():
+    geometry = _geometry([[0, 0], [1, 0]])
+    index = FixedTraceGraphNeighborIndex(
+        geometry, [10, 20], [False, False], relation_scales_m=[[1e160, 1e160]] * 4
+    )
+    with np.errstate(all="raise"):
+        actual = index.select(_geometry(np.zeros((4, 2))), [-4, -3, -2, -1])
+    assert not len(actual.sender_ids)
+
+
+@pytest.mark.parametrize("k", [2, 8, 9])
+def test_batched_tie_breaking_preserves_full_int64_sender_ids(k):
+    limits = np.iinfo(np.int64)
+    ids = np.array([limits.max, 1, limits.min + 1, -1, limits.max - 1, 0, limits.min])
+    geometry = _geometry(np.zeros((len(ids), 2)))
+    queries = _geometry(np.zeros((4, 2)))
+    query_ids = np.array([limits.max, 4, limits.min, 5])
+    settings = {
+        "relation_scales_m": [[1.0, 1.0]] * 4,
+        "neighbors_per_relation": k,
+        "candidate_chunk_size": 4,
+    }
+    index = FixedTraceGraphNeighborIndex(geometry, ids, np.ones(len(ids), bool), **settings)
+    _assert_edges(
+        index.select(queries, query_ids),
+        select_trace_graph_neighbors(
+            queries, query_ids, geometry, ids, np.ones(len(ids), bool), **settings
+        ),
+    )
 
 
 @pytest.mark.parametrize("rounds", [2, 3])

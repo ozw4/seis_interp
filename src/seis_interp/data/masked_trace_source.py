@@ -200,7 +200,8 @@ def assemble_masked_trace_graph_inputs(
             else torch.tensor(plan.common_edge_distances, dtype=torch.float32)
         ),
     )
-    return validate_masked_trace_graph_inputs(inputs.to(device))
+    # Validate while tensors are still on CPU to avoid scalar CUDA synchronizations.
+    return validate_masked_trace_graph_inputs(inputs).to(device)
 
 
 def _require_time_grid(time_s: np.ndarray, preprocessing: TraceGraphPreprocessing) -> None:

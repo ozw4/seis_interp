@@ -141,6 +141,9 @@ class TraceGraphSpatialIndex:
 
     Storage is linear in candidates. Eligibility is applied before exact
     distance/radius selection and is never retained by this object.
+    Multiple destinations share buffers of at most candidate_chunk_size
+    box-filtered pairs. Bounds scale with destinations, without a dense
+    destination-by-candidate matrix; only top-k crosses a buffer boundary.
     """
 
     def __init__(
@@ -184,12 +187,15 @@ class TraceGraphSpatialIndex:
             **deepcopy(search_settings),
         }
         self._scales = np.asarray(self._settings["relation_scales_m"], dtype=np.float64)
+        self._box_widths = self._relation_box_widths()
         self._rows = _owned_readonly(np.arange(len(self.trace_ids), dtype=np.int64))
         self._axes = {}
+        self._columns = {}
         for name in ("source_xy_m", "receiver_xy_m", "midpoint_xy_m", "offset_xy_m"):
             for axis in range(2):
                 coordinates = getattr(self.geometry, name)[:, axis]
                 order = np.argsort(coordinates, kind="stable")
+                self._columns[name, axis] = _owned_readonly(coordinates)
                 self._axes[name, axis] = (
                     _owned_readonly(coordinates[order]),
                     _owned_readonly(self._rows[order]),
@@ -199,6 +205,18 @@ class TraceGraphSpatialIndex:
     def search_settings(self) -> dict:
         """Return settings independently of the owned visibility and arrays."""
         return deepcopy(self._settings)
+
+    def _relation_box_widths(self) -> dict[int, tuple]:
+        """Widen each relation's bounds once; radius and scales never change."""
+        radius = self._settings["radius"]
+        if self._settings["topology"] == "single_4d":
+            scale_rows = {0: self._settings["common_distance_scales_m"]}
+        else:
+            scale_rows = {relation: self._scales[relation] for relation in range(4)}
+        return {
+            relation: tuple(_conservative_box_width(radius, scale) for scale in scales)
+            for relation, scales in scale_rows.items()
+        }
 
     def _select(
         self,
@@ -220,10 +238,23 @@ class TraceGraphSpatialIndex:
         )
         k = self._settings["single_4d_neighbors" if single else "neighbors_per_relation"]
         chunk_size = self._settings["candidate_chunk_size"]
+        radius = self._settings["radius"]
         blocks = ([], [], [], [])
+        # For very small batches, staging/reduction costs more than scalar top-k.
+        if len(ids) > 3:
+            return self._select_batched(destination_geometry, ids, eligible_mask, relations, k)
+        boxes = (
+            {relation: self._box_bounds(destination_geometry, relation) for relation in relations}
+            if len(ids) > 1
+            else {}
+        )
         for row, trace_id in enumerate(ids):
             for relation in relations:
-                candidates = self._box_rows(destination_geometry, row, relation)
+                candidates = (
+                    self._batch_box_rows(*boxes[relation], row)
+                    if boxes
+                    else self._box_rows(destination_geometry, row, relation)
+                )
                 candidates = candidates[eligible_mask[candidates]]
                 candidates = candidates[self.trace_ids[candidates] != trace_id]
                 selected_ids = np.empty(0, dtype=np.int64)
@@ -231,7 +262,7 @@ class TraceGraphSpatialIndex:
                 for start in range(0, len(candidates), chunk_size):
                     rows = candidates[start : start + chunk_size]
                     distances = self._distances(destination_geometry, row, rows, relation)
-                    inside = distances <= self._settings["radius"]
+                    inside = distances <= radius
                     combined_ids = np.concatenate((selected_ids, self.trace_ids[rows[inside]]))
                     combined_distances = np.concatenate((selected_distances, distances[inside]))
                     order = np.lexsort((combined_ids, combined_distances))[:k]
@@ -251,45 +282,168 @@ class TraceGraphSpatialIndex:
             )
         )
 
-    def _box_rows(self, destination, row, relation):
-        single = self._settings["topology"] == "single_4d"
-        names = (
-            ("source_xy_m", "receiver_xy_m")
-            if relation < 2 and not single
-            else ("midpoint_xy_m", "offset_xy_m")
+    def _select_batched(self, destination, ids, eligible, relations, k):
+        blocks = [
+            self._select_relation(destination, ids, eligible, relation, k) for relation in relations
+        ]
+        rows, senders, distances = (
+            np.concatenate([block[column] for block in blocks]) for column in range(3)
         )
-        scales = self._settings["common_distance_scales_m"] if single else self._scales[relation]
+        types = np.concatenate(
+            [
+                np.full(len(block[0]), relation, dtype=np.int64)
+                for relation, block in zip(relations, blocks, strict=True)
+            ]
+        )
+        # Each relation is already ordered by destination, distance and sender ID.
+        order = np.lexsort((types, rows))
+        return TraceGraphNeighbors(senders[order], ids[rows[order]], types[order], distances[order])
+
+    def _select_relation(self, destination, ids, eligible, relation, k):
+        """Retain only top-k across a chunk boundary; emit completed destinations."""
+        pending = (np.empty(0, np.int64), np.empty(0, np.int64), np.empty(0, np.float64))
+        blocks = ([], [], [])
+        for last_row, rows, candidates in self._candidate_pair_chunks(
+            destination, ids, eligible, relation
+        ):
+            distances = (
+                self._distances(destination, rows, candidates, relation)
+                if len(rows)
+                else np.empty(0, dtype=np.float64)
+            )
+            inside = distances <= self._settings["radius"]
+            values = (rows[inside], self.trace_ids[candidates[inside]], distances[inside])
+            if len(pending[0]):
+                values = tuple(
+                    np.concatenate((old, new)) for old, new in zip(pending, values, strict=True)
+                )
+            selected = _relation_topk(*values, k)
+            finished = np.searchsorted(selected[0], last_row, side="left")
+            if finished:
+                for block, array in zip(blocks, selected, strict=True):
+                    block.append(array[:finished].copy())
+            pending = tuple(array[finished:].copy() for array in selected)
+        for block, array in zip(blocks, pending, strict=True):
+            block.append(array)
+        return tuple(np.concatenate(block) for block in blocks)
+
+    def _candidate_pair_chunks(self, destination, ids, eligible, relation):
+        """Batch only box-filtered pairs into reusable, chunk-size-bounded buffers."""
+        bounds, shortest = self._box_bounds(destination, relation)
+        capacity = min(self._settings["candidate_chunk_size"], len(self.trace_ids))
+        pair_rows = np.empty(capacity, dtype=np.int64)
+        pair_candidates = np.empty(capacity, dtype=np.int64)
+        used = 0
+        for row, trace_id in enumerate(ids):
+            candidates = self._batch_box_rows(bounds, shortest, row)
+            candidates = candidates[eligible[candidates] & (self.trace_ids[candidates] != trace_id)]
+            offset = 0
+            while offset < len(candidates):
+                count = min(capacity - used, len(candidates) - offset)
+                pair_rows[used : used + count] = row
+                pair_candidates[used : used + count] = candidates[offset : offset + count]
+                used += count
+                offset += count
+                if used == capacity:
+                    # The consumer finishes each borrowed buffer before resuming us.
+                    yield row, pair_rows, pair_candidates
+                    used = 0
+        if used:
+            yield pair_rows[used - 1], pair_rows[:used], pair_candidates[:used]
+
+    def _box_bounds(self, destination, relation):
+        """Find sorted-axis ranges for all destinations with O(destinations) storage."""
+        single = self._settings["topology"] == "single_4d"
+        names = _relation_axis_names(relation, single)
         bounds = []
-        for name, scale in zip(names, scales, strict=True):
-            width = _conservative_box_width(self._settings["radius"], scale)
-            if width is None:
-                continue
-            for axis in range(2):
-                center = getattr(destination, name)[row, axis]
-                with np.errstate(over="ignore", invalid="ignore"):
+        lengths = []
+        with np.errstate(over="ignore", invalid="ignore"):
+            for name, width in zip(names, self._box_widths[relation], strict=True):
+                if width is None:
+                    continue
+                for axis in range(2):
+                    center = getattr(destination, name)[:, axis]
                     lower = np.nextafter(center - width, -np.inf)
                     upper = np.nextafter(center + width, np.inf)
-                if np.isnan(lower) or np.isnan(upper):
-                    continue
-                values, indices = self._axes[name, axis]
-                start = np.searchsorted(values, lower, side="left")
-                stop = np.searchsorted(values, upper, side="right")
-                bounds.append((stop - start, indices, start, stop, name, axis, lower, upper))
+                    valid = ~(np.isnan(lower) | np.isnan(upper))
+                    values, indices = self._axes[name, axis]
+                    start = np.searchsorted(values, lower, side="left")
+                    stop = np.searchsorted(values, upper, side="right")
+                    bounds.append(
+                        (indices, self._columns[name, axis], start, stop, lower, upper, valid)
+                    )
+                    # Invalid bounds must lose even to a full-domain valid range.
+                    lengths.append(np.where(valid, stop - start, len(self.trace_ids) + 1))
+        shortest = np.argmin(lengths, axis=0) if bounds else None
+        return bounds, shortest
+
+    def _batch_box_rows(self, bounds, shortest, row):
         if not bounds:
             return self._rows
-        _, indices, start, stop, *_ = min(bounds, key=lambda bound: bound[0])
+        selected = shortest[row]
+        indices, _, start, stop, _, _, valid = bounds[selected]
+        if not valid[row]:
+            return self._rows
+        rows = indices[start[row] : stop[row]]
+        # The shortest sorted range avoids allocating a full-domain Boolean mask.
+        # That range already satisfies its own bound, so only the others filter.
+        for position, (_, column, start, stop, lower, upper, valid) in enumerate(bounds):
+            if (
+                position == selected
+                or not valid[row]
+                or (start[row] == 0 and stop[row] == len(self.trace_ids))
+            ):
+                continue
+            values = column[rows]
+            rows = rows[(values >= lower[row]) & (values <= upper[row])]
+        return rows
+
+    def _box_rows(self, destination, row, relation):
+        """Avoid batching overhead when there is only one destination."""
+        single = self._settings["topology"] == "single_4d"
+        names = _relation_axis_names(relation, single)
+        bounds = []
+        with np.errstate(over="ignore", invalid="ignore"):
+            for name, width in zip(names, self._box_widths[relation], strict=True):
+                if width is None:
+                    continue
+                for axis in range(2):
+                    center = getattr(destination, name)[row, axis]
+                    lower = np.nextafter(center - width, -np.inf)
+                    upper = np.nextafter(center + width, np.inf)
+                    if np.isnan(lower) or np.isnan(upper):
+                        continue
+                    values, indices = self._axes[name, axis]
+                    start = np.searchsorted(values, lower, side="left")
+                    stop = np.searchsorted(values, upper, side="right")
+                    bounds.append((stop - start, indices, start, stop, name, axis, lower, upper))
+        if not bounds:
+            return self._rows
+        shortest = min(range(len(bounds)), key=lambda index: bounds[index][0])
+        _, indices, start, stop, *_ = bounds[shortest]
         rows = indices[start:stop]
         # The shortest sorted range avoids allocating a full-domain Boolean mask.
-        for _, _, _, _, name, axis, lower, upper in bounds:
-            values = getattr(self.geometry, name)[rows, axis]
+        # That range already satisfies its own bound, so only the others filter.
+        for position, (_, _, _, _, name, axis, lower, upper) in enumerate(bounds):
+            if position == shortest:
+                continue
+            values = self._columns[name, axis][rows]
             rows = rows[(values >= lower) & (values <= upper)]
         return rows
 
     def _distances(self, destination, row, rows, relation):
         if self._settings["topology"] != "single_4d":
-            return _relation_distances(destination, row, self.geometry, rows, self._scales)[
-                :, relation
-            ]
+            # Only this relation's own coordinate pair contributes; the other two
+            # squared lengths of the four-relation form are discarded anyway.
+            scales = self._scales[relation]
+            squared = []
+            for name in _relation_axis_names(relation, False):
+                coordinates = getattr(destination, name)
+                first = self._columns[name, 0][rows] - coordinates[row, 0]
+                second = self._columns[name, 1][rows] - coordinates[row, 1]
+                # Summing a length-two axis is exactly this ordered pair of terms.
+                squared.append(first * first + second * second)
+            return np.sqrt(squared[0] / scales[0] ** 2 + squared[1] / scales[1] ** 2)
         common = np.asarray(self._settings["common_distance_scales_m"], dtype=np.float64)
         delta_midpoint = self.geometry.midpoint_xy_m[rows] - destination.midpoint_xy_m[row]
         delta_offset = self.geometry.offset_xy_m[rows] - destination.offset_xy_m[row]
@@ -358,6 +512,49 @@ class FixedTraceGraphNeighborIndex:
         return self.spatial_index._select(
             destination_geometry, destination_trace_ids, self.eligible_mask
         )
+
+
+def _relation_topk(rows, senders, distances, k):
+    """Select exact top-k from pairs already grouped in destination-row order."""
+    if not len(rows):
+        return rows, senders, distances
+    if k <= 8:
+        return _small_relation_topk(rows, senders, distances, k)
+    order = np.lexsort((senders, distances, rows))
+    ordered_rows = rows[order]
+    positions = np.arange(len(order))
+    first = np.r_[True, ordered_rows[1:] != ordered_rows[:-1]]
+    group_starts = np.maximum.accumulate(np.where(first, positions, 0))
+    order = order[positions - group_starts < k]
+    return rows[order], senders[order], distances[order]
+
+
+def _small_relation_topk(rows, senders, distances, k):
+    """Reduce small fanouts without sorting every candidate in a distance chunk."""
+    starts = np.r_[0, np.flatnonzero(rows[1:] != rows[:-1]) + 1]
+    counts = np.diff(np.r_[starts, len(rows)])
+    groups = np.repeat(np.arange(len(starts)), counts)
+    remaining = distances.copy()
+    winners = []
+    for _ in range(min(k, int(counts.max()))):
+        minimum = np.minimum.reduceat(remaining, starts)
+        nearest = (remaining == minimum[groups]) & np.isfinite(remaining)
+        tied_ids = np.where(nearest, senders, np.iinfo(np.int64).max)
+        smallest_id = np.minimum.reduceat(tied_ids, starts)
+        chosen = np.flatnonzero(nearest & (senders == smallest_id[groups]))
+        winners.append(chosen)
+        remaining[chosen] = np.inf
+    order = np.concatenate(winners)
+    # Successive minima already order each destination by distance, then ID.
+    order = order[np.argsort(rows[order], kind="stable")]
+    return rows[order], senders[order], distances[order]
+
+
+def _relation_axis_names(relation: int, single: bool) -> tuple[str, str]:
+    """Name the two coordinate pairs whose scaled lengths form this distance."""
+    if single or relation >= 2:
+        return ("midpoint_xy_m", "offset_xy_m")
+    return ("source_xy_m", "receiver_xy_m")
 
 
 def _conservative_box_width(radius, scale):
