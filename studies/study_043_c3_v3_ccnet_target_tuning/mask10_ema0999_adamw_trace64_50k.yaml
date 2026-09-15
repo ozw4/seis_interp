@@ -1,0 +1,5 @@
+extends: mask10_ema0999_50k.yaml
+training:
+  optimizer: adamw
+  weight_decay: 0.0
+  supervised_traces_per_update: 64

@@ -1,0 +1,3 @@
+extends: mask10_ema0999_20k.yaml
+training:
+  max_steps: 50000

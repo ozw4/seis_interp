@@ -1,0 +1,4 @@
+extends: mask10_ema0999_adamw_trace64_50k.yaml
+model:
+  hidden_channels: 53
+  intermediate_channels: 63
