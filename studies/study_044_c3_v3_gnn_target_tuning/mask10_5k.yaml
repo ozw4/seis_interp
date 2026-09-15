@@ -1,0 +1,5 @@
+extends: ../study_042_c3_v3_five_method_comparison/gnn.yaml
+training:
+  inner_mask_fraction: 0.1
+prediction:
+  query_batch_size: 16

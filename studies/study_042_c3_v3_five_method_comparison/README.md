@@ -19,6 +19,13 @@ NeRSIは50,000 updates・EMAあり・時間shearなし、CCNet/GNNは5,000 updat
 これは等計算量・等探索量比較ではない。配置とNeRSI設定はT評価で選択されており、独立評価ではない。
 全5runを保存し、再試行・HPO・自動best選択は行わない。
 
+現在のGNN正本はStudy 044で採用したEMA結果（trace SNR平均18.2795 dB）。
+[GNN採用結果lock](../study_044_c3_v3_gnn_target_tuning/gnn_v3_result.lock.json)
+がrunと評価重み`artifacts/ema.pt`を固定する。上記5手法の初期比較と
+`gnn.yaml`は5,000更新の比較基準として保持し、採用runの再実行には
+[EMA設定](../study_044_c3_v3_gnn_target_tuning/mask10_fourier16_width128_ema999_20k.yaml)
+とStudy 044の実行scriptを使用する。
+
 ## 実行
 
 リポジトリrootから実行する。GPU 1を使用し、各手法は別processで逐次実行する。

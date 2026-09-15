@@ -1,0 +1,16 @@
+study:
+  id: study_044_c3_v3_gnn_target_tuning
+  status: adopted_18db_achieved
+objective:
+  metric: physical_amplitude_mean_trace_snr_db
+  threshold_db: 18.0
+  comparison: strictly_greater
+constraints:
+  maximum_optimizer_updates_per_run: 20000
+  input_protocol: c3_random80_v3
+  amplitude_scaling: observed_volume_global_rms
+  time_shear: false
+  edge_time_shift_samples: 0
+  training_amplitudes: observed_only
+  evaluation: all_target_traces
+  target_informed_selection: true

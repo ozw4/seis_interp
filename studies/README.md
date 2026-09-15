@@ -58,6 +58,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_041_c3_nersi_translated_window](study_041_c3_nersi_translated_window/README.md) | `target_reached` — mean trace SNR 15.6282 dB | Fixed source lines and shape; target-informed window selection, not original-window improvement |
 | [study_042_c3_v3_five_method_comparison](study_042_c3_v3_five_method_comparison/README.md) | `running` | Fixed v3 inputs / five methods / physical mean trace SNR; unequal compute, target-informed |
 | [study_043_c3_v3_ccnet_target_tuning](study_043_c3_v3_ccnet_target_tuning/README.md) | `completed` | v3 CCNet, Global RMS, no shear; target-informed mean trace SNR 14.4375 dB |
+| [study_044_c3_v3_gnn_target_tuning](study_044_c3_v3_gnn_target_tuning/README.md) | `adopted_18db_achieved` | Fixed v3 GNN canonical EMA result: mean trace SNR 18.2795 dB; Global RMS, no shear; target-informed |
 
 ## Scratch workspaces
 

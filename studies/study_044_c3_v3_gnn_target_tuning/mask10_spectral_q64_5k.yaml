@@ -1,0 +1,3 @@
+extends: mask10_spectral_5k.yaml
+prediction:
+  query_batch_size: 64

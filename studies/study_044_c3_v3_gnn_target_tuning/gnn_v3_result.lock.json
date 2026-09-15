@@ -1,0 +1,60 @@
+{
+  "condition_id": "c3_random80_v3",
+  "method": "relational_trace_graph",
+  "status": "adopted",
+  "adopted_at_utc": "2026-09-15T02:46:39.703874+00:00",
+  "selection_basis": "explicit_user_adoption",
+  "independent_evaluation": false,
+  "primary_metric": "mean_trace_snr_db",
+  "time_shear": false,
+  "config_path": "studies/study_044_c3_v3_gnn_target_tuning/mask10_fourier16_width128_ema999_20k.yaml",
+  "config_sha256": "92c9b2fcab2e99dc136d0830e18f6c29b39221d520d46bdbb516cbcbe56a8486",
+  "run_directory": "runs/study_044_c3_v3_gnn_target_tuning/20260915T014733Z_684c4e4c659a_mask10_fourier16_width128_ema999_20k/relational_trace_graph",
+  "evaluation_checkpoint": "artifacts/ema.pt",
+  "raw_checkpoint": "final.pt",
+  "ema": {
+    "decay": 0.999,
+    "initialization": "first_post_update_weights",
+    "updates": 20000
+  },
+  "run_file_sha256": {
+    "config.resolved.yaml": "3a3dd1694581e01fd30dc17aa93eb6365c1721ff48f15687e570750fa5290bc3",
+    "inputs.lock.json": "e0419f9ceb63ead31bfd819ac67e718ddf0c6053d89f89d3056d169708a20e63",
+    "metadata.json": "f78e9af1bbc5571306fdd009e52fe7aeb31802f9abc5f4d2491b18a6c0d304c6",
+    "metrics.json": "9100932da2e51313b07e65196546717de9d2a23cf5449689902d1926a1ee9654",
+    "prediction.npy": "a626c1458e9f64047ec82571f858ce533ec6115159037d369fc81a6802d89a27",
+    "final.pt": "cdc8589bc56cc8b2948128f1d5d91a1f3a3205b77bc20f93f1652f7eb106f5f1",
+    "artifacts/ema.pt": "e442d43155a5ec9cbcfec97e4f934e8eb052d6dba855996fe4d6badb403fe2fa",
+    "artifacts/target_coverage.npy": "d9d03183fa57fc74e18b3c7fb25196ae76dfdbc6da7e13e14dd5a50fdd04b181",
+    "artifacts/query_trace_ids.npy": "4903798400928b5073371287b8adc35a1e85d8122050e12e36fcdb96e4f61b7c"
+  },
+  "normalization": {
+    "scale": 9.27911442626805,
+    "source": "O_only",
+    "type": "global_rms"
+  },
+  "evaluation_target": {
+    "covered_target_trace_count": 104750,
+    "error_energy": 62882202.090048656,
+    "mean_trace_relative_mse": 0.01870223729426265,
+    "mean_trace_snr_db": 18.27945569727917,
+    "mean_trace_snr_status": "finite",
+    "reference_energy": 3454179731.534178,
+    "relative_l2": 0.13492468264734858,
+    "rmse": 1.250320186617994,
+    "sample_count": 40224000,
+    "snr_db": 17.39817189507411,
+    "snr_status": "finite",
+    "target_trace_count": 104750,
+    "trace_count": 104750,
+    "trace_snr_negative_infinity_count": 0,
+    "trace_snr_positive_infinity_count": 0,
+    "trace_snr_trace_count": 104750,
+    "trace_snr_undefined_count": 0
+  },
+  "observed_max_abs_error": 0.0,
+  "source_archive": {
+    "path": "runs/study_044_c3_v3_gnn_target_tuning/20260915T014733Z_684c4e4c659a_mask10_fourier16_width128_ema999_20k/source.tar",
+    "sha256": "bacdac779765f2ddba617b19d37dc529f5d15ffe65ba91819ad915ff9079e4fc"
+  }
+}

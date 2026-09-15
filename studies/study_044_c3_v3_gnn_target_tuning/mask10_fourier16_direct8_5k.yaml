@@ -1,0 +1,6 @@
+extends: mask10_fourier16_fast_5k.yaml
+model:
+  message_passing_rounds: 1
+  temporal_dilations: [1]
+graph:
+  neighbors_per_relation: 8

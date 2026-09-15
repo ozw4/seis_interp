@@ -1,0 +1,5 @@
+extends: mask10_fourier16_5k.yaml
+training:
+  cudnn_benchmark: false
+prediction:
+  query_batch_size: 64

@@ -1,0 +1,3 @@
+extends: mask10_5k.yaml
+training:
+  mixed_precision: bf16
