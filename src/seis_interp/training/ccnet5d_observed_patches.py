@@ -49,6 +49,7 @@ class CCNet5DObservedPatchSource:
         self.amplitude_scale = _positive_finite_scale(amplitude_scale)
         self._placement_generator = _random_generator(placement_seed, "placement_seed")
         self._mask_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
+        self._supervision_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
         self._observed_mask = np.array(observed_mask, dtype=np.bool_, copy=True, order="C")
 
         observed_values = np.where(self._observed_mask[None, ...], volume, 0)
@@ -98,6 +99,39 @@ class CCNet5DObservedPatchSource:
             pseudo_target_mask=np.ascontiguousarray(hidden, dtype=np.bool_),
             visible_observed_mask=np.ascontiguousarray(visible, dtype=np.bool_),
             patch_slices=patch_slices,
+        )
+
+    def sample_batch(self, supervised_traces: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Stack patches for one forward pass with exactly this many loss traces.
+
+        Keep every patch's original inner mask. Uniformly select loss entries
+        among all hidden entries in the stacked batch; unused hidden entries
+        remain hidden. Repeated physical traces in different patches count as
+        separate presentations. Selection uses its own inner-mask-seeded stream.
+        """
+        if (
+            isinstance(supervised_traces, bool)
+            or not isinstance(supervised_traces, Integral)
+            or supervised_traces < 1
+        ):
+            raise ValueError("supervised_traces must be a positive integer")
+        patches = []
+        count = 0
+        while count < supervised_traces:
+            patch = self.sample()
+            patches.append(patch)
+            count += int(patch.pseudo_target_mask.sum())
+        hidden = np.stack([p.pseudo_target_mask for p in patches])
+        if count > supervised_traces:
+            selected = self._supervision_generator.choice(
+                np.flatnonzero(hidden), size=supervised_traces, replace=False
+            )
+            hidden = np.zeros_like(hidden)
+            hidden.reshape(-1)[selected] = True
+        return (
+            np.stack([p.model_input for p in patches]),
+            np.stack([p.pseudo_target for p in patches]),
+            hidden,
         )
 
 

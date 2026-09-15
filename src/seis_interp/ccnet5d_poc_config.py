@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
 from seis_interp.processing.ccnet5d_tiles import validate_ccnet5d_shape
+from seis_interp.training.ccnet5d_ema import validate_ccnet5d_ema_decay
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 
@@ -21,6 +22,10 @@ class CCNet5DPocTrainingSettings:
     report_interval: int
     device: str
     loss: str
+    ema_decay: float | None = None
+    optimizer: str = "adam"
+    weight_decay: float = 0.0
+    supervised_traces_per_update: int | None = None
 
 
 @dataclass(frozen=True)
@@ -110,16 +115,40 @@ def validate_ccnet5d_poc_config(config: Mapping[str, object]) -> CCNet5DPocSetti
             "max_steps",
             "report_interval",
             "device",
-        },
+        }
+        | (
+            {"ema_decay", "weight_decay", "supervised_traces_per_update"}.intersection(
+                config["training"]
+            )
+            if isinstance(config.get("training"), Mapping)
+            else set()
+        ),
     )
-    _require_literal(training, "optimizer", "adam")
+    if training["optimizer"] not in ("adam", "adamw"):
+        raise ConfigurationError("optimizer must be adam or adamw")
     if training["loss"] not in POC_TRACE_LOSSES:
         raise ConfigurationError(f"training.loss must be one of {POC_TRACE_LOSSES!r}")
     _require_literal(training, "amplitude_scaling", "observed_volume_global_rms")
     device = training["device"]
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
+    try:
+        ema_decay = validate_ccnet5d_ema_decay(training.get("ema_decay"))
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
     training_settings = CCNet5DPocTrainingSettings(
+        optimizer=training["optimizer"],
+        weight_decay=config_values.nonnegative_float(
+            training.get("weight_decay", 0.0), "training.weight_decay"
+        ),
+        supervised_traces_per_update=(
+            config_values.positive_integer(
+                training["supervised_traces_per_update"], "training.supervised_traces_per_update"
+            )
+            if "supervised_traces_per_update" in training
+            else None
+        ),
+        ema_decay=ema_decay,
         loss=training["loss"],
         model_initialization_seed=config_values.nonnegative_integer(
             training["model_initialization_seed"], "training.model_initialization_seed"

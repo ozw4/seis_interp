@@ -98,10 +98,15 @@ def _run(
     *,
     progress_reporter=None,
     loss_name="masked_trace_relative_mse",
+    ema_decay=None,
+    training_overrides=None,
 ) -> tuple[Path, dict[str, object]]:
     config_path = tmp_path / "config.yaml"
     config = _config(artifacts)
     config["training"]["loss"] = loss_name
+    config["training"].update(training_overrides or {})
+    if ema_decay is not None:
+        config["training"]["ema_decay"] = ema_decay
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     output = tmp_path / "run"
     metrics = interpolate_ccnet5d_run(
@@ -118,9 +123,35 @@ def _run(
     return output, metrics
 
 
+def test_exact_trace_batch_adamw_is_recorded_and_evaluated(tmp_path):
+    artifacts = _artifacts(tmp_path / "data")
+    output, metrics = _run(
+        tmp_path,
+        artifacts,
+        ema_decay=0.999,
+        loss_name="masked_trace_mse",
+        training_overrides={
+            "optimizer": "adamw",
+            "weight_decay": 0.0,
+            "supervised_traces_per_update": 64,
+        },
+    )
+    record = json.loads((output / "metadata.json").read_text())
+    training = record["training_or_reconstruction"]
+    assert training["optimizer"] == "adamw"
+    assert training["weight_decay"] == 0
+    assert training["gradient_accumulation_steps"] == 1
+    assert record["compute"]["supervised_trace_presentations"] == 128
+    assert record["coverage"]["complete"]
+    assert metrics["observed_max_abs_error"] == 0
+    assert load_ccnet5d_poc_checkpoint(output / "final.pt").ema_decay == 0.999
+
+
 @pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+@pytest.mark.parametrize("ema_decay", [None, 0.999])
 def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
     loss_name,
+    ema_decay,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -133,8 +164,20 @@ def test_observed_only_fit_predict_evaluate_writes_final_replayable_run(
     progress: list[str] = []
 
     output, metrics = _run(
-        tmp_path, artifacts, progress_reporter=progress.append, loss_name=loss_name
+        tmp_path,
+        artifacts,
+        progress_reporter=progress.append,
+        loss_name=loss_name,
+        ema_decay=ema_decay,
     )
+    loaded_ema = load_ccnet5d_poc_checkpoint(output / "final.pt")
+    assert loaded_ema.ema_decay == ema_decay
+    if ema_decay is not None:
+        resolved = yaml.safe_load((output / "config.resolved.yaml").read_text())
+        metadata_ema = json.loads((output / "metadata.json").read_text())
+        assert resolved["training"]["ema_decay"] == ema_decay
+        assert metadata_ema["training_or_reconstruction"]["ema_decay"] == ema_decay
+        assert metadata_ema["training_or_reconstruction"]["prediction_weights"] == "final_ema"
 
     assert sorted(
         path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()

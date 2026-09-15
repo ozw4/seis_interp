@@ -134,7 +134,11 @@ def interpolate_ccnet5d_run(
         source,
         device=device,
         loss_name=settings.training.loss,
+        ema_decay=settings.training.ema_decay,
         optimizer_updates=settings.training.max_steps,
+        optimizer_name=settings.training.optimizer,
+        weight_decay=settings.training.weight_decay,
+        supervised_traces_per_update=settings.training.supervised_traces_per_update,
         learning_rate=settings.training.learning_rate,
         report_every_steps=settings.training.report_interval,
         reporter=progress_reporter,
@@ -211,6 +215,7 @@ def interpolate_ccnet5d_run(
         output / CHECKPOINT_RELATIVE_PATH,
         model,
         loss=settings.training.loss,
+        ema_decay=settings.training.ema_decay,
         amplitude_scale=amplitude_scale,
         patch_shape=settings.patches.shape,
         inner_mask_fraction=settings.patches.inner_mask_fraction,
@@ -363,7 +368,31 @@ def _run_metadata(
         },
         "training": {
             "domain": TRAINING_DOMAIN,
-            "optimizer": "adam",
+            **(
+                {
+                    "ema_decay": settings.training.ema_decay,
+                    "ema_initialization": "first_post_update_weights",
+                    "prediction_weights": "final_ema",
+                }
+                if settings.training.ema_decay is not None
+                else {}
+            ),
+            "optimizer": settings.training.optimizer,
+            **(
+                {"weight_decay": settings.training.weight_decay}
+                if settings.training.optimizer == "adamw" or settings.training.weight_decay != 0
+                else {}
+            ),
+            **(
+                {
+                    "supervised_traces_per_update": settings.training.supervised_traces_per_update,
+                    "gradient_accumulation_steps": 1,
+                    "supervision_sampling": "uniform_hidden_presentations_across_stacked_patches",
+                    "supervision_seed": settings.patches.inner_mask_seed,
+                }
+                if settings.training.supervised_traces_per_update is not None
+                else {}
+            ),
             "optimizer_updates": trained.steps_completed,
             "learning_rate": settings.training.learning_rate,
             "final_loss": trained.final_loss,

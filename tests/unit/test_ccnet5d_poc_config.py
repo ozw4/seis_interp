@@ -55,6 +55,40 @@ def test_validates_single_fixed_step_observed_only_configuration() -> None:
     assert settings.prediction_core_shape == (64, 2, 3, 1, 4)
 
 
+@pytest.mark.parametrize("decay", [None, 0.9, 0.999])
+def test_optional_ema(decay):
+    config = _config()
+    config["training"]["ema_decay"] = decay
+    assert validate_ccnet5d_poc_config(config).training.ema_decay == decay
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("optimizer", "sgd"),
+        ("weight_decay", -1),
+        ("weight_decay", True),
+        ("weight_decay", float("nan")),
+        ("supervised_traces_per_update", 0),
+        ("supervised_traces_per_update", True),
+        ("supervised_traces_per_update", 1.5),
+    ],
+)
+def test_invalid_batched_optimizer_settings(key, value):
+    config = _config()
+    config["training"][key] = value
+    with pytest.raises(ConfigurationError):
+        validate_ccnet5d_poc_config(config)
+
+
+@pytest.mark.parametrize("decay", [0, 1, -0.1, True, "0.999", float("nan"), float("inf")])
+def test_rejects_invalid_ema(decay):
+    config = _config()
+    config["training"]["ema_decay"] = decay
+    with pytest.raises(ConfigurationError, match="ema_decay"):
+        validate_ccnet5d_poc_config(config)
+
+
 @pytest.mark.parametrize(
     ("section", "field", "replacement", "match"),
     [

@@ -34,6 +34,125 @@ def _model() -> CCNet5D:
     )
 
 
+def test_exact_64_traces_use_one_forward_backward_and_adamw_step(monkeypatch):
+    volume = _observed_volume()
+    source = CCNet5DObservedPatchSource(
+        volume,
+        amplitude_scale=2.0,
+        patch_shape=volume.values.shape,
+        inner_mask_fraction=0.5,
+        placement_seed=7,
+        inner_mask_seed=401,
+    )
+    model = _model()
+    events = []
+    model.register_forward_hook(lambda *args: events.append("forward"))
+    next(model.parameters()).register_hook(lambda grad: events.append("backward"))
+    step = torch.optim.AdamW.step
+
+    def update(optimizer, *args, **kwargs):
+        assert optimizer.param_groups[0]["weight_decay"] == 0
+        events.append("step")
+        return step(optimizer, *args, **kwargs)
+
+    monkeypatch.setattr(torch.optim.AdamW, "step", update)
+    loss_fn = observed_training.masked_trace_loss
+
+    def loss(prediction, target, **kwargs):
+        assert prediction.shape == target.shape == (64, 4)
+        assert torch.isfinite(target).all()
+        result = loss_fn(prediction, target, **kwargs)
+        torch.testing.assert_close(result, ((prediction.double() - target.double()) ** 2).mean())
+        return result
+
+    monkeypatch.setattr(observed_training, "masked_trace_loss", loss)
+    result = observed_training.train_ccnet5d_observed_steps(
+        model,
+        source,
+        device="cpu",
+        optimizer_updates=3,
+        learning_rate=0.001,
+        report_every_steps=1,
+        optimizer_name="adamw",
+        weight_decay=0,
+        supervised_traces_per_update=64,
+        loss_name="masked_trace_mse",
+        ema_decay=0.999,
+    )
+    assert events == ["forward", "backward", "step"] * 3
+    assert result.supervised_trace_presentations == 192
+    assert [h["supervised_trace_presentations"] for h in result.history] == [64, 128, 192]
+
+
+def test_stacked_batch_selection_is_exact_reproducible_and_observed_only():
+    volume = _observed_volume()
+
+    def source():
+        return CCNet5DObservedPatchSource(
+            volume,
+            amplitude_scale=2.0,
+            patch_shape=volume.values.shape,
+            inner_mask_fraction=0.5,
+            placement_seed=7,
+            inner_mask_seed=401,
+        )
+
+    first, second = source(), source()
+    for _ in range(3):
+        a = first.sample_batch(5)
+        b = second.sample_batch(5)
+        for x, y in zip(a, b, strict=True):
+            np.testing.assert_array_equal(x, y)
+        inputs, targets, mask = a
+        assert inputs.shape == (3, *volume.values.shape)
+        assert mask.sum() == 5
+        assert not mask[..., -1].any()
+        assert np.all(np.moveaxis(inputs, 1, -1)[mask] == 0)
+        assert np.all(np.isfinite(np.moveaxis(targets, 1, -1)[mask]))
+
+
+def test_ema_matches_post_update_average_without_changing_training(monkeypatch):
+    snapshots = []
+    real_step = torch.optim.Adam.step
+
+    def capture_step(optimizer, *args, **kwargs):
+        result = real_step(optimizer, *args, **kwargs)
+        snapshots.append([p.detach().clone() for g in optimizer.param_groups for p in g["params"]])
+        return result
+
+    monkeypatch.setattr(torch.optim.Adam, "step", capture_step)
+    results = []
+    for decay in (None, 0.9):
+        volume = _observed_volume()
+        source = CCNet5DObservedPatchSource(
+            volume,
+            amplitude_scale=2.0,
+            patch_shape=volume.values.shape,
+            inner_mask_fraction=0.5,
+            placement_seed=7,
+            inner_mask_seed=401,
+        )
+        model = _model()
+        results.append(
+            observed_training.train_ccnet5d_observed_steps(
+                model,
+                source,
+                device="cpu",
+                optimizer_updates=3,
+                learning_rate=0.001,
+                report_every_steps=1,
+                ema_decay=decay,
+            )
+        )
+    assert results[0] == results[1]
+    for raw, ema in zip(snapshots[:3], snapshots[3:], strict=True):
+        for a, b in zip(raw, ema, strict=True):
+            torch.testing.assert_close(a, b, rtol=0, atol=0)
+    for i, parameter in enumerate(model.parameters()):
+        expected = snapshots[0][i] * 0.81 + snapshots[1][i] * 0.09 + snapshots[2][i] * 0.1
+        torch.testing.assert_close(parameter, expected)
+
+
 def _observed_volume() -> ObservedC3Volume:
     shape = (4, 1, 1, 1, 4)
     observed_mask = np.array([[[[True, True, True, False]]]], dtype=np.bool_)
@@ -152,8 +271,10 @@ def test_fixed_step_training_calls_shared_loss_with_only_hidden_complete_traces(
 
 
 @pytest.mark.parametrize("loss_name", ["masked_trace_mse", "masked_trace_relative_mse"])
+@pytest.mark.parametrize("decay", [None, 0.999])
 def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
     loss_name,
+    decay,
     tmp_path: Path,
 ) -> None:
     model = _model()
@@ -166,6 +287,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
         path,
         model,
         loss=loss_name,
+        ema_decay=decay,
         amplitude_scale=2.75,
         patch_shape=(4, 1, 1, 1, 4),
         inner_mask_fraction=0.5,
@@ -179,7 +301,7 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
             parameter.add_(10.0)
 
     payload = torch.load(path, map_location="cpu", weights_only=True)
-    assert set(payload) == {
+    assert set(payload) - ({"ema"} if decay is not None else set()) == {
         "model_type",
         "method_variant",
         "model_config",
@@ -216,6 +338,12 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
         torch.testing.assert_close(tensor, saved_state[name], rtol=0, atol=0)
 
     loaded = load_ccnet5d_poc_checkpoint(path, device="cpu")
+    assert loaded.ema_decay == decay
+    if decay is not None:
+        payload["ema"]["prediction_weights"] = "final_raw"
+        torch.save(payload, path)
+        with pytest.raises(ValueError, match="ema"):
+            load_ccnet5d_poc_checkpoint(path)
 
     assert loaded.loss == loss_name
     assert loaded.amplitude_scale == 2.75
@@ -232,6 +360,24 @@ def test_final_checkpoint_round_trip_binds_observed_only_training_metadata(
     [
         ("checkpoint_role", "best", "checkpoint_role"),
         ("loss", "unknown", "loss"),
+        (
+            "ema",
+            {
+                "decay": 1,
+                "initialization": "first_post_update_weights",
+                "prediction_weights": "final_ema",
+            },
+            "ema_decay",
+        ),
+        (
+            "ema",
+            {
+                "decay": None,
+                "initialization": "first_post_update_weights",
+                "prediction_weights": "final_ema",
+            },
+            "ema",
+        ),
         (
             "normalization",
             {"type": "global_rms", "source": "all_traces", "scale": 2.75},

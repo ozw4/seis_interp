@@ -13,6 +13,7 @@ import torch
 from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.processing.c3_volume_index import VOLUME_AXIS_ORDER
 from seis_interp.processing.ccnet5d_tiles import validate_ccnet5d_shape
+from seis_interp.training.ccnet5d_ema import validate_ccnet5d_ema_decay
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 CCNET5D_POC_METHOD_VARIANT = "common_protocol_masked_observed_training"
@@ -38,6 +39,7 @@ class LoadedCCNet5DPocCheckpoint:
     model_initialization_seed: int
     optimizer_updates: int
     loss: str
+    ema_decay: float | None = None
 
 
 def save_ccnet5d_poc_checkpoint(
@@ -52,6 +54,7 @@ def save_ccnet5d_poc_checkpoint(
     model_initialization_seed: int,
     optimizer_updates: int,
     loss: str = "masked_trace_relative_mse",
+    ema_decay: float | None = None,
 ) -> None:
     """Save one non-resumable final CPU snapshot without optimizer state."""
     if not isinstance(model, CCNet5D):
@@ -59,6 +62,7 @@ def save_ccnet5d_poc_checkpoint(
     if loss not in POC_TRACE_LOSSES:
         raise ValueError(f"checkpoint loss must be one of {POC_TRACE_LOSSES!r}")
     scale = _positive_finite_float(amplitude_scale, "amplitude_scale")
+    decay = validate_ccnet5d_ema_decay(ema_decay)
     shape = validate_ccnet5d_shape(patch_shape, "patch_shape")
     fraction = _fraction(inner_mask_fraction)
     placement = _nonnegative_integer(placement_seed, "placement_seed")
@@ -87,6 +91,12 @@ def save_ccnet5d_poc_checkpoint(
         "loss": loss,
         "checkpoint_role": CCNET5D_POC_CHECKPOINT_ROLE,
     }
+    if decay is not None:
+        payload["ema"] = {
+            "decay": decay,
+            "initialization": "first_post_update_weights",
+            "prediction_weights": "final_ema",
+        }
     torch.save(payload, Path(path))
 
 
@@ -110,8 +120,29 @@ def load_ccnet5d_poc_checkpoint(
         "loss",
         "checkpoint_role",
     }
-    if not isinstance(payload, Mapping) or set(payload) != expected_fields:
+    if not isinstance(payload, Mapping) or set(payload) not in (
+        expected_fields,
+        expected_fields | {"ema"},
+    ):
         raise ValueError("CCNet-5D PoC checkpoint must contain exactly the required fields")
+    decay = None
+    if "ema" in payload:
+        ema = payload["ema"]
+        if not isinstance(ema, Mapping) or set(ema) != {
+            "decay",
+            "initialization",
+            "prediction_weights",
+        }:
+            raise ValueError(
+                "checkpoint ema must contain decay, initialization, prediction_weights"
+            )
+        decay = validate_ccnet5d_ema_decay(ema["decay"])
+        if (
+            decay is None
+            or ema["initialization"] != "first_post_update_weights"
+            or ema["prediction_weights"] != "final_ema"
+        ):
+            raise ValueError("checkpoint ema must identify final EMA weights")
     if payload["model_type"] != "ccnet5d":
         raise ValueError("checkpoint model_type must be 'ccnet5d'")
     if payload["method_variant"] != CCNET5D_POC_METHOD_VARIANT:
@@ -155,6 +186,7 @@ def load_ccnet5d_poc_checkpoint(
     model = _model_from_payload(payload["model_config"], payload["state_dict"])
     model.to(device)
     return LoadedCCNet5DPocCheckpoint(
+        ema_decay=decay,
         loss=payload["loss"],
         model=model,
         amplitude_scale=scale,
