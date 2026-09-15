@@ -60,6 +60,10 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 | [study_043_c3_v3_ccnet_target_tuning](study_043_c3_v3_ccnet_target_tuning/README.md) | `completed` | v3 CCNet, Global RMS, no shear; target-informed mean trace SNR 14.4375 dB |
 | [study_044_c3_v3_gnn_target_tuning](study_044_c3_v3_gnn_target_tuning/README.md) | `adopted_18db_achieved` | Fixed v3 GNN canonical EMA result: mean trace SNR 18.2795 dB; Global RMS, no shear; target-informed |
 
+- [study_045_c3_v3_nersi_parameter_matched](study_045_c3_v3_nersi_parameter_matched/README.md): running — NeRSI width reduction to approximately match CCNet parameter count on fixed v3 inputs.
+
+- [study_046_c3_v3_nersi_gnn_parameter_budget](study_046_c3_v3_nersi_gnn_parameter_budget/README.md): running — NeRSI at exactly 363,269 parameters, 50,000 updates, no shear, constant learning rate.
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.

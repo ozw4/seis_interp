@@ -1,0 +1,5 @@
+extends: fourier40.yaml
+model:
+  encoder_width: 91
+  latent_channels: 15
+  decoder_channels: [26, 12, 5]

@@ -1,0 +1,6 @@
+extends: base115_profiles10_adamw_axis_nyquist.yaml
+model:
+  latent_spatial_rank: 2
+  encoder_width: 80
+  latent_channels: 20
+  decoder_channels: [40, 17, 16]

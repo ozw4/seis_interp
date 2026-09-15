@@ -1,0 +1,7 @@
+extends: base115_profiles10_adamw.yaml
+profile_axis: shot_in_line
+model:
+  coordinate_order:
+  - source_line
+  - relative_receiver_x
+  - relative_receiver_y

@@ -1,0 +1,6 @@
+extends: base115_profiles10_adamw_axis_nyquist.yaml
+model:
+  profile_embedding_channels: 32
+  encoder_width: 41
+  latent_channels: 11
+  decoder_channels: [40, 16, 15]

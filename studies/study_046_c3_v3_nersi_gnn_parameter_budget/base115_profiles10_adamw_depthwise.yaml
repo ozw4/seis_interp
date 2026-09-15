@@ -1,0 +1,6 @@
+extends: base115_profiles10_adamw.yaml
+model:
+  encoder_width: 54
+  latent_channels: 32
+  decoder_channels: [30, 27, 24]
+  decoder_convolution: depthwise_separable

@@ -1,0 +1,4 @@
+extends: base115_profiles10_adamw_axis_nyquist.yaml
+training:
+  model_initialization_seed: 102
+  sampling_seed: 202

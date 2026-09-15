@@ -1,0 +1,5 @@
+extends: ../study_042_c3_v3_five_method_comparison/nersi_no_time_shear.yaml
+model:
+  encoder_width: 96
+  latent_channels: 13
+  decoder_channels: [13, 7, 4]

@@ -1,0 +1,3 @@
+extends: fourier40.yaml
+model:
+  frequency_base: 1.10

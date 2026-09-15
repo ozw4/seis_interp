@@ -1,0 +1,6 @@
+extends: base115_profiles10_adamw_axis_nyquist.yaml
+model:
+  temporal_basis_components: 128
+  encoder_width: 78
+  latent_channels: 22
+  decoder_channels: [39, 20, 10]

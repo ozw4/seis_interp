@@ -1,0 +1,2 @@
+extends: base115_profiles10_adamw_axis_nyquist.yaml
+profile_coordinates: cartesian_cmp_half_offset

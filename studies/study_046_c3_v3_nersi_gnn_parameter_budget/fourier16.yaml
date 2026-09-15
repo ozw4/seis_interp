@@ -1,0 +1,6 @@
+extends: fourier160.yaml
+model:
+  fourier_components: 16
+  encoder_width: 33
+  latent_channels: 29
+  decoder_channels: [33, 17, 11]

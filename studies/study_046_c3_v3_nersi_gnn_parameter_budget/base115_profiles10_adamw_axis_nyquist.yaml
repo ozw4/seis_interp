@@ -1,0 +1,3 @@
+extends: base115_profiles10_adamw.yaml
+model:
+  frequency_base: [1.07, 1.09, 1.05]

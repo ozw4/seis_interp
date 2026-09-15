@@ -1,0 +1,7 @@
+extends: base115_profiles10_adamw.yaml
+model:
+  fourier_components: 48
+  frequency_base: [1.0580395478130187, 1.0741626202136336, 1.0413727500690981]
+  encoder_width: 40
+  latent_channels: 24
+  decoder_channels: [33, 17, 16]

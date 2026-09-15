@@ -1,0 +1,3 @@
+extends: base115.yaml
+training:
+  profiles_per_step: 10
