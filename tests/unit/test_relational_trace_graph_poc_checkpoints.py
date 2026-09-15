@@ -56,6 +56,82 @@ def _arguments():
     }
 
 
+def test_poc_fourier_checkpoint_round_trip_and_fixed_frequency_validation(tmp_path):
+    arguments = _arguments()
+    model = RelationalTraceGraphInterpolator(**arguments["model_config"], node_fourier_components=4)
+    arguments.update(model_config=model.constructor_config(), state_dict=model.state_dict())
+    path = tmp_path / "final.pt"
+    save_relational_trace_graph_poc_checkpoint(path, **arguments)
+    restored = load_relational_trace_graph_poc_checkpoint(
+        path, inputs_lock=arguments["inputs_lock"]
+    )
+    assert restored.model.constructor_config() == model.constructor_config()
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, restored.model.state_dict()[key])
+    payload = torch.load(path, weights_only=True)
+    payload["model_state_dict"]["node_fourier_mapping.frequencies"][0] += 1
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="Fourier frequencies"):
+        load_relational_trace_graph_poc_checkpoint(path, inputs_lock=arguments["inputs_lock"])
+
+
+def test_poc_spectral_checkpoint_round_trip(tmp_path):
+    arguments = _arguments()
+    model = RelationalTraceGraphInterpolator(**arguments["model_config"], spectral_input_block=True)
+    arguments.update(model_config=model.constructor_config(), state_dict=model.state_dict())
+    path = tmp_path / "final.pt"
+    save_relational_trace_graph_poc_checkpoint(path, **arguments)
+    restored = load_relational_trace_graph_poc_checkpoint(
+        path, inputs_lock=arguments["inputs_lock"]
+    )
+    assert restored.model.constructor_config() == model.constructor_config()
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, restored.model.state_dict()[key])
+
+
+def test_schedule_checkpoint_round_trip_and_validation(tmp_path):
+    arguments = _arguments()
+    schedule = dict(kind="constant_then_cosine", hold_steps=1, minimum_learning_rate=0.00003)
+    arguments["metadata"].update(learning_rate=0.001, learning_rate_schedule=schedule)
+    path = tmp_path / "final.pt"
+    save_relational_trace_graph_poc_checkpoint(path, **arguments)
+    restored = load_relational_trace_graph_poc_checkpoint(
+        path, inputs_lock=arguments["inputs_lock"]
+    )
+    assert restored.metadata["learning_rate_schedule"] == schedule
+    payload = torch.load(path, weights_only=True)
+    payload["learning_rate_schedule"]["hold_steps"] = 3
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="hold_steps"):
+        load_relational_trace_graph_poc_checkpoint(path, inputs_lock=arguments["inputs_lock"])
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("decay", None),
+        ("decay", 1),
+        ("updates", 0),
+        ("updates", 4),
+        ("updates", True),
+        ("initialization", "unknown"),
+    ],
+)
+def test_ema_checkpoint_metadata_is_validated(tmp_path, key, value):
+    arguments = _arguments()
+    arguments["metadata"].update(
+        weight_source="ema",
+        ema={"decay": 0.999, "updates": 3, "initialization": "first_post_update_weights"},
+    )
+    path = tmp_path / "ema.pt"
+    save_relational_trace_graph_poc_checkpoint(path, **arguments)
+    payload = torch.load(path, weights_only=True)
+    payload["ema"][key] = value
+    torch.save(payload, path)
+    with pytest.raises(ValueError):
+        load_relational_trace_graph_poc_checkpoint(path, inputs_lock=arguments["inputs_lock"])
+
+
 @pytest.mark.parametrize(
     "keys,value,error",
     [
@@ -75,6 +151,7 @@ def _arguments():
         (("normalization", "scale"), 3.0, "normalization"),
         (("checkpoint_role",), "best_validation", "checkpoint_role"),
         (("loss",), "unknown", "loss"),
+        (("cudnn_benchmark",), "false", "cudnn_benchmark"),
         (("model_initialization_seed",), True, "model_initialization_seed"),
         (("episode_seed",), -1, "episode_seed"),
         (("steps_completed",), 0, "steps_completed"),
@@ -116,6 +193,7 @@ def test_poc_atomic_snapshot_preserves_rng_and_existing_file_on_failure(
     arguments = _arguments()
     path = tmp_path / "final.pt"
     arguments["metadata"]["loss"] = loss_name
+    arguments["metadata"]["cudnn_benchmark"] = False
     rng = torch.get_rng_state().clone()
     save_relational_trace_graph_poc_checkpoint(path, **arguments)
     assert torch.equal(torch.get_rng_state(), rng)
@@ -124,6 +202,7 @@ def test_poc_atomic_snapshot_preserves_rng_and_existing_file_on_failure(
         path, inputs_lock=arguments["inputs_lock"]
     )
     assert restored.metadata["loss"] == loss_name
+    assert restored.metadata["cudnn_benchmark"] is False
     assert restored.preprocessing == arguments["preprocessing"]
     assert restored.graph_settings == arguments["graph_settings"]
     for key, value in arguments["state_dict"].items():

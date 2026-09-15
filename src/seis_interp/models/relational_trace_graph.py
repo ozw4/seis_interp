@@ -12,6 +12,8 @@ from seis_interp.data.masked_trace_inputs import (
     MaskedTraceGraphInputs,
     validate_masked_trace_graph_inputs,
 )
+from seis_interp.models.nersi import FourierFeatureMapping
+from seis_interp.models.spectral_trace_graph import SpectralTraceGraphInputBlock
 from seis_interp.models.trace_codec import TraceNodeDecoder, TraceNodeEncoder
 from seis_interp.models.trace_graph_amplitude import (
     TRACE_GRAPH_AMPLITUDE_MODES,
@@ -204,6 +206,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
         explicit_azimuth_features: bool = True,
         amplitude_mode: str = "train_global_rms",
         max_edge_time_shift_samples: int = 0,
+        node_fourier_components: int = 0,
+        spectral_input_block: bool = False,
     ) -> None:
         super().__init__()
         if method_variant not in TRACE_GRAPH_METHOD_VARIANTS:
@@ -226,6 +230,22 @@ class RelationalTraceGraphInterpolator(nn.Module):
         self.explicit_azimuth_features = explicit_azimuth_features
         self.amplitude_mode = amplitude_mode
         self.max_edge_time_shift_samples = int(max_edge_time_shift_samples)
+        if not isinstance(spectral_input_block, bool):
+            raise ValueError("spectral_input_block must be boolean")
+        if spectral_input_block and (
+            amplitude_mode != "train_global_rms"
+            or max_edge_time_shift_samples
+            or method_variant != "relational"
+        ):
+            raise ValueError(
+                "spectral_input_block requires relational global RMS and no edge time shift"
+            )
+        if (
+            isinstance(node_fourier_components, bool)
+            or not isinstance(node_fourier_components, Integral)
+            or node_fourier_components < 0
+        ):
+            raise ValueError("node_fourier_components must be a nonnegative integer")
         rounds = _positive_integer(message_passing_rounds, "message_passing_rounds")
         if len(temporal_dilations) != rounds:
             raise ValueError("temporal_dilations must match message_passing_rounds")
@@ -234,7 +254,15 @@ class RelationalTraceGraphInterpolator(nn.Module):
             stem_kernel_size=stem_kernel_size,
             time_downsample_factor=time_downsample_factor,
         )
-        self.node_embedding = _mlp(len(NODE_FEATURE_NAMES), width, width)
+        self.node_fourier_mapping = (
+            FourierFeatureMapping(input_features=4, fourier_components=node_fourier_components)
+            if node_fourier_components
+            else None
+        )
+        node_width = len(NODE_FEATURE_NAMES) + (
+            self.node_fourier_mapping.output_features if self.node_fourier_mapping else 0
+        )
+        self.node_embedding = _mlp(node_width, width, width)
         self.rounds = nn.ModuleList(
             (
                 RelationalTraceGraphMessageBlock(
@@ -257,6 +285,7 @@ class RelationalTraceGraphInterpolator(nn.Module):
             for dilation in temporal_dilations
         )
         self.decoder = TraceNodeDecoder(width, time_downsample_factor=time_downsample_factor)
+        self.spectral_input = SpectralTraceGraphInputBlock() if spectral_input_block else None
         if self.max_edge_time_shift_samples:
             # One bias-free geometry vector for all relations and all rounds.
             # zeros consumes no RNG and does not change existing initialization.
@@ -280,6 +309,10 @@ class RelationalTraceGraphInterpolator(nn.Module):
             self._config["amplitude_mode"] = amplitude_mode
         if self.max_edge_time_shift_samples:
             self._config["max_edge_time_shift_samples"] = self.max_edge_time_shift_samples
+        if node_fourier_components:
+            self._config["node_fourier_components"] = int(node_fourier_components)
+        if spectral_input_block:
+            self._config["spectral_input_block"] = True
 
     def constructor_config(self) -> dict[str, object]:
         """Return independent, JSON-compatible constructor values."""
@@ -332,8 +365,21 @@ class RelationalTraceGraphInterpolator(nn.Module):
                 inputs.query_indices,
                 inputs.common_edge_distances,
             )
-        padded = F.pad(visible[:, None], (0, padded_time - time_count))
         node_features, edge_features = self.input_features(inputs)
+        spectral_seed = None
+        if self.spectral_input is not None:
+            spectral_seed = self.spectral_input(
+                visible, inputs.observed_mask, inputs.edge_index, inputs.edge_type, edge_features
+            )
+        padded = F.pad(
+            (visible if spectral_seed is None else spectral_seed)[:, None],
+            (0, padded_time - time_count),
+        )
+        if self.node_fourier_mapping is not None:
+            # Only fixed midpoint/offset coordinates are periodic; visibility is not.
+            node_features = torch.cat(
+                (node_features, self.node_fourier_mapping(node_features[:, :4])), dim=1
+            )
         latents = self.encoder(padded) + self.node_embedding(node_features)[:, :, None]
         shift_arguments = {}
         if self.max_edge_time_shift_samples:
@@ -366,6 +412,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
         )
         if self.amplitude_mode == "observed_trace_rms":
             predictions = predictions * query_rms[:, None]
+        if spectral_seed is not None:
+            predictions = predictions + spectral_seed[inputs.query_indices]
         predictions = predictions.masked_fill(~has_context[:, None], 0)
         if diagnostics is not None:
             diagnostics.update(

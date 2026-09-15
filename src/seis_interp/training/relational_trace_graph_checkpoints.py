@@ -20,6 +20,8 @@ from seis_interp.processing.trace_graph_geometry import (
 )
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
+from seis_interp.training.trace_graph_ema import validate_trace_graph_ema_decay
+from seis_interp.training.trace_graph_optimization import validate_trace_graph_schedule
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
 RELATIONAL_TRACE_GRAPH_MODEL_TYPE = "relational_trace_graph"
@@ -41,6 +43,8 @@ _MODEL_OPTIONS = {
     "explicit_azimuth_features",
     "amplitude_mode",
     "max_edge_time_shift_samples",
+    "node_fourier_components",
+    "spectral_input_block",
 }
 
 
@@ -136,9 +140,31 @@ def _load_poc_payload(
             raise ValueError(f"checkpoint {name} does not match the PoC contract")
     if payload.get("loss") not in POC_TRACE_LOSSES:
         raise ValueError(f"checkpoint loss must be one of {POC_TRACE_LOSSES!r}")
+    if "cudnn_benchmark" in payload and not isinstance(payload["cudnn_benchmark"], bool):
+        raise ValueError("checkpoint cudnn_benchmark must be boolean")
     for key in ("model_initialization_seed", "episode_seed"):
         _integer(payload.get(key), key, minimum=0)
     _integer(payload.get("steps_completed"), "steps_completed", minimum=1)
+    if "ema" in payload or "weight_source" in payload:
+        ema = payload.get("ema")
+        if (
+            payload.get("weight_source") not in ("raw", "ema")
+            or not isinstance(ema, Mapping)
+            or set(ema) != {"decay", "updates", "initialization"}
+            or ema.get("initialization") != "first_post_update_weights"
+        ):
+            raise ValueError("checkpoint EMA metadata is invalid")
+        if validate_trace_graph_ema_decay(ema["decay"]) is None:
+            raise ValueError("checkpoint EMA decay must be enabled")
+        updates = _integer(ema["updates"], "ema.updates", minimum=1)
+        if updates > payload["steps_completed"]:
+            raise ValueError("checkpoint ema.updates exceeds steps_completed")
+    if "learning_rate_schedule" in payload:
+        if not _finite_number(payload.get("learning_rate")) or payload["learning_rate"] <= 0:
+            raise ValueError("checkpoint learning_rate must be positive and finite")
+        validate_trace_graph_schedule(
+            payload["learning_rate_schedule"], payload["learning_rate"], payload["steps_completed"]
+        )
     fraction = payload.get("inner_mask_fraction")
     if not _finite_number(fraction) or not 0 < fraction < 1:
         raise ValueError("checkpoint inner_mask_fraction must be in (0, 1)")
@@ -330,6 +356,14 @@ def _load_inference(
     except (TypeError, ValueError) as error:
         raise ValueError(f"checkpoint model_config is invalid: {error}") from error
     try:
+        if model.node_fourier_mapping is not None:
+            frequencies = state_dict.get("node_fourier_mapping.frequencies")
+            if not isinstance(frequencies, torch.Tensor) or not torch.equal(
+                frequencies.cpu(), model.node_fourier_mapping.frequencies
+            ):
+                raise ValueError(
+                    "checkpoint state_dict Fourier frequencies differ from model_config"
+                )
         model.load_state_dict(state_dict, strict=True)
     except RuntimeError as error:
         raise ValueError("checkpoint state_dict does not match model_config") from error

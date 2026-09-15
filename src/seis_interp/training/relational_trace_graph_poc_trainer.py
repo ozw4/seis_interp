@@ -23,6 +23,11 @@ from seis_interp.training.c3_poc_trace_graph_episodes import (
     build_poc_trace_graph_context_source,
 )
 from seis_interp.training.mixed_precision import mixed_precision_dtype
+from seis_interp.training.trace_graph_ema import TraceGraphEMA
+from seis_interp.training.trace_graph_optimization import (
+    trace_graph_step_learning_rate,
+    validate_trace_graph_schedule,
+)
 from seis_interp.training.trace_graph_sampling import validate_trace_graph_edge_sampling
 from seis_interp.training.trace_relative_loss import masked_trace_loss
 
@@ -55,6 +60,9 @@ def train_relational_trace_graph_poc(
     loss: str = "masked_trace_relative_mse",
     mixed_precision: str = "off",
     edge_sampling: dict[str, int] | None = None,
+    cudnn_benchmark: bool = True,
+    learning_rate_schedule: dict | None = None,
+    ema: TraceGraphEMA | None = None,
     device: torch.device | str = "cpu",
     reporter: Callable[[str], None] | None = None,
 ) -> TraceGraphPocTrainingResult:
@@ -63,7 +71,13 @@ def train_relational_trace_graph_poc(
     History timings are relative wall-clock measurements without extra CUDA
     synchronization. Scalar reads finish the optimization interval; preparation
     may enqueue device work that is accounted for by that later interval.
+    Query geometry, graph build, input assembly and label read partition the
+    preparation interval in that order and sum to it.
     """
+    if not isinstance(cudnn_benchmark, bool):
+        raise ValueError("cudnn_benchmark must be boolean")
+    if not cudnn_benchmark:
+        torch.backends.cudnn.benchmark = False
     amp_dtype = mixed_precision_dtype(mixed_precision, device)
     sampling = (
         None
@@ -82,6 +96,11 @@ def train_relational_trace_graph_poc(
     batch_size = config_values.positive_integer(query_batch_size, "query_batch_size")
     interval = config_values.positive_integer(report_interval, "report_interval")
     rate = config_values.positive_float(learning_rate, "learning_rate")
+    schedule = (
+        None
+        if learning_rate_schedule is None
+        else validate_trace_graph_schedule(learning_rate_schedule, rate, steps)
+    )
     decay = config_values.nonnegative_float(weight_decay, "weight_decay")
     clip = (
         None
@@ -126,6 +145,7 @@ def train_relational_trace_graph_poc(
                 domain.receiver_xy_m[indices],
                 azimuth_min_offset_m=threshold,
             )
+            queried = perf_counter()
             plan = (
                 builder.build(
                     queries, query_ids, rounds=model.message_passing_rounds, **build_options
@@ -141,10 +161,17 @@ def train_relational_trace_graph_poc(
                     **graph_settings.subgraph_kwargs(),
                 )
             )
+            built = perf_counter()
             batch = source.inputs(plan)
+            assembled = perf_counter()
             target = labels.read(query_ids)
             prepared = perf_counter()
             model.train()
+            if schedule is not None:
+                for group in optimizer.param_groups:
+                    group["lr"] = trace_graph_step_learning_rate(
+                        len(history) + 1, steps, rate, schedule
+                    )
             optimizer.zero_grad(set_to_none=True)
             if amp_dtype is None:
                 prediction, context = model(batch)
@@ -174,9 +201,14 @@ def train_relational_trace_graph_poc(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), clip, error_if_nonfinite=True)
             if scaler is None:
                 optimizer.step()
+                if ema is not None:
+                    ema.update(model)
             else:
+                previous_scale = scaler.get_scale() if ema is not None else None
                 scaler.step(optimizer)
                 scaler.update()
+                if ema is not None and scaler.get_scale() >= previous_scale:
+                    ema.update(model)
             count = int((~context).sum().item())
             loss_value = float(objective.detach().item())
             optimized = perf_counter()
@@ -196,9 +228,15 @@ def train_relational_trace_graph_poc(
                     "subgraph_edge_count": plan.diagnostics["typed_edge_count"],
                     "subgraph_max_depth": plan.diagnostics["max_depth"],
                     "batch_preparation_seconds": prepared - started,
+                    "query_geometry_seconds": queried - started,
+                    "graph_build_seconds": built - queried,
+                    "input_assembly_seconds": assembled - built,
+                    "label_read_seconds": prepared - assembled,
                     "optimization_seconds": optimized - prepared,
                 }
             )
+            if schedule is not None:
+                history[-1]["learning_rate"] = optimizer.param_groups[0]["lr"]
             if reporter and (len(history) % interval == 0 or len(history) == steps):
                 reporter(f"GNN step {len(history)}/{steps}: loss={history[-1]['loss']:.8g}")
             if len(history) == steps:

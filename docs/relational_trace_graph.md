@@ -373,6 +373,19 @@ seis-interp interpolate relational-trace-graph \
 
 ## PoC run出力
 
+任意の`training.ema_decay`（例: `0.999`）で最終EMA重みを評価できる。
+省略または`null`では通常の最終重みを使う。値は有限の`0 < decay < 1`とする。
+最初の成功したoptimizer更新後のparameterを初期値とし、以降は更新ごとに
+`ema = decay * ema + (1 - decay) * parameter`で平均する。AMPでスキップされた
+更新は含めない。Fourier周波数などのbufferは平均せず現在値をコピーする。
+EMAは通常の学習parameter、loss、人工mask・query順序、乱数列を変更しない。
+
+EMA有効時も`final.pt`には通常の最終重みを保存し、`artifacts/ema.pt`に最終EMA重みを
+保存する。両者に`weight_source`（`raw`/`ema`）、EMA係数、成功更新数、初期化方式を記録する。
+予測・共通評価はEMA重みを使用し、metadataの`artifacts.checkpoint`も`artifacts/ema.pt`を指す。
+通常重みのpathとhashは`method_details.raw_checkpoint`に残す。両方とも既存のPoC loaderで
+復元でき、`checkpoint_role`は`final`のままとする。validation選択やearly stoppingは行わない。
+
 既存の出力directoryは再使用しない。`final.pt`には最終重み、constructor、
 graph設定、共通RMS、固定座標bounds、inner mask率、seed、完了step、inputs lockを保存する。
 保存には`save_relational_trace_graph_poc_checkpoint()`を使い、一時ファイルからatomic replaceする。
@@ -391,6 +404,9 @@ metadataは学習step・episode数・loss・query/no-context件数、parameter�
 batch準備時間・最適化時間、node/support/edge数と最大depthの平均、node/edge数の最大を集計する。
 各stepのcountは実際のplanに対応する。準備時間はquery geometryからlabel materializationまで、
 最適化時間はzero-gradからloss/contextのscalar readまでである。
+準備時間はquery geometry、graph build、input assembly、label readの4区間へこの順に分割し、
+4つの平均も集計する。4区間は重複なく準備時間を分割し、その和は準備時間に一致する。
+input assemblyはCPUでのfeature組み立てとdeviceへの転送を含む。
 `resource_usage.optimizer_updates_per_second`は更新数を`timing.training_seconds`で割った値で、
 index・episodeのsetupを含む。CUDAでは学習直後かつ予測前に
 `resource_usage.training_peak_cuda_allocated_bytes`と`resource_usage.training_peak_cuda_reserved_bytes`を採取し、CPUでは省略する。

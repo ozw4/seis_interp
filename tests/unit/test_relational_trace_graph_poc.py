@@ -12,6 +12,7 @@ from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterp
 from seis_interp.relational_trace_graph_poc_config import validate_relational_trace_graph_poc_config
 from seis_interp.training import relational_trace_graph_poc_trainer as trainer
 from seis_interp.training.c3_poc_trace_graph_episodes import PocTraceGraphEpisodeGenerator
+from seis_interp.training.trace_graph_ema import TraceGraphEMA
 from tests.fixtures.c3_poc_trace_graph import prepare_poc_trace_graph_inputs
 
 
@@ -93,8 +94,17 @@ def test_shared_loss_receives_exact_hidden_rows_and_every_optimizer_step(
             == plan.edge_index.shape[1]
         )
         assert row["subgraph_max_depth"] == plan.diagnostics["max_depth"]
-        for key in ("seconds", "batch_preparation_seconds", "optimization_seconds"):
+        preparation = (
+            "query_geometry_seconds",
+            "graph_build_seconds",
+            "input_assembly_seconds",
+            "label_read_seconds",
+        )
+        for key in ("seconds", "batch_preparation_seconds", "optimization_seconds", *preparation):
             assert np.isfinite(row[key]) and row[key] >= 0
+        assert sum(row[key] for key in preparation) == pytest.approx(
+            row["batch_preparation_seconds"]
+        )
         for key in ("subgraph_support_node_count", "subgraph_edge_count", "subgraph_max_depth"):
             assert row[key] >= 0
     assert result.query_count == sum(row["query_count"] for row in result.history)
@@ -245,6 +255,164 @@ def _precision_training_case(tmp_path):
     options["max_steps"] = 2
     torch.manual_seed(4)
     return RelationalTraceGraphInterpolator(**settings.model), training, settings.graph, options
+
+
+def test_ema_preserves_raw_training_and_averages_post_optimizer_states(tmp_path, monkeypatch):
+    model, training, graph, options = _precision_training_case(tmp_path)
+    second = RelationalTraceGraphInterpolator(**model.constructor_config())
+    second.load_state_dict(model.state_dict())
+    rng = torch.get_rng_state().clone()
+    first = trainer.train_relational_trace_graph_poc(
+        model, training, graph_settings=graph, **options
+    )
+    after_rng = torch.get_rng_state().clone()
+    torch.set_rng_state(rng)
+    snapshots = []
+    step = torch.optim.AdamW.step
+
+    def capture(optimizer, *args, **kwargs):
+        result = step(optimizer, *args, **kwargs)
+        snapshots.append({k: v.clone() for k, v in second.state_dict().items()})
+        return result
+
+    monkeypatch.setattr(torch.optim.AdamW, "step", capture)
+    ema = TraceGraphEMA(0.75)
+    averaged = trainer.train_relational_trace_graph_poc(
+        second, training, graph_settings=graph, ema=ema, **options
+    )
+    assert torch.equal(after_rng, torch.get_rng_state())
+    assert ema.updates == options["max_steps"] == 2
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, second.state_dict()[key])
+        expected = 0.75 * snapshots[0][key] + 0.25 * snapshots[1][key]
+        torch.testing.assert_close(ema.state_dict()[key], expected)
+    for a, b in zip(first.history, averaged.history, strict=True):
+        assert {k: v for k, v in a.items() if not k.endswith("seconds")} == {
+            k: v for k, v in b.items() if not k.endswith("seconds")
+        }
+
+
+def test_ema_skips_amp_rejected_updates(tmp_path, monkeypatch):
+    model, training, graph, options = _precision_training_case(tmp_path)
+    options["gradient_clip_norm"] = None
+
+    class SkippingScaler:
+        current_scale = 8.0
+        calls = 0
+
+        def scale(self, loss):
+            return loss
+
+        def unscale_(self, optimizer):
+            pass
+
+        def get_scale(self):
+            return self.current_scale
+
+        def step(self, optimizer):
+            self.calls += 1
+            if self.calls > 1:
+                optimizer.step()
+
+        def update(self):
+            if self.calls == 1:
+                self.current_scale /= 2
+
+    monkeypatch.setattr(trainer, "mixed_precision_dtype", lambda *args: None)
+    monkeypatch.setattr(torch.cuda.amp, "GradScaler", SkippingScaler)
+    ema = TraceGraphEMA(0.9)
+    trainer.train_relational_trace_graph_poc(
+        model, training, graph_settings=graph, mixed_precision="fp16", ema=ema, **options
+    )
+    assert ema.updates == 1
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, ema.state_dict()[key])
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("mode", ["off", "fp16", "bf16"])
+def test_cuda_ema_training_and_cpu_snapshot(tmp_path, mode):
+    if mode == "bf16" and not torch.cuda.is_bf16_supported():
+        pytest.skip("CUDA device does not support bf16")
+    model, training, graph, options = _precision_training_case(tmp_path)
+    ema = TraceGraphEMA(0.999)
+    result = trainer.train_relational_trace_graph_poc(
+        model,
+        training,
+        graph_settings=graph,
+        mixed_precision=mode,
+        device="cuda",
+        ema=ema,
+        **options,
+    )
+    assert result.steps_completed == 2
+    assert 0 < ema.updates <= 2
+    state = ema.state_dict()
+    assert all(t.device.type == "cpu" and torch.isfinite(t).all() for t in state.values())
+    model.load_state_dict(state, strict=True)
+
+
+def test_optional_cudnn_benchmark_can_disable_shape_search(tmp_path, monkeypatch):
+    _, config, _ = prepare_poc_trace_graph_inputs(tmp_path)
+    config["training"]["cudnn_benchmark"] = False
+    assert validate_relational_trace_graph_poc_config(config).training["cudnn_benchmark"] is False
+    config["training"]["cudnn_benchmark"] = "false"
+    with pytest.raises(ValueError, match="cudnn_benchmark"):
+        validate_relational_trace_graph_poc_config(config)
+    model, training, graph, options = _precision_training_case(tmp_path / "training")
+    monkeypatch.setattr(torch.backends.cudnn, "benchmark", True)
+    result = trainer.train_relational_trace_graph_poc(
+        model, training, graph_settings=graph, cudnn_benchmark=False, **options
+    )
+    assert result.steps_completed == 2
+    assert torch.backends.cudnn.benchmark is False
+
+
+def test_schedule_reaches_optimizer_without_changing_query_stream(tmp_path, monkeypatch):
+    model, training, graph, options = _precision_training_case(tmp_path)
+    second = RelationalTraceGraphInterpolator(**model.constructor_config())
+    second.load_state_dict(model.state_dict())
+    baseline = trainer.train_relational_trace_graph_poc(
+        model, training, graph_settings=graph, **options
+    )
+    rates = []
+    original = torch.optim.AdamW.step
+
+    def record(optimizer, *args, **kwargs):
+        rates.append(optimizer.param_groups[0]["lr"])
+        return original(optimizer, *args, **kwargs)
+
+    monkeypatch.setattr(torch.optim.AdamW, "step", record)
+    schedule = dict(kind="constant_then_cosine", hold_steps=1, minimum_learning_rate=0.00003)
+    result = trainer.train_relational_trace_graph_poc(
+        second, training, graph_settings=graph, learning_rate_schedule=schedule, **options
+    )
+    assert rates == [options["learning_rate"], 0.00003]
+    assert [row["learning_rate"] for row in result.history] == rates
+    for a, b in zip(baseline.history, result.history, strict=True):
+        for key in (
+            "episode_id",
+            "query_count",
+            "no_context_query_count",
+            "subgraph_node_count",
+            "subgraph_edge_count",
+        ):
+            assert a[key] == b[key]
+
+
+@pytest.mark.parametrize(
+    "encoding", [{"node_fourier_components": 4}, {"spectral_input_block": True}]
+)
+def test_optional_input_blocks_complete_cpu_optimizer_steps(tmp_path, encoding):
+    baseline, training, graph, options = _precision_training_case(tmp_path)
+    model = RelationalTraceGraphInterpolator(**baseline.constructor_config(), **encoding)
+    options["loss"] = "masked_trace_mse"
+    result = trainer.train_relational_trace_graph_poc(
+        model, training, graph_settings=graph, **options
+    )
+    assert result.steps_completed == 2
+    assert all(np.isfinite(row["loss"]) for row in result.history)
+    assert all(torch.isfinite(parameter).all() for parameter in model.parameters())
 
 
 @pytest.mark.parametrize("mode", ["fp16", "bf16"])

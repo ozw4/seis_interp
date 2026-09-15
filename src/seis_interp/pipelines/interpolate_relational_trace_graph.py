@@ -39,6 +39,7 @@ from seis_interp.training.relational_trace_graph_checkpoints import (
 )
 from seis_interp.training.relational_trace_graph_poc_trainer import train_relational_trace_graph_poc
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
+from seis_interp.training.trace_graph_ema import TraceGraphEMA
 from seis_interp.training.trace_graph_training_profile import (
     optimizer_updates_per_second,
     summarize_trace_graph_training,
@@ -102,6 +103,8 @@ def interpolate_relational_trace_graph_run(
     episode_seed = options.pop("episode_seed")
     seed_global_model_initialization(model_seed, device=device)
     model = RelationalTraceGraphInterpolator(**settings.model)
+    ema_decay = options.pop("ema_decay", None)
+    ema = None if ema_decay is None else TraceGraphEMA(ema_decay)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
@@ -113,6 +116,7 @@ def interpolate_relational_trace_graph_run(
         device=device,
         reporter=progress_reporter,
         random_seed=episode_seed,
+        **({"ema": ema} if ema is not None else {}),
         **options,
     )
     if device.type == "cuda":
@@ -134,6 +138,11 @@ def interpolate_relational_trace_graph_run(
         "mixed_precision": options["mixed_precision"],
         "edge_sampling": options.get("edge_sampling"),
     }
+    if "cudnn_benchmark" in options:
+        training_modes["cudnn_benchmark"] = options["cudnn_benchmark"]
+    if "learning_rate_schedule" in options:
+        training_modes["learning_rate_schedule"] = options["learning_rate_schedule"]
+        training_modes["learning_rate"] = options["learning_rate"]
     identity = {
         "method": "relational_trace_graph",
         "training_domain": "O_with_inner_pseudo_mask",
@@ -146,21 +155,54 @@ def interpolate_relational_trace_graph_run(
         "volume_id": inputs.volume_metadata["volume_id"],
     }
     output.mkdir(parents=True, exist_ok=False)
+    checkpoint_metadata = {
+        **identity,
+        **training_modes,
+        "model_initialization_seed": model_seed,
+        "episode_seed": episode_seed,
+        "steps_completed": trained.steps_completed,
+    }
+    if ema is not None:
+        checkpoint_metadata.update(
+            weight_source="raw",
+            ema={
+                "decay": ema.decay,
+                "updates": ema.updates,
+                "initialization": "first_post_update_weights",
+            },
+        )
     save_relational_trace_graph_poc_checkpoint(
         output / "final.pt",
         model_config=model.constructor_config(),
         state_dict=model.state_dict(),
         preprocessing=training.preprocessing,
         graph_settings=settings.graph,
-        metadata={
-            **identity,
-            **training_modes,
-            "model_initialization_seed": model_seed,
-            "episode_seed": episode_seed,
-            "steps_completed": trained.steps_completed,
-        },
+        metadata=checkpoint_metadata,
         inputs_lock=inputs.inputs_lock,
     )
+    checkpoint_artifact = "final.pt"
+    raw_checkpoint = None
+    if ema is not None:
+        raw_checkpoint = {
+            "artifact": "final.pt",
+            "role": "final",
+            "sha256": file_sha256(output / "final.pt"),
+        }
+        checkpoint_artifact = "artifacts/ema.pt"
+        (output / "artifacts").mkdir()
+        ema_state = ema.state_dict()
+        identity.update(weight_source="ema", ema=checkpoint_metadata["ema"])
+        save_relational_trace_graph_poc_checkpoint(
+            output / checkpoint_artifact,
+            model_config=model.constructor_config(),
+            state_dict=ema_state,
+            preprocessing=training.preprocessing,
+            graph_settings=settings.graph,
+            metadata={**checkpoint_metadata, "weight_source": "ema"},
+            inputs_lock=inputs.inputs_lock,
+        )
+        model.load_state_dict(ema_state, strict=True)
+        del ema_state, ema
     metadata = {
         **identity,
         **training_modes,
@@ -181,12 +223,14 @@ def interpolate_relational_trace_graph_run(
         "parameter_count": sum(parameter.numel() for parameter in model.parameters()),
         "training": asdict(trained),
         "checkpoint": {
-            "artifact": "final.pt",
+            "artifact": checkpoint_artifact,
             "role": "final",
-            "sha256": file_sha256(output / "final.pt"),
+            "sha256": file_sha256(output / checkpoint_artifact),
         },
         "resources": resources,
     }
+    if raw_checkpoint is not None:
+        metadata["raw_checkpoint"] = raw_checkpoint
 
     coverage = np.zeros_like(volume.evaluation_target_trace_mask)
 
@@ -268,7 +312,7 @@ def interpolate_relational_trace_graph_run(
         )
         np.save(output / "prediction.npy", dense, allow_pickle=False)
         artifacts = output / "artifacts"
-        artifacts.mkdir()
+        artifacts.mkdir(exist_ok=True)
         np.save(artifacts / "target_coverage.npy", coverage, allow_pickle=False)
         np.save(artifacts / "query_trace_ids.npy", predicted.query_trace_ids, allow_pickle=False)
         metadata.update(

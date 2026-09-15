@@ -105,6 +105,52 @@ def _inputs(plan: TraceGraphPlan, *, time=9) -> MaskedTraceGraphInputs:
     )
 
 
+def test_node_fourier_mapping_uses_geometry_and_preserves_hidden_amplitude_isolation():
+    model = _model(node_fourier_components=4)
+    inputs = _inputs(_plan())
+    prediction, context = model(inputs)
+    changed = inputs.waveforms.clone()
+    changed[~inputs.observed_mask] = float("nan")
+    with pytest.raises(ValueError, match="finite"):
+        model(replace(inputs, waveforms=changed))
+    changed[~inputs.observed_mask] = 999
+    with pytest.raises(ValueError, match="exactly zero"):
+        model(replace(inputs, waveforms=changed))
+    assert context.all()
+    assert torch.isfinite(prediction).all()
+    prediction.square().mean().backward()
+    assert model.node_embedding[0].weight.grad[:, 9:].abs().sum() > 0
+    assert model.constructor_config()["node_fourier_components"] == 4
+
+
+def test_disabled_node_fourier_mapping_preserves_initialization():
+    baseline = _model()
+    disabled = _model(node_fourier_components=0)
+    assert baseline.constructor_config() == disabled.constructor_config()
+    for key, value in baseline.state_dict().items():
+        assert torch.equal(value, disabled.state_dict()[key])
+
+
+def test_spectral_front_block_and_time_decoder_receive_gradients():
+    model = _model(spectral_input_block=True, nonzero_head=False)
+    inputs = _inputs(_plan())
+    prediction, context = model(inputs)
+    assert context.all() and torch.isfinite(prediction).all()
+    assert prediction.abs().sum() > 0
+    prediction.square().mean().backward()
+    assert model.spectral_input.edge_response[-1].weight.grad.abs().sum() > 0
+    assert model.decoder.head[-1].weight.grad.abs().sum() > 0
+    assert model.constructor_config()["spectral_input_block"] is True
+    changed = _inputs(_plan(query_x=(2.2,), query_ids=(101,)))
+    torch.testing.assert_close(model(changed)[0], prediction[1:], rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("components", [-1, True, 1.5])
+def test_node_fourier_mapping_rejects_invalid_components(components):
+    with pytest.raises(ValueError, match="node_fourier_components"):
+        _model(node_fourier_components=components)
+
+
 @pytest.mark.parametrize("fusion", ["mean", "learned_gate"])
 @pytest.mark.parametrize("time,factor", [(9, 2), (1, 2), (1, 1), (7, 3)])
 def test_direct_shape_crop_and_zero_initialized_decoder(fusion, time, factor) -> None:

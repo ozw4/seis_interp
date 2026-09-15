@@ -16,6 +16,10 @@ def _history():
         {
             "seconds": step,
             "batch_preparation_seconds": step / 4,
+            "query_geometry_seconds": step / 32,
+            "graph_build_seconds": step / 8,
+            "input_assembly_seconds": step / 16,
+            "label_read_seconds": step / 32,
             "optimization_seconds": step / 2,
             "subgraph_node_count": 10 * step,
             "subgraph_support_node_count": 10 * step - 2,
@@ -27,6 +31,17 @@ def _history():
     ]
 
 
+def test_breakdown_fields_partition_the_recorded_preparation_interval():
+    for row in _history():
+        parts = (
+            "query_geometry_seconds",
+            "graph_build_seconds",
+            "input_assembly_seconds",
+            "label_read_seconds",
+        )
+        assert sum(row[key] for key in parts) == row["batch_preparation_seconds"]
+
+
 def test_means_maxima_and_throughput_are_json_numbers_without_mutation():
     history = _history()
     before = deepcopy(history)
@@ -35,6 +50,10 @@ def test_means_maxima_and_throughput_are_json_numbers_without_mutation():
         "optimizer_updates": 2,
         "mean_recorded_step_seconds": 2.0,
         "mean_batch_preparation_seconds": 0.5,
+        "mean_query_geometry_seconds": 0.0625,
+        "mean_graph_build_seconds": 0.25,
+        "mean_input_assembly_seconds": 0.125,
+        "mean_label_read_seconds": 0.0625,
         "mean_optimization_seconds": 1.0,
         "mean_subgraph_node_count": 20.0,
         "max_subgraph_node_count": 30,

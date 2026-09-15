@@ -12,6 +12,8 @@ from seis_interp.relational_trace_graph_config import (
     validate_trace_graph_model_config,
 )
 from seis_interp.training.mixed_precision import validate_mixed_precision
+from seis_interp.training.trace_graph_ema import validate_trace_graph_ema_decay
+from seis_interp.training.trace_graph_optimization import validate_trace_graph_schedule
 from seis_interp.training.trace_graph_sampling import validate_trace_graph_edge_sampling
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
@@ -69,7 +71,13 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
         geometry["azimuth_min_offset_m"], "geometry_features.azimuth_min_offset_m"
     )
     raw_training = config.get("training")
-    optional_training_keys = {"mixed_precision", "edge_sampling"}
+    optional_training_keys = {
+        "mixed_precision",
+        "edge_sampling",
+        "cudnn_benchmark",
+        "learning_rate_schedule",
+        "ema_decay",
+    }
     present_optional = (
         optional_training_keys.intersection(raw_training)
         if isinstance(raw_training, Mapping)
@@ -103,6 +111,13 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
         )
     except ValueError as error:
         raise ConfigurationError(str(error)) from error
+    if "cudnn_benchmark" in training and not isinstance(training["cudnn_benchmark"], bool):
+        raise ConfigurationError("training.cudnn_benchmark must be boolean")
+    if "ema_decay" in training:
+        try:
+            training["ema_decay"] = validate_trace_graph_ema_decay(training["ema_decay"])
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
     if "edge_sampling" in training:
         try:
             training["edge_sampling"] = validate_trace_graph_edge_sampling(
@@ -131,6 +146,10 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
     training["weight_decay"] = values.nonnegative_float(
         training["weight_decay"], "training.weight_decay"
     )
+    if "learning_rate_schedule" in training:
+        training["learning_rate_schedule"] = validate_trace_graph_schedule(
+            training["learning_rate_schedule"], training["learning_rate"], training["max_steps"]
+        )
     if training["gradient_clip_norm"] is not None:
         training["gradient_clip_norm"] = values.positive_float(
             training["gradient_clip_norm"], "training.gradient_clip_norm"

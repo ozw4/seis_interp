@@ -122,6 +122,16 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(
     profile = details["training_profile"]
     assert profile["optimizer_updates"] == 3
     assert profile["mean_subgraph_node_count"] > 0
+    preparation = (
+        "mean_query_geometry_seconds",
+        "mean_graph_build_seconds",
+        "mean_input_assembly_seconds",
+        "mean_label_read_seconds",
+    )
+    assert all(profile[key] >= 0 for key in preparation)
+    assert sum(profile[key] for key in preparation) == pytest.approx(
+        profile["mean_batch_preparation_seconds"]
+    )
     resources = run["resource_usage"]
     assert resources["optimizer_updates_per_second"] == 3 / run["timing"]["training_seconds"]
     assert "training_peak_cuda_allocated_bytes" not in resources
@@ -182,8 +192,84 @@ def test_poc_graph_final_state_full_coverage_and_common_metrics(
         _run(tmp_path, paths, config)
 
 
+def test_schedule_is_recorded_in_resolved_config_metadata_and_checkpoint(tmp_path):
+    _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
+    schedule = dict(kind="constant_then_cosine", hold_steps=1, minimum_learning_rate=0.00003)
+    config["training"].update(max_steps=3, learning_rate_schedule=schedule)
+    _, output = _run(tmp_path, paths, config)
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text())
+    metadata = json.loads((output / "metadata.json").read_text())
+    lock = json.loads((output / "inputs.lock.json").read_text())
+    restored = load_relational_trace_graph_poc_checkpoint(output / "final.pt", inputs_lock=lock)
+    assert resolved["training"]["learning_rate_schedule"] == schedule
+    assert metadata["method_details"]["learning_rate_schedule"] == schedule
+    assert restored.metadata["learning_rate_schedule"] == schedule
+    assert metadata["training_or_reconstruction"]["history"][-1]["learning_rate"] == 0.00003
+
+
+def test_ema_saves_raw_final_and_uses_restorable_average_for_prediction(tmp_path, monkeypatch):
+    inputs, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
+    config["model"]["node_fourier_components"] = 4
+    _, baseline = _run(tmp_path, paths, config, name="raw")
+    config["training"]["ema_decay"] = 0.9
+    original_predict = pipeline.predict_relational_trace_graph
+
+    def predict(model, *args, **kwargs):
+        saved = torch.load(tmp_path / "ema/artifacts/ema.pt", weights_only=True)
+        for key, value in model.state_dict().items():
+            assert torch.equal(value.cpu(), saved["model_state_dict"][key])
+        return original_predict(model, *args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "predict_relational_trace_graph", predict)
+    metrics, output = _run(tmp_path, paths, config, name="ema")
+    raw = torch.load(output / "final.pt", weights_only=True)
+    base = torch.load(baseline / "final.pt", weights_only=True)
+    assert all(
+        torch.equal(v, base["model_state_dict"][k]) for k, v in raw["model_state_dict"].items()
+    )
+    restored = load_relational_trace_graph_poc_checkpoint(
+        output / "artifacts/ema.pt", inputs_lock=inputs.inputs_lock
+    )
+    assert raw["weight_source"] == "raw"
+    assert restored.metadata["weight_source"] == metrics["weight_source"] == "ema"
+    assert restored.metadata["ema"] == {
+        "decay": 0.9,
+        "updates": 3,
+        "initialization": "first_post_update_weights",
+    }
+    assert any(
+        not torch.equal(v, raw["model_state_dict"][k]) for k, v in restored.model.named_parameters()
+    )
+    metadata = json.loads((output / "metadata.json").read_text())
+    assert metadata["artifacts"]["checkpoint"] == {
+        "path": "artifacts/ema.pt",
+        "sha256": file_sha256(output / "artifacts/ema.pt"),
+    }
+    assert metadata["method_details"]["raw_checkpoint"]["sha256"] == file_sha256(
+        output / "final.pt"
+    )
+    prediction = original_predict(
+        restored.model,
+        build_c3_poc_trace_graph_domain(inputs),
+        restored.preprocessing,
+        graph_settings=restored.graph_settings,
+        observed_waveforms=inputs.observed_volume.values[
+            :, inputs.observed_volume.observed_trace_mask
+        ].T,
+        query_batch_size=config["prediction"]["query_batch_size"],
+        device="cpu",
+    )
+    dense, coverage = scatter_c3_trace_graph_prediction(
+        inputs, prediction.query_trace_ids, prediction.prediction
+    )
+    np.testing.assert_array_equal(dense, np.load(output / "prediction.npy"))
+    np.testing.assert_array_equal(coverage, inputs.observed_volume.evaluation_target_trace_mask)
+    assert metrics["observed_max_abs_error"] == 0
+
+
+@pytest.mark.parametrize("ema_decay", [None, 0.9])
 def test_target_truth_changes_only_metrics_not_training_or_pre_evaluation_prediction(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, ema_decay
 ):
     original_evaluate = pipeline.evaluate_c3_volume_prediction
     captures = []
@@ -196,8 +282,11 @@ def test_target_truth_changes_only_metrics_not_training_or_pre_evaluation_predic
     states, scores, histories = [], [], []
     for name, offset in (("base", 0.0), ("changed", 1000000.0)):
         _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / name, target_offset=offset)
+        if ema_decay is not None:
+            config["training"]["ema_decay"] = ema_decay
         metrics, output = _run(tmp_path, paths, config, name=f"{name}_run")
-        states.append(torch.load(output / "final.pt", weights_only=True)["model_state_dict"])
+        checkpoint = "final.pt" if ema_decay is None else "artifacts/ema.pt"
+        states.append(torch.load(output / checkpoint, weights_only=True)["model_state_dict"])
         scores.append(metrics["evaluation_target"])
         histories.append(
             [

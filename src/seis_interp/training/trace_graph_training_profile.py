@@ -8,6 +8,10 @@ from statistics import fmean
 _MEAN_FIELDS = {
     "seconds": "mean_recorded_step_seconds",
     "batch_preparation_seconds": "mean_batch_preparation_seconds",
+    "query_geometry_seconds": "mean_query_geometry_seconds",
+    "graph_build_seconds": "mean_graph_build_seconds",
+    "input_assembly_seconds": "mean_input_assembly_seconds",
+    "label_read_seconds": "mean_label_read_seconds",
     "optimization_seconds": "mean_optimization_seconds",
     "subgraph_node_count": "mean_subgraph_node_count",
     "subgraph_support_node_count": "mean_subgraph_support_node_count",

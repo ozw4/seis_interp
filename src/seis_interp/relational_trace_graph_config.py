@@ -197,6 +197,8 @@ def validate_trace_graph_model_config(config: Mapping[str, object]) -> dict[str,
                 "explicit_azimuth_features",
                 "amplitude_mode",
                 "max_edge_time_shift_samples",
+                "node_fourier_components",
+                "spectral_input_block",
             },
         )
     )
@@ -236,6 +238,20 @@ def validate_trace_graph_model_config(config: Mapping[str, object]) -> dict[str,
     if "max_edge_time_shift_samples" in model:
         model["max_edge_time_shift_samples"] = config_values.nonnegative_integer(
             model["max_edge_time_shift_samples"], "model.max_edge_time_shift_samples"
+        )
+    if "node_fourier_components" in model:
+        model["node_fourier_components"] = config_values.nonnegative_integer(
+            model["node_fourier_components"], "model.node_fourier_components"
+        )
+    if not isinstance(model.get("spectral_input_block", False), bool):
+        raise ConfigurationError("model.spectral_input_block must be boolean")
+    if model.get("spectral_input_block", False) and (
+        variant != "relational"
+        or model.get("amplitude_mode", "train_global_rms") != "train_global_rms"
+        or model.get("max_edge_time_shift_samples", 0)
+    ):
+        raise ConfigurationError(
+            "model.spectral_input_block requires relational global RMS and no edge time shift"
         )
     return model
 
