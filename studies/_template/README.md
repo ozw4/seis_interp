@@ -8,12 +8,11 @@ Status: `<status>`
 
 ## Conditions
 
-- dataset / partition: <required comparison scope>
-- split / mask: <required split or sampling condition>
-- model / method: <model and material settings>
-- loss / normalization: <loss and amplitude transform>
-- training: <material budget and seed>
-- config: [`config.yaml`](config.yaml)
+Executable condition: [`config.yaml`](config.yaml), [`inputs.yaml`](inputs.yaml).
+
+List only values that neither file can hold, such as measured quantities, derived
+totals, artifact counts, or an acceptance rule that the config cannot express. Do not
+restate settings that the config already defines.
 
 ## Results
 

@@ -97,7 +97,7 @@ Dev Container内では`SEIS_INTERP_DATA_ROOT=/workspace/data`とし、SEG C3 NA�
 
 ### Study文書の役割
 
-`README.md`には現在の研究質問、入力、方法、採否基準、制約、現在の結果を書く。`config.yaml`は実行可能な条件、`inputs.yaml`は実行可能な入力契約である。重要な判断理由があるstudyでは`decisions.md`を置き、現行条件を選んだ理由、supersededとなった判断、将来の変更時に必要な証拠を記録する。`decisions.md`は、条件または評価規則を変更するときに参照する。
+`README.md`には現在の研究質問、現在の結果、採否の結論を書く。実行条件の正本は`config.yaml`、入力契約の正本は`inputs.yaml`であり、READMEはそこへのリンクで代替する。条件をREADMEへ再掲するのは、config・inputsのいずれにも記録できない値に限る（実測値、派生した合計、成果物のcount、configに書けない採否規則など）。結果の解釈・考察はREADMEへ書かない。重要な判断理由があるstudyでは`decisions.md`を置き、現行条件を選んだ理由、supersededとなった判断、将来の変更時に必要な証拠を記録する。`decisions.md`は、条件または評価規則を変更するときに参照する。
 
 `README.md`と`docs/`は現行仕様のスナップショットとし、変更履歴、移行手順、issue参照は書かない。経緯が必要な場合は`decisions.md`へ置く。
 
