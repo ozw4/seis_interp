@@ -1,6 +1,6 @@
 # Study 021: 50% whole-FFID trace graph
 
-Status: `running`; strict 20 dB threshold not reached
+Status: `running` — strict 20 dB threshold not reached
 
 ## Purpose
 
@@ -8,15 +8,13 @@ Status: `running`; strict 20 dB threshold not reached
 
 ## Conditions
 
-- dataset: 4,780 eligible SEG C3 NA FFIDs; FFID 1746 excluded
-- split: seed 42; 2,390 train / 598 validation / 1,792 test FFIDs, mutually disjoint
-- prepared trace counts: 1,155,312 / 293,152 / 855,016; effective canonical counts: 1,155,304 / 293,151 / 855,010
+Executable condition: [`config.yaml`](config.yaml), [`variants/`](variants/).
+
+- prepared trace counts 1,155,312 / 293,152 / 855,016; effective canonical counts 1,155,304 / 293,151 / 855,010
+- train / validation / test FFID splits are mutually disjoint
 - leakage contract: train-FFID amplitudes only; target FFID excluded from inputs; test and excluded amplitudes not materialized
 - model family: trace-node latent temporal sequence with receiver-lattice and source-axis relations; inverse-distance reference plus decoded residual
 - tested objective: masked MSE, with spectrum, slope, and amplitude terms isolated separately
-- training baseline: AdamW, learning rate `5e-4` with cosine decay, weight decay `1e-5`, seed 42, K8 train shots, bfloat16, 2,500 updates per short stage
-- metric: `oracle_per_trace_unit_rms_global_snr_db`; strict threshold above 20 dB
-- config / variants: [`config.yaml`](config.yaml), [`variants/`](variants/)
 
 ## Results
 
@@ -43,14 +41,11 @@ Status: `running`; strict 20 dB threshold not reached
 | 20 | two-pass refinement | 8.777 dB | reject |
 | 21 | width 128, 6 rounds, batch 4, 25,000 updates | **12.4692 dB** | study best |
 
-- Stage 21 training audit: 12.793 dB; runtime 19.9 hours; 1.43M parameters
-- Stage 21 exceeds the strongest control by 1.15 dB and remains 7.53 dB below threshold
+- Stage 21: training audit 12.793 dB; runtime 19.9 hours; 1.43M parameters; +1.15 dB over the strongest control, 7.53 dB below threshold
 - every completed run passed FFID-isolation, amplitude-access, collision, and exact checkpoint-revalidation audits
 - OOM conditions: width192/rounds6/batch2, width64/full-time/batch2, width64/batch8, width128/rounds12/batch8 on a 93 GB GPU
 
 ## Decision
 
-- Retain mask-only trace-lattice message passing; reject the tested auxiliary losses, bipartite graph, K16, per-frame attention, full-time-resolution condition, and two-pass refinement at their recorded budgets.
-- Promote width, depth, batch scaling, and activation checkpointing.
-- Stage 21 is the current best; the 20 dB requirement remains unmet and the study remains open.
+- Retain mask-only trace-lattice message passing; promote width, depth, batch scaling, and activation checkpointing; reject the tested auxiliary losses, bipartite graph, K16, per-frame attention, full-time-resolution condition, and two-pass refinement at their recorded budgets.
 - Full supporting record: [investigation report](../../reports/all_ffid_50pct_whole_ffid_trace_graph_20db_investigation.md).

@@ -8,11 +8,9 @@ Status: `completed`
 
 ## Conditions
 
-- dataset / split / normalization: Study 007 condition; held-out amplitudes unused
-- model: six inputs, width 256, four sine layers; PyTorch default bias initialization
-- training: seed 42, L2, Adam, learning rate `1e-3`, random-replacement batch 5,000, 50,000 updates
-- conditions: `legacy_control` (`omega_0=300`, `hidden_omega=1`); `official_siren_30` (`30`, `30`)
-- config: [`config.yaml`](config.yaml)
+Executable condition: [`config.yaml`](config.yaml).
+
+- dataset / split / normalization: Study 007 condition
 
 ## Results
 
@@ -23,8 +21,3 @@ Status: `completed`
 
 - final median S/N: -0.039974 dB (legacy), -0.040617 dB (official)
 - summary / decision: `20260827T004311Z_fcfeec9_summary.json`; `official_siren_near_zero`
-
-## Decision
-
-- The official parameterization package did not fit this full-pool condition.
-- The package was tested as a unit; no component-level effect is established.

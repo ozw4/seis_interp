@@ -8,14 +8,12 @@ Status: `fixed_shear_reference_adopted_no_shear_10db_unmet`
 
 ## Conditions
 
-- suite: Study 029 QC suite; case `c3_benchmark_validation_random_trace_80_seed142`
-- evaluation: 58,999 target traces and 22,655,616 samples; test unused
-- observed inputs: 14,729 traces normalized by their own 384-sample RMS
-- missing-position gain: observed-only 8-neighbor IDW, power 2, coordinate scales `[160,80,40,40]` m
-- adopted model: Cartesian CMP + half-offset five-input SIREN, width 256, four layers, omega 30/30
-- adopted training: all 14,729 complete observed traces per update, Adam, learning rate `1e-4`, 5,000 updates, seed 20260908
-- adopted coordinate transform: time scale 12 and `tau = time_s + 0.0006 * relative_receiver_y_m`
-- config: [`config.yaml`](config.yaml); [no-shear control](config_omega30_time12_shear0_batch14729_5k.yaml)
+Executable condition: [`config.yaml`](config.yaml); [no-shear control](config_omega30_time12_shear0_batch14729_5k.yaml).
+
+- suite: Study 029 QC suite
+- 14,729 observed traces; 58,999 target traces and 22,655,616 samples
+- missing-position gain: observed-only 8-neighbor IDW over the interpolated trace RMS field
+- adopted coordinate transform: `tau = time_s + 0.0006 * relative_receiver_y_m`
 
 ## Results
 
@@ -39,7 +37,5 @@ Status: `fixed_shear_reference_adopted_no_shear_10db_unmet`
 
 ## Decision
 
-- Adopt `20260909T021337632365Z_1819109f28e1_siren` only as an explicitly shear-transformed SIREN reference.
-- The shear-free 10 dB goal remains unmet; do not adopt the A/B/AB models.
-- Do not claim matched preprocessing against other methods and do not add fixed shear to them.
+- Adopt `20260909T021337632365Z_1819109f28e1_siren` only as an explicitly shear-transformed SIREN reference; the shear-free 10 dB goal remains unmet and A/B/AB are not adopted.
 - Adoption record: [adoption decision](../../results/study_031_c3_siren_10db/20260909T055026000000Z_e39df16d563c_shear_reference_adoption/adoption_decision.json).
