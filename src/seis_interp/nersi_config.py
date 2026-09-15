@@ -7,8 +7,12 @@ from dataclasses import dataclass
 
 from seis_interp import config_values
 from seis_interp.configuration import ConfigurationError
+from seis_interp.processing.c3_volume_index import validated_index_range
 from seis_interp.processing.trace_time_alignment import validate_time_alignment
-from seis_interp.training.c3_volume_nersi_data import PROFILE_COORDINATE_ORDER
+from seis_interp.training.c3_volume_nersi_data import (
+    profile_coordinate_order,
+    validate_profile_axis,
+)
 from seis_interp.training.nersi_optimization import validate_nersi_optimization
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
 
@@ -26,6 +30,8 @@ class NersiTrainingSettings:
     device: str
     loss: str
     gradient_accumulation_steps: int = 1
+    optimizer: str = "adam"
+    weight_decay: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,7 @@ class NersiPocSettings:
     optimization: dict | None = None
     cartesian_profile_coordinates: bool = False
     nyquist_fractions: tuple[float, ...] | None = None
+    profile_axis: str = "relative_receiver_y"
 
     def model_constructor_config(self, profile_shape: tuple[int, int]) -> dict[str, object]:
         """Return complete constructor metadata after the input profile shape is known."""
@@ -50,6 +57,10 @@ class NersiPocSettings:
 
 def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
     """Validate the strict NeRSI PoC method sections."""
+    try:
+        profile_axis = validate_profile_axis(config.get("profile_axis", "relative_receiver_y"))
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
     model = config_values.exact_section(
         config,
         "model",
@@ -66,23 +77,46 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
             "kernel_size",
             "activation",
             "output_activation",
-        },
+        }
+        | ({"decoder_convolution"} if "decoder_convolution" in config["model"] else set())
+        | (
+            {"profile_embedding_channels"}
+            if "profile_embedding_channels" in config["model"]
+            else set()
+        )
+        | ({"latent_spatial_rank"} if "latent_spatial_rank" in config["model"] else set())
+        | (
+            {"temporal_basis_components"}
+            if "temporal_basis_components" in config["model"]
+            else set()
+        ),
     )
     config_values.require_exact(config, "model.name", "nersi")
     _require_literal(model, "frequency_schedule", "exponential")
     _require_literal(model, "activation", "gelu")
     _require_literal(model, "output_activation", "linear")
     coordinate_order = model["coordinate_order"]
-    if (
-        not isinstance(coordinate_order, list)
-        or tuple(coordinate_order) != PROFILE_COORDINATE_ORDER
-    ):
+    if not isinstance(coordinate_order, list) or tuple(
+        coordinate_order
+    ) != profile_coordinate_order(profile_axis):
         raise ConfigurationError(
-            f"model.coordinate_order must be exactly {list(PROFILE_COORDINATE_ORDER)!r}"
+            "model.coordinate_order must be exactly "
+            f"{list(profile_coordinate_order(profile_axis))!r}"
         )
-    frequency_base = config_values.positive_float(model["frequency_base"], "model.frequency_base")
-    if frequency_base <= 1.0:
-        raise ConfigurationError("model.frequency_base must be greater than 1")
+    raw_frequency_base = model["frequency_base"]
+    if isinstance(raw_frequency_base, list):
+        if len(raw_frequency_base) != 3:
+            raise ConfigurationError("model.frequency_base must contain three values")
+        frequency_base: float | tuple[float, ...] = tuple(
+            config_values.positive_float(value, "model.frequency_base")
+            for value in raw_frequency_base
+        )
+        if any(value <= 1.0 for value in frequency_base):
+            raise ConfigurationError("model.frequency_base values must be greater than 1")
+    else:
+        frequency_base = config_values.positive_float(raw_frequency_base, "model.frequency_base")
+        if frequency_base <= 1.0:
+            raise ConfigurationError("model.frequency_base must be greater than 1")
     decoder_channels = config_values.validated_positive_integer_list(
         model["decoder_channels"], "model.decoder_channels"
     )
@@ -112,7 +146,51 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
         ),
         "activation": "gelu",
         "output_activation": "linear",
+        **(
+            {"decoder_convolution": model["decoder_convolution"]}
+            if "decoder_convolution" in model
+            else {}
+        ),
     }
+    if "profile_embedding_channels" in model:
+        benchmark_volume = config.get("benchmark_volume")
+        selection = (
+            benchmark_volume.get("selection") if isinstance(benchmark_volume, Mapping) else None
+        )
+        if not isinstance(selection, Mapping):
+            raise ConfigurationError(
+                "benchmark_volume.selection is required for profile embeddings"
+            )
+        grid_shape = []
+        try:
+            for axis in coordinate_order:
+                start, stop = validated_index_range(
+                    selection.get(axis), name=f"benchmark_volume.selection.{axis}"
+                )
+                grid_shape.append(stop - start)
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
+        model_config.update(
+            profile_embedding_channels=config_values.positive_integer(
+                model["profile_embedding_channels"], "model.profile_embedding_channels"
+            ),
+            profile_grid_shape=tuple(grid_shape),
+        )
+    if "latent_spatial_rank" in model:
+        model_config["latent_spatial_rank"] = config_values.positive_integer(
+            model["latent_spatial_rank"], "model.latent_spatial_rank"
+        )
+    if "temporal_basis_components" in model:
+        model_config["temporal_basis_components"] = config_values.positive_integer(
+            model["temporal_basis_components"], "model.temporal_basis_components"
+        )
+    if model_config.get("decoder_convolution", "standard") not in (
+        "standard",
+        "depthwise_separable",
+    ):
+        raise ConfigurationError(
+            "model.decoder_convolution must be standard or depthwise_separable"
+        )
 
     training_keys = {
         "model_initialization_seed",
@@ -131,8 +209,16 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
         and "gradient_accumulation_steps" in config["training"]
     ):
         training_keys.add("gradient_accumulation_steps")
+    if isinstance(config.get("training"), Mapping) and "weight_decay" in config["training"]:
+        training_keys.add("weight_decay")
     training = config_values.exact_section(config, "training", training_keys)
-    _require_literal(training, "optimizer", "adam")
+    if training["optimizer"] not in ("adam", "adamw"):
+        raise ConfigurationError("training.optimizer must be 'adam' or 'adamw'")
+    weight_decay = config_values.nonnegative_float(
+        training.get("weight_decay", 0.0), "training.weight_decay"
+    )
+    if training["optimizer"] != "adamw" and weight_decay:
+        raise ConfigurationError("training.weight_decay requires AdamW")
     if training["loss"] not in POC_TRACE_LOSSES:
         raise ConfigurationError(f"training.loss must be one of {POC_TRACE_LOSSES!r}")
     scaling = training["amplitude_scaling"]
@@ -161,6 +247,8 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
     if not isinstance(device, str) or not device.strip():
         raise ConfigurationError("training.device must be a non-empty string")
     training_settings = NersiTrainingSettings(
+        optimizer=training["optimizer"],
+        weight_decay=weight_decay,
         loss=training["loss"],
         model_initialization_seed=config_values.nonnegative_integer(
             training["model_initialization_seed"], "training.model_initialization_seed"
@@ -228,13 +316,29 @@ def validate_nersi_poc_config(config: Mapping[str, object]) -> NersiPocSettings:
         fractions = tuple(config_values.positive_float(v, "nyquist_fraction") for v in values)
         if any(v > 1 for v in fractions):
             raise ConfigurationError("nyquist_fraction must not exceed one")
+    if profile_axis != "relative_receiver_y" and any(
+        value is not None for value in (alignment, augmentation, fractions)
+    ):
+        raise ConfigurationError(
+            "non-receiver-y profiles do not support time alignment, augmentation, "
+            "or Fourier bandlimits"
+        )
+    if profile_axis != "relative_receiver_y" and cartesian != "index":
+        raise ConfigurationError("Cartesian profile coordinates require relative_receiver_y")
     if cartesian != "index" and augmentation is not None:
         raise ConfigurationError(
             "Cartesian profile candidates do not support index-space augmentation"
         )
+    if "profile_embedding_channels" in model_config and (
+        cartesian != "index" or augmentation is not None
+    ):
+        raise ConfigurationError(
+            "profile embeddings require index coordinates without coordinate augmentation"
+        )
     return NersiPocSettings(
         cartesian_profile_coordinates=cartesian != "index",
         nyquist_fractions=fractions,
+        profile_axis=profile_axis,
         model=model_config,
         training=training_settings,
         augmentation=augmentation,

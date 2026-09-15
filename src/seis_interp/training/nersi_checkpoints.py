@@ -18,11 +18,12 @@ from seis_interp.processing.trace_time_alignment import (
     validate_time_alignment,
 )
 from seis_interp.training.c3_volume_nersi_data import (
-    PROFILE_AXIS_ORDER,
-    PROFILE_COORDINATE_ORDER,
+    SPATIAL_AXIS_ORDER,
     C3VolumeNersiData,
     ProfileCoordinateBounds,
     profile_coordinate_bounds,
+    profile_coordinate_order,
+    validate_profile_axis,
     validate_trace_amplitude_scale,
 )
 from seis_interp.training.nersi_optimization import validate_nersi_optimization
@@ -48,7 +49,15 @@ _MODEL_CONFIG_FIELDS = {
     "activation",
     "output_activation",
 }
-_OPTIONAL_MODEL_CONFIG_FIELDS = {"coordinate_mapping", "axis_frequency_limits"}
+_OPTIONAL_MODEL_CONFIG_FIELDS = {
+    "coordinate_mapping",
+    "axis_frequency_limits",
+    "decoder_convolution",
+    "profile_embedding_channels",
+    "profile_grid_shape",
+    "latent_spatial_rank",
+    "temporal_basis_components",
+}
 
 
 @dataclass(frozen=True)
@@ -61,6 +70,7 @@ class LoadedFixedStepNersiCheckpoint:
     coordinate_bounds: ProfileCoordinateBounds
     spatial_shape: tuple[int, int, int, int]
     profile_shape: tuple[int, int]
+    profile_axis: str
     amplitude_scaling: str
     amplitude_scale: float
     global_step: int
@@ -74,10 +84,16 @@ class LoadedFixedStepNersiCheckpoint:
 
 
 def nersi_method_variant(
-    *, trace_rms_idw: bool, time_alignment: Mapping[str, object] | None
+    *,
+    trace_rms_idw: bool,
+    time_alignment: Mapping[str, object] | None,
+    profile_axis: str = "relative_receiver_y",
 ) -> str:
     """Identify the amplitude and time preprocessing used by a NeRSI function."""
     variant = NERSI_IDW_METHOD_VARIANT if trace_rms_idw else NERSI_METHOD_VARIANT
+    axis = validate_profile_axis(profile_axis)
+    if axis != "relative_receiver_y":
+        variant = f"{variant}_{axis}_profiles"
     if time_alignment is None:
         return variant
     boundary = validate_time_alignment(time_alignment)["boundary"]
@@ -124,10 +140,10 @@ def save_fixed_step_nersi_checkpoint(
         "model_config": dict(model_config),
         "model_state_dict": _cpu_state_dict(model.state_dict()),
         "preprocessing": {
-            "coordinate_order": list(PROFILE_COORDINATE_ORDER),
+            "coordinate_order": list(data.coordinate_order),
             "coordinate_normalization": COORDINATE_NORMALIZATION,
             "coordinate_bounds": [list(bounds) for bounds in data.coordinate_bounds],
-            "profile_axis_order": list(PROFILE_AXIS_ORDER),
+            "profile_axis_order": list(data.profile_axis_order),
             "spatial_shape": list(spatial_shape),
             "profile_shape": list(profile_shape),
             "amplitude_scaling": AMPLITUDE_SCALING,
@@ -154,6 +170,7 @@ def save_fixed_step_nersi_checkpoint(
     payload["method_variant"] = nersi_method_variant(
         trace_rms_idw=data.trace_amplitude_scale is not None,
         time_alignment=data.time_alignment,
+        profile_axis=data.profile_axis,
     )
     if optimization is not None:
         payload["training"]["optimization"] = deepcopy(optimization)
@@ -236,18 +253,36 @@ def load_fixed_step_nersi_checkpoint(
     }
     if not isinstance(preprocessing, Mapping) or not preprocessing_fields.issubset(preprocessing):
         raise ValueError("checkpoint preprocessing is missing required fields")
-    if preprocessing["coordinate_order"] != list(PROFILE_COORDINATE_ORDER):
+    profile_axis_order = preprocessing["profile_axis_order"]
+    if (
+        not isinstance(profile_axis_order, list)
+        or len(profile_axis_order) != 2
+        or profile_axis_order[0] != "time"
+    ):
+        raise ValueError("checkpoint profile_axis_order does not match the NeRSI contract")
+    try:
+        profile_axis = validate_profile_axis(profile_axis_order[1])
+    except ValueError as error:
+        raise ValueError(
+            "checkpoint profile_axis_order does not match the NeRSI contract"
+        ) from error
+    coordinate_order = profile_coordinate_order(profile_axis)
+    if preprocessing["coordinate_order"] != list(coordinate_order):
         raise ValueError("checkpoint coordinate_order does not match the NeRSI contract")
     if preprocessing["coordinate_normalization"] != COORDINATE_NORMALIZATION:
         raise ValueError("checkpoint coordinate_normalization does not match the NeRSI contract")
-    if preprocessing["profile_axis_order"] != list(PROFILE_AXIS_ORDER):
-        raise ValueError("checkpoint profile_axis_order does not match the NeRSI contract")
     scaling = preprocessing["amplitude_scaling"]
     if scaling not in (AMPLITUDE_SCALING, TRACE_RMS_IDW_SCALING):
         raise ValueError("checkpoint amplitude_scaling does not match the NeRSI contract")
     spatial_shape = _positive_shape(preprocessing["spatial_shape"], 4, "spatial_shape")
-    if model.coordinate_mapping is not None and model.coordinate_grid_shape != spatial_shape[:3]:
+    profile_axis_index = SPATIAL_AXIS_ORDER.index(profile_axis)
+    coordinate_shape = tuple(
+        value for index, value in enumerate(spatial_shape) if index != profile_axis_index
+    )
+    if model.coordinate_mapping is not None and model.coordinate_grid_shape != coordinate_shape:
         raise ValueError("checkpoint coordinate grid differs from spatial_shape")
+    if model.profile_grid_shape is not None and model.profile_grid_shape != coordinate_shape:
+        raise ValueError("checkpoint profile embedding grid differs from spatial_shape")
     trace_scale = None
     if scaling == TRACE_RMS_IDW_SCALING:
         tensor = preprocessing.get("trace_amplitude_scale")
@@ -263,8 +298,12 @@ def load_fixed_step_nersi_checkpoint(
         if "time_alignment" in preprocessing
         else None
     )
+    if alignment is not None and profile_axis != "relative_receiver_y":
+        raise ValueError("checkpoint time_alignment requires relative_receiver_y profiles")
     expected_variant = nersi_method_variant(
-        trace_rms_idw=trace_scale is not None, time_alignment=alignment
+        trace_rms_idw=trace_scale is not None,
+        time_alignment=alignment,
+        profile_axis=profile_axis,
     )
     if payload["method_variant"] != expected_variant:
         raise ValueError("checkpoint method_variant does not match preprocessing")
@@ -273,13 +312,14 @@ def load_fixed_step_nersi_checkpoint(
         spatial_shape[-1], alignment
     ):
         raise ValueError("checkpoint alignment padding leaves no physical time samples")
-    if spatial_shape[-1] != profile_shape[-1]:
-        raise ValueError("checkpoint spatial_shape receiver-y must match profile_shape")
+    if spatial_shape[profile_axis_index] != profile_shape[-1]:
+        raise ValueError("checkpoint spatial_shape generated axis must match profile_shape")
     if tuple(model.profile_shape) != profile_shape:
         raise ValueError("checkpoint model profile_shape does not match preprocessing")
     coordinate_bounds = _coordinate_bounds(
         preprocessing["coordinate_bounds"],
         spatial_shape=spatial_shape,
+        profile_axis=profile_axis,
     )
     scale = _positive_finite_float(preprocessing["amplitude_scale"], "amplitude_scale")
 
@@ -302,11 +342,12 @@ def load_fixed_step_nersi_checkpoint(
     model.to(device)
     return LoadedFixedStepNersiCheckpoint(
         model=model,
-        coordinate_order=PROFILE_COORDINATE_ORDER,
-        profile_axis_order=PROFILE_AXIS_ORDER,
+        coordinate_order=coordinate_order,
+        profile_axis_order=("time", profile_axis),
         coordinate_bounds=coordinate_bounds,
         spatial_shape=spatial_shape,
         profile_shape=profile_shape,
+        profile_axis=profile_axis,
         amplitude_scaling=scaling,
         trace_amplitude_scale=trace_scale,
         time_alignment=alignment,
@@ -367,8 +408,9 @@ def validate_fixed_step_nersi_checkpoint_input_binding(
     if not isinstance(data, C3VolumeNersiData):
         raise TypeError("data must be C3VolumeNersiData")
     if (
-        checkpoint.coordinate_order != PROFILE_COORDINATE_ORDER
-        or checkpoint.profile_axis_order != PROFILE_AXIS_ORDER
+        checkpoint.coordinate_order != data.coordinate_order
+        or checkpoint.profile_axis_order != data.profile_axis_order
+        or checkpoint.profile_axis != data.profile_axis
         or checkpoint.coordinate_bounds != data.coordinate_bounds
         or checkpoint.spatial_shape != tuple(data.spatial_shape)
         or checkpoint.profile_shape != tuple(data.profile_shape)
@@ -386,14 +428,22 @@ def _validated_data_contract(
     profile_shape = _positive_shape(data.profile_shape, 2, "profile_shape")
     if tuple(model.profile_shape) != profile_shape:
         raise ValueError("model profile_shape must match data profile_shape")
-    if spatial_shape[-1] != profile_shape[-1]:
-        raise ValueError("spatial_shape receiver-y must match profile_shape")
-    profile_count = math.prod(spatial_shape[:-1])
-    if data.normalized_coordinates.shape != (profile_count, len(PROFILE_COORDINATE_ORDER)):
+    profile_axis_index = SPATIAL_AXIS_ORDER.index(data.profile_axis)
+    if spatial_shape[profile_axis_index] != profile_shape[-1]:
+        raise ValueError("spatial_shape generated axis must match profile_shape")
+    profile_count = math.prod(
+        value for index, value in enumerate(spatial_shape) if index != profile_axis_index
+    )
+    coordinate_shape = tuple(
+        value for index, value in enumerate(spatial_shape) if index != profile_axis_index
+    )
+    if model.profile_grid_shape is not None and model.profile_grid_shape != coordinate_shape:
+        raise ValueError("model profile embedding grid must match data spatial_shape")
+    if data.normalized_coordinates.shape != (profile_count, len(data.coordinate_order)):
         raise ValueError("data profile count does not match spatial_shape")
     if data.normalized_profiles.shape != (profile_count, 1, *profile_shape):
         raise ValueError("normalized_profiles do not match spatial_shape and profile_shape")
-    if data.observed_trace_mask.shape != (profile_count, spatial_shape[-1]):
+    if data.observed_trace_mask.shape != (profile_count, spatial_shape[profile_axis_index]):
         raise ValueError("observed_trace_mask does not match spatial_shape")
     return (
         spatial_shape,
@@ -476,8 +526,9 @@ def _coordinate_bounds(
     value: object,
     *,
     spatial_shape: tuple[int, int, int, int],
+    profile_axis: str,
 ) -> ProfileCoordinateBounds:
-    expected = profile_coordinate_bounds(spatial_shape)
+    expected = profile_coordinate_bounds(spatial_shape, profile_axis=profile_axis)
     if not isinstance(value, (tuple, list)) or len(value) != len(expected):
         raise ValueError("checkpoint coordinate_bounds must contain three index bounds")
     normalized: list[tuple[int, int]] = []

@@ -118,6 +118,49 @@ def test_profile_volume_round_trip_preserves_shape_values_and_dtype(dtype: type)
     np.testing.assert_array_equal(restored, values)
 
 
+def test_shot_profiles_round_trip_and_use_remaining_axes_as_coordinates() -> None:
+    shape = (8, 2, 8, 2, 3)
+    volume = _observed_volume(shape=shape)
+
+    data = build_c3_volume_nersi_data(
+        volume,
+        amplitude_scale=compute_observed_global_rms(volume.values, volume.observed_trace_mask),
+        profile_axis="shot_in_line",
+    )
+    restored = nersi_profiles_to_volume(
+        volume_to_nersi_profiles(volume.values, profile_axis="shot_in_line"),
+        shape[1:],
+        profile_axis="shot_in_line",
+    )
+
+    assert data.profile_axis == "shot_in_line"
+    assert data.coordinate_order == (
+        "source_line",
+        "relative_receiver_x",
+        "relative_receiver_y",
+    )
+    assert data.profile_axis_order == ("time", "shot_in_line")
+    assert data.profile_shape == (8, 8)
+    assert data.normalized_coordinates.shape == (12, 3)
+    assert data.observed_trace_mask.shape == (12, 8)
+    np.testing.assert_array_equal(restored, volume.values)
+
+
+def test_shot_profiles_reject_receiver_y_time_alignment() -> None:
+    volume = _observed_volume(shape=(8, 1, 8, 1, 2))
+
+    with pytest.raises(ValueError, match="time_alignment"):
+        build_c3_volume_nersi_data(
+            volume,
+            amplitude_scale=1.0,
+            time_alignment={
+                "receiver_y_shift_samples_per_cell": 1,
+                "boundary": "circular",
+            },
+            profile_axis="shot_in_line",
+        )
+
+
 def test_profile_mask_reshape_matches_profile_value_order() -> None:
     volume = _observed_volume()
     data = _build(volume)

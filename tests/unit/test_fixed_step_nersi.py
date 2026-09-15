@@ -18,6 +18,42 @@ from seis_interp.training.fixed_step_nersi import (
 from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
 
 
+def test_adamw_routes_with_zero_decay_and_preserves_sampling(monkeypatch):
+    calls = []
+    real_adamw = torch.optim.AdamW
+
+    def record(parameters, **kwargs):
+        calls.append(kwargs)
+        return real_adamw(parameters, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", record)
+    adam = _model()
+    adamw = _model()
+    first = _train(adam, _data())
+    second = _train(adamw, _data(), optimizer_name="adamw")
+    assert calls == [{"lr": 0.001, "weight_decay": 0.0}]
+    assert first.supervised_trace_presentations == second.supervised_trace_presentations
+    for a, b in zip(adam.parameters(), adamw.parameters(), strict=True):
+        torch.testing.assert_close(a, b)
+    with pytest.raises(ValueError, match="optimizer_name"):
+        _train(_model(), _data(), optimizer_name="sgd")
+
+
+def test_adamw_routes_configured_weight_decay(monkeypatch):
+    calls = []
+    real_adamw = torch.optim.AdamW
+
+    def record(parameters, **kwargs):
+        calls.append(kwargs)
+        return real_adamw(parameters, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", record)
+    _train(_model(), _data(), optimizer_name="adamw", weight_decay=0.0001)
+    assert calls == [{"lr": 0.001, "weight_decay": 0.0001}]
+    with pytest.raises(ValueError, match="requires"):
+        _train(_model(), _data(), optimizer_name="adam", weight_decay=0.0001)
+
+
 def _model(*, seed: int = 7) -> Nersi:
     torch.manual_seed(seed)
     return Nersi(

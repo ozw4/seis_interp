@@ -212,6 +212,64 @@ def _run(
     )
 
 
+def test_adamw_recorded_in_resolved_config_and_metadata(tmp_path, nersi_artifacts):
+    contents = _config(nersi_artifacts)
+    contents["training"]["optimizer"] = "adamw"
+    contents["training"]["weight_decay"] = 0.0001
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts, contents=contents)
+    output = tmp_path / "run"
+    _run(nersi_artifacts, config, output)
+    resolved = load_resolved_config(output / "config.resolved.yaml")
+    record = json.loads((output / "metadata.json").read_text())
+    assert resolved["training"]["optimizer"] == "adamw"
+    assert record["training_or_reconstruction"]["optimizer"] == "adamw"
+    assert resolved["training"]["weight_decay"] == 0.0001
+    assert record["training_or_reconstruction"]["weight_decay"] == 0.0001
+
+
+def test_profile_embedding_pipeline_restores_fixed_volume_function(tmp_path, nersi_artifacts):
+    contents = _config(nersi_artifacts)
+    contents["model"]["profile_embedding_channels"] = 4
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts, contents=contents)
+    output = tmp_path / "run"
+
+    _run(nersi_artifacts, config, output)
+
+    loaded = load_fixed_step_nersi_checkpoint(output / "final.pt")
+    assert loaded.model.profile_embedding_channels == 4
+    assert loaded.model.profile_grid_shape == (2, 3, 2)
+    assert loaded.model.constructor_config()["profile_grid_shape"] == (2, 3, 2)
+    assert json.loads((output / "metadata.json").read_text())["status"] == "success"
+
+
+def test_rank_two_latent_pipeline_restores_fixed_volume_function(tmp_path, nersi_artifacts):
+    contents = _config(nersi_artifacts)
+    contents["model"]["latent_spatial_rank"] = 2
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts, contents=contents)
+    output = tmp_path / "run"
+
+    _run(nersi_artifacts, config, output)
+
+    loaded = load_fixed_step_nersi_checkpoint(output / "final.pt")
+    assert loaded.model.latent_spatial_rank == 2
+    assert loaded.model.constructor_config()["latent_spatial_rank"] == 2
+    assert json.loads((output / "metadata.json").read_text())["status"] == "success"
+
+
+def test_temporal_basis_pipeline_restores_fixed_volume_function(tmp_path, nersi_artifacts):
+    contents = _config(nersi_artifacts)
+    contents["model"]["temporal_basis_components"] = 8
+    config = _write_config(tmp_path / "nersi.yaml", nersi_artifacts, contents=contents)
+    output = tmp_path / "run"
+
+    _run(nersi_artifacts, config, output)
+
+    loaded = load_fixed_step_nersi_checkpoint(output / "final.pt")
+    assert loaded.model.temporal_basis_components == 8
+    assert loaded.model.constructor_config()["temporal_basis_components"] == 8
+    assert json.loads((output / "metadata.json").read_text())["status"] == "success"
+
+
 def _loaded_inputs(artifacts: PreparedC3VolumeRunArtifacts, config: Path):
     return _load_synthetic_poc_inputs(
         config=load_resolved_config(config),

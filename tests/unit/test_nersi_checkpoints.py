@@ -112,6 +112,106 @@ def test_cpu_round_trip_restores_function_constructor_and_preprocessing(tmp_path
     validate_fixed_step_nersi_checkpoint_input_binding(loaded, _inputs_lock(), data)
 
 
+def test_shot_profile_checkpoint_round_trip_preserves_axis_contract(tmp_path: Path) -> None:
+    path = tmp_path / "shot-final.pt"
+    data = C3VolumeNersiData(
+        normalized_coordinates=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32),
+        normalized_profiles=np.zeros((2, 1, 8, 8), dtype=np.float32),
+        observed_trace_mask=np.ones((2, 8), dtype=np.bool_),
+        training_profile_indices=np.array([0, 1], dtype=np.int64),
+        amplitude_scale=2.5,
+        spatial_shape=(2, 8, 1, 1),
+        profile_shape=(8, 8),
+        profile_axis="shot_in_line",
+    )
+    save_fixed_step_nersi_checkpoint(
+        path,
+        _model(),
+        data,
+        global_step=7,
+        final_batch_loss=0.125,
+        input_binding=nersi_checkpoint_input_binding(_inputs_lock()),
+        model_initialization_seed=101,
+        sampling_seed=201,
+    )
+
+    loaded = load_fixed_step_nersi_checkpoint(path)
+
+    assert loaded.profile_axis == "shot_in_line"
+    assert loaded.profile_axis_order == ("time", "shot_in_line")
+    assert loaded.coordinate_order == (
+        "source_line",
+        "relative_receiver_x",
+        "relative_receiver_y",
+    )
+    assert loaded.coordinate_bounds == ((0, 1), (0, 0), (0, 0))
+    validate_fixed_step_nersi_checkpoint_input_binding(loaded, _inputs_lock(), data)
+
+
+def test_depthwise_separable_checkpoint_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "depthwise-final.pt"
+    model = Nersi(
+        fourier_components=2,
+        frequency_base=1.5,
+        encoder_width=8,
+        latent_channels=2,
+        decoder_channels=(3, 2, 2),
+        profile_shape=(8, 8),
+        kernel_size=3,
+        decoder_convolution="depthwise_separable",
+    )
+    save_fixed_step_nersi_checkpoint(
+        path,
+        model,
+        _data(),
+        global_step=7,
+        final_batch_loss=0.125,
+        input_binding=nersi_checkpoint_input_binding(_inputs_lock()),
+        model_initialization_seed=101,
+        sampling_seed=201,
+    )
+
+    loaded = load_fixed_step_nersi_checkpoint(path)
+
+    assert loaded.model.constructor_config() == model.constructor_config()
+    for name, value in model.state_dict().items():
+        torch.testing.assert_close(loaded.model.state_dict()[name], value, rtol=0, atol=0)
+
+
+def test_profile_embedding_checkpoint_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "embedding-final.pt"
+    model = Nersi(
+        fourier_components=2,
+        frequency_base=1.5,
+        encoder_width=8,
+        latent_channels=2,
+        decoder_channels=(3, 2, 2),
+        profile_shape=(8, 8),
+        kernel_size=1,
+        profile_embedding_channels=4,
+        profile_grid_shape=(2, 1, 1),
+    )
+    data = _data()
+    expected = model(torch.tensor(data.normalized_coordinates)).detach()
+    save_fixed_step_nersi_checkpoint(
+        path,
+        model,
+        data,
+        global_step=7,
+        final_batch_loss=0.125,
+        input_binding=nersi_checkpoint_input_binding(_inputs_lock()),
+        model_initialization_seed=101,
+        sampling_seed=201,
+    )
+
+    loaded = load_fixed_step_nersi_checkpoint(path)
+
+    assert loaded.model.constructor_config() == model.constructor_config()
+    torch.testing.assert_close(
+        loaded.model(torch.tensor(data.normalized_coordinates)), expected, rtol=0, atol=0
+    )
+
+
 def test_payload_is_cpu_snapshot_without_resume_or_target_information(tmp_path: Path) -> None:
     path = tmp_path / "final.pt"
     model, _ = _save(path)

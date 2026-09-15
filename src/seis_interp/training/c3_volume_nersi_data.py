@@ -22,6 +22,13 @@ PROFILE_COORDINATE_ORDER = (
     "relative_receiver_x",
 )
 PROFILE_AXIS_ORDER = ("time", "relative_receiver_y")
+SUPPORTED_PROFILE_AXES = ("relative_receiver_y", "shot_in_line")
+SPATIAL_AXIS_ORDER = (
+    "source_line",
+    "shot_in_line",
+    "relative_receiver_x",
+    "relative_receiver_y",
+)
 ProfileCoordinateBounds = tuple[tuple[int, int], tuple[int, int], tuple[int, int]]
 
 
@@ -41,13 +48,24 @@ class C3VolumeNersiData:
     amplitude_scale: float
     spatial_shape: tuple[int, int, int, int]
     profile_shape: tuple[int, int]
+    profile_axis: str = "relative_receiver_y"
     trace_amplitude_scale: np.ndarray | None = None
     time_alignment: dict[str, object] | None = None
 
     @property
     def coordinate_bounds(self) -> ProfileCoordinateBounds:
         """Return the mask-independent local-index bounds for the full domain."""
-        return profile_coordinate_bounds(self.spatial_shape)
+        return profile_coordinate_bounds(self.spatial_shape, profile_axis=self.profile_axis)
+
+    @property
+    def coordinate_order(self) -> tuple[str, str, str]:
+        """Return the three spatial axes that identify one generated profile."""
+        return profile_coordinate_order(self.profile_axis)
+
+    @property
+    def profile_axis_order(self) -> tuple[str, str]:
+        """Return the time and generated spatial axis order."""
+        return ("time", self.profile_axis)
 
 
 def build_c3_volume_nersi_data(
@@ -56,6 +74,7 @@ def build_c3_volume_nersi_data(
     amplitude_scale: float,
     trace_amplitude_scale: np.ndarray | None = None,
     time_alignment: dict[str, object] | None = None,
+    profile_axis: str = "relative_receiver_y",
 ) -> C3VolumeNersiData:
     """Convert one observed-only volume into stable NeRSI profile arrays.
 
@@ -65,14 +84,17 @@ def build_c3_volume_nersi_data(
     Evaluation-target storage is discarded before targets are built.
     """
     values, observed_mask, _ = _validated_observed_volume(observed)
+    axis = validate_profile_axis(profile_axis)
+    if time_alignment is not None and axis != "relative_receiver_y":
+        raise ValueError("time_alignment requires relative_receiver_y profiles")
     scale = _positive_finite_float(amplitude_scale, "amplitude_scale")
     time_count, source_lines, shots, receiver_x, receiver_y = values.shape
     spatial_shape = (source_lines, shots, receiver_x, receiver_y)
-    profile_count = source_lines * shots * receiver_x
+    coordinate_shape = _profile_coordinate_shape(spatial_shape, axis)
 
-    coordinates = _normalized_profile_coordinates((source_lines, shots, receiver_x))
+    coordinates = _normalized_profile_coordinates(coordinate_shape)
     profile_mask = np.array(
-        observed_mask.reshape(profile_count, receiver_y),
+        trace_mask_to_nersi_profiles(observed_mask, profile_axis=axis),
         dtype=np.bool_,
         order="C",
         copy=True,
@@ -96,7 +118,7 @@ def build_c3_volume_nersi_data(
     alignment = None if time_alignment is None else validate_time_alignment(time_alignment)
     if alignment is not None:
         normalized_values = align_receiver_y_time(normalized_values, alignment)
-    normalized_profiles = volume_to_nersi_profiles(normalized_values)
+    normalized_profiles = volume_to_nersi_profiles(normalized_values, profile_axis=axis)
 
     return C3VolumeNersiData(
         normalized_coordinates=coordinates,
@@ -105,7 +127,8 @@ def build_c3_volume_nersi_data(
         training_profile_indices=training_indices,
         amplitude_scale=scale,
         spatial_shape=spatial_shape,
-        profile_shape=(normalized_values.shape[0], receiver_y),
+        profile_shape=(normalized_values.shape[0], spatial_shape[SPATIAL_AXIS_ORDER.index(axis)]),
+        profile_axis=axis,
         trace_amplitude_scale=(
             None if trace_amplitude_scale is None else trace_amplitude_scale.copy()
         ),
@@ -125,38 +148,55 @@ def validate_trace_amplitude_scale(value: np.ndarray, spatial_shape: tuple[int, 
         raise ValueError("trace_amplitude_scale must be finite nonnegative spatial float64 RMS")
 
 
-def volume_to_nersi_profiles(values: np.ndarray) -> np.ndarray:
+def volume_to_nersi_profiles(
+    values: np.ndarray,
+    *,
+    profile_axis: str = "relative_receiver_y",
+) -> np.ndarray:
     """Return ``(N, 1, T, Ry)`` profiles from a ``(T, Sx, Sy, Rx, Ry)`` volume."""
     _validate_real_array(values, name="values", dimensions=5)
-    time_count, source_lines, shots, receiver_x, receiver_y = values.shape
-    profile_count = source_lines * shots * receiver_x
-    profiles = values.transpose(1, 2, 3, 0, 4).reshape(profile_count, 1, time_count, receiver_y)
+    axis = validate_profile_axis(profile_axis)
+    time_count = values.shape[0]
+    spatial_shape = tuple(values.shape[1:])
+    profile_spatial_index = SPATIAL_AXIS_ORDER.index(axis)
+    coordinate_indices = tuple(i for i in range(4) if i != profile_spatial_index)
+    coordinate_shape = tuple(spatial_shape[i] for i in coordinate_indices)
+    profile_count = math.prod(coordinate_shape)
+    transpose_axes = tuple(i + 1 for i in coordinate_indices) + (0, profile_spatial_index + 1)
+    profiles = values.transpose(transpose_axes).reshape(
+        profile_count, 1, time_count, spatial_shape[profile_spatial_index]
+    )
     return np.ascontiguousarray(profiles)
 
 
 def nersi_profiles_to_volume(
     profiles: np.ndarray,
     spatial_shape: tuple[int, int, int, int],
+    *,
+    profile_axis: str = "relative_receiver_y",
 ) -> np.ndarray:
     """Invert :func:`volume_to_nersi_profiles` without changing values or dtype."""
     _validate_real_array(profiles, name="profiles", dimensions=4)
-    source_lines, shots, receiver_x, receiver_y = _validated_spatial_shape(spatial_shape)
-    profile_count = source_lines * shots * receiver_x
+    shape = _validated_spatial_shape(spatial_shape)
+    axis = validate_profile_axis(profile_axis)
+    profile_spatial_index = SPATIAL_AXIS_ORDER.index(axis)
+    coordinate_indices = tuple(i for i in range(4) if i != profile_spatial_index)
+    coordinate_shape = tuple(shape[i] for i in coordinate_indices)
+    profile_count = math.prod(coordinate_shape)
     if profiles.shape[0] != profile_count:
         raise ValueError("profile count must equal Sx * Sy * Rx")
     if profiles.shape[1] != 1:
         raise ValueError("profiles must have exactly one amplitude channel")
-    if profiles.shape[3] != receiver_y:
-        raise ValueError("profile receiver-y size must match spatial_shape")
+    if profiles.shape[3] != shape[profile_spatial_index]:
+        label = "receiver-y" if axis == "relative_receiver_y" else axis
+        raise ValueError(f"profile {label} size must match spatial_shape")
 
     time_count = profiles.shape[2]
-    volume = profiles.reshape(
-        source_lines,
-        shots,
-        receiver_x,
-        time_count,
-        receiver_y,
-    ).transpose(3, 0, 1, 2, 4)
+    arranged = profiles.reshape(*coordinate_shape, time_count, shape[profile_spatial_index])
+    current_axes = [*coordinate_indices, 4, profile_spatial_index]
+    volume = arranged.transpose(
+        tuple(current_axes.index(axis_index) for axis_index in (4, 0, 1, 2, 3))
+    )
     return np.ascontiguousarray(volume)
 
 
@@ -240,10 +280,49 @@ def _normalized_profile_coordinates(
 
 def profile_coordinate_bounds(
     spatial_shape: Sequence[object],
+    *,
+    profile_axis: str = "relative_receiver_y",
 ) -> ProfileCoordinateBounds:
     """Return full-domain local-index bounds in profile-coordinate order."""
-    source_lines, shots, receiver_x, _ = _validated_spatial_shape(spatial_shape)
-    return _coordinate_bounds_from_key_shape((source_lines, shots, receiver_x))
+    shape = _validated_spatial_shape(spatial_shape)
+    return _coordinate_bounds_from_key_shape(_profile_coordinate_shape(shape, profile_axis))
+
+
+def profile_coordinate_order(profile_axis: str) -> tuple[str, str, str]:
+    """Return the stable coordinate order for one supported profile axis."""
+    axis = validate_profile_axis(profile_axis)
+    return tuple(name for name in SPATIAL_AXIS_ORDER if name != axis)  # type: ignore[return-value]
+
+
+def validate_profile_axis(value: object) -> str:
+    """Return a supported NeRSI generated-profile axis."""
+    if value not in SUPPORTED_PROFILE_AXES:
+        raise ValueError(f"profile_axis must be one of {SUPPORTED_PROFILE_AXES!r}")
+    return str(value)
+
+
+def _profile_coordinate_shape(
+    spatial_shape: tuple[int, int, int, int], profile_axis: str
+) -> tuple[int, int, int]:
+    axis = validate_profile_axis(profile_axis)
+    index = SPATIAL_AXIS_ORDER.index(axis)
+    return tuple(value for i, value in enumerate(spatial_shape) if i != index)  # type: ignore[return-value]
+
+
+def trace_mask_to_nersi_profiles(
+    mask: np.ndarray,
+    *,
+    profile_axis: str = "relative_receiver_y",
+) -> np.ndarray:
+    """Arrange a four-dimensional spatial trace mask in NeRSI profile order."""
+    if not isinstance(mask, np.ndarray) or mask.ndim != 4 or mask.dtype != np.bool_:
+        raise ValueError("mask must be a four-dimensional boolean array")
+    axis = validate_profile_axis(profile_axis)
+    profile_spatial_index = SPATIAL_AXIS_ORDER.index(axis)
+    coordinate_indices = tuple(i for i in range(4) if i != profile_spatial_index)
+    return mask.transpose(*coordinate_indices, profile_spatial_index).reshape(
+        -1, mask.shape[profile_spatial_index]
+    )
 
 
 def _coordinate_bounds_from_key_shape(

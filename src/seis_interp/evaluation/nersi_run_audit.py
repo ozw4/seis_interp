@@ -146,6 +146,7 @@ def audit_c3_nersi_run(
         == nersi_method_variant(
             trace_rms_idw=settings.trace_rms_idw is not None,
             time_alignment=settings.time_alignment,
+            profile_axis=settings.profile_axis,
         ),
         "NeRSI method variant differs",
     )
@@ -216,19 +217,21 @@ def audit_c3_nersi_run(
                 observed.values, observed.observed_trace_mask, **settings.trace_rms_idw
             )
         ),
+        profile_axis=settings.profile_axis,
     )
     loaded = load_fixed_step_nersi_checkpoint(checkpoint_path, device="cpu")
     from seis_interp.processing.nersi_coordinate_mapping import nersi_profile_encoding
 
     expected_model = settings.model_constructor_config(data.profile_shape)
-    expected_model.update(
-        nersi_profile_encoding(
-            inputs.index_table,
-            data.spatial_shape,
-            cartesian=settings.cartesian_profile_coordinates,
-            fractions=settings.nyquist_fractions,
+    if data.profile_axis == "relative_receiver_y":
+        expected_model.update(
+            nersi_profile_encoding(
+                inputs.index_table,
+                data.spatial_shape,
+                cartesian=settings.cartesian_profile_coordinates,
+                fractions=settings.nyquist_fractions,
+            )
         )
-    )
     actual_model = loaded.model.constructor_config()
     _require(
         all(

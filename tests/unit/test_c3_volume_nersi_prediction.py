@@ -7,7 +7,10 @@ import pytest
 import torch
 
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
-from seis_interp.training.c3_volume_nersi_data import C3VolumeNersiData
+from seis_interp.training.c3_volume_nersi_data import (
+    C3VolumeNersiData,
+    build_c3_volume_nersi_data,
+)
 from seis_interp.training.c3_volume_nersi_prediction import predict_c3_volume_nersi
 
 
@@ -138,6 +141,36 @@ def test_profiles_without_observed_traces_are_still_predicted() -> None:
     assert result.predicted_profile_count == len(data.normalized_coordinates) == 4
     assert np.all(result.values[:, 0, 0, 1] == 12.0)
     assert np.all(result.values[:, 0, 1, 1] == 18.0)
+
+
+def test_shot_profile_prediction_restores_original_volume_order() -> None:
+    shape = (8, 1, 8, 1, 2)
+    mask = np.zeros(shape[1:], dtype=np.bool_)
+    mask[0, 0, 0, 0] = True
+    values = np.zeros(shape, dtype=np.float32)
+    values[:, mask] = 11.0
+    observed = ObservedC3Volume(
+        values=values,
+        time_s=np.arange(8, dtype=np.float64),
+        array_rows=np.arange(np.prod(shape[1:]), dtype=np.int64).reshape(shape[1:]),
+        observed_trace_mask=mask,
+        evaluation_target_trace_mask=~mask,
+    )
+    data = build_c3_volume_nersi_data(
+        observed,
+        amplitude_scale=2.0,
+        profile_axis="shot_in_line",
+    )
+
+    result = predict_c3_volume_nersi(
+        _CoordinateProfileModel(), data, observed, batch_size=2, device="cpu"
+    )
+
+    assert result.predicted_profile_count == 2
+    assert result.values.shape == shape
+    assert np.all(result.values[:, 0, 1:, 0, 0] == 0.0)
+    assert np.all(result.values[:, 0, :, 0, 1] == 8.0)
+    np.testing.assert_array_equal(result.values[:, mask], observed.values[:, mask])
 
 
 @pytest.mark.parametrize(

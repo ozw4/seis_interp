@@ -85,8 +85,10 @@ def train_nersi_fixed_steps(
     augmentation_seed: int = 0,
     optimization: dict | None = None,
     gradient_accumulation_steps: int = 1,
+    optimizer_name: str = "adam",
+    weight_decay: float = 0.0,
 ) -> FixedStepNersiResult:
-    """Perform exactly ``max_steps`` Adam updates on observed profile samples.
+    """Perform exactly ``max_steps`` Adam/AdamW updates on observed profile samples.
 
     Profiles are sampled without replacement from the data adapter's stable
     training candidates. A full-candidate update retains that stable order and
@@ -101,6 +103,11 @@ def train_nersi_fixed_steps(
         raise TypeError("model must be a Nersi")
     _validate_training_data(data)
     rate = _positive_finite_float(learning_rate, "learning_rate")
+    if optimizer_name not in ("adam", "adamw"):
+        raise ValueError("optimizer_name must be 'adam' or 'adamw'")
+    decay_rate = _nonnegative_finite_float(weight_decay, "weight_decay")
+    if optimizer_name != "adamw" and decay_rate:
+        raise ValueError("weight_decay requires optimizer_name='adamw'")
     options = None if optimization is None else validate_nersi_optimization(optimization, rate)
     batch_count = _positive_integer(profiles_per_step, "profiles_per_step")
     accumulation = _positive_integer(gradient_accumulation_steps, "gradient_accumulation_steps")
@@ -143,7 +150,11 @@ def train_nersi_fixed_steps(
     rng = np.random.default_rng(seed)
     model.to(device)
     model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=rate)
+    optimizer = (
+        torch.optim.Adam(model.parameters(), lr=rate)
+        if optimizer_name == "adam"
+        else torch.optim.AdamW(model.parameters(), lr=rate, weight_decay=decay_rate)
+    )
     decay = None if options is None else options["ema_decay"]
     averaged = None
     history: list[dict[str, int | float]] = []
@@ -288,4 +299,13 @@ def _positive_finite_float(value: object, name: str) -> float:
     converted = float(value)
     if not math.isfinite(converted) or converted <= 0.0:
         raise ValueError(f"{name} must be positive and finite")
+    return converted
+
+
+def _nonnegative_finite_float(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{name} must be nonnegative and finite")
+    converted = float(value)
+    if not math.isfinite(converted) or converted < 0.0:
+        raise ValueError(f"{name} must be nonnegative and finite")
     return converted

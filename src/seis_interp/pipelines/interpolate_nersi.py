@@ -37,8 +37,6 @@ from seis_interp.processing.nersi_coordinate_mapping import nersi_profile_encodi
 from seis_interp.processing.trace_rms_idw import interpolate_trace_rms_idw
 from seis_interp.training.amplitude_scaling import compute_observed_global_rms
 from seis_interp.training.c3_volume_nersi_data import (
-    PROFILE_AXIS_ORDER,
-    PROFILE_COORDINATE_ORDER,
     C3VolumeNersiData,
     build_c3_volume_nersi_data,
 )
@@ -135,20 +133,24 @@ def interpolate_nersi_run(
         amplitude_scale=amplitude_scale,
         trace_amplitude_scale=trace_scale,
         time_alignment=settings.time_alignment,
+        profile_axis=settings.profile_axis,
     )
     method_variant = nersi_method_variant(
-        trace_rms_idw=trace_scale is not None, time_alignment=settings.time_alignment
+        trace_rms_idw=trace_scale is not None,
+        time_alignment=settings.time_alignment,
+        profile_axis=data.profile_axis,
     )
     timings["training_data_seconds"] = time.perf_counter() - started
     model_config = settings.model_constructor_config(data.profile_shape)
-    model_config.update(
-        nersi_profile_encoding(
-            inputs.index_table,
-            data.spatial_shape,
-            cartesian=settings.cartesian_profile_coordinates,
-            fractions=settings.nyquist_fractions,
+    if data.profile_axis == "relative_receiver_y":
+        model_config.update(
+            nersi_profile_encoding(
+                inputs.index_table,
+                data.spatial_shape,
+                cartesian=settings.cartesian_profile_coordinates,
+                fractions=settings.nyquist_fractions,
+            )
         )
-    )
     seed_global_model_initialization(settings.training.model_initialization_seed, device=device)
     model = Nersi(**model_config)
 
@@ -168,6 +170,18 @@ def interpolate_nersi_run(
         data,
         device=device,
         loss_name=settings.training.loss,
+        **(
+            {
+                "optimizer_name": settings.training.optimizer,
+                **(
+                    {"weight_decay": settings.training.weight_decay}
+                    if settings.training.weight_decay
+                    else {}
+                ),
+            }
+            if settings.training.optimizer != "adam"
+            else {}
+        ),
         learning_rate=settings.training.learning_rate,
         profiles_per_step=settings.training.profiles_per_step,
         max_steps=settings.training.max_steps,
@@ -331,6 +345,8 @@ def _run_metadata(
 ) -> dict[str, object]:
     training = asdict(settings.training)
     del training["device"]
+    if settings.training.optimizer != "adamw":
+        del training["weight_decay"]
     if settings.augmentation is not None:
         training["augmentation"] = dict(settings.augmentation)
     observed_trace_count = int(np.count_nonzero(data.observed_trace_mask))
@@ -385,6 +401,7 @@ def _run_metadata(
         "method_variant": nersi_method_variant(
             trace_rms_idw=settings.trace_rms_idw is not None,
             time_alignment=settings.time_alignment,
+            profile_axis=data.profile_axis,
         ),
         **({"time_alignment": dict(settings.time_alignment)} if settings.time_alignment else {}),
         "case_id": inputs.case["case_id"],
@@ -402,16 +419,16 @@ def _run_metadata(
         "sampling_seed": settings.training.sampling_seed,
         "input": _input_metadata(inputs),
         "profiles": {
-            "coordinate_order": list(PROFILE_COORDINATE_ORDER),
+            "coordinate_order": list(data.coordinate_order),
             "coordinate_normalization": COORDINATE_NORMALIZATION,
             "coordinate_normalization_source": "fixed_analysis_domain",
             "coordinate_bounds": [list(bounds) for bounds in data.coordinate_bounds],
-            "axis_order": list(PROFILE_AXIS_ORDER),
+            "axis_order": list(data.profile_axis_order),
             "shape": list(data.profile_shape),
             **({"physical_shape": [physical_time_count, data.profile_shape[1]]} if padding else {}),
             "count": profile_count,
             "training_profile_count": int(len(data.training_profile_indices)),
-            "stable_order": "C_order_source_line_shot_in_line_relative_receiver_x",
+            "stable_order": f"C_order_{'_'.join(data.coordinate_order)}",
         },
         "amplitude": {
             "scaling": scaling,
@@ -426,7 +443,12 @@ def _run_metadata(
         },
         "parameter_count": parameter_count,
         "training": {
-            "optimizer": "adam",
+            "optimizer": settings.training.optimizer,
+            **(
+                {"weight_decay": settings.training.weight_decay}
+                if settings.training.optimizer == "adamw"
+                else {}
+            ),
             "loss": settings.training.loss,
             **training,
             "steps_completed": trained.steps_completed,

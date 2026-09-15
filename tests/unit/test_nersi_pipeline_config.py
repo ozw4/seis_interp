@@ -8,6 +8,23 @@ from seis_interp.configuration import ConfigurationError
 from seis_interp.nersi_config import validate_nersi_poc_config
 
 
+@pytest.mark.parametrize("optimizer", ["adam", "adamw"])
+def test_optimizer_choice(optimizer):
+    config = _config()
+    config["training"]["optimizer"] = optimizer
+    assert validate_nersi_poc_config(config).training.optimizer == optimizer
+
+
+def test_weight_decay_is_optional_and_requires_adamw():
+    config = _config()
+    assert validate_nersi_poc_config(config).training.weight_decay == 0.0
+    config["training"].update(optimizer="adamw", weight_decay=0.0001)
+    assert validate_nersi_poc_config(config).training.weight_decay == 0.0001
+    config["training"]["optimizer"] = "adam"
+    with pytest.raises(ConfigurationError, match="requires AdamW"):
+        validate_nersi_poc_config(config)
+
+
 def _config() -> dict[str, object]:
     return {
         "project": {"random_seed": 142},
@@ -95,6 +112,129 @@ def test_valid_config_preserves_separate_mask_and_training_seeds() -> None:
         "output_activation": "linear",
     }
     assert settings.prediction_batch_size == 8
+
+
+def test_shot_profile_axis_requires_matching_coordinates_and_no_receiver_y_options() -> None:
+    config = _config()
+    config["profile_axis"] = "shot_in_line"
+    config["model"]["coordinate_order"] = [
+        "source_line",
+        "relative_receiver_x",
+        "relative_receiver_y",
+    ]
+
+    settings = validate_nersi_poc_config(config)
+
+    assert settings.profile_axis == "shot_in_line"
+    for section, value in (
+        (
+            "time_alignment",
+            {"receiver_y_shift_samples_per_cell": 3, "boundary": "circular"},
+        ),
+        ("augmentation", {"coordinate_jitter_cells": 0.1, "random_seed": 501}),
+        ("fourier_bandlimit", {"nyquist_fraction": [1.0, 1.0, 1.0]}),
+    ):
+        invalid = deepcopy(config)
+        invalid[section] = value
+        with pytest.raises(ConfigurationError, match="profiles"):
+            validate_nersi_poc_config(invalid)
+
+
+def test_optional_depthwise_separable_decoder_is_preserved() -> None:
+    config = _config()
+    config["model"]["decoder_convolution"] = "depthwise_separable"
+
+    settings = validate_nersi_poc_config(config)
+
+    assert settings.model["decoder_convolution"] == "depthwise_separable"
+    config["model"]["decoder_convolution"] = "grouped"
+    with pytest.raises(ConfigurationError, match="decoder_convolution"):
+        validate_nersi_poc_config(config)
+
+
+def test_axis_specific_frequency_bases_are_preserved() -> None:
+    config = _config()
+    config["model"]["frequency_base"] = [1.07, 1.09, 1.05]
+
+    settings = validate_nersi_poc_config(config)
+
+    assert settings.model["frequency_base"] == (1.07, 1.09, 1.05)
+    for value in ([1.1, 1.2], [1.1, 1.0, 1.2], [1.1, True, 1.2]):
+        invalid = deepcopy(config)
+        invalid["model"]["frequency_base"] = value
+        with pytest.raises(ConfigurationError, match="frequency_base"):
+            validate_nersi_poc_config(invalid)
+
+
+def test_profile_embedding_derives_fixed_grid_from_resolved_selection() -> None:
+    config = _config()
+    config["benchmark_volume"] = {
+        "selection": {
+            "time": [0, 384],
+            "source_line": [25, 41],
+            "shot_in_line": [18, 50],
+            "relative_receiver_x": [0, 8],
+            "relative_receiver_y": [18, 50],
+        }
+    }
+    config["model"]["profile_embedding_channels"] = 32
+
+    settings = validate_nersi_poc_config(config)
+
+    assert settings.model["profile_embedding_channels"] == 32
+    assert settings.model["profile_grid_shape"] == (16, 32, 8)
+
+
+def test_profile_embedding_rejects_missing_selection_and_coordinate_augmentation() -> None:
+    config = _config()
+    config["model"]["profile_embedding_channels"] = 32
+    with pytest.raises(ConfigurationError, match="selection"):
+        validate_nersi_poc_config(config)
+
+    config["benchmark_volume"] = {
+        "selection": {
+            "source_line": [25, 41],
+            "shot_in_line": [18, 50],
+            "relative_receiver_x": [0, 8],
+        }
+    }
+    config["augmentation"] = {"coordinate_jitter_cells": 0.1, "random_seed": 501}
+    with pytest.raises(ConfigurationError, match="without coordinate augmentation"):
+        validate_nersi_poc_config(config)
+
+
+def test_optional_rank_two_spatial_latent_is_preserved() -> None:
+    config = _config()
+    config["model"]["latent_spatial_rank"] = 2
+
+    settings = validate_nersi_poc_config(config)
+
+    assert settings.model["latent_spatial_rank"] == 2
+    assert settings.model_constructor_config((384, 32))["latent_spatial_rank"] == 2
+    config["model"]["latent_spatial_rank"] = 0
+    with pytest.raises(ConfigurationError, match="latent_spatial_rank"):
+        validate_nersi_poc_config(config)
+
+
+def test_optional_temporal_basis_components_are_preserved() -> None:
+    config = _config()
+    config["model"]["temporal_basis_components"] = 128
+
+    settings = validate_nersi_poc_config(config)
+
+    assert settings.model["temporal_basis_components"] == 128
+    assert settings.model_constructor_config((384, 32))["temporal_basis_components"] == 128
+    config["model"]["temporal_basis_components"] = 0
+    with pytest.raises(ConfigurationError, match="temporal_basis_components"):
+        validate_nersi_poc_config(config)
+
+
+@pytest.mark.parametrize("profile_axis", ["relative_receiver_x", "unknown", 1])
+def test_unsupported_profile_axis_is_rejected(profile_axis) -> None:
+    config = _config()
+    config["profile_axis"] = profile_axis
+    with pytest.raises(ConfigurationError, match="profile_axis"):
+        validate_nersi_poc_config(config)
 
 
 @pytest.mark.parametrize("section", ["model", "training", "prediction", "evaluation"])

@@ -17,8 +17,10 @@ from seis_interp.processing.trace_time_alignment import (
 )
 from seis_interp.training.amplitude_scaling import restore_physical_amplitude
 from seis_interp.training.c3_volume_nersi_data import (
+    SPATIAL_AXIS_ORDER,
     C3VolumeNersiData,
     nersi_profiles_to_volume,
+    trace_mask_to_nersi_profiles,
     validate_trace_amplitude_scale,
 )
 
@@ -78,13 +80,21 @@ def predict_c3_volume_nersi(
         dtype=np.float32,
     )
     predicted_values = np.ascontiguousarray(
-        nersi_profiles_to_volume(physical_profiles, tuple(data.spatial_shape)),
+        nersi_profiles_to_volume(
+            physical_profiles,
+            tuple(data.spatial_shape),
+            profile_axis=data.profile_axis,
+        ),
         dtype=np.float32,
     )
     if data.trace_amplitude_scale is not None:
         validate_trace_amplitude_scale(data.trace_amplitude_scale, tuple(data.spatial_shape))
         predicted_values = np.ascontiguousarray(
-            nersi_profiles_to_volume(normalized_profiles, tuple(data.spatial_shape))
+            nersi_profiles_to_volume(
+                normalized_profiles,
+                tuple(data.spatial_shape),
+                profile_axis=data.profile_axis,
+            )
             * data.trace_amplitude_scale[None],
             dtype=np.float32,
         )
@@ -141,13 +151,16 @@ def _validate_prediction_inputs(
         if data.time_alignment is None
         else alignment_time_padding(spatial_shape[-1], data.time_alignment)
     )
-    profile_shape = (values.shape[0] + padding, values.shape[-1])
+    profile_axis_index = SPATIAL_AXIS_ORDER.index(data.profile_axis)
+    profile_shape = (values.shape[0] + padding, spatial_shape[profile_axis_index])
     if tuple(data.profile_shape) != profile_shape:
         raise ValueError("data profile_shape must match the observed volume time and receiver-y")
     model_profile_shape = getattr(model, "profile_shape", None)
     if model_profile_shape is None or tuple(model_profile_shape) != profile_shape:
         raise ValueError("model profile_shape must match data profile_shape")
-    profile_count = math.prod(spatial_shape[:-1])
+    profile_count = math.prod(
+        value for index, value in enumerate(spatial_shape) if index != profile_axis_index
+    )
     coordinates = data.normalized_coordinates
     if (
         not isinstance(coordinates, np.ndarray)
@@ -160,7 +173,7 @@ def _validate_prediction_inputs(
     if not isinstance(mask, np.ndarray) or mask.dtype != np.bool_ or mask.shape != spatial_shape:
         raise ValueError("observed trace mask must be boolean and match the spatial shape")
     profile_mask = data.observed_trace_mask
-    expected_profile_mask = mask.reshape(profile_count, spatial_shape[-1])
+    expected_profile_mask = trace_mask_to_nersi_profiles(mask, profile_axis=data.profile_axis)
     if (
         not isinstance(profile_mask, np.ndarray)
         or profile_mask.dtype != np.bool_
