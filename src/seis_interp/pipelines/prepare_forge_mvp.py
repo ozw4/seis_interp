@@ -13,6 +13,7 @@ import yaml
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import (
     load_candidate_inputs,
+    mvp_implementation_files,
     observed_global_rms,
     read_selected_traces,
     verify_hashes,
@@ -173,7 +174,7 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     }
     write_json(run / "preparation_gates.json", gates)
     implementation_hashes = {}
-    for source in sorted((repo / "src/seis_interp").rglob("*.py")):
+    for source in mvp_implementation_files(repo):
         relative = source.relative_to(repo)
         implementation_hashes[str(relative)] = sha256_file(source)
         destination = run / "source" / relative

@@ -66,3 +66,5 @@ test振幅を開く前に全6手法のmanifest、predictionのhash・shape・cel
 完全一致時の無限SNRはJSONのnullとstatusで表現する。
 paired差は`error_regsi_real - error_regsi_grid`。投影距離四分位は同一test集合上で定め、
 因果効果・信頼区間・有意差へ解釈しない。
+
+- 実装hashとsource snapshotには `src/seis_interp/**/*.py` に加え、実際の起動入口 `scripts/forge_m1_mvp.py` を含める。ファイル集合も検証し、run/preflightは子プロセス起動前に改変を拒否する。変更後のprepareとpreflightはclean worktreeから再生成する。

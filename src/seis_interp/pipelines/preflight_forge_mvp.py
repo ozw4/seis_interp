@@ -10,7 +10,12 @@ from time import perf_counter
 import torch
 
 from seis_interp.data.forge_headers import sha256_file
-from seis_interp.data.forge_mvp_artifacts import load_model_inputs, verify_hashes, write_json
+from seis_interp.data.forge_mvp_artifacts import (
+    load_model_inputs,
+    verify_hashes,
+    verify_mvp_implementation,
+    write_json,
+)
 from seis_interp.data.forge_mvp_run_records import execution_identity, peak_memory, utc_now
 from seis_interp.processing.forge_mvp_contract import METHODS
 from seis_interp.training.forge_mvp_preflight import check_method_shapes
@@ -27,7 +32,7 @@ def preflight_forge_method(repo: Path, preparation: Path, output: Path, method_i
     device = "cpu"
     try:
         seal = json.loads((preparation / "preparation_manifest.json").read_text())
-        verify_hashes(repo, seal["implementation_hashes"])
+        verify_mvp_implementation(repo, seal["implementation_hashes"])
         inputs, config = load_model_inputs(preparation, method_id)
         device = config["device"]
         if device.startswith("cuda"):
@@ -52,6 +57,9 @@ def preflight_forge_method(repo: Path, preparation: Path, output: Path, method_i
 
 
 def preflight_forge_mvp(repo: Path, preparation: Path, output: Path):
+    seal = json.loads((preparation / "preparation_manifest.json").read_text())
+    verify_hashes(preparation, seal["artifacts"])
+    verify_mvp_implementation(repo, seal["implementation_hashes"])
     output.mkdir(parents=True, exist_ok=False)
     environment = dict(
         os.environ,

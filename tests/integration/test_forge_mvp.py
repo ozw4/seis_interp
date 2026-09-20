@@ -8,12 +8,18 @@ import pytest
 import torch
 
 from seis_interp.data.forge_headers import sha256_file
-from seis_interp.data.forge_mvp_artifacts import load_model_inputs, read_selected_traces, write_json
+from seis_interp.data.forge_mvp_artifacts import (
+    load_model_inputs,
+    mvp_implementation_files,
+    read_selected_traces,
+    verify_mvp_implementation,
+    write_json,
+)
 from seis_interp.data.forge_mvp_run_records import execution_identity
 from seis_interp.pipelines.evaluate_forge_mvp import evaluate_forge_mvp
-from seis_interp.pipelines.preflight_forge_mvp import preflight_forge_method
+from seis_interp.pipelines.preflight_forge_mvp import preflight_forge_method, preflight_forge_mvp
 from seis_interp.pipelines.prepare_forge_mvp import prepare_forge_mvp
-from seis_interp.pipelines.run_forge_mvp import run_forge_method
+from seis_interp.pipelines.run_forge_mvp import run_forge_method, run_forge_mvp
 from seis_interp.processing.forge_mvp_contract import METHODS
 from seis_interp.training.c3_poc_trace_graph_episodes import PocTraceGraphEpisodeGenerator
 from seis_interp.training.forge_mvp_methods import graph_data
@@ -258,3 +264,35 @@ def test_observed_only_shape_checks_and_paired_episode_sequence(prepared, tmp_pa
     for real, grid in zip(*sequences, strict=True):
         np.testing.assert_array_equal(real.query_trace_ids, grid.query_trace_ids)
         np.testing.assert_array_equal(real.visible_mask, grid.visible_mask)
+
+
+@pytest.mark.parametrize("entrypoint", ["run", "preflight"])
+def test_modified_cli_stops_before_subprocess(prepared, tmp_path, entrypoint):
+    preparation, _ = prepared
+    seal = json.loads((preparation / "preparation_manifest.json").read_text())
+    assert set(seal["implementation_hashes"]) == {
+        str(path.relative_to(tmp_path)) for path in mvp_implementation_files(tmp_path)
+    }
+    relative = "scripts/forge_m1_mvp.py"
+    script = tmp_path / relative
+    snapshot = preparation / "source" / relative
+    assert snapshot.read_bytes() == script.read_bytes()
+    assert seal["implementation_hashes"][relative] == sha256_file(script)
+    script.write_text(script.read_text() + "\n# changed after preparation\n")
+    with (
+        patch("subprocess.run") as launch,
+        pytest.raises(ValueError, match="input hash mismatch: scripts/forge_m1_mvp.py"),
+    ):
+        if entrypoint == "run":
+            run_forge_mvp(tmp_path, preparation, tmp_path / "run", tmp_path / "preflight")
+        else:
+            preflight_forge_mvp(tmp_path, preparation, tmp_path / "preflight")
+    launch.assert_not_called()
+
+
+def test_implementation_manifest_must_include_cli(prepared, tmp_path):
+    preparation, _ = prepared
+    seal = json.loads((preparation / "preparation_manifest.json").read_text())
+    del seal["implementation_hashes"]["scripts/forge_m1_mvp.py"]
+    with pytest.raises(ValueError, match="input hash mismatch: implementation file set"):
+        verify_mvp_implementation(tmp_path, seal["implementation_hashes"])

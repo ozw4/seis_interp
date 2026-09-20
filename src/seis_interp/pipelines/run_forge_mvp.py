@@ -13,7 +13,12 @@ import torch
 import yaml
 
 from seis_interp.data.forge_headers import sha256_file
-from seis_interp.data.forge_mvp_artifacts import load_model_inputs, verify_hashes, write_json
+from seis_interp.data.forge_mvp_artifacts import (
+    load_model_inputs,
+    verify_hashes,
+    verify_mvp_implementation,
+    write_json,
+)
 from seis_interp.data.forge_mvp_run_records import execution_identity, peak_memory, utc_now
 from seis_interp.evaluation.forge_mvp_metrics import validate_predictions
 from seis_interp.pipelines.preflight_forge_mvp import validate_preflight
@@ -62,7 +67,7 @@ def run_forge_method(repo: Path, preparation: Path, output: Path, method_id: str
     (output / "resolved_config.yaml").write_bytes(config_path.read_bytes())
     started = perf_counter()
     try:
-        verify_hashes(repo, seal["implementation_hashes"])
+        verify_mvp_implementation(repo, seal["implementation_hashes"])
         inputs, config = load_model_inputs(preparation, method_id)
         if config["device"].startswith("cuda"):
             torch.cuda.reset_peak_memory_stats(config["device"])
@@ -105,7 +110,7 @@ def run_forge_method(repo: Path, preparation: Path, output: Path, method_id: str
 def run_forge_mvp(repo: Path, preparation: Path, output: Path, preflight: Path):
     seal = json.loads((preparation / "preparation_manifest.json").read_text())
     verify_hashes(preparation, seal["artifacts"])
-    verify_hashes(repo, seal["implementation_hashes"])
+    verify_mvp_implementation(repo, seal["implementation_hashes"])
     preflight_hash = validate_preflight(preparation, preflight)
     output.mkdir(parents=True, exist_ok=False)
     identity = execution_identity(repo)

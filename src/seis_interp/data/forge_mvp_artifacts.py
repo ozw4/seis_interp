@@ -25,6 +25,19 @@ def verify_hashes(root: Path, hashes: dict) -> None:
             raise ValueError(f"input hash mismatch: {relative}")
 
 
+def mvp_implementation_files(repo: Path) -> list[Path]:
+    files = sorted((repo / "src/seis_interp").rglob("*.py"))
+    files.append(repo / "scripts/forge_m1_mvp.py")
+    return files
+
+
+def verify_mvp_implementation(repo: Path, hashes: dict) -> None:
+    expected = {str(path.relative_to(repo)) for path in mvp_implementation_files(repo)}
+    if difference := expected.symmetric_difference(hashes):
+        raise ValueError(f"input hash mismatch: implementation file set: {sorted(difference)}")
+    verify_hashes(repo, hashes)
+
+
 def load_candidate_inputs(repo: Path, inputs: dict, candidate_id: str):
     metadata_path = repo / inputs["region_metadata"]
     verify_hashes(repo, {inputs["region_metadata"]: inputs["region_metadata_sha256"]})

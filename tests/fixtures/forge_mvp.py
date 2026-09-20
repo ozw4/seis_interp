@@ -19,6 +19,9 @@ from seis_interp.processing.forge_mvp_contract import (
 
 def tiny_forge_study(root):
     repository = Path(__file__).resolve().parents[2]
+    script = root / "scripts/forge_m1_mvp.py"
+    script.parent.mkdir(parents=True)
+    script.write_bytes((repository / "scripts/forge_m1_mvp.py").read_bytes())
     canonical = repository / "studies/study_052_forge_m1_mvp"
     study = root / "studies/tiny_forge_mvp"
     study.mkdir(parents=True)

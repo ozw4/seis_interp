@@ -7,7 +7,12 @@ import numpy as np
 import pandas as pd
 
 from seis_interp.data.forge_headers import sha256_file
-from seis_interp.data.forge_mvp_artifacts import read_selected_traces, verify_hashes, write_json
+from seis_interp.data.forge_mvp_artifacts import (
+    read_selected_traces,
+    verify_hashes,
+    verify_mvp_implementation,
+    write_json,
+)
 from seis_interp.data.forge_mvp_run_records import utc_now
 from seis_interp.evaluation.forge_mvp_metrics import (
     evaluate_traces,
@@ -23,7 +28,7 @@ from seis_interp.visualization.forge_mvp import plot_projection_errors, plot_sec
 def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
     seal = json.loads((preparation / "preparation_manifest.json").read_text())
     verify_hashes(preparation, seal["artifacts"])
-    verify_hashes(repo, seal["implementation_hashes"])
+    verify_mvp_implementation(repo, seal["implementation_hashes"])
     contract = json.loads((preparation / "input/input_contract.json").read_text())
     matrix = json.loads((output / "matrix_manifest.json").read_text())
     if matrix["preparation_hash"] != sha256_file(
