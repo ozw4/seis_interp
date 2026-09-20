@@ -256,3 +256,47 @@ def test_learning_gate_changes_weights_and_output_and_receives_gradients() -> No
 def test_invalid_block_config_is_rejected(kwargs: dict, match: str) -> None:
     with pytest.raises(ValueError, match=match):
         RelationalTraceGraphMessageBlock(**{"width": 8, **kwargs})
+
+
+@pytest.mark.parametrize("attention,gate", [("mean", "mean"), ("rms", "mean"), ("mean", "rms")])
+def test_pooling_inputs_are_independent_and_zero_gradients_are_finite(attention, gate):
+    block = RelationalTraceGraphMessageBlock(
+        8, relation_fusion="learned_gate", attention_pooling=attention, relation_gate_pooling=gate
+    )
+    latents, edges, relations, features = _fixture()
+    latents = torch.tensor([-2.0, 2.0, 0.0]).expand_as(latents).clone().requires_grad_()
+    captured = {}
+
+    def capture_attention(module, args):
+        captured["attention"] = args[0].detach()
+
+    def capture_gate(module, args):
+        captured["gate"] = args[0].detach()
+
+    handles = [
+        block.attention.register_forward_pre_hook(capture_attention),
+        block.relation_gate.register_forward_pre_hook(capture_gate),
+    ]
+    messages, valid = block._relation_messages(latents, edges, relations, features)
+    block._relation_weights(latents, messages, valid, torch.zeros(5, 4, 2))
+    expected = (8.0 / 3.0) ** 0.5
+    torch.testing.assert_close(
+        captured["attention"][:, :16],
+        torch.full((7, 16), expected if attention == "rms" else 0.0),
+    )
+    torch.testing.assert_close(
+        captured["gate"][:, :, :8],
+        torch.full((5, 4, 8), expected if gate == "rms" else 0.0),
+    )
+    pooled_messages = messages.square().mean(-1).sqrt() if gate == "rms" else messages.mean(-1)
+    torch.testing.assert_close(captured["gate"][:, :, 8:16], pooled_messages)
+    for handle in handles:
+        handle.remove()
+    with torch.no_grad():
+        block.relation_gate[-1].weight.fill_(0.1)
+    for values in (latents, torch.zeros_like(latents, requires_grad=True)):
+        output = block(values, edges, relations, features, torch.zeros(5, 4, 2))
+        output.square().sum().backward()
+        assert torch.isfinite(output).all()
+        assert torch.isfinite(values.grad).all()
+        assert all(p.grad is None or torch.isfinite(p.grad).all() for p in block.parameters())

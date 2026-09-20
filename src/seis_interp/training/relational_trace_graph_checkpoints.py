@@ -45,6 +45,8 @@ _MODEL_OPTIONS = {
     "max_edge_time_shift_samples",
     "node_fourier_components",
     "spectral_input_block",
+    "attention_pooling",
+    "relation_gate_pooling",
 }
 
 

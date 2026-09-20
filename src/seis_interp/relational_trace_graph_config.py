@@ -199,6 +199,8 @@ def validate_trace_graph_model_config(config: Mapping[str, object]) -> dict[str,
                 "max_edge_time_shift_samples",
                 "node_fourier_components",
                 "spectral_input_block",
+                "attention_pooling",
+                "relation_gate_pooling",
             },
         )
     )
@@ -228,6 +230,16 @@ def validate_trace_graph_model_config(config: Mapping[str, object]) -> dict[str,
         raise ConfigurationError("unsupported model.method_variant")
     if variant != "relational" and model["relation_fusion"] != "mean":
         raise ConfigurationError("comparison models require relation_fusion=mean")
+    for name in ("attention_pooling", "relation_gate_pooling"):
+        if model.get(name, "mean") not in ("mean", "rms"):
+            raise ConfigurationError(f"model.{name} must be mean or rms")
+        if model.get(name, "mean") != "mean" and variant != "relational":
+            raise ConfigurationError("RMS pooling requires method_variant=relational")
+    if (
+        model.get("relation_gate_pooling", "mean") != "mean"
+        and model["relation_fusion"] != "learned_gate"
+    ):
+        raise ConfigurationError("relation_gate_pooling=rms requires relation_fusion=learned_gate")
     if not isinstance(model.get("explicit_azimuth_features", True), bool):
         raise ConfigurationError("model.explicit_azimuth_features must be boolean")
     if model.get("amplitude_mode", "train_global_rms") not in (

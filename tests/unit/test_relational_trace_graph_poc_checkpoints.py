@@ -221,3 +221,21 @@ def test_poc_atomic_snapshot_preserves_rng_and_existing_file_on_failure(
     assert torch.equal(torch.get_rng_state(), rng)
     assert path.read_bytes() == original
     assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("key", ["attention_pooling", "relation_gate_pooling"])
+def test_poc_rms_checkpoint_restores_pooling_and_weights(tmp_path, key):
+    arguments = _arguments()
+    config = {**arguments["model_config"], "relation_fusion": "learned_gate", key: "rms"}
+    model = RelationalTraceGraphInterpolator(**config)
+    arguments.update(model_config=model.constructor_config(), state_dict=model.state_dict())
+    path = tmp_path / "ema.pt"
+    save_relational_trace_graph_poc_checkpoint(path, **arguments)
+    restored = load_relational_trace_graph_poc_checkpoint(
+        path, inputs_lock=arguments["inputs_lock"]
+    )
+    assert restored.model.constructor_config() == model.constructor_config()
+    for block in restored.model.rounds:
+        assert getattr(block, key) == "rms"
+    for name, value in model.state_dict().items():
+        assert torch.equal(value, restored.model.state_dict()[name])

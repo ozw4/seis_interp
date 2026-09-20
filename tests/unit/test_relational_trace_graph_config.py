@@ -260,3 +260,34 @@ def test_diagnostic_bands_are_explicit_fixed_config_and_optional():
     config["diagnostics"]["offset_m"] = [200, 100]
     with pytest.raises(ValueError):
         validate_relational_trace_graph_training_config(config)
+
+
+@pytest.mark.parametrize("key", ["attention_pooling", "relation_gate_pooling"])
+@pytest.mark.parametrize("value", [None, True, "max", 1])
+def test_invalid_pooling_rejected_by_config_and_model(key, value):
+    from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
+
+    config = trace_graph_training_config()
+    config["model"][key] = value
+    with pytest.raises(ConfigurationError, match=key):
+        validate_relational_trace_graph_training_config(config)
+    with pytest.raises(ValueError, match=key):
+        RelationalTraceGraphInterpolator(**{key: value})
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"relation_gate_pooling": "rms", "relation_fusion": "mean"},
+        {"attention_pooling": "rms", "method_variant": "plain_gcn_row_normalized"},
+    ],
+)
+def test_pooling_rejects_unused_options(options):
+    from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
+
+    config = trace_graph_training_config()
+    config["model"].update({"relation_fusion": "mean", **options})
+    with pytest.raises(ConfigurationError):
+        validate_relational_trace_graph_training_config(config)
+    with pytest.raises(ValueError):
+        RelationalTraceGraphInterpolator(**options)

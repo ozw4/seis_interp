@@ -45,6 +45,8 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         attention_width: int = 32,
         relation_embedding_dim: int = 8,
         relation_fusion: str = "mean",
+        attention_pooling: str = "mean",
+        relation_gate_pooling: str = "mean",
     ) -> None:
         super().__init__()
         self.width = _positive_integer(width, "width")
@@ -59,6 +61,9 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         if relation_fusion not in RELATION_FUSION_MODES:
             raise ValueError(f"relation_fusion must be one of {RELATION_FUSION_MODES}")
         self.relation_fusion = relation_fusion
+        _validate_pooling(attention_pooling, relation_gate_pooling, relation_fusion)
+        self.attention_pooling = attention_pooling
+        self.relation_gate_pooling = relation_gate_pooling
 
         # At least two channels per group keep one-frame, one-node inputs valid.
         self.temporal_norm = nn.GroupNorm(min(8, self.width // 2), self.width)
@@ -148,7 +153,7 @@ class RelationalTraceGraphMessageBlock(nn.Module):
         group_count = node_count * _RELATION_COUNT
         counts = torch.bincount(group, minlength=group_count)
         valid = counts.reshape(node_count, _RELATION_COUNT) > 0
-        pooled = latents.mean(dim=-1)
+        pooled = _temporal_pool(latents, self.attention_pooling)
         edge_context = torch.cat((edge_features, self.relation_embedding(edge_type)), dim=1)
         logits = self.attention(
             torch.cat((pooled[destination], pooled[sender], edge_context), dim=1)
@@ -174,10 +179,15 @@ class RelationalTraceGraphMessageBlock(nn.Module):
             return valid.to(latents.dtype) / valid.sum(dim=1, keepdim=True).clamp_min(1)
         if coverage is None or coverage.shape != (*valid.shape, 2):
             raise ValueError("learned_gate requires coverage with shape (nodes, 4, 2)")
-        pooled = latents.mean(dim=-1)[:, None].expand(-1, _RELATION_COUNT, -1)
+        pooled = _temporal_pool(latents, self.relation_gate_pooling)[:, None].expand(
+            -1, _RELATION_COUNT, -1
+        )
         relation = self.relation_embedding.weight[None].expand(latents.shape[0], -1, -1)
         logits = self.relation_gate(
-            torch.cat((pooled, messages.mean(dim=-1), relation, coverage), dim=-1)
+            torch.cat(
+                (pooled, _temporal_pool(messages, self.relation_gate_pooling), relation, coverage),
+                dim=-1,
+            )
         )[:, :, 0]
         # Only valid entries enter softmax, including when an entire node is empty.
         node, relation_id = valid.nonzero(as_tuple=True)
@@ -202,6 +212,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
         attention_width: int = 32,
         relation_embedding_dim: int = 8,
         relation_fusion: str = "mean",
+        attention_pooling: str = "mean",
+        relation_gate_pooling: str = "mean",
         method_variant: str = "relational",
         explicit_azimuth_features: bool = True,
         amplitude_mode: str = "train_global_rms",
@@ -212,6 +224,11 @@ class RelationalTraceGraphInterpolator(nn.Module):
         super().__init__()
         if method_variant not in TRACE_GRAPH_METHOD_VARIANTS:
             raise ValueError(f"method_variant must be one of {TRACE_GRAPH_METHOD_VARIANTS}")
+        _validate_pooling(attention_pooling, relation_gate_pooling, relation_fusion)
+        if method_variant != "relational" and (
+            attention_pooling != "mean" or relation_gate_pooling != "mean"
+        ):
+            raise ValueError("RMS pooling requires method_variant=relational")
         if not isinstance(explicit_azimuth_features, bool):
             raise ValueError("explicit_azimuth_features must be a boolean")
         if method_variant != "relational" and relation_fusion != "mean":
@@ -272,6 +289,8 @@ class RelationalTraceGraphInterpolator(nn.Module):
                     attention_width=attention_width,
                     relation_embedding_dim=relation_embedding_dim,
                     relation_fusion=relation_fusion,
+                    attention_pooling=attention_pooling,
+                    relation_gate_pooling=relation_gate_pooling,
                 )
                 if method_variant == "relational"
                 else TraceGraphComparisonBlock(
@@ -301,6 +320,10 @@ class RelationalTraceGraphInterpolator(nn.Module):
             "relation_embedding_dim": int(relation_embedding_dim),
             "relation_fusion": relation_fusion,
         }
+        if attention_pooling != "mean":
+            self._config["attention_pooling"] = attention_pooling
+        if relation_gate_pooling != "mean":
+            self._config["relation_gate_pooling"] = relation_gate_pooling
         if method_variant != "relational":
             self._config["method_variant"] = method_variant
         if not explicit_azimuth_features:
@@ -492,3 +515,18 @@ def _validate_graph_tensors(
         raise ValueError("edge_index contains an out-of-range node")
     if torch.any((edge_type < 0) | (edge_type >= _RELATION_COUNT)):
         raise ValueError("edge_type must contain relation IDs from 0 to 3")
+
+
+def _validate_pooling(attention: str, gate: str, fusion: str) -> None:
+    for name, value in (("attention_pooling", attention), ("relation_gate_pooling", gate)):
+        if value not in ("mean", "rms"):
+            raise ValueError(f"{name} must be mean or rms")
+    if gate != "mean" and fusion != "learned_gate":
+        raise ValueError("relation_gate_pooling=rms requires relation_fusion=learned_gate")
+
+
+def _temporal_pool(values: torch.Tensor, mode: str) -> torch.Tensor:
+    if mode == "mean":
+        return values.mean(dim=-1)
+    # vector_norm gives finite zero gradients for all-zero features.
+    return torch.linalg.vector_norm(values, dim=-1) / values.shape[-1] ** 0.5
