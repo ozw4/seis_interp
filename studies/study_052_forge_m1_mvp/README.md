@@ -25,14 +25,17 @@ SIREN-5D、他領域、追加mask/seed、HPO、bootstrap、空間内挿、denois
 # 戻り値の準備ディレクトリを指定する。品質指標は計算しない。
 .venv/bin/python scripts/forge_m1_mvp.py preflight --preparation <preparation_directory>
 
-# 6手法を順に別processで実行し、全推論終了後に評価する。
+# 6手法を順に別processで実行し、全予測の検査通過後に評価する。
 .venv/bin/python scripts/forge_m1_mvp.py run \
   --preparation <preparation_directory> \
   --preflight <passing_preflight_directory>
 ```
 
 準備時にtest波形を保存しない。observedだけの配列と、振幅を含まないgeometryを
-runtimeへ渡す。外側testを読むのは全推論終了後の評価処理だけである。
+runtimeへ渡す。外側testを読むのは6手法すべてのmanifest・予測の検査通過後の
+評価処理だけである。失敗・未完了・全予測の定数崩壊があれば`incomplete`として
+状態とruntimeだけを保存し、部分的なtest指標も計算しない。
+hash・shape・cell ID・有限値・ReGSI初期状態の不整合もtestを開く前に停止する。
 grid側のfeaturesは格子定義と整数添字から再計算し、元UTMの混入を検査する。
 maskはSHA-256の順位で固定し、全手法が同じhashを読む。
 

@@ -34,7 +34,7 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
     mask = pd.read_parquet(preparation / "masks/m1_random80_mvp_v1.parquet")
     test = mask.split.eq("test").to_numpy()
     records, valid, summaries, per_trace = {}, {}, [], {}
-    # Validate all prediction identities before opening any test waveform.
+    # Inspect the whole matrix before inspecting predictions or opening targets.
     for method in METHODS:
         path = output / "runs" / method
         record = (
@@ -43,6 +43,9 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
             else {"status": "failed", "failure_reason": "worker exited without a manifest"}
         )
         records[method] = record
+    findings = []
+    # Validate every available manifest before loading prediction arrays.
+    for method, record in records.items():
         if record["status"] != "predicted":
             if record["status"] == "running":
                 record.update(
@@ -67,6 +70,10 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
         expected_config = sha256_file(preparation / "configs" / f"{method}.yaml")
         if record["config_hash"] != expected_config:
             raise ValueError("method config differs from frozen preparation")
+    for method, record in records.items():
+        if record["status"] != "predicted":
+            continue
+        path = output / "runs" / method
         artifacts = {
             "prediction.npy": record["prediction_hash"],
             "prediction_index.parquet": record["prediction_index_hash"],
@@ -85,18 +92,25 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
         order = validate_predictions(
             prediction, index.cell_id.to_numpy(), mask, contract["time_sample_count"]
         )
+        if np.all(np.ptp(prediction, axis=1) == 0):
+            findings.append({"method": method, "issue": "all test predictions are constant"})
+            continue
         valid[method] = prediction[order]
+    if len(valid) != len(METHODS):
+        return _write_incomplete_result(output, matrix, records, valid, findings)
+    a, b = records["regsi_real"], records["regsi_grid"]
+    if (
+        a["initialization_hash"] != b["initialization_hash"]
+        or a["parameter_count"] != b["parameter_count"]
+    ):
+        raise ValueError("ReGSI initial state or parameter count differs")
     raw = json.loads((preparation / "input/raw_input_hashes.json").read_text())
     verify_hashes(repo / raw["dataset_root"], raw["hashes"])
-    target = (
-        read_selected_traces(
-            repo / raw["dataset_root"],
-            manifest.loc[test],
-            contract["time_sample_count"],
-            contract["sample_interval_us"],
-        )
-        if valid
-        else None
+    target = read_selected_traces(
+        repo / raw["dataset_root"],
+        manifest.loc[test],
+        contract["time_sample_count"],
+        contract["sample_interval_us"],
     )
     for name in ("aggregate", "figures", "tables"):
         (output / name).mkdir(exist_ok=False)
@@ -156,12 +170,6 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
         ]
     ].to_parquet(output / "aggregate/runtime_summary.parquet", index=False)
     if "regsi_real" in per_trace and "regsi_grid" in per_trace:
-        a, b = records["regsi_real"], records["regsi_grid"]
-        if (
-            a["initialization_hash"] != b["initialization_hash"]
-            or a["parameter_count"] != b["parameter_count"]
-        ):
-            raise ValueError("ReGSI initial state or parameter count differs")
         pair, effect, quartiles = paired_geometry_effects(
             per_trace["regsi_real"], per_trace["regsi_grid"]
         )
@@ -197,18 +205,8 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
             contract,
             output / "figures",
         )
-    findings = [
-        {"method": method, "issue": "all test predictions are constant"}
-        for method, traces in per_trace.items()
-        if traces.prediction_constant.all()
-    ]
-    accepted = len(valid) == len(METHODS) and not findings
     result = {
-        "status": "accepted"
-        if accepted
-        else "investigation_required"
-        if findings
-        else "incomplete",
+        "status": "accepted",
         "findings": findings,
         "preliminary": True,
         "mask_count": 1,
@@ -222,6 +220,48 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
             str(p.relative_to(output)): sha256_file(p)
             for p in sorted(output.rglob("*"))
             if p.is_file()
+        },
+    }
+    write_json(output / "aggregate/final_mvp_manifest.json", result)
+    return result
+
+
+def _write_incomplete_result(output, matrix, records, valid, findings):
+    """Record readiness and runtime only, without loading targets or producing metrics."""
+    (output / "aggregate").mkdir(exist_ok=False)
+    reasons = {finding["method"]: finding["issue"] for finding in findings}
+    rows = [
+        {
+            "method": method,
+            "status": record["status"],
+            "prediction_ready": method in valid,
+            "runtime_seconds": record.get("runtime_seconds"),
+            "peak_cpu_rss_bytes": record.get("peak_cpu_rss_bytes"),
+            "peak_cuda_allocated_bytes": record.get("peak_cuda_allocated_bytes"),
+            "failure_reason": record.get("failure_reason") or reasons.get(method),
+        }
+        for method, record in records.items()
+    ]
+    pd.DataFrame(rows).to_parquet(output / "aggregate/runtime_summary.parquet", index=False)
+    result = {
+        "status": "incomplete",
+        "findings": findings,
+        "preliminary": True,
+        "mask_count": 1,
+        "model_seed_count": 1,
+        "statistical_claims": False,
+        "completed_methods": [],
+        "valid_methods": list(valid),
+        "evaluation_started": False,
+        "test_amplitudes_read": 0,
+        "methods": rows,
+        "end_time": utc_now(),
+        "preparation_hash": matrix["preparation_hash"],
+        "git_commit": matrix["git_commit"],
+        "artifacts": {
+            str(path.relative_to(output)): sha256_file(path)
+            for path in sorted(output.rglob("*"))
+            if path.is_file()
         },
     }
     write_json(output / "aggregate/final_mvp_manifest.json", result)

@@ -153,7 +153,7 @@ def tiny_forge_study(root):
                 n_iterations=1, rank=1, spatial_window_shape=[2, 3, 2, 3], spatial_overlap=[0] * 4
             )
         elif method == "ccnet5d_grid":
-            cfg["model"].update(hidden_channels=2, intermediate_channels=2, kernel_size=1)
+            cfg["model"].update(hidden_channels=2, intermediate_channels=2, kernel_size=3)
             cfg["patches"]["shape"] = [9, 2, 3, 2, 3]
             cfg["prediction"]["core_shape"] = [9, 2, 3, 2, 3]
         elif method == "nersi_real":

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -7,7 +8,7 @@ import pytest
 import torch
 
 from seis_interp.data.forge_headers import sha256_file
-from seis_interp.data.forge_mvp_artifacts import load_model_inputs, write_json
+from seis_interp.data.forge_mvp_artifacts import load_model_inputs, read_selected_traces, write_json
 from seis_interp.data.forge_mvp_run_records import execution_identity
 from seis_interp.pipelines.evaluate_forge_mvp import evaluate_forge_mvp
 from seis_interp.pipelines.preflight_forge_mvp import preflight_forge_method
@@ -68,7 +69,8 @@ def test_preparation_contains_observed_only_and_sealed_geometry(prepared):
         load_model_inputs(run, "regsi_grid")
 
 
-def test_all_six_synthetic_methods_and_evaluation(prepared, tmp_path):
+@pytest.fixture
+def prediction_matrix(prepared, tmp_path):
     preparation, _ = prepared
     output = tmp_path / "comparison"
     output.mkdir()
@@ -83,13 +85,19 @@ def test_all_six_synthetic_methods_and_evaluation(prepared, tmp_path):
     for method in METHODS:
         run_forge_method(tmp_path, preparation, output / "runs" / method, method)
         assert not (output / "runs" / method / "metrics.json").exists()
-    result = evaluate_forge_mvp(tmp_path, preparation, output)
-    # This intentionally minimal kernel-1 CCNet has no spatial context and collapses.
-    # The transport/evaluation succeeds, while the MVP correctly requires investigation.
-    assert result["status"] == "investigation_required"
-    assert result["findings"] == [
-        {"method": "ccnet5d_grid", "issue": "all test predictions are constant"}
-    ]
+    return preparation, output
+
+
+def test_all_six_synthetic_methods_and_evaluation(prediction_matrix, tmp_path):
+    preparation, output = prediction_matrix
+    with patch(
+        "seis_interp.pipelines.evaluate_forge_mvp.read_selected_traces",
+        wraps=read_selected_traces,
+    ) as reader:
+        result = evaluate_forge_mvp(tmp_path, preparation, output)
+    reader.assert_called_once()
+    assert result["status"] == "accepted"
+    assert result["findings"] == []
     metrics = pd.read_parquet(output / "aggregate/mvp_metrics.parquet")
     assert len(metrics) == 6
     assert metrics.status.eq("evaluated").all()
@@ -107,6 +115,85 @@ def test_all_six_synthetic_methods_and_evaluation(prepared, tmp_path):
         assert record["runtime_seconds"] > 0
         assert record["peak_cpu_rss_bytes"] > 0
     assert (output / "figures/common_source.png").is_file()
+
+
+@pytest.mark.parametrize("status", ["failed", "running", "missing"])
+def test_incomplete_matrix_does_not_open_test_amplitudes(prediction_matrix, tmp_path, status):
+    preparation, output = prediction_matrix
+    path = output / "runs/nersi_real/run_manifest.json"
+    if status == "missing":
+        path.unlink()
+    else:
+        record = json.loads(path.read_text())
+        record.update(status=status, failure_reason="synthetic OOM" if status == "failed" else None)
+        write_json(path, record)
+    with (
+        patch("seis_interp.pipelines.evaluate_forge_mvp.read_selected_traces") as reader,
+        patch("seis_interp.pipelines.evaluate_forge_mvp.evaluate_traces") as evaluator,
+    ):
+        result = evaluate_forge_mvp(tmp_path, preparation, output)
+    reader.assert_not_called()
+    evaluator.assert_not_called()
+    assert result["status"] == "incomplete"
+    assert result["completed_methods"] == []
+    assert set(result["valid_methods"]) == set(METHODS) - {"nersi_real"}
+    assert result["test_amplitudes_read"] == 0
+    assert not result["evaluation_started"]
+    assert not list(output.rglob("metrics.json"))
+    assert not (output / "aggregate/mvp_metrics.parquet").exists()
+    assert not (output / "figures").exists()
+    assert json.loads((output / "aggregate/final_mvp_manifest.json").read_text()) == result
+    assert (output / "aggregate/runtime_summary.parquet").is_file()
+
+
+@pytest.mark.parametrize(
+    "fault", ["zero", "constant", "nan", "inf", "shape", "cell_id", "hash", "initialization"]
+)
+def test_invalid_prediction_matrix_never_opens_test_amplitudes(prediction_matrix, tmp_path, fault):
+    preparation, output = prediction_matrix
+    # Use the final method to check that all earlier successful methods remain blinded.
+    path = output / "runs/regsi_grid"
+    record = json.loads((path / "run_manifest.json").read_text())
+    prediction = np.load(path / "prediction.npy")
+    if fault == "cell_id":
+        index = pd.read_parquet(path / "prediction_index.parquet")
+        index.loc[0, "cell_id"] = index.loc[1, "cell_id"]
+        index.to_parquet(path / "prediction_index.parquet", index=False)
+        record["prediction_index_hash"] = sha256_file(path / "prediction_index.parquet")
+    elif fault == "initialization":
+        record["initialization_hash"] = "different initial weights"
+    elif fault == "hash":
+        record["prediction_hash"] = "invalid hash"
+    else:
+        if fault == "zero":
+            prediction[:] = 0
+        if fault == "constant":
+            prediction[:] = np.arange(len(prediction))[:, None]
+        if fault == "nan":
+            prediction[-1, -1] = np.nan
+        if fault == "inf":
+            prediction[-1, -1] = np.inf
+        if fault == "shape":
+            prediction = prediction[:, :-1]
+        np.save(path / "prediction.npy", prediction)
+        record["prediction_hash"] = sha256_file(path / "prediction.npy")
+    write_json(path / "run_manifest.json", record)
+    with (
+        patch("seis_interp.pipelines.evaluate_forge_mvp.read_selected_traces") as reader,
+        patch("seis_interp.pipelines.evaluate_forge_mvp.evaluate_traces") as evaluator,
+    ):
+        if fault in ("zero", "constant"):
+            result = evaluate_forge_mvp(tmp_path, preparation, output)
+            assert result["status"] == "incomplete"
+            assert result["findings"] == [
+                {"method": "regsi_grid", "issue": "all test predictions are constant"}
+            ]
+        else:
+            with pytest.raises(ValueError):
+                evaluate_forge_mvp(tmp_path, preparation, output)
+    reader.assert_not_called()
+    evaluator.assert_not_called()
+    assert not list(output.rglob("metrics.json"))
 
 
 def test_failure_records_state_and_does_not_read_evaluation(prepared, tmp_path, monkeypatch):

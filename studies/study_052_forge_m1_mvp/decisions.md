@@ -55,6 +55,11 @@ preflightはPOCS/DRRの1周波数slice、およびneuralの1 diagnostic update�
 preflightの時間・peak memoryは限定処理の計測であり、全本番runの上限保証ではない。
 正式なMVP判定は6本の本番runと評価が終了してから行う。
 
+test振幅を開く前に全6手法のmanifest、predictionのhash・shape・cell ID・有限値、
+全予測の定数崩壊、ReGSI初期状態の一致を検査する。1手法でも失敗・未完了・
+不正ならtestを開かず停止する。部分成功の指標を先に開示してから失敗手法の
+メモリ設定等を変更することを防ぎ、完全なmatrixだけを一括評価する。
+
 指標は元振幅で計算し、既存Torch loss、独立したNumPy計算、保存したtrace別表の
 再集計、波形からの第二計算を照合する。Pearson相関が未定義な定数予測は
 件数を明示し、相関のpercentileは定義可能なtraceに対して保存する。
