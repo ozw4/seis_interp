@@ -4,11 +4,11 @@
 
 採用成果物は[固定lock](../studies/study_052_forge_m1_mvp/prepared_inputs.lock.json)。
 
-- [準備manifest](../runs/study_052_forge_m1_mvp/20260920T052549749329Z_6ff2dbf135b3/preparation_manifest.json)
-- [準備ゲート](../runs/study_052_forge_m1_mvp/20260920T052549749329Z_6ff2dbf135b3/preparation_gates.json)
-- [限定preflight](../runs/study_052_forge_m1_mvp/20260920T052616627739Z_6ff2dbf135b3_preflight/preflight_manifest.json)
-- [実座標／投影格子](../runs/study_052_forge_m1_mvp/20260920T052549749329Z_6ff2dbf135b3/figures/geometry.png)
-- [固定mask占有図](../runs/study_052_forge_m1_mvp/20260920T052549749329Z_6ff2dbf135b3/figures/outer_mask.png)
+- [準備manifest](../runs/study_052_forge_m1_mvp/20260920T053919825212Z_69a85f1aac33/preparation_manifest.json)
+- [準備ゲート](../runs/study_052_forge_m1_mvp/20260920T053919825212Z_69a85f1aac33/preparation_gates.json)
+- [限定preflight](../runs/study_052_forge_m1_mvp/20260920T053938747257Z_69a85f1aac33_preflight/preflight_manifest.json)
+- [実座標／投影格子](../runs/study_052_forge_m1_mvp/20260920T053919825212Z_69a85f1aac33/figures/geometry.png)
+- [固定mask占有図](../runs/study_052_forge_m1_mvp/20260920T053919825212Z_69a85f1aac33/figures/outer_mask.png)
 
 ## 固定入力
 
@@ -59,12 +59,12 @@ POCS/DRRは所定の空間windowで1周波数slice、neuralは全4,001サンプ�
 
 |手法|状態|限定処理時間 [s]|CPU peak RSS [GiB]|GPU peak allocated [GiB]|
 |---|---|---:|---:|---:|
-|pocs_grid|passed|5.1748|3.6400|0.0000|
-|drr_grid|passed|1.2370|1.5599|0.0000|
-|ccnet5d_grid|passed|6.0683|3.2054|4.7372|
-|nersi_real|passed|4.4368|2.6539|2.9986|
-|regsi_real|passed|2.7053|2.3417|6.3379|
-|regsi_grid|passed|2.8976|2.3414|6.5383|
+|pocs_grid|passed|5.6764|3.6388|0.0000|
+|drr_grid|passed|1.2326|1.5552|0.0000|
+|ccnet5d_grid|passed|3.3539|3.2032|4.7372|
+|nersi_real|passed|4.2710|2.6530|2.9986|
+|regsi_real|passed|2.6352|2.3376|6.3379|
+|regsi_grid|passed|3.1656|2.3386|6.5383|
 
 これらは限定処理の計測値であり、全step・全test推論の時間や最大メモリの上限ではない。GPUはNVIDIA H100 NVL。正式runでは各processのCPU RSS・GPU allocated/reserved peak・実行時間を別途保存する。
 
@@ -72,10 +72,10 @@ POCS/DRRは所定の空間windowで1周波数slice、neuralは全4,001サンプ�
 
 ```bash
 .venv/bin/python scripts/forge_m1_mvp.py run \
-  --preparation runs/study_052_forge_m1_mvp/20260920T052549749329Z_6ff2dbf135b3 \
-  --preflight runs/study_052_forge_m1_mvp/20260920T052616627739Z_6ff2dbf135b3_preflight
+  --preparation runs/study_052_forge_m1_mvp/20260920T053919825212Z_69a85f1aac33 \
+  --preflight runs/study_052_forge_m1_mvp/20260920T053938747257Z_69a85f1aac33_preflight
 ```
 
 全6手法のmanifestと予測のhash・shape・cell ID・有限値・全予測の定数崩壊、ReGSI初期状態を検査し、すべて通過した場合だけ評価処理がtest振幅を読む。失敗・未完了・定数崩壊はtestを読まず`incomplete`を保存し、部分成功の指標も計算しない。不正なhash・予測・初期状態も読み出し前に停止する。clean-target/all-eligible、trace別指標、ReGSI paired差・投影距離四分位、事前固定断面を保存する。既存lossと独立式、保存表、元波形からの再計算を照合する。1 mask・1 seedの予備結果として扱う。
 
-準備時のworktreeは変更中だったため、Git SHAに加えて実装snapshotと全実装hashを保存した。本番起動時に実装が異なれば停止する。予測保存は既存のNumPy形式であり、Zarr依存は追加していない。
+prepareと全6手法のpreflightはcommit `69a85f1aac33` のclean worktreeから再生成した。実装snapshotとhashは `src/seis_interp/**/*.py` および `scripts/forge_m1_mvp.py` を対象とし、起動前にファイル集合と内容を照合する。旧準備manifestとpreflightは採用せず、固定lockを更新した。予測保存は既存のNumPy形式であり、Zarr依存は追加していない。
