@@ -1,0 +1,4 @@
+dataset_root: data/external/forge_2017
+header_run: runs/study_047_forge_header_audit/20260918T051827453600Z_5d660f87b9b4
+acquisition_paper: https://publications.mygeoenergynow.org/grc/1034095.pdf
+catalog: https://data.openei.org/submissions/7174

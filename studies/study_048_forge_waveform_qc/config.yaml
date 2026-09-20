@@ -1,0 +1,17 @@
+extreme_plateau_samples: 3
+crest_factor_review: 20.0
+dc_to_rms_review: 0.1
+rms_ratio_review: 100.0
+offset_bin_width_m: 500.0
+minimum_offset_bin_traces: 20
+time_windows_s:
+  - [0.0, 0.5]
+  - [0.5, 1.0]
+  - [1.0, 2.0]
+  - [2.0, 4.001]
+frequency_bands_hz:
+  below_4: [0.0, 4.0]
+  sweep_4_84: [4.0, 84.0]
+  above_84: [84.0, 501.0]
+  above_125: [125.0, 501.0]
+  above_250: [250.0, 501.0]
