@@ -1,0 +1,45 @@
+method_id: nersi_real
+geometry_mode: real
+model_seed: 7301
+source_config: studies/study_042_c3_v3_five_method_comparison/nersi_no_time_shear.yaml
+source_config_sha256: 849b11f30368ff89a54f3e73bf86b9aaefd4b98ebf39719e0c5c5bb98a2b3a1c
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final_ema
+device: cuda:0
+model:
+  fourier_components: 160
+  frequency_base: 1.25
+  encoder_width: 1536
+  latent_channels: 192
+  decoder_channels:
+  - 192
+  - 96
+  - 48
+  upsample_scales:
+  - 2
+  - 2
+  - 2
+  kernel_size: 5
+  activation: gelu
+  output_activation: linear
+  time_sample_count: 4001
+  input_features: 4
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  max_steps: 50000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+  batch_size: 1
+  ema_decay: 0.999
+prediction:
+  batch_size: 1
+changes_from_source:
+- Four continuous actual source/receiver coordinates; no rounding, no receiver profile
+  interpolation.
+- Trace decoder uses minimal 8-column latent profile; return first column and first
+  4001 of 4008 time outputs. Unused decoder outputs never enter loss.
+- Batch floor(16 * 384 / 4001) = 1 based only on full time extent.
+- Loss changed from masked_trace_mse to mandated masked_trace_relative_mse.

@@ -1,0 +1,24 @@
+method_id: pocs_grid
+geometry_mode: grid
+model_seed: null
+source_config: studies/study_042_c3_v3_five_method_comparison/pocs.yaml
+source_config_sha256: 10f88a4959faa07623dd1725b43dfd9954b95ee71a2d4bf5074121d0a11e98ff
+loss: masked_trace_relative_mse
+checkpoint_rule: none
+device: cpu
+algorithm:
+  n_iterations: 100
+  threshold_start: 1.0
+  threshold_end: 0.01
+  window_shape:
+  - 128
+  - 8
+  - 16
+  - 8
+  - 32
+  overlap:
+  - 64
+  - 4
+  - 8
+  - 4
+  - 16

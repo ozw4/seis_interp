@@ -1,0 +1,41 @@
+method_id: ccnet5d_grid
+geometry_mode: grid
+model_seed: 7301
+source_config: studies/study_042_c3_v3_five_method_comparison/ccnet5d.yaml
+source_config_sha256: 561cf0436d1578e036de1bd12d7e3d195554b5ab72a8cbed51f460c2e2a359f9
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final
+device: cuda:0
+model:
+  hidden_channels: 32
+  intermediate_channels: 32
+  kernel_size: 3
+  output_activation: linear
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  max_steps: 5000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+patches:
+  shape:
+  - 4001
+  - 2
+  - 4
+  - 2
+  - 4
+  inner_mask_fraction: 0.8
+prediction:
+  core_shape:
+  - 64
+  - 6
+  - 16
+  - 8
+  - 16
+changes_from_source:
+- 'Keep full 4001-sample traces; repeatedly halve largest spatial patch dimension
+  until sample count <= C3 patch sample count (393216). Tie: first axis.'
+- Prediction core clamped to M1 spatial extent.
+- Loss changed from masked_trace_mse to mandated masked_trace_relative_mse.
