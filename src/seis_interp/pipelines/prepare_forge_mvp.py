@@ -26,6 +26,7 @@ from seis_interp.processing.forge_mvp_contract import (
     make_outer_mask,
     validate_mapping,
 )
+from seis_interp.processing.forge_trace_scaling import prepare_trace_scales
 from seis_interp.visualization.forge_mvp import plot_preparation
 
 
@@ -42,8 +43,12 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         grids,
         config,
     )
-    mask = make_outer_mask(manifest, config)
-    reordered = make_outer_mask(manifest.sample(frac=1, random_state=17), config)
+    mask_config = {**config, "study_id": config.get("mask_study_id", config["study_id"])}
+    mask = make_outer_mask(manifest, mask_config)
+    reordered = make_outer_mask(manifest.sample(frac=1, random_state=17), mask_config)
+    if "outer_mask" in inputs:
+        verify_hashes(repo, {inputs["outer_mask"]: inputs["outer_mask_sha256"]})
+        pd.testing.assert_frame_equal(mask, pd.read_parquet(repo / inputs["outer_mask"]))
     pd.testing.assert_frame_equal(mask, reordered)
     features = {mode: make_geometry(manifest, grids, mode) for mode in ("real", "grid")}
     # Poisoning actual coordinates must leave the entire grid feature table identical.
@@ -98,7 +103,10 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     )
     np.save(run / "input/observed_waveforms.npy", values, allow_pickle=False)
     mask_path = run / "masks/m1_random80_mvp_v1.parquet"
-    mask.to_parquet(mask_path, index=False)
+    if "outer_mask" in inputs:
+        shutil.copyfile(repo / inputs["outer_mask"], mask_path)
+    else:
+        mask.to_parquet(mask_path, index=False)
     mask_hash = sha256_file(mask_path)
     write_json(
         run / "masks/mask_manifest.json",
@@ -106,7 +114,7 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
             "mask_hash": mask_hash,
             "mask_id": config["mask_id"],
             "mask_seed": config["mask_seed"],
-            "study_id": config["study_id"],
+            "study_id": mask_config["study_id"],
             "candidate_id": config["candidate_id"],
             "algorithm": (
                 "SHA256(UTF-8 canonical compact JSON list "
@@ -123,7 +131,38 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         run / "features/feature_hashes.json",
         {mode: sha256_file(run / "features" / f"{mode}_geometry.parquet") for mode in features},
     )
+    amplitude_binding = {}
+    if config["preprocessing"]["amplitude_scaling"] == "observed_trace_rms_idw":
+        scales, spacing = prepare_trace_scales(
+            values,
+            observed_rows.cell_id.to_numpy(),
+            manifest.cell_id.to_numpy(),
+            tuple(config["spatial_shape"]),
+            grids,
+            config["preprocessing"]["idw"],
+        )
+        scales.to_parquet(run / "input/trace_scales.parquet", index=False)
+        amplitude_binding = {
+            "amplitude_scaling": "observed_trace_rms_idw",
+            "trace_scale_hash": sha256_file(run / "input/trace_scales.parquet"),
+            "idw": {**config["preprocessing"]["idw"], "axis_scales_m": list(spacing)},
+        }
+        write_json(
+            run / "input/amplitude_contract.json",
+            {
+                **amplitude_binding,
+                "global_rms_role": "diagnostic_only",
+                "training_targets": "unit_trace_rms",
+                "model_scalar_scale": 1.0,
+                "inner_target_rms_usage": "label_normalization_only",
+                "outer_target_amplitudes_read": 0,
+                "prediction_restoration": "model_output_times_idw_rms_once",
+                "zero_rms_policy": "stop",
+                "uncovered_idw_policy": "stop",
+            },
+        )
     for method, resolved in configs.items():
+        resolved.update(amplitude_binding)
         resolved.update(
             mask_hash=mask_hash,
             mask_id=config["mask_id"],
@@ -188,6 +227,7 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         str(p.relative_to(run)): sha256_file(p) for p in sorted(run.rglob("*")) if p.is_file()
     }
     seal = {
+        **amplitude_binding,
         "study_id": config["study_id"],
         "candidate_id": config["candidate_id"],
         "mask_id": config["mask_id"],

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+import yaml
 
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import (
@@ -21,14 +22,32 @@ from seis_interp.pipelines.preflight_forge_mvp import preflight_forge_method, pr
 from seis_interp.pipelines.prepare_forge_mvp import prepare_forge_mvp
 from seis_interp.pipelines.run_forge_mvp import run_forge_method, run_forge_mvp
 from seis_interp.processing.forge_mvp_contract import METHODS
-from seis_interp.training.c3_poc_trace_graph_episodes import PocTraceGraphEpisodeGenerator
+from seis_interp.training.c3_poc_trace_graph_episodes import (
+    PocTraceGraphEpisodeGenerator,
+    PocTraceGraphEpisodeLabelReader,
+    build_poc_trace_graph_context_source,
+)
 from seis_interp.training.forge_mvp_methods import graph_data
 from tests.fixtures.forge_mvp import tiny_forge_study
 
 
-@pytest.fixture
-def prepared(tmp_path, monkeypatch):
+@pytest.fixture(params=["observed_global_rms", "observed_trace_rms_idw"])
+def prepared(tmp_path, monkeypatch, request):
     fixture = tiny_forge_study(tmp_path)
+    if request.param == "observed_trace_rms_idw":
+        contract = fixture[1]
+        contract["preprocessing"].update(
+            amplitude_scaling=request.param,
+            trace_rms=True,
+            idw={
+                "geometry": "projected_grid",
+                "radius": 2,
+                "power": 2.0,
+                "distance": "physical",
+                "restoration": "multiply_once",
+            },
+        )
+        (fixture[0] / "config.yaml").write_text(yaml.safe_dump(contract))
     repo = Path(__file__).resolve().parents[2]
     import subprocess
 
@@ -244,7 +263,7 @@ def test_observed_only_shape_checks_and_paired_episode_sequence(prepared, tmp_pa
         assert records[method]["test_amplitudes_read"] == 0
         if method.startswith("regsi"):
             inputs, config = load_model_inputs(preparation, method)
-            domain, training, _ = graph_data(inputs, config)
+            domain, training, _ = graph_data(inputs.model_space(), config)
             assert set(training.domain.trace_ids) == set(inputs.observed_cells)
             np.testing.assert_array_equal(
                 domain.source_xy_m, inputs.geometry[["source_x_m", "source_y_m"]]
@@ -257,6 +276,18 @@ def test_observed_only_shape_checks_and_paired_episode_sequence(prepared, tmp_pa
             sequence = [generator.next_episode() for _ in range(3)]
             for episode in sequence:
                 assert not set(episode.hidden_trace_ids) & set(inputs.test_cells)
+                context = build_poc_trace_graph_context_source(training, episode)
+                with pytest.raises(ValueError):
+                    context.read_observed_rows(episode.hidden_trace_ids[:1])
+                if inputs.observed_rms is not None:
+                    labels = (
+                        PocTraceGraphEpisodeLabelReader(training, episode)
+                        .read(episode.hidden_trace_ids)
+                        .numpy()
+                    )
+                    np.testing.assert_allclose(
+                        np.sqrt(np.mean(labels.astype(float) ** 2, axis=1)), 1.0, rtol=1e-7
+                    )
             sequences.append(sequence)
     assert (
         records["regsi_real"]["initialization_hash"] == records["regsi_grid"]["initialization_hash"]
@@ -296,3 +327,71 @@ def test_implementation_manifest_must_include_cli(prepared, tmp_path):
     del seal["implementation_hashes"]["scripts/forge_m1_mvp.py"]
     with pytest.raises(ValueError, match="input hash mismatch: implementation file set"):
         verify_mvp_implementation(tmp_path, seal["implementation_hashes"])
+
+
+def test_trace_scaling_is_shared_and_model_receives_unit_rms(prepared):
+    run, _ = prepared
+    scales = []
+    for method in METHODS:
+        inputs, config = load_model_inputs(run, method)
+        model_inputs = inputs.model_space()
+        if inputs.observed_rms is None:
+            assert model_inputs is inputs
+            continue
+        scales.append(inputs.test_rms)
+        assert model_inputs.global_rms == 1.0
+        assert model_inputs.observed_rms is None and model_inputs.test_rms is None
+        np.testing.assert_allclose(
+            np.sqrt(np.mean(model_inputs.observed_values.astype(float) ** 2, axis=1)),
+            1.0,
+            rtol=1e-7,
+        )
+        np.testing.assert_allclose(
+            model_inputs.observed_values * inputs.observed_rms[:, None],
+            inputs.observed_values,
+            rtol=1e-7,
+        )
+        assert config["trace_scale_hash"] == inputs.binding["trace_scale_hash"]
+    for scale in scales[1:]:
+        np.testing.assert_array_equal(scale, scales[0])
+
+
+def test_trace_scaling_preserves_locked_mask_across_studies(prepared, tmp_path):
+    import shutil
+
+    preparation, fixture = prepared
+    original_study = fixture[0]
+    study = tmp_path / "studies" / "followup"
+    shutil.copytree(original_study, study)
+    config = yaml.safe_load((study / "config.yaml").read_text())
+    config.update(mask_study_id=config["study_id"], study_id="followup")
+    (study / "config.yaml").write_text(yaml.safe_dump(config))
+    inputs = yaml.safe_load((study / "inputs.yaml").read_text())
+    mask = preparation / "masks/m1_random80_mvp_v1.parquet"
+    inputs.update(outer_mask=str(mask.relative_to(tmp_path)), outer_mask_sha256=sha256_file(mask))
+    (study / "inputs.yaml").write_text(yaml.safe_dump(inputs))
+    with patch(
+        "seis_interp.pipelines.prepare_forge_mvp.read_selected_traces", wraps=read_selected_traces
+    ) as reader:
+        followup = prepare_forge_mvp(tmp_path, study)
+    requested = reader.call_args.args[1].cell_id.to_numpy()
+    expected = pd.read_parquet(mask).query("split == 'observed'").cell_id.to_numpy()
+    np.testing.assert_array_equal(requested, expected)
+    assert sha256_file(followup / "masks/m1_random80_mvp_v1.parquet") == sha256_file(mask)
+
+
+def test_trace_scale_binding_failure_precedes_target_access(prediction_matrix, tmp_path):
+    preparation, output = prediction_matrix
+    seal = json.loads((preparation / "preparation_manifest.json").read_text())
+    if "trace_scale_hash" not in seal:
+        return
+    path = output / "runs/regsi_grid/run_manifest.json"
+    record = json.loads(path.read_text())
+    record["trace_scale_hash"] = "different_scale_table"
+    write_json(path, record)
+    with (
+        patch("seis_interp.pipelines.evaluate_forge_mvp.read_selected_traces") as reader,
+        pytest.raises(ValueError, match="trace scale binding mismatch"),
+    ):
+        evaluate_forge_mvp(tmp_path, preparation, output)
+    reader.assert_not_called()

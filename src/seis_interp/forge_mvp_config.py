@@ -4,6 +4,20 @@ from seis_interp.processing.forge_mvp_contract import METHODS, validate_regsi_pa
 
 
 def validate_mvp_configs(configs, contract):
+    preprocessing = contract["preprocessing"]
+    mode = preprocessing["amplitude_scaling"]
+    if mode not in ("observed_global_rms", "observed_trace_rms_idw"):
+        raise ValueError("unsupported amplitude scaling")
+    if bool(preprocessing["trace_rms"]) != (mode == "observed_trace_rms_idw"):
+        raise ValueError("trace RMS preprocessing contract mismatch")
+    if mode == "observed_trace_rms_idw" and preprocessing.get("idw") != {
+        "geometry": "projected_grid",
+        "radius": 2,
+        "power": 2.0,
+        "distance": "physical",
+        "restoration": "multiply_once",
+    }:
+        raise ValueError("unsupported FORGE trace RMS IDW settings")
     if set(configs) != set(METHODS):
         raise ValueError("MVP requires exactly six methods")
     for name, config in configs.items():

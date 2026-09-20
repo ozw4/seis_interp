@@ -1,7 +1,7 @@
 """Hash-bound FORGE inputs and compact observed-only runtime data."""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -120,6 +120,8 @@ class ForgeModelInputs:
     time_s: np.ndarray
     global_rms: float
     binding: dict
+    observed_rms: np.ndarray | None = None
+    test_rms: np.ndarray | None = None
 
     def __post_init__(self):
         size = int(np.prod(self.spatial_shape))
@@ -139,6 +141,30 @@ class ForgeModelInputs:
             raise ValueError("observed-only amplitude shape/dtype mismatch")
         if not np.isfinite(self.global_rms) or self.global_rms <= 0:
             raise ValueError("invalid global RMS")
+
+    def model_space(self):
+        """Unit-RMS O waveforms; per-trace scales are never exposed to the model."""
+        if self.observed_rms is None:
+            if self.test_rms is not None:
+                raise ValueError("missing observed trace scales")
+            return self
+        for scales, cells in (
+            (self.observed_rms, self.observed_cells),
+            (self.test_rms, self.test_cells),
+        ):
+            if (
+                scales is None
+                or scales.shape != cells.shape
+                or not np.isfinite(scales).all()
+                or np.any(scales <= 0)
+            ):
+                raise ValueError("invalid trace RMS scales")
+        normalized = (self.observed_values.astype(np.float64) / self.observed_rms[:, None]).astype(
+            np.float32
+        )
+        return replace(
+            self, observed_values=normalized, global_rms=1.0, observed_rms=None, test_rms=None
+        )
 
     def read_observed(self, cells: np.ndarray) -> np.ndarray:
         positions = pd.Index(self.observed_cells).get_indexer(cells)
@@ -193,7 +219,25 @@ def load_model_inputs(preparation: Path, method_id: str) -> tuple[ForgeModelInpu
         )
     }
     binding["preparation_hash"] = sha256_file(preparation / "preparation_manifest.json")
+    trace_scales = {}
+    if contract["preprocessing"]["amplitude_scaling"] == "observed_trace_rms_idw":
+        scale_hash = seal["trace_scale_hash"]
+        if (
+            config["trace_scale_hash"] != scale_hash
+            or config["amplitude_scaling"] != "observed_trace_rms_idw"
+        ):
+            raise ValueError("trace scale binding mismatch")
+        verify_hashes(preparation, {"input/trace_scales.parquet": scale_hash})
+        scales = pd.read_parquet(preparation / "input/trace_scales.parquet").set_index("cell_id")
+        if not scales.index.is_unique or set(scales.index) != set(geometry.cell_id):
+            raise ValueError("trace scale cell coverage mismatch")
+        trace_scales = {
+            "observed_rms": scales.loc[observed, "rms"].to_numpy(),
+            "test_rms": scales.loc[mask.loc[mask.split.eq("test"), "cell_id"], "rms"].to_numpy(),
+        }
+        binding.update(amplitude_scaling="observed_trace_rms_idw", trace_scale_hash=scale_hash)
     return ForgeModelInputs(
+        **trace_scales,
         geometry=geometry,
         observed_cells=observed,
         test_cells=mask.loc[mask.split.eq("test"), "cell_id"].to_numpy(),

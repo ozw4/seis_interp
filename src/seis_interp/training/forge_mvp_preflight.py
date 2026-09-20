@@ -24,6 +24,8 @@ def check_method_shapes(inputs, config):
     method = config["method_id"]
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
+    if method in ("pocs_grid", "drr_grid", "ccnet5d_grid"):
+        inputs = inputs.model_space()
     if method in ("pocs_grid", "drr_grid"):
         volume = inputs.volume()
         algorithm = config["algorithm"]
@@ -66,7 +68,12 @@ def check_method_shapes(inputs, config):
         count = config["prediction"].get("query_batch_size", config["prediction"].get("batch_size"))
         test = inputs.test_cells[:count]
         selected = inputs.geometry.cell_id.isin(np.concatenate((inputs.observed_cells, test)))
-        reduced = replace(inputs, geometry=inputs.geometry.loc[selected].copy(), test_cells=test)
+        reduced = replace(
+            inputs,
+            geometry=inputs.geometry.loc[selected].copy(),
+            test_cells=test,
+            test_rms=None if inputs.test_rms is None else inputs.test_rms[:count],
+        )
         result = run_method(reduced, diagnostic, reporter=lambda message: None)
         if not np.isfinite(result.prediction).all() or result.prediction.shape[1] != len(
             inputs.time_s

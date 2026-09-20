@@ -1,6 +1,7 @@
 """Prepare or execute the frozen FORGE M1 MVP."""
 
 import argparse
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +15,9 @@ from seis_interp.processing.forge_mvp_contract import METHODS
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("prepare", "preflight", "run", "method", "check-method"))
+    parser.add_argument(
+        "--study", type=Path, help="Preparation study directory; defaults to study_052"
+    )
     parser.add_argument("--preparation", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--method", choices=METHODS)
@@ -23,8 +27,14 @@ def main():
     if args.action == "prepare":
         if args.preparation or args.output or args.method or args.preflight:
             parser.error("prepare uses the fixed study configuration only")
-        print(prepare_forge_mvp(repo, repo / "studies/study_052_forge_m1_mvp"))
+        print(
+            prepare_forge_mvp(
+                repo, (args.study or repo / "studies/study_052_forge_m1_mvp").resolve()
+            )
+        )
         return
+    if args.study is not None:
+        parser.error("--study is only valid for prepare")
     if args.preparation is None:
         parser.error("--preparation is required")
     preparation = args.preparation.resolve()
@@ -37,7 +47,8 @@ def main():
         if args.method:
             parser.error("run executes the fixed six-method matrix")
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-        output = args.output or repo / "runs/study_052_forge_m1_mvp" / (
+        study_id = json.loads((preparation / "preparation_manifest.json").read_text())["study_id"]
+        output = args.output or repo / "runs" / study_id / (
             stamp + "_" + execution_identity(repo)["git_commit"][:12] + "_" + args.action
         )
         if args.action == "preflight":

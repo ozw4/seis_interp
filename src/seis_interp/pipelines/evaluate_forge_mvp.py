@@ -39,6 +39,15 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
     mask = pd.read_parquet(preparation / "masks/m1_random80_mvp_v1.parquet")
     test = mask.split.eq("test").to_numpy()
     records, valid, summaries, per_trace = {}, {}, [], {}
+    if "trace_scale_hash" in seal:
+        for method in METHODS:
+            path = output / "runs" / method / "run_manifest.json"
+            if path.is_file():
+                record = json.loads(path.read_text())
+                for key in ("amplitude_scaling", "trace_scale_hash", "idw"):
+                    if record.get(key) != seal[key]:
+                        raise ValueError("run trace scale binding mismatch")
+
     # Inspect the whole matrix before inspecting predictions or opening targets.
     for method in METHODS:
         path = output / "runs" / method
