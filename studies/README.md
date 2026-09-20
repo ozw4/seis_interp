@@ -64,6 +64,17 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_046_c3_v3_nersi_gnn_parameter_budget](study_046_c3_v3_nersi_gnn_parameter_budget/README.md): running — NeRSI at exactly 363,269 parameters, 50,000 updates, no shear, constant learning rate.
 
+## Real-data EDA
+
+- [study_047_forge_header_audit](study_047_forge_header_audit/README.md): full header audit complete — 1,106 SEG-Y files, 1,919,731 candidates; added ZIP members verified against extracted files.
+- [study_048_forge_waveform_qc](study_048_forge_waveform_qc/README.md): full waveform audit complete — 35 all-zero and 100 nonzero constant traces; 1,919,596 numerically usable traces, component orientation unconfirmed.
+
+- [study_049_forge_geometry_eda](study_049_forge_geometry_eda/README.md): full geometry EDA complete — 13 source lines, 1,106 source stations and 24 grid comparisons; benchmark region not selected.
+
+- [study_050_forge_qc_review](study_050_forge_qc_review/README.md): review complete — fixed exclusions of 35 zero and 100 nonzero constant traces; distributions and 16 waveform examples; additional QC decisions pending.
+
+- [study_051_forge_region_search](study_051_forge_region_search/README.md): search complete — 1,575 local grids, 1,200 source/receiver combinations, 15 region candidates; strict geometric guidelines unmet; benchmark adoption pending.
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.

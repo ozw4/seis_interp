@@ -1,0 +1,20 @@
+origin_xy_m: [332000.0, 4260000.0]
+along_spacing_m: 50.0
+receiver_across_spacing_m: 200.0
+line_id_steps: {source: 1, receiver: 4}
+coarse_step_m: 200.0
+fine_step_m: 50.0
+refinement_seeds: 20
+station_shortlist: 20
+finalists_per_size: 5
+maximum_jaccard: 0.8
+phase_step_m: 1.0
+phase_refinement_m: 0.1
+limits:
+  normalized_p95: 0.1
+  fill_fraction: 0.9
+  collision_fraction: 0.01
+sizes:
+  small: {source: [4, 16], receiver: [4, 16]}
+  medium: {source: [6, 32], receiver: [8, 32]}
+  large: {source: [8, 48], receiver: [12, 48]}
