@@ -1,0 +1,4 @@
+extends: mask10_fourier16_width128_ema999_neighbors6_20k.yaml
+geometry_features:
+  position_scale_m: 500.0
+  offset_scale_m: 500.0

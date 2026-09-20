@@ -3,10 +3,12 @@ study:
   status: adopted_18db_achieved
 objective:
   metric: physical_amplitude_mean_trace_snr_db
-  threshold_db: 18.0
-  comparison: strictly_greater
+  threshold_db: 20.0
+  comparison: greater_or_equal
 constraints:
   maximum_optimizer_updates_per_run: 20000
+  optimizer_update_budget_exceptions:
+    mask10_fourier16_width128_ema999_neighbors6_geometry500_attention_rms_50k: 50000
   input_protocol: c3_random80_v3
   amplitude_scaling: observed_volume_global_rms
   time_shear: false

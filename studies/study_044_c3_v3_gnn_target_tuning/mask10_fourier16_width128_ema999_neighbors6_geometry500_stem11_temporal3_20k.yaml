@@ -1,0 +1,4 @@
+extends: mask10_fourier16_width128_ema999_neighbors6_geometry500_20k.yaml
+model:
+  stem_kernel_size: 11
+  temporal_kernel_size: 3

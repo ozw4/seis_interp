@@ -8,13 +8,16 @@ study=studies/study_044_c3_v3_gnn_target_tuning
 test -f "$study/$candidate.yaml"
 .venv/bin/python - "$study/$candidate.yaml" <<'PY'
 import sys
+from pathlib import Path
 
 from seis_interp.configuration import load_resolved_config
 from seis_interp.relational_trace_graph_poc_config import validate_relational_trace_graph_poc_config
 
 settings = validate_relational_trace_graph_poc_config(load_resolved_config(sys.argv[1]))
-if settings.training["max_steps"] > 20000:
-    raise SystemExit("Study 044 permits at most 20000 optimizer updates per run")
+extended_candidate = "mask10_fourier16_width128_ema999_neighbors6_geometry500_attention_rms_50k"
+budget = 50000 if Path(sys.argv[1]).stem == extended_candidate else 20000
+if settings.training["max_steps"] > budget:
+    raise SystemExit(f"This Study 044 candidate permits at most {budget} optimizer updates")
 PY
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1

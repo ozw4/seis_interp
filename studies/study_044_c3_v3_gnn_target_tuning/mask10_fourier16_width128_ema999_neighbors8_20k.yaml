@@ -1,0 +1,3 @@
+extends: mask10_fourier16_width128_ema999_neighbors6_20k.yaml
+graph:
+  neighbors_per_relation: 8

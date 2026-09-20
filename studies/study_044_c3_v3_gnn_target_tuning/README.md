@@ -1,9 +1,12 @@
 # v3 Proposed GNN target tuning
 
-Status: `adopted_18db_achieved`. Goal: physical-amplitude mean trace SNR strictly above 18 dB
+Status: `adopted_18db_achieved`, exploring toward 20 dB. Goal: physical-amplitude mean trace SNR at least 20 dB
 over all 104750 target traces of the fixed v3 input lock. O-only Global RMS,
 MSE and the relational GNN are retained. No time shear or edge time shift is
 allowed. The v3 window, mask and evaluation population do not change.
+By explicit user instruction, fair-comparison runs must retain the common
+constant learning rate 0.001. Any changed learning rate or schedule is a
+reference-only experiment and cannot establish achievement of the 20 dB goal.
 
 The current GNN canonical result is **18.2795 dB**, adopted by explicit user
 instruction. [Adopted result lock](gnn_v3_result.lock.json) fixes the run,
@@ -20,37 +23,259 @@ context-density gap. Prediction batches of 16 limit GPU memory without changing
 the graph neighborhood contract. Architecture, learning rate and 5000 updates
 remain those of the reference.
 
-## Prepared candidates toward 20 dB
+## Candidates toward 20 dB
+
+The user authorized a 50000-update experiment using the highest measured
+configuration, attention RMS with mean relation-gate pooling. Its
+[`50k configuration`](mask10_fourier16_width128_ema999_neighbors6_geometry500_attention_rms_50k.yaml)
+changes the update budget and execution device, starts from initialization and evaluates final
+EMA. This explicitly authorized budget exception is separate from the original
+20000-update comparison; it does not retroactively satisfy that budget's goal.
+Launch on physical GPU 0 (the less occupied device):
+
+```bash
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_geometry500_attention_rms_50k
+```
+
+The completed experiments independently replace temporal mean pooling with
+RMS pooling in (1) neighbor attention or (2) the learned relation gate. Both
+inherit geometry500, retaining 363269 parameters, constant LR 0.001, 20000
+updates and final EMA evaluation. The temporal kernels remain 7 / 5.
+Attention RMS is the highest measured fair-comparison candidate at **19.2251 dB**;
+20 dB remains unmet by 0.7749 dB. Canonical adoption remains unchanged.
+
+| Candidate | Mean trace SNR [dB] | Difference from geometry500 [dB] | Training [min] | Peak CUDA allocated [GiB] |
+|---|---:|---:|---:|---:|
+| geometry500 | 19.0449 | 0.0000 | 144.5506 | 41.6814 |
+| Attention RMS only | 19.2251 | +0.1802 | 135.4422 | 41.6913 |
+| Relation gate RMS only | 18.7845 | -0.2604 | 171.2937 | 43.9766 |
+
+Completed runs under `runs/study_044_c3_v3_gnn_target_tuning/`:
+
+- Attention: `20260918T082525Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_geometry500_attention_rms_20k`
+- Gate: `20260918T105107Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_geometry500_gate_rms_20k`
+
+Both retain 1253344 supervised presentations and final EMA 0.999, covering all
+104750 targets with exactly zero observed reinsertion error. Input locks,
+artifact hashes, strict EMA loading (including pooling modes), query/coverage
+arrays and per-step query/graph counts pass verification. Rescoring saved
+predictions exactly reproduces all metrics. Peak CUDA reserved memory is
+91.4727 GiB for attention RMS and 82.3594 GiB for gate RMS.
+Reproduction commands, one at a time on physical GPU 1:
+
+```bash
+cd /workspace
+# 1: neighbor attention only
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_geometry500_attention_rms_20k
+# 2: relation gate only, after the preceding run has exited
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_geometry500_gate_rms_20k
+```
+
+The completed temporal-kernel candidates are
+A: [`geometry500_stem3_temporal7`](mask10_fourier16_width128_ema999_neighbors6_geometry500_stem3_temporal7_20k.yaml)
+and B: [`geometry500_stem11_temporal3`](mask10_fourier16_width128_ema999_neighbors6_geometry500_stem11_temporal3_20k.yaml),
+based on geometry500 (19.0449 dB).
+Each resolved configuration changes only the two temporal kernel widths and
+retains 363269 parameters. Both evaluated the final EMA state at 20000 updates.
+Neither temporal-kernel candidate improves geometry500.
+
+| Candidate (stem / temporal kernel) | Mean trace SNR [dB] | Difference from geometry500 [dB] | Training [min] | Peak CUDA allocated [GiB] |
+|---|---:|---:|---:|---:|
+| geometry500 (7 / 5) | 19.0449 | 0.0000 | 144.5506 | 41.6814 |
+| A (3 / 7) | 18.6468 | -0.3981 | 197.4045 | 41.6845 |
+| B (11 / 3) | 18.8211 | -0.2238 | 134.2957 | 41.6833 |
+
+Completed runs under `runs/study_044_c3_v3_gnn_target_tuning/`:
+
+- A: `20260917T071318Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_geometry500_stem3_temporal7_20k`
+- B: `20260918T053928Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_geometry500_stem11_temporal3_20k`
+
+Both retain 1253344 supervised trace presentations and cover all 104750 targets,
+with exactly zero observed reinsertion error. Input locks, artifact hashes,
+strict EMA loading, query/coverage arrays and per-update query/graph counts were
+verified against geometry500. Saved-prediction rescoring reproduces all metrics
+exactly. Peak CUDA reserved memory was 91.4277 GiB (A) and 91.4707 GiB (B).
+The adopted canonical result is unchanged. Reproduction commands (one at a time
+on physical GPU 1):
+
+```bash
+cd /workspace
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_geometry500_stem3_temporal7_20k
+# B, after A has exited:
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_geometry500_stem11_temporal3_20k
+```
+
+Both separate feature-scale comparisons completed successfully. Both inherit
+neighbors6 with learned relation gates, constant LR 0.001, 20000 updates, 363269
+parameters and final EMA 0.999. Run one at a time on physical GPU 1:
+
+```bash
+# Position 1000 m, offset 500 m:
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_offset500_20k
+# Position 500 m, offset 1000 m:
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_position500_20k
+```
+
+| Position scale [m] | Offset scale [m] | Mean trace SNR [dB] | Difference from neighbors6 [dB] |
+|---:|---:|---:|---:|
+| 1000 | 1000 | 19.0190 | 0.0000 |
+| 500 | 500 | 19.0449 | +0.0259 |
+| 1000 | 500 | 19.0023 | -0.0167 |
+| 500 | 1000 | 19.0417 | +0.0226 |
+
+Offset-only run:
+`20260917T010129Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_offset500_20k`.
+Global SNR is 18.1068 dB and RMSE 1.1524; training took 10037.2620 s,
+prediction 166.0723 s. Position-only run:
+`20260917T035328Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_position500_20k`.
+Global SNR is 18.1408 dB and RMSE 1.1479; training took 10108.5015 s,
+prediction 165.0782 s. Each run peaked at 44757148672 allocated GPU bytes
+(41.6833 GiB), with 20000 updates, 363269 parameters, 1253344 supervised
+trace presentations and final EMA 0.999 updated 20000 times.
+Both input locks, artifact hashes, strict EMA loads, query IDs, coverage and
+per-update query/graph counts were verified against neighbors6. Each saved
+prediction reproduces every saved metric exactly over all 104750 targets,
+with zero observed reinsertion error. Verification reports are the run-named
+JSON and `_audit.json` files under
+`runs/gnn_training_speed_scratch/20260915_goal_verification/`.
+Position-only is 0.0032 dB below geometry500. These small single-run differences
+do not establish reproducible superiority. Geometry500 remains the best measured
+fair-comparison candidate; the 20 dB goal is unmet and the adopted lock is unchanged.
 
 The next exploratory goal is full-target physical-amplitude mean trace SNR
-strictly above 20 dB. The adopted result remains the reference. Both candidates
-are prepared, not yet run, and inherit its complete training and evaluation
-contract, including the existing 20000-update budget and query sampling.
+at least 20 dB. The adopted result remains the canonical reference.
+B completed at 18.5387 dB; C completed at 17.9784 dB; neighbors6 completed at
+19.0190 dB; neighbors8 completed at 18.8649 dB; neighbors6 dilation11 completed
+at 18.7930 dB. The reference-only neighbors6 late-cosine run scored 18.9676 dB.
+Neighbors6 geometry500 completed at 19.0449 dB, improving neighbors6 by 0.0259 dB.
+Attention RMS improves geometry500 by 0.1802 dB to 19.2251 dB and is the
+highest-scoring completed fair-comparison candidate. It has not replaced the
+adopted result lock.
 
 - B: [neighbors4](mask10_fourier16_width128_ema999_neighbors4_20k.yaml)
   changes only the number of neighbors per relation.
 - C: [dilation14](mask10_fourier16_width128_ema999_dilation14_20k.yaml)
   changes only the temporal dilation sequence.
+- [neighbors6](mask10_fourier16_width128_ema999_neighbors6_20k.yaml) completed.
+  It inherits B and changes only neighbors per relation from 4 to 6.
+  It starts from initialization and retains B's complete training and evaluation
+  contract, including the existing 20000-update budget and query sampling.
+- [neighbors8](mask10_fourier16_width128_ema999_neighbors8_20k.yaml) changes only
+  neighbors per relation from 6 to 8. Its observed-only memory preflight is
+  separate from the full run; no preflight weights are used in the full run.
+- [neighbors6 dilation11](mask10_fourier16_width128_ema999_neighbors6_dilation11_20k.yaml)
+  changes only the temporal dilation sequence from neighbors6. It starts from
+  initialization with the same graph and training/evaluation contract.
+- [neighbors6 geometry500](mask10_fourier16_width128_ema999_neighbors6_geometry500_20k.yaml)
+  completed with position and offset feature scales reduced from 1000 to 500 m.
+  It retains constant LR 0.001, 20000 updates and 363269 parameters. Graph search
+  scales, amplitude normalization and teacher sampling remain unchanged. Node
+  and edge feature values intentionally change; graph topology does not.
+  An observed-only CPU check on the first three batches of the first training
+  episode (192 queries) confirmed exact topology-array and waveform equality,
+  doubled geometric length features, and unchanged other features. This is a
+  sampled batch check, not an all-episode comparison. It performed no training
+  or target evaluation. Evidence:
+  `runs/gnn_training_speed_scratch/20260915_neighbors6_geometry500_preflight/geometry_result.json`.
+- [neighbors6 late cosine](mask10_fourier16_width128_ema999_neighbors6_cosine15k_20k.yaml)
+  is reference-only: it changes the learning-rate schedule from neighbors6, holding through
+  update 15000 and decaying to 0.0001 on update 20000. It starts from initialization.
+- [neighbors6 LR 0.002](mask10_fourier16_width128_ema999_neighbors6_lr002_20k.yaml)
+  is reference-only: it changes the constant learning rate from 0.001 to 0.002. It starts from
+  initialization and retains the full 20000-update and final EMA contract.
 
-Each model retains 363269 parameters. Neither candidate implements exact-64
+Each model retains 363269 parameters. None of these candidates implements exact-64
 supervision or extends training to match the CCNet/NeRSI update budget.
 Evaluation uses the final EMA state, without best-checkpoint selection.
 After completion, verify the input lock, artifact hashes, complete target
 coverage and exact observed reinsertion; compare SNR, actual supervised trace
 presentations, peak GPU memory and training/prediction time with the adopted run.
-Graph equality with the reference is expected only for C; B intentionally
-changes graph neighborhoods.
+Graph equality with the reference is expected only for C; the neighbor-count
+candidates intentionally change graph neighborhoods. Neighbors6 training peak
+allocation was 41.6833 GiB; B's was 23.6409 GiB.
 
-Run sequentially on physical GPU 1; C starts only if B exits successfully:
+Reproduction command for the completed geometry500 experiment. No subsequent
+experiment is launched as part of the result review:
 
 ```bash
 cd /workspace
-bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors4_20k && \
-  bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_dilation14_20k
+bash scripts/run_c3_v3_gnn_tuning.sh mask10_fourier16_width128_ema999_neighbors6_geometry500_20k
 ```
 
 The launcher prints each new run directory. Progress is in its `stderr.log`;
 metrics are in `relational_trace_graph/metrics.json`.
+
+B run: `20260915T042114Z_684c4e4c659a_mask10_fourier16_width128_ema999_neighbors4_20k`.
+Completed C run: `20260915T073428Z_57b0fe24de30_mask10_fourier16_width128_ema999_dilation14_20k`.
+The earlier C attempt at `20260915T065417Z` stopped after the last logged update
+4200 without an evaluation result. All runs remain retained under this study.
+Neighbors6 run: `20260915T083437Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_20k`.
+Neighbors8 completed in
+`20260915T112434Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors8_20k`.
+Its separate 84-update observed-only preflight completed with a peak CUDA
+allocation of 63807712256 bytes. No checkpoint or target evaluation was made
+in that preflight; its records are in
+`runs/gnn_training_speed_scratch/20260915_neighbors8_preflight/`.
+The full neighbors8 run used 61.0413 GiB peak allocated GPU memory, trained
+for 13098.4108 s and predicted in 267.1163 s. Its input lock, artifact hashes,
+strict EMA loading, per-update query counts and full target coverage were verified.
+Rescoring its saved prediction reproduced every saved metric exactly. Observed
+reinsertion error is zero. Verification records are under
+`runs/gnn_training_speed_scratch/20260915_goal_verification/`.
+The neighbors6 dilation11 observed-only 84-update preflight passed, with peak
+CUDA allocation 43942823424 bytes and 363269 parameters. No target evaluation
+or checkpoint was produced. Its records are in
+`runs/gnn_training_speed_scratch/20260915_neighbors6_dilation11_preflight/`.
+The full neighbors6 dilation11 run completed in
+`20260915T151123Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_dilation11_20k`.
+Training took 10058.4811 s and prediction 258.5810 s; peak GPU allocation was
+44755051520 bytes. Input lock, artifact hashes, strict EMA loading, query IDs,
+coverage and per-update query/graph counts were verified against neighbors6.
+Rescoring the saved prediction reproduced all metrics exactly, with zero observed
+reinsertion error. This candidate does not replace neighbors6 or the adopted lock.
+The neighbors6 late-cosine run completed in
+`20260915T180709Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_cosine15k_20k`.
+Mean trace SNR is 18.9676 dB, 0.0515 dB below constant-rate neighbors6;
+global SNR is 18.0569 dB and RMSE is 1.1590. Training took 9990.4497 s,
+prediction 154.2009 s and peak allocated GPU memory was 44755051520 bytes.
+All 20000 optimizer updates and learning rates were verified, with 363269
+parameters, 1253344 supervised trace presentations and 20000 EMA updates.
+Input lock, query IDs, coverage and per-update query/graph counts match neighbors6.
+Artifact hashes and strict EMA loading pass. Rescoring the saved prediction
+reproduces all saved metrics exactly across all 104750 targets; observed
+reinsertion error is zero. Verification records are in the directory above.
+The 20 dB goal remains unmet; the adopted result lock is unchanged.
+The reference-only neighbors6 LR 0.002 run completed successfully in
+`20260915T210440Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_lr002_20k`.
+Mean trace SNR is 19.3961 dB, global SNR 18.5140 dB and RMSE 1.0996.
+It completed 20000 updates with 363269 parameters and 1253344 supervised trace
+presentations. The final EMA decay is 0.999 with 20000 EMA updates. Training
+took 8103.9273 s, prediction 135.3938 s and peak GPU allocation 44755051520 bytes.
+Input lock, query IDs, coverage and per-update query/graph counts match neighbors6.
+Checkpoint and prediction hashes and strict EMA loading pass. Rescoring its
+saved prediction reproduces all metrics exactly across all 104750 targets;
+observed reinsertion error is zero. Evidence is under the verification directory
+above, including `neighbors6_lr002_audit.json`. This is reference evidence only.
+The late-cosine run and the earlier width64 cosine run have the same reference-only
+classification. They are excluded from fair-comparison rankings and the 20 dB
+achievement decision. Constant-rate neighbors6 remains the fair-comparison
+best before geometry500 was 19.0190 dB; the adopted canonical lock remains unchanged.
+
+The geometry500 run completed successfully in
+`20260915T232958Z_5d660f87b9b4_mask10_fourier16_width128_ema999_neighbors6_geometry500_20k`.
+Mean trace SNR is 19.0449 dB, global SNR 18.1412 dB and RMSE 1.1478.
+Constant LR 0.001, 20000 updates, 363269 parameters and 1253344 supervised
+trace presentations are retained. The final EMA has decay 0.999 and 20000 updates.
+Input lock, query IDs, target coverage and per-update query/graph counts match
+neighbors6. Checkpoint/prediction hashes and strict EMA loading pass. Rescoring
+the saved prediction reproduces all metrics exactly over all 104750 targets,
+with zero observed reinsertion error. Full graph arrays are not saved per update;
+the history comparison checks counts, not whole-array graph equality.
+Training took 8673.0332 s, prediction 126.4038 s and peak allocated GPU memory
+was 44755051520 bytes (41.6814 GiB). Verification is recorded in
+`runs/gnn_training_speed_scratch/20260915_goal_verification/neighbors6_geometry500_audit.json`
+and the corresponding run-named rescore report. The 0.0259 dB gain is a single-run
+result; repeatability has not been established. The 20 dB goal remains unmet.
 
 ## Completed candidates
 
@@ -67,6 +292,11 @@ metrics are in `relational_trace_graph/metrics.json`.
 | mask10_fourier16_width192_20k | 17.8046 | 17.0065 | 1.3080 |
 | mask05_fourier16_width128_20k | 17.6942 | 16.8436 | 1.3327 |
 | mask10_fourier16_width128_ema999_20k (adopted) | 18.2795 | 17.3982 | 1.2503 |
+| mask10_fourier16_width128_ema999_neighbors4_20k | 18.5387 | 17.6256 | 1.2180 |
+| mask10_fourier16_width128_ema999_dilation14_20k | 17.9784 | 17.0628 | 1.2995 |
+| mask10_fourier16_width128_ema999_neighbors6_20k | 19.0190 | 18.1061 | 1.1525 |
+| mask10_fourier16_width128_ema999_neighbors8_20k | 18.8649 | 17.9543 | 1.1728 |
+| mask10_fourier16_width128_ema999_neighbors6_dilation11_20k | 18.7930 | 17.8628 | 1.1852 |
 
 `mask10_5k` run: `20260914T022037Z_684c4e4c659a_mask10_5k`, under
 `runs/study_044_c3_v3_gnn_target_tuning/`. Full v3 input lock, prediction/checkpoint

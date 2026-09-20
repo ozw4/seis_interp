@@ -1,0 +1,6 @@
+extends: mask10_fourier16_width128_ema999_neighbors6_20k.yaml
+training:
+  learning_rate_schedule:
+    kind: constant_then_cosine
+    hold_steps: 15000
+    minimum_learning_rate: 0.0001
