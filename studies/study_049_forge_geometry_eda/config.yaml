@@ -1,0 +1,24 @@
+origin_xy_m: [332000.0, 4260000.0]
+station_id_steps: [1, 1, 4, 1]
+frames: [utm, receiver_aligned]
+bin_phases: [0.0, 0.5]
+grids:
+  - id: sr25
+    representation: source_receiver
+    widths_m: [25.0, 25.0, 25.0, 25.0]
+  - id: sr50
+    representation: source_receiver
+    widths_m: [50.0, 50.0, 50.0, 50.0]
+  - id: sr100
+    representation: source_receiver
+    widths_m: [100.0, 100.0, 100.0, 100.0]
+  - id: mo25_50
+    representation: midpoint_offset
+    widths_m: [25.0, 25.0, 50.0, 50.0]
+  - id: mo50_100
+    representation: midpoint_offset
+    widths_m: [50.0, 50.0, 100.0, 100.0]
+  - id: mo100_200
+    representation: midpoint_offset
+    widths_m: [100.0, 100.0, 200.0, 200.0]
+fold_bin_width_m: 50.0
