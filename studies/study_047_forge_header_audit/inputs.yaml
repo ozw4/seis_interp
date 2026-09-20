@@ -1,0 +1,23 @@
+dataset_root: data/external/forge_2017
+expected_ffid_range:
+- 1
+- 1122
+navigation:
+  source: Navigation/Forge-3D-Source-Survey-NAD83-UTM12.sp1
+  receiver: Navigation/Forge-3D-Receiver-Survey-NAD83-UTM12.sp1
+source_catalog: https://catalog.data.gov/dataset/utah-forge-2d-and-3d-seismic-data
+trace_code_reference: https://www.seg.org/wp-content/uploads/2025/11/seg_y_rev0.pdf
+source_archives:
+- https://gdr.openei.org/files/1015/1-300c.zip
+- https://gdr.openei.org/files/1015/301-600c.zip
+- https://gdr.openei.org/files/1015/601-900c.zip
+- https://gdr.openei.org/files/1015/901-1122c.zip
+download_archives:
+- path: 301-600c.zip
+  destination: 301-600c
+- path: 601-900c/601-900c.zip
+  destination: 601-900c
+- path: 901-1122c/901-1122c.zip
+  destination: 901-1122c
+- path: Navigation.zip
+  destination: .
