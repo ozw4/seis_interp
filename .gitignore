@@ -62,3 +62,6 @@ runs/**
 
 # Local vendor checkouts
 vendor/
+
+*.png
+*.pdf
