@@ -1,0 +1,17 @@
+{
+  "preparation": "runs/study_053_forge_m1_trace_rms_idw/20260920T203738718661Z_3fb8de051ed4",
+  "preparation_sha256": "db3532d1ddad5449d2cff242f13406c984307ed017fe2c8f0e4d68537b754d16",
+  "preflight": "runs/study_053_forge_m1_trace_rms_idw/20260920T203809057060Z_3fb8de051ed4_preflight",
+  "preflight_sha256": "322c131d3a0df96a554886e30db1ad6e2c7b8af83911ca3df0d5435f33a0f03e",
+  "mask_sha256": "8d91941dbf37f20b62dd03aa43e0cc9d1bdec5e844fd6fad90a7632983825f97",
+  "mapping_sha256": "87567a64fbbd6bf16ee6644711e2847979afcb2fd4a7f910e7732a7c8b2002cf",
+  "trace_scale_sha256": "0392feecabf3a61bdf5782aeb7ec64a3b886a7002abafb7b7e65d5a931a1faa5",
+  "methods": {
+    "pocs_grid": "592899a9be96d099c46ceb82958bc0797a46ee7cfb8e24e45dc72f20b2081fc1",
+    "drr_grid": "1c4c70dda60bc57d415f32491b7919036637fc4f68378bc37a5c9495bba48209",
+    "ccnet5d_grid": "9d049f360c155a80b14575acba6ce53fce9867b3aa7f7d97bbdc3b25857dc796",
+    "nersi_real": "df97460a9769943a3cea2d2460c16912735855a3131b17bad964c38ec15d022e",
+    "regsi_real": "baadd1daa0a448283b8d45b56b19ce1097dfcaff7e3870e99f833ab63fa5a5ec",
+    "regsi_grid": "12e24065fdacfa344fe77321619832c69f2a671206dbcfeb13cf6bf3b7d30405"
+  }
+}
