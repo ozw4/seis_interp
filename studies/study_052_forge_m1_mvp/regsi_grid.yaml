@@ -1,0 +1,66 @@
+method_id: regsi_grid
+geometry_mode: grid
+model_seed: 7301
+source_config: studies/study_044_c3_v3_gnn_target_tuning/mask10_fourier16_width128_ema999_20k.yaml
+source_config_sha256: 92c9b2fcab2e99dc136d0830e18f6c29b39221d520d46bdbb516cbcbe56a8486
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final_ema
+device: cuda:0
+model:
+  width: 128
+  message_passing_rounds: 2
+  time_downsample_factor: 2
+  stem_kernel_size: 7
+  temporal_kernel_size: 5
+  temporal_dilations:
+  - 1
+  - 2
+  attention_width: 32
+  relation_embedding_dim: 8
+  relation_fusion: learned_gate
+  method_variant: relational
+  explicit_azimuth_features: true
+  amplitude_mode: train_global_rms
+  max_edge_time_shift_samples: 0
+  node_fourier_components: 16
+training:
+  optimizer: adamw
+  learning_rate: 0.001
+  max_steps: 20000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+  query_batch_size: 6
+  inner_mask_fraction: 0.1
+  gradient_clip_norm: 1.0
+  cudnn_benchmark: false
+  ema_decay: 0.999
+graph:
+  neighbors_per_relation: 2
+  max_normalized_distance: 1.0
+  candidate_chunk_size: 4096
+  topology: multi_relation
+  neighbor_search: exact_index
+  relations:
+    source:
+      source_scale_m: 160.0
+      receiver_scale_m: 640.0
+    receiver:
+      source_scale_m: 640.0
+      receiver_scale_m: 160.0
+    cmp:
+      midpoint_scale_m: 160.0
+      offset_vector_scale_m: 640.0
+    offset_azimuth:
+      midpoint_scale_m: 640.0
+      offset_vector_scale_m: 160.0
+geometry_features:
+  position_scale_m: 1000.0
+  offset_scale_m: 1000.0
+  azimuth_min_offset_m: 1.0
+prediction:
+  query_batch_size: 6
+changes_from_source:
+- Training and prediction batches floor(64 * 384 / 4001) = 6; identical for real/grid.
+- Loss changed from masked_trace_mse to mandated masked_trace_relative_mse.

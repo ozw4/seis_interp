@@ -1,0 +1,26 @@
+method_id: drr_grid
+geometry_mode: grid
+model_seed: null
+source_config: studies/study_042_c3_v3_five_method_comparison/drr.yaml
+source_config_sha256: 6afe1412f74ea84d9296bb85d967e47307f9288f92e0f7816d07908f9f0b9731
+loss: masked_trace_relative_mse
+checkpoint_rule: none
+device: cpu
+algorithm:
+  rank: 4
+  damping_power: 3
+  n_iterations: 10
+  frequency_min_hz: 0.0
+  frequency_max_hz: null
+  spatial_window_shape:
+  - 5
+  - 8
+  - 4
+  - 8
+  spatial_overlap:
+  - 0
+  - 0
+  - 0
+  - 0
+changes_from_source:
+- 'Frequency minimum 5 -> 0 Hz: MVP prohibits method-specific band-pass.'

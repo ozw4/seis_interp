@@ -1,0 +1,46 @@
+study_id: study_052_forge_m1_mvp
+specification_version: v0.1
+candidate_id: medium_source_b06_u3400.0_receiver_b13_u1900.0
+axis_order:
+- source_grid_line
+- source_grid_point
+- receiver_grid_line
+- receiver_grid_point
+spatial_shape:
+- 6
+- 32
+- 8
+- 32
+eligible_trace_count: 49151
+natural_missing_cell_count: 1
+time_sample_count: 4001
+sample_interval_us: 1000
+mask_id: m1_random80_mvp_v1
+mask_family: random_trace
+missing_fraction: 0.8
+mask_seed: 510101
+test_trace_count: 39321
+observed_trace_count: 9830
+model_seed: 7301
+preprocessing:
+  dtype: float32
+  amplitude_scaling: observed_global_rms
+  agc: false
+  trace_rms: false
+  bandpass: null
+  mute: null
+  spatial_interpolation: false
+evaluation:
+  primary: masked_trace_relative_mse
+  primary_domain: clean_target
+  secondary_domain: all_eligible
+  recompute_rtol: 1.0e-10
+  recompute_atol: 1.0e-12
+visualization:
+  source_cell: 112
+  receiver_cell: 144
+  time_range_s:
+  - 0.0
+  - 4.0
+  clip_observed_percentile: 99.0
+device: cuda:0
