@@ -1,0 +1,4 @@
+waveform_run: runs/study_048_forge_waveform_qc/20260918T052245952355Z_5d660f87b9b4
+expected_fixed_exclusions:
+  all_zero: 35
+  nonzero_constant: 100
