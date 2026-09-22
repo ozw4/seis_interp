@@ -26,7 +26,12 @@ def plot_preparation(manifest, mask, features, output):
     image[mask.source_cell, mask.receiver_cell] = mask.split.eq("observed").astype(int)
     fig, ax = plt.subplots(figsize=(10, 6))
     plot = ax.imshow(image, aspect="auto", interpolation="nearest", vmin=-1, vmax=1, cmap="viridis")
-    ax.set(xlabel="receiver cell", ylabel="source cell", title="Fixed random 80% outer mask")
+    missing_fraction = mask.split.eq("test").mean()
+    ax.set(
+        xlabel="receiver cell",
+        ylabel="source cell",
+        title=f"Fixed random {missing_fraction:.0%} outer mask",
+    )
     bar = fig.colorbar(plot, ax=ax, ticks=[-1, 0, 1])
     bar.ax.set_yticklabels(["natural missing", "test", "observed"])
     fig.tight_layout()
