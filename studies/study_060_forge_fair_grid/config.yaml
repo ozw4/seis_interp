@@ -1,0 +1,63 @@
+study_id: study_060_forge_fair_grid
+candidate_id: medium_source_b06_u3400.0_receiver_b13_u1900.0
+axis_order:
+- source_grid_line
+- source_grid_point
+- receiver_grid_line
+- receiver_grid_point
+spatial_shape:
+- 6
+- 32
+- 8
+- 32
+eligible_trace_count: 49151
+natural_missing_cell_count: 1
+time_sample_count: 2001
+sample_interval_us: 2000
+mask_id: m1_random70_fair_v1
+mask_family: random_trace
+missing_fraction: 0.7
+mask_seed: 600701
+test_trace_count: 34406
+observed_trace_count: 14745
+model_seed: 7301
+preprocessing:
+  dtype: float32
+  amplitude_scaling: trace_oracle
+  agc: false
+  trace_rms: true
+  bandpass: null
+  mute: null
+  spatial_interpolation: false
+  alignment:
+    velocity_m_per_s: 500.0
+evaluation:
+  primary: masked_trace_relative_mse
+  primary_domain: clean_target
+  secondary_domain: all_eligible
+  recompute_rtol: 1.0e-10
+  recompute_atol: 1.0e-12
+  test_rms_usage: oracle_normalization_and_restoration_only
+visualization:
+  source_cell: 112
+  receiver_cell: 144
+  time_range_s:
+  - 0.0
+  - 4.0
+  clip_observed_percentile: 99.0
+device: cuda:1
+mask_study_id: study_052_forge_m1_mvp
+time_sampling:
+  native_sample_count: 4001
+  native_sample_interval_us: 1000
+  decimation_factor: 2
+matched_training:
+  max_steps: 20000
+  learning_rate: 0.001
+  loss_traces_per_update: 64
+  parameter_count_target: 363269
+  parameter_count_tolerance: 0.05
+validation_holdout:
+  fraction: 0.1
+  mask_id: m1_random70_validation_v1
+  mask_seed: 600702

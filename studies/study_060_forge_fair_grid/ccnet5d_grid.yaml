@@ -1,0 +1,51 @@
+method_id: ccnet5d_grid
+geometry_mode: grid
+model_seed: 7301
+source_config: studies/study_042_c3_v3_five_method_comparison/ccnet5d.yaml
+source_config_sha256: 561cf0436d1578e036de1bd12d7e3d195554b5ab72a8cbed51f460c2e2a359f9
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final_ema
+device: cuda:0
+model:
+  hidden_channels: 36
+  intermediate_channels: 36
+  kernel_size: 3
+  output_activation: linear
+  time_kernel_size: 9
+  time_dilation: 2
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  max_steps: 20000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+  ema_decay: 0.999
+  supervised_traces_per_update: 64
+patches:
+  shape:
+  - 2001
+  - 4
+  - 8
+  - 4
+  - 8
+  inner_mask_fraction: 0.25
+prediction:
+  core_shape:
+  - 256
+  - 6
+  - 32
+  - 8
+  - 32
+changes_from_source:
+- Use complete 2001-sample traces after shared anti-alias decimation to 2 ms.
+- Widen the Conv3D time kernel to 9 with dilation 2; channels 36 keep the matched
+  parameter count.
+- Train on one 4x8x4x8 patch per update (inner mask 0.25, at least 64 hidden traces
+  at every placement) and select exactly 64 hidden traces in one forward/backward,
+  as in the C3 NA study_043 exact-64 convention; no gradient accumulation.
+- Every patch spans more than one source and receiver line so that all spatial kernel
+  taps are trained; the study_058 1x8x1x8 patches left the off-center line taps at
+  their initial values while prediction applies them to neighboring lines.
+- Use 20000 optimizer updates, learning rate unchanged, final EMA 0.999.

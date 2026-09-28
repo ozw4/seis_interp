@@ -1,0 +1,402 @@
+# Pre-registered fair grid of study_060 (protocol: README.md; rationale: decisions.md).
+# Overrides are dotted paths into a method config; an integer segment indexes a list.
+# Search values are generated against the validation preparation (N = 13,271 observed);
+# final retraining uses the final preparation (mask B, N = 14,745 observed).
+# Lines marked "fill:" are values or rules the protocol leaves undefined (decisions.md).
+study_id: study_060_forge_fair_grid
+preparations:
+  final_mask_hash: 4eaa2494eb9ea71b8de392b18d82ee5e9a05f44c5b13d30ad689077d5176701e
+  validation_mask_hash: a1e15422431f7aeac429c4c9e01d2218af3a43a9ab4aeefd81b6ab6ccd494531
+  # sha256 of the sorted int64 validation (V) cell IDs.
+  validation_cells_sha256: 092815f4ac87641e9f0d0a8dd82931eef035ef056782d3d433bb62e33f2e01b6
+  observed_trace_counts:
+    validation: 13271
+    final: 14745
+selection:
+  # Mean clean-target masked-trace relative MSE on V.
+  score: primary_relative_mse
+  # fill: "final training loss" of the wd calibration = mean over the last 1,000 updates.
+  train_loss: final_training_loss_window_mean
+  wd_calibration_max_relative_increase: 0.05
+  reseed_top_runs: 2
+  # fill: failure rule (plan principle 5). A run whose tuning failed with a reason matching
+  # the pattern (non-finite training loss, gradient norm or prediction) diverged: it is
+  # terminal and never re-run, counts toward the 16-run budget, ranks after every completed
+  # run in every rule (+inf), and enters the tables and expected-best curves at
+  # reported_score (the score of a constant zero prediction) for every EMA shadow.
+  # Other failures (out of memory, interruption) are re-run with the same yaml.
+  diverged_runs:
+    failure_reason_pattern: non-?finite
+    reported_score: 1.0
+ema_eval_decays:
+- 0.999
+- 0.9995
+- 0.9998
+# Every EMA average is saved after these updates (plan 4 update-count sensitivity).
+ema_snapshot_updates:
+- 10000
+evaluation:
+  # Cluster bootstrap of the one final evaluation (plan 2.4); the evaluator requires it.
+  bootstrap:
+    resamples: 10000
+    seed: 600703
+seeds:
+  search: 7301
+  reseed:
+  - 7302
+  - 7303
+  final:
+  - 7311
+  - 7312
+  - 7313
+methods:
+  regsi:
+    method_id: regsi_real
+    # S1-E run regsi_real only; R and final also run regsi_grid with the same settings.
+    pair_method_id: regsi_grid
+    device: cuda:1
+    fixed:
+      training.weight_decay: 0.0
+      model.node_fourier_components: 16
+      model.max_edge_time_shift_samples: 0
+      # Relation anisotropy 4 (tight 160 m / loose 640 m, geometric mean 320 m).
+      graph.relations:
+        source:
+          source_scale_m: 160.0
+          receiver_scale_m: 640.0
+        receiver:
+          source_scale_m: 640.0
+          receiver_scale_m: 160.0
+        cmp:
+          midpoint_scale_m: 160.0
+          offset_vector_scale_m: 640.0
+        offset_azimuth:
+          midpoint_scale_m: 640.0
+          offset_vector_scale_m: 160.0
+    # Hidden traces per episode are multiples of 64 at both N: round(64 m / N, 5).
+    inner_mask_pairs:
+    - {nominal: 0.025, search: 0.02411, final: 0.02604}
+    - {nominal: 0.05, search: 0.04823, final: 0.05209}
+    # fill: midpoint pair (nominal 0.075) by the same rounding rule.
+    - {nominal: 0.075, search: 0.07716, final: 0.07379}
+    - {nominal: 0.1, search: 0.10127, final: 0.09983}
+    # fill: midpoint pair (nominal 0.175) by the same rounding rule.
+    - {nominal: 0.175, search: 0.17361, final: 0.17362}
+    - {nominal: 0.25, search: 0.25077, final: 0.25175}
+    - {nominal: 0.3, search: 0.299, final: 0.29949}
+    axis1:
+      name: topology
+      # fill: topologies trade reach for direct neighbours; no order, extension or midpoint.
+      ordered: false
+      values:
+      - id: k2r2w128
+        set:
+          graph.neighbors_per_relation: 2
+          model.message_passing_rounds: 2
+          model.temporal_dilations: [1, 2]
+          model.width: 128
+      - id: k1r3w112
+        set:
+          graph.neighbors_per_relation: 1
+          model.message_passing_rounds: 3
+          model.temporal_dilations: [1, 2, 4]
+          model.width: 112
+      - id: k8r1w152
+        set:
+          graph.neighbors_per_relation: 8
+          model.message_passing_rounds: 1
+          model.temporal_dilations: [1]
+          model.width: 152
+    axis2:
+      name: inner_mask_fraction
+      ordered: true
+      values:
+      - id: imf05
+        set: {training.inner_mask_fraction: 0.04823}
+      - id: imf10
+        set: {training.inner_mask_fraction: 0.10127}
+      - id: imf25
+        set: {training.inner_mask_fraction: 0.25077}
+      extension:
+        lower:
+          id: imf025
+          set: {training.inner_mask_fraction: 0.02411}
+        upper:
+          id: imf30
+          set: {training.inner_mask_fraction: 0.299}
+      midpoints:
+      - between: [0, 1]
+        id: imf075
+        set: {training.inner_mask_fraction: 0.07716}
+      - between: [1, 2]
+        id: imf175
+        set: {training.inner_mask_fraction: 0.17361}
+    s2:
+    - id: fourier0
+      set: {model.node_fourier_components: 0}
+      # The one-round topology leaves the parameter band at width 152; width 160 restores it.
+      by_axis1:
+        k8r1w152: {model.width: 160}
+    - id: fourier8
+      set: {model.node_fourier_components: 8}
+      by_axis1:
+        k8r1w152: {model.width: 160}
+    - id: aniso2
+      # Relation anisotropy 2 (226 m / 453 m), geometric mean kept at 320 m.
+      set:
+        graph.relations:
+          source:
+            source_scale_m: 226.0
+            receiver_scale_m: 453.0
+          receiver:
+            source_scale_m: 453.0
+            receiver_scale_m: 226.0
+          cmp:
+            midpoint_scale_m: 226.0
+            offset_vector_scale_m: 453.0
+          offset_azimuth:
+            midpoint_scale_m: 453.0
+            offset_vector_scale_m: 226.0
+    weight_decay:
+      path: training.weight_decay
+      s3: [0.01, 0.05, 0.2]
+      extension:
+        lower: null
+        upper: 0.5
+  ccnet5d_grid:
+    method_id: ccnet5d_grid
+    device: cuda:0
+    fixed:
+      model.kernel_size: 3
+      model.time_kernel_size: 9
+      model.hidden_channels: 36
+      model.intermediate_channels: 36
+      training.weight_decay: 0.0
+    axis1:
+      name: patch_context
+      # fill: ordered by visible observed context per patch (input density 1 - f).
+      ordered: true
+      values:
+      - id: p4848_f40
+        set:
+          patches.shape: [2001, 4, 8, 4, 8]
+          patches.inner_mask_fraction: 0.4
+      - id: p4848_f30
+        set:
+          patches.shape: [2001, 4, 8, 4, 8]
+          patches.inner_mask_fraction: 0.3
+      - id: p6686_f20
+        set:
+          patches.shape: [2001, 6, 6, 8, 6]
+          patches.inner_mask_fraction: 0.2
+      extension:
+        lower: null
+        upper:
+          id: p6888_f10
+          set:
+            patches.shape: [2001, 6, 8, 8, 8]
+            patches.inner_mask_fraction: 0.1
+      midpoints:
+      - between: [0, 1]
+        id: p4848_f35
+        set:
+          patches.shape: [2001, 4, 8, 4, 8]
+          patches.inner_mask_fraction: 0.35
+    axis2:
+      name: time_dilation
+      ordered: true
+      values:
+      - id: d1
+        set: {model.time_dilation: 1}
+      - id: d2
+        set: {model.time_dilation: 2}
+      - id: d4
+        set: {model.time_dilation: 4}
+      extension:
+        lower: null
+        upper:
+          id: d6
+          set: {model.time_dilation: 6}
+      midpoints:
+      - between: [1, 2]
+        id: d3
+        set: {model.time_dilation: 3}
+    s2:
+    - id: tk3d1c58
+      set:
+        model.time_kernel_size: 3
+        model.time_dilation: 1
+        model.hidden_channels: 58
+        model.intermediate_channels: 58
+    - id: k5c22
+      set:
+        model.kernel_size: 5
+        model.hidden_channels: 22
+        model.intermediate_channels: 22
+    - id: p6686_f30
+      set:
+        patches.shape: [2001, 6, 6, 8, 6]
+        patches.inner_mask_fraction: 0.3
+    weight_decay:
+      path: training.weight_decay
+      s3: [1.0e-05, 5.0e-05, 0.0002]
+      extension:
+        lower: null
+        # fill: the protocol lists no CCNet wd extension; x2.5 as ReGSI 0.2 -> 0.5.
+        upper: 0.0005
+  nersi_real:
+    method_id: nersi_real
+    device: cuda:1
+    fixed:
+      model.frequency_base.2: 1.1
+      model.fourier_components: 16
+      model.latent_channels: 4
+      model.encoder_width: 150
+      model.decoder_channels: [16, 8, 4]
+      model.polar_offset: true
+      training.weight_decay: 5.0e-05
+    axis1:
+      name: midpoint_frequency_base
+      ordered: true
+      values:
+      - id: mid105
+        set: {model.frequency_base.0: 1.05, model.frequency_base.1: 1.05}
+      - id: mid107
+        set: {model.frequency_base.0: 1.07, model.frequency_base.1: 1.07}
+      - id: mid110
+        set: {model.frequency_base.0: 1.1, model.frequency_base.1: 1.1}
+      extension:
+        lower:
+          id: mid103
+          set: {model.frequency_base.0: 1.03, model.frequency_base.1: 1.03}
+        upper:
+          id: mid113
+          set: {model.frequency_base.0: 1.13, model.frequency_base.1: 1.13}
+      # fill: arithmetic midpoints.
+      midpoints:
+      - between: [0, 1]
+        id: mid106
+        set: {model.frequency_base.0: 1.06, model.frequency_base.1: 1.06}
+      - between: [1, 2]
+        id: mid1085
+        set: {model.frequency_base.0: 1.085, model.frequency_base.1: 1.085}
+    axis2:
+      name: azimuth_frequency_base
+      ordered: true
+      values:
+      - id: az105
+        set: {model.frequency_base.3: 1.05}
+      - id: az110
+        set: {model.frequency_base.3: 1.1}
+      - id: az115
+        set: {model.frequency_base.3: 1.15}
+      extension:
+        lower:
+          id: az100001
+          set: {model.frequency_base.3: 1.00001}
+        upper:
+          id: az120
+          set: {model.frequency_base.3: 1.2}
+      # fill: arithmetic midpoints.
+      midpoints:
+      - between: [0, 1]
+        id: az1075
+        set: {model.frequency_base.3: 1.075}
+      - between: [1, 2]
+        id: az1125
+        set: {model.frequency_base.3: 1.125}
+    s2:
+    - id: l8w74
+      set:
+        model.latent_channels: 8
+        model.encoder_width: 74
+        model.decoder_channels: [16, 8, 4]
+    - id: l4w123dec32
+      set:
+        model.latent_channels: 4
+        model.encoder_width: 123
+        model.decoder_channels: [32, 16, 8]
+    - id: rad105
+      set: {model.frequency_base.2: 1.05}
+    weight_decay:
+      path: training.weight_decay
+      s3: [3.0e-05, 7.0e-05, 0.0001]
+      extension:
+        lower: 2.0e-05
+        upper: 0.00015
+  pocs_grid:
+    method_id: pocs_grid
+    device: cpu
+    execution:
+      backend: batched
+    fixed:
+      algorithm.threshold_start: 1.0
+    # 2 x 2 x 2 x 2 = 16 configurations, expanded in the listed order.
+    factors:
+    - values:
+      - id: it8
+        set: {algorithm.n_iterations: 8}
+      - id: it16
+        set: {algorithm.n_iterations: 16}
+    - values:
+      - id: end01
+        set: {algorithm.threshold_end: 0.1}
+      - id: end02
+        set: {algorithm.threshold_end: 0.2}
+    # Window time length and spatial shape set window_shape jointly; fill: half-window
+    # time overlap and the study_057 spatial overlaps [0, 6, 0, 6] / [1, 6, 1, 6].
+    - values:
+      - id: t512
+        set: {algorithm.window_shape.0: 512, algorithm.overlap.0: 256}
+      - id: t1024
+        set: {algorithm.window_shape.0: 1024, algorithm.overlap.0: 512}
+    - values:
+      - id: s1818
+        set:
+          algorithm.window_shape.1: 1
+          algorithm.window_shape.2: 8
+          algorithm.window_shape.3: 1
+          algorithm.window_shape.4: 8
+          algorithm.overlap.1: 0
+          algorithm.overlap.2: 6
+          algorithm.overlap.3: 0
+          algorithm.overlap.4: 6
+      - id: s2828
+        set:
+          algorithm.window_shape.1: 2
+          algorithm.window_shape.2: 8
+          algorithm.window_shape.3: 2
+          algorithm.window_shape.4: 8
+          algorithm.overlap.1: 1
+          algorithm.overlap.2: 6
+          algorithm.overlap.3: 1
+          algorithm.overlap.4: 6
+  drr_grid:
+    method_id: drr_grid
+    device: cpu
+    execution:
+      backend: batched
+      workers: 32
+    fixed:
+      algorithm.spatial_window_shape: [1, 8, 1, 8]
+      algorithm.spatial_overlap: [0, 6, 0, 6]
+    factors:
+    - values:
+      - id: r1
+        set: {algorithm.rank: 1}
+      - id: r2
+        set: {algorithm.rank: 2}
+      - id: r3
+        set: {algorithm.rank: 3}
+      - id: r4
+        set: {algorithm.rank: 4}
+    - values:
+      - id: it6
+        set: {algorithm.n_iterations: 6}
+      - id: it12
+        set: {algorithm.n_iterations: 12}
+    - values:
+      - id: damp2
+        set: {algorithm.damping_power: 2}
+      - id: damp3
+        set: {algorithm.damping_power: 3}
