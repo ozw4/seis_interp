@@ -143,6 +143,40 @@ class CCNet5DObservedPatchSource:
         )
 
 
+def placement_pseudo_target_counts(
+    observed_mask: np.ndarray,
+    *,
+    patch_shape: tuple[int, ...],
+    inner_mask_fraction: float,
+) -> np.ndarray:
+    """Pseudo-target count of every spatial placement the source can sample.
+
+    ``patch_shape`` is spatial (no time axis). Placements and counts follow the
+    same eligibility and rounding as ``CCNet5DObservedPatchSource``.
+    """
+    fraction = _inner_mask_fraction(inner_mask_fraction)
+    starts = _eligible_spatial_starts(
+        observed_mask, patch_shape=tuple(patch_shape), inner_mask_fraction=fraction
+    )
+    counts = [
+        _pseudo_target_count(
+            int(
+                np.count_nonzero(
+                    observed_mask[
+                        tuple(
+                            slice(start, start + extent)
+                            for start, extent in zip(candidate, patch_shape, strict=True)
+                        )
+                    ]
+                )
+            ),
+            fraction,
+        )
+        for candidate in starts
+    ]
+    return np.asarray(counts, dtype=np.int64)
+
+
 def _validated_observed_volume(
     observed_volume: ObservedC3Volume,
 ) -> tuple[np.ndarray, np.ndarray]:
