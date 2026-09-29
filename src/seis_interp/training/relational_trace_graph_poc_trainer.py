@@ -1,6 +1,6 @@
 """Fixed-step pseudo-mask training on the observed set of a single volume."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from time import perf_counter
 
@@ -63,6 +63,7 @@ def train_relational_trace_graph_poc(
     cudnn_benchmark: bool = True,
     learning_rate_schedule: dict | None = None,
     ema: TraceGraphEMA | None = None,
+    ema_shadows: Sequence[TraceGraphEMA] = (),
     device: torch.device | str = "cpu",
     reporter: Callable[[str], None] | None = None,
 ) -> TraceGraphPocTrainingResult:
@@ -72,7 +73,9 @@ def train_relational_trace_graph_poc(
     synchronization. Scalar reads finish the optimization interval; preparation
     may enqueue device work that is accounted for by that later interval.
     Query geometry, graph build, input assembly and label read partition the
-    preparation interval in that order and sum to it.
+    preparation interval in that order and sum to it. ``ema_shadows`` are extra
+    averages advanced exactly when ``ema`` would be; they never affect fitting.
+    With clipping, each history row records the pre-clip gradient norm.
     """
     if not isinstance(cudnn_benchmark, bool):
         raise ValueError("cudnn_benchmark must be boolean")
@@ -122,6 +125,7 @@ def train_relational_trace_graph_poc(
         else None
     )
     positions = {int(trace_id): i for i, trace_id in enumerate(domain.trace_ids)}
+    averages = ([] if ema is None else [ema]) + list(ema_shadows)
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=rate, weight_decay=decay)
     scaler = torch.cuda.amp.GradScaler() if mixed_precision == "fp16" else None
@@ -197,18 +201,24 @@ def train_relational_trace_graph_poc(
             else:
                 scaler.scale(objective).backward()
                 scaler.unscale_(optimizer)
-            if clip is not None:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), clip, error_if_nonfinite=True)
+            gradient_norm = (
+                None
+                if clip is None
+                else torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), clip, error_if_nonfinite=True
+                )
+            )
             if scaler is None:
                 optimizer.step()
-                if ema is not None:
-                    ema.update(model)
+                for average in averages:
+                    average.update(model)
             else:
-                previous_scale = scaler.get_scale() if ema is not None else None
+                previous_scale = scaler.get_scale() if averages else None
                 scaler.step(optimizer)
                 scaler.update()
-                if ema is not None and scaler.get_scale() >= previous_scale:
-                    ema.update(model)
+                if averages and scaler.get_scale() >= previous_scale:
+                    for average in averages:
+                        average.update(model)
             count = int((~context).sum().item())
             loss_value = float(objective.detach().item())
             optimized = perf_counter()
@@ -237,6 +247,8 @@ def train_relational_trace_graph_poc(
             )
             if schedule is not None:
                 history[-1]["learning_rate"] = optimizer.param_groups[0]["lr"]
+            if gradient_norm is not None:
+                history[-1]["gradient_norm"] = float(gradient_norm)
             if reporter and (len(history) % interval == 0 or len(history) == steps):
                 reporter(f"GNN step {len(history)}/{steps}: loss={history[-1]['loss']:.8g}")
             if len(history) == steps:

@@ -25,7 +25,11 @@ class CCNet5DObservedPatch:
 
 
 class CCNet5DObservedPatchSource:
-    """Draw finite, reproducible pseudo-target patches from one observed volume."""
+    """Draw finite, reproducible pseudo-target patches from one observed volume.
+
+    ``patches_drawn`` and ``visible_observed_cells_drawn`` count every sampled
+    patch and its visible observed context cells; counting draws no random numbers.
+    """
 
     def __init__(
         self,
@@ -51,6 +55,8 @@ class CCNet5DObservedPatchSource:
         self._mask_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
         self._supervision_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
         self._observed_mask = np.array(observed_mask, dtype=np.bool_, copy=True, order="C")
+        self.patches_drawn = 0
+        self.visible_observed_cells_drawn = 0
 
         observed_values = np.where(self._observed_mask[None, ...], volume, 0)
         self._normalized_observed = np.ascontiguousarray(
@@ -89,6 +95,8 @@ class CCNet5DObservedPatchSource:
             generator=self._mask_generator,
         )
         visible = available & ~hidden
+        self.patches_drawn += 1
+        self.visible_observed_cells_drawn += int(visible.sum())
 
         normalized = self._normalized_observed[patch_slices]
         model_input = np.where(visible[None, ...], normalized, 0)

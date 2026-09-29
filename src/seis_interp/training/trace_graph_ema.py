@@ -24,14 +24,18 @@ class TraceGraphEMA:
     Initialize from the first successful optimizer update. Subsequent updates use
     decay * average + (1 - decay) * parameter. Call only after an optimizer step
     that was not skipped by AMP. No model construction or random draws occur.
+    ``snapshot_updates`` keeps a CPU copy of the average after each listed update
+    in ``snapshots`` (update count -> state dict); it never changes the average.
     """
 
-    def __init__(self, decay: float) -> None:
+    def __init__(self, decay: float, snapshot_updates: tuple[int, ...] = ()) -> None:
         self.decay = validate_trace_graph_ema_decay(decay)
         if self.decay is None:
             raise ValueError("EMA requires an enabled ema_decay")
         self.updates = 0
         self._state: dict[str, torch.Tensor] = {}
+        self._snapshot_updates = frozenset(snapshot_updates)
+        self.snapshots: dict[int, dict[str, torch.Tensor]] = {}
 
     @torch.no_grad()
     def update(self, model: torch.nn.Module) -> None:
@@ -47,6 +51,8 @@ class TraceGraphEMA:
                     # Fixed Fourier frequencies must remain bit-exact for strict loading.
                     self._state[key].copy_(value)
         self.updates += 1
+        if self.updates in self._snapshot_updates:
+            self.snapshots[self.updates] = self.state_dict()
 
     def state_dict(self) -> dict[str, torch.Tensor]:
         """Return an independent CPU snapshot suitable for the normal checkpoint writer."""

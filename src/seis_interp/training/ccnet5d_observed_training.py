@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from numbers import Integral, Real
 
 import torch
@@ -25,6 +25,8 @@ class CCNet5DObservedTrainingResult:
     supervised_trace_presentations: int
     final_loss: float
     history: tuple[dict[str, object], ...]
+    shadow_parameters: dict[float, tuple[torch.Tensor, ...]] = field(default_factory=dict)
+    shadow_snapshots: dict[int, dict[float, tuple[torch.Tensor, ...]]] = field(default_factory=dict)
 
 
 def train_ccnet5d_observed_steps(
@@ -40,6 +42,8 @@ def train_ccnet5d_observed_steps(
     optimizer_name: str = "adam",
     weight_decay: float = 0.0,
     supervised_traces_per_update: int | None = None,
+    ema_eval_decays: Sequence[float] = (),
+    ema_snapshot_updates: Sequence[int] = (),
     reporter: Reporter | None = None,
 ) -> CCNet5DObservedTrainingResult:
     """Fit pseudo-targets with Adam or AdamW, optionally returning final EMA parameters.
@@ -48,6 +52,10 @@ def train_ccnet5d_observed_steps(
     Raw parameters are used throughout fitting; only the returned model is averaged.
     A fixed trace budget stacks patches in one forward/backward, without gradient
     accumulation. The loss is the mean over selected complete trace samples.
+    ``ema_eval_decays`` keeps extra parameter averages, advanced like the primary
+    one and returned as ``shadow_parameters``; the primary decay reuses its own.
+    ``ema_snapshot_updates`` keeps CPU copies of every average (the primary and
+    each shadow) after the listed updates, returned as ``shadow_snapshots``.
     """
     if not isinstance(model, CCNet5D):
         raise TypeError("model must be a CCNet5D")
@@ -58,6 +66,12 @@ def train_ccnet5d_observed_steps(
     rate = _positive_finite_float(learning_rate, "learning_rate")
     decay = validate_ccnet5d_ema_decay(ema_decay)
     averaged = None
+    shadow_decays = _shadow_decays(ema_eval_decays, decay)
+    shadows = {value: None for value in shadow_decays if value != decay}
+    snapshot_updates = frozenset(ema_snapshot_updates)
+    if snapshot_updates and decay is None:
+        raise ValueError("ema_snapshot_updates require an enabled ema_decay")
+    snapshots: dict[int, dict[float, tuple[torch.Tensor, ...]]] = {}
     device_value = torch.device(device)
     model.to(device_value)
     if optimizer_name not in ("adam", "adamw"):
@@ -122,12 +136,17 @@ def train_ccnet5d_observed_steps(
         loss.backward()
         optimizer.step()
         if decay is not None:
-            with torch.no_grad():
-                if averaged is None:
-                    averaged = [p.detach().clone() for p in model.parameters()]
-                else:
-                    for average, parameter_value in zip(averaged, model.parameters(), strict=True):
-                        average.lerp_(parameter_value, 1 - decay)
+            averaged = _advance_average(averaged, model, decay)
+        for value, shadow in shadows.items():
+            shadows[value] = _advance_average(shadow, model, value)
+        if step in snapshot_updates:
+            snapshots[step] = {
+                value: tuple(
+                    t.detach().cpu().clone()
+                    for t in (averaged if value == decay else shadows[value])
+                )
+                for value in shadow_decays or (decay,)
+            }
         supervised_trace_presentations += int(mask_values.sum())
         interval_loss += final_loss
         interval_count += 1
@@ -152,12 +171,37 @@ def train_ccnet5d_observed_steps(
         with torch.no_grad():
             for parameter_value, average in zip(model.parameters(), averaged, strict=True):
                 parameter_value.copy_(average)
+    shadow_parameters = {
+        value: tuple(averaged if value == decay else shadows[value]) for value in shadow_decays
+    }
     return CCNet5DObservedTrainingResult(
         steps_completed=update_count,
         supervised_trace_presentations=supervised_trace_presentations,
         final_loss=final_loss,
         history=tuple(history),
+        shadow_parameters=shadow_parameters,
+        shadow_snapshots=snapshots,
     )
+
+
+@torch.no_grad()
+def _advance_average(
+    average: list[torch.Tensor] | None, model: CCNet5D, decay: float
+) -> list[torch.Tensor]:
+    """Start at the first post-update parameters, then lerp toward each update."""
+    if average is None:
+        return [p.detach().clone() for p in model.parameters()]
+    for value, parameter_value in zip(average, model.parameters(), strict=True):
+        value.lerp_(parameter_value, 1 - decay)
+    return average
+
+
+def _shadow_decays(values: Sequence[float], primary: float | None) -> tuple[float, ...]:
+    """Distinct enabled decays; shadows require an enabled primary EMA."""
+    decays = tuple(validate_ccnet5d_ema_decay(value) for value in values)
+    if decays and (primary is None or None in decays or len(set(decays)) != len(decays)):
+        raise ValueError("ema_eval_decays must be distinct enabled decays beside ema_decay")
+    return decays
 
 
 def _positive_integer(value: object, name: str) -> int:
