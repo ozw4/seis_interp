@@ -1,4 +1,9 @@
-"""Prepare immutable M1 data, one outer mask, two geometries, and six configs."""
+"""Prepare immutable M1 data, one outer mask, two geometries, and six configs.
+
+With ``validation_holdout`` the same outer mask is built and a hash-selected
+fraction of its observed traces becomes the validation ``test`` split; the outer
+test traces become ``excluded`` and their waveforms are never read.
+"""
 
 import json
 import shutil
@@ -29,7 +34,9 @@ from seis_interp.processing.forge_mvp_contract import (
     METHODS,
     make_geometry,
     make_outer_mask,
+    make_validation_holdout,
     validate_mapping,
+    validation_contract,
 )
 from seis_interp.processing.forge_time_sampling import native_time_contract, resample_forge_traces
 from seis_interp.processing.forge_trace_scaling import (
@@ -40,11 +47,13 @@ from seis_interp.training.forge_mvp_methods import model_parameter_count
 from seis_interp.visualization.forge_mvp import plot_preparation
 
 
-def prepare_forge_mvp(repo: Path, study: Path) -> Path:
+def prepare_forge_mvp(repo: Path, study: Path, *, validation_holdout: bool = False) -> Path:
     config = yaml.safe_load((study / "config.yaml").read_text())
     inputs = yaml.safe_load((study / "inputs.yaml").read_text())
     configs = {method: yaml.safe_load((study / f"{method}.yaml").read_text()) for method in METHODS}
-    validate_mvp_configs(configs, config)
+    # The validation contract carries the holdout counts; the mask is still built from config.
+    contract = validation_contract(config) if validation_holdout else config
+    validate_mvp_configs(configs, contract)
     native_contract = native_time_contract(config)
     tables, grids, hashes = load_candidate_inputs(repo, inputs, config["candidate_id"])
     manifest = validate_mapping(
@@ -61,6 +70,10 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         verify_hashes(repo, {inputs["outer_mask"]: inputs["outer_mask_sha256"]})
         pd.testing.assert_frame_equal(mask, pd.read_parquet(repo / inputs["outer_mask"]))
     pd.testing.assert_frame_equal(mask, reordered)
+    parent_mask = mask
+    if validation_holdout:
+        mask = make_validation_holdout(parent_mask, config)
+        pd.testing.assert_frame_equal(mask, make_validation_holdout(reordered, config))
     features = {mode: make_geometry(manifest, grids, mode) for mode in ("real", "grid")}
     # Poisoning actual coordinates must leave the entire grid feature table identical.
     poisoned = manifest.copy()
@@ -94,14 +107,25 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         flush=True,
     )
     verify_hashes(raw_root, raw_hashes)
-    observed_rows = manifest.loc[mask.split.eq("observed")].reset_index(drop=True)
+    # Only outer-observed traces are read; a validation preparation splits them afterwards.
+    read_rows = manifest.loc[parent_mask.split.eq("observed")].reset_index(drop=True)
     values = read_selected_traces(
         raw_root,
-        observed_rows,
+        read_rows,
         native_contract["time_sample_count"],
         native_contract["sample_interval_us"],
     )
     values = resample_forge_traces(values, config)
+    observed_rows = manifest.loc[mask.split.eq("observed")].reset_index(drop=True)
+    held_out = None
+    if validation_holdout:
+        in_validation = read_rows.cell_id.isin(mask.cell_id[mask.split.eq("test")]).to_numpy()
+        held_out = (read_rows.loc[in_validation].reset_index(drop=True), values[in_validation])
+        values = values[~in_validation]
+        if not np.array_equal(read_rows.cell_id[~in_validation], observed_rows.cell_id) or len(
+            held_out[0]
+        ) != int(mask.split.eq("test").sum()):
+            raise ValueError("validation holdout rows do not match the outer observed traces")
     rms = observed_global_rms(values)
     commit = subprocess.check_output(
         ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
@@ -113,10 +137,12 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     )
     started = datetime.now(timezone.utc)
     run_id = started.strftime("%Y%m%dT%H%M%S%fZ") + "_" + commit[:12]
+    if validation_holdout:
+        run_id += "_validation"
     run = repo / "runs" / config["study_id"] / run_id
     for directory in ("input", "masks", "features", "configs", "figures", "tables"):
         (run / directory).mkdir(parents=True, exist_ok=False)
-    write_json(run / "input/input_contract.json", config)
+    write_json(run / "input/input_contract.json", contract)
     write_json(run / "input/input_hashes.json", hashes)
     write_json(
         run / "input/raw_input_hashes.json",
@@ -134,28 +160,50 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     )
     np.save(run / "input/observed_waveforms.npy", values, allow_pickle=False)
     mask_path = run / "masks/m1_random80_mvp_v1.parquet"
+    # Consumers read the validation mask under the fixed name; the outer mask is kept alongside.
+    parent_path = run / "masks/parent_mask.parquet" if validation_holdout else mask_path
     if "outer_mask" in inputs:
-        shutil.copyfile(repo / inputs["outer_mask"], mask_path)
+        shutil.copyfile(repo / inputs["outer_mask"], parent_path)
     else:
+        parent_mask.to_parquet(parent_path, index=False)
+    if validation_holdout:
         mask.to_parquet(mask_path, index=False)
     mask_hash = sha256_file(mask_path)
-    write_json(
-        run / "masks/mask_manifest.json",
-        {
+    parent_mask_hash = sha256_file(parent_path)
+    algorithm = (
+        "SHA256(UTF-8 canonical compact JSON list "
+        "[study_id,candidate_id,mask_id,integer mask_seed,integer cell_id]); "
+        "digest ascending, then cell_id ascending; hash_rank is 1-based"
+    )
+    mask_record = {
+        "mask_hash": mask_hash,
+        "mask_id": config["mask_id"],
+        "mask_seed": config["mask_seed"],
+        "study_id": mask_config["study_id"],
+        "candidate_id": config["candidate_id"],
+        "algorithm": algorithm,
+        "counts": parent_mask.split.value_counts().to_dict(),
+        "row_order_invariant": True,
+    }
+    if validation_holdout:
+        mask_record = {
             "mask_hash": mask_hash,
-            "mask_id": config["mask_id"],
-            "mask_seed": config["mask_seed"],
-            "study_id": mask_config["study_id"],
+            "mask_id": contract["mask_id"],
+            "mask_seed": contract["mask_seed"],
+            "study_id": config["study_id"],
             "candidate_id": config["candidate_id"],
+            "selection_domain": "validation_holdout",
+            "fraction": config["validation_holdout"]["fraction"],
             "algorithm": (
-                "SHA256(UTF-8 canonical compact JSON list "
-                "[study_id,candidate_id,mask_id,integer mask_seed,integer cell_id]); "
-                "digest ascending, then cell_id ascending; hash_rank is 1-based"
+                f"{algorithm}, over parent-observed cells only (validation_hash_rank); the "
+                "first round(fraction x parent observed count) become split test, the other "
+                "parent-observed cells stay observed and parent test cells become excluded"
             ),
             "counts": mask.split.value_counts().to_dict(),
             "row_order_invariant": True,
-        },
-    )
+            "parent_mask": {**mask_record, "mask_hash": parent_mask_hash},
+        }
+    write_json(run / "masks/mask_manifest.json", mask_record)
     for mode, table in features.items():
         table.to_parquet(run / "features" / f"{mode}_geometry.parquet", index=False)
     write_json(
@@ -168,7 +216,7 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         scales, spacing = prepare_trace_scales(
             values,
             observed_rows.cell_id.to_numpy(),
-            manifest.cell_id.to_numpy(),
+            mask.cell_id[mask.split.ne("excluded")].to_numpy(),
             tuple(config["spatial_shape"]),
             grids,
             config["preprocessing"]["idw"],
@@ -194,16 +242,20 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
             },
         )
     elif config["preprocessing"]["amplitude_scaling"] == "trace_oracle":
-        test_rows = manifest.loc[mask.split.eq("test")].reset_index(drop=True)
-        print("Computing authorized oracle test RMS after time resampling", flush=True)
-        test_values = read_selected_traces(
-            raw_root,
-            test_rows,
-            native_contract["time_sample_count"],
-            native_contract["sample_interval_us"],
-        )
-        test_values = resample_forge_traces(test_values, config)
-        test_waveforms_read = len(test_values)
+        if held_out is None:
+            test_rows = manifest.loc[mask.split.eq("test")].reset_index(drop=True)
+            print("Computing authorized oracle test RMS after time resampling", flush=True)
+            test_values = read_selected_traces(
+                raw_root,
+                test_rows,
+                native_contract["time_sample_count"],
+                native_contract["sample_interval_us"],
+            )
+            test_values = resample_forge_traces(test_values, config)
+            test_waveforms_read = len(test_values)
+        else:
+            # Validation targets are outer-observed traces already read above.
+            test_rows, test_values = held_out
         scales = prepare_oracle_trace_scales(
             values,
             observed_rows.cell_id.to_numpy(),
@@ -229,6 +281,14 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
                 "outer_target_usage": "oracle_rms_only; no held-out waveform enters training",
                 "prediction_restoration": "model_output_times_oracle_rms_once",
                 "zero_rms_policy": "stop",
+                **(
+                    {
+                        "outer_target_source": "outer_observed_waveforms_read_once",
+                        "excluded_amplitudes_read": test_waveforms_read,
+                    }
+                    if validation_holdout
+                    else {}
+                ),
             },
         )
     for method, resolved in configs.items():
@@ -237,8 +297,8 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
             resolved["alignment"] = dict(alignment)
         resolved.update(
             mask_hash=mask_hash,
-            mask_id=config["mask_id"],
-            mask_seed=config["mask_seed"],
+            mask_id=contract["mask_id"],
+            mask_seed=contract["mask_seed"],
             global_rms=rms,
         )
         (run / "configs" / f"{method}.yaml").write_text(yaml.safe_dump(resolved, sort_keys=False))
@@ -268,7 +328,23 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     if not np.array_equal(observed_arranged[observed_rows.cell_id], values):
         raise ValueError("observed waveform round trip failed")
     del observed_arranged
-    plot_preparation(manifest, mask, features, run / "figures")
+    # The figure shows the outer mask; a validation split only relabels its observed cells.
+    plot_preparation(manifest, parent_mask, features, run / "figures")
+    validation_gates = {}
+    if validation_holdout:
+        # Geometry, canvas and feature scaling see every eligible cell, as in the final run.
+        if not all(
+            np.array_equal(table.cell_id, manifest.cell_id) for table in features.values()
+        ) or not np.array_equal(mask.cell_id, manifest.cell_id):
+            raise ValueError("validation geometry must keep every eligible cell")
+        validation_gates = {
+            "selection_domain": "validation_holdout",
+            "outer_observed_waveforms_read": len(read_rows),
+            "validation_targets_from_outer_observed": len(held_out[0]),
+            "excluded_waveforms_read": test_waveforms_read,
+            "geometry_covers_every_eligible_cell": True,
+            "canvas_sample_count": canvas_length,
+        }
     gates = {
         "mapping": True,
         "mask": True,
@@ -284,6 +360,7 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         "matched_parameter_counts": parameter_counts,
         "evaluation_runtime_gates": "pending predictions",
         "production_runs_started": 0,
+        **validation_gates,
     }
     write_json(run / "preparation_gates.json", gates)
     implementation_hashes = {}
@@ -304,8 +381,8 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         **amplitude_binding,
         "study_id": config["study_id"],
         "candidate_id": config["candidate_id"],
-        "mask_id": config["mask_id"],
-        "mask_seed": config["mask_seed"],
+        "mask_id": contract["mask_id"],
+        "mask_seed": contract["mask_seed"],
         "git_commit": commit,
         "dirty_worktree": dirty,
         "status": "prepared",
@@ -319,6 +396,23 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         "test_trace_count": int(mask.split.eq("test").sum()),
         "clean_test_trace_count": int((mask.split.eq("test") & mask.clean_target).sum()),
         "time_sample_count": values.shape[1],
+        **(
+            {
+                "selection_domain": "validation_holdout",
+                "validation_fraction": config["validation_holdout"]["fraction"],
+                "validation_mask_hash": mask_hash,
+                "parent_mask_hash": parent_mask_hash,
+                "parent_mask_id": config["mask_id"],
+                "parent_mask_seed": config["mask_seed"],
+                "parent_mask_study_id": mask_config["study_id"],
+                "parent_observed_trace_count": int(parent_mask.split.eq("observed").sum()),
+                "parent_test_trace_count": int(parent_mask.split.eq("test").sum()),
+                "excluded_trace_count": int(mask.split.eq("excluded").sum()),
+                "excluded_waveforms_read": test_waveforms_read,
+            }
+            if validation_holdout
+            else {}
+        ),
         **({"alignment": alignment, "canvas_sample_count": canvas_length} if alignment else {}),
         **({"parameter_counts": parameter_counts} if parameter_counts else {}),
         "implementation_hashes": implementation_hashes,

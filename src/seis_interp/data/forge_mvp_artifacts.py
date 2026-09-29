@@ -1,7 +1,7 @@
 """Hash-bound FORGE inputs and compact observed-only runtime data."""
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -110,7 +110,11 @@ def observed_global_rms(values: np.ndarray) -> float:
 
 @dataclass(frozen=True)
 class ForgeModelInputs:
-    """No evaluation amplitudes, raw file paths, or raw waveform reader."""
+    """No evaluation amplitudes, raw file paths, or raw waveform reader.
+
+    ``excluded_cells`` (validation preparations) keep their geometry but are
+    neither input nor query: they are missing like test cells and never predicted.
+    """
 
     geometry: pd.DataFrame
     observed_cells: np.ndarray
@@ -122,17 +126,18 @@ class ForgeModelInputs:
     binding: dict
     observed_rms: np.ndarray | None = None
     test_rms: np.ndarray | None = None
+    excluded_cells: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int64))
 
     def __post_init__(self):
         size = int(np.prod(self.spatial_shape))
         ids = self.geometry.cell_id.to_numpy()
         if len(np.unique(ids)) != len(ids) or np.any(ids < 0) or np.any(ids >= size):
             raise ValueError("invalid geometry cell IDs")
-        combined = np.concatenate((self.observed_cells, self.test_cells))
+        combined = np.concatenate((self.observed_cells, self.test_cells, self.excluded_cells))
         if len(np.unique(combined)) != len(combined) or not np.array_equal(
             np.sort(combined), np.sort(ids)
         ):
-            raise ValueError("observed/test must disjointly cover eligible geometry")
+            raise ValueError("observed/test/excluded must disjointly cover eligible geometry")
         if (
             self.observed_values.shape != (len(self.observed_cells), len(self.time_s))
             or self.observed_values.dtype != np.float32
@@ -205,6 +210,10 @@ def load_model_inputs(preparation: Path, method_id: str) -> tuple[ForgeModelInpu
     observed = pd.read_parquet(preparation / "input/observed_index.parquet").cell_id.to_numpy()
     if not np.array_equal(observed, mask.loc[mask.split.eq("observed"), "cell_id"]):
         raise ValueError("observed array index does not match fixed mask")
+    # Validation preparations exclude the parent test cells; final preparations have none.
+    if not mask.split.isin(["observed", "test", "excluded"]).all():
+        raise ValueError("unknown mask split")
+    excluded = mask.loc[mask.split.eq("excluded"), "cell_id"].to_numpy()
     binding = {
         key: seal[key]
         for key in (
@@ -227,7 +236,8 @@ def load_model_inputs(preparation: Path, method_id: str) -> tuple[ForgeModelInpu
             raise ValueError("trace scale binding mismatch")
         verify_hashes(preparation, {"input/trace_scales.parquet": scale_hash})
         scales = pd.read_parquet(preparation / "input/trace_scales.parquet").set_index("cell_id")
-        if not scales.index.is_unique or set(scales.index) != set(geometry.cell_id):
+        scaled_cells = set(geometry.cell_id) - set(excluded)
+        if not scales.index.is_unique or set(scales.index) != scaled_cells:
             raise ValueError("trace scale cell coverage mismatch")
         trace_scales = {
             "observed_rms": scales.loc[observed, "rms"].to_numpy(),
@@ -240,6 +250,7 @@ def load_model_inputs(preparation: Path, method_id: str) -> tuple[ForgeModelInpu
         observed_cells=observed,
         test_cells=mask.loc[mask.split.eq("test"), "cell_id"].to_numpy(),
         observed_values=np.load(preparation / "input/observed_waveforms.npy", mmap_mode="r"),
+        excluded_cells=excluded,
         spatial_shape=tuple(contract["spatial_shape"]),
         time_s=np.arange(contract["time_sample_count"], dtype=np.float64)
         * contract["sample_interval_us"]

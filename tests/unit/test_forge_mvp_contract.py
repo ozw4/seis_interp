@@ -9,8 +9,11 @@ import pytest
 from seis_interp.processing.forge_mvp_contract import (
     make_geometry,
     make_outer_mask,
+    make_validation_holdout,
     validate_mapping,
     validate_regsi_pair,
+    validation_contract,
+    validation_holdout_counts,
 )
 from tests.fixtures.forge_mvp import tiny_forge_study
 
@@ -99,3 +102,114 @@ def test_regsi_pair_may_run_on_different_devices(tmp_path):
     configs["regsi_real"]["device"] = "cuda:1"
     configs["regsi_grid"]["device"] = "cuda:0"
     validate_regsi_pair(configs)
+
+
+def _holdout_config(config, **holdout):
+    return {
+        **config,
+        "validation_holdout": {
+            "fraction": 0.3,
+            "mask_id": "tiny_validation",
+            "mask_seed": 11,
+            **holdout,
+        },
+    }
+
+
+def test_validation_holdout_splits_outer_observed_cells_by_hash_rank(tmp_path):
+    _, config, _, _, mapping, stations, cells, grids, _ = tiny_forge_study(tmp_path)
+    manifest = validate_mapping(mapping, stations, cells, grids, config)
+    config = _holdout_config(config)
+    parent = make_outer_mask(manifest, config)
+    mask = make_validation_holdout(parent, config)
+    # round(0.3 x 7) = 2 validation cells; the 28 outer test cells are excluded.
+    assert mask.split.value_counts().to_dict() == {"excluded": 28, "observed": 5, "test": 2}
+    assert validation_holdout_counts(config) == {
+        "observed_trace_count": 5,
+        "test_trace_count": 2,
+        "excluded_trace_count": 28,
+    }
+    pd.testing.assert_frame_equal(
+        mask, make_validation_holdout(parent.sample(frac=1, random_state=3), config)
+    )
+    pd.testing.assert_frame_equal(
+        mask.drop(
+            columns=[
+                "split",
+                "mask_id",
+                "mask_seed",
+                "parent_split",
+                "parent_mask_id",
+                "parent_mask_seed",
+                "validation_stable_hash",
+                "validation_hash_rank",
+            ]
+        ),
+        parent.drop(columns=["split", "mask_id", "mask_seed"]),
+    )
+    assert mask.parent_split.tolist() == parent.split.tolist()
+    assert set(mask.loc[mask.split.eq("excluded"), "cell_id"]) == set(
+        parent.loc[parent.split.eq("test"), "cell_id"]
+    )
+    assert mask.mask_id.eq("tiny_validation").all() and mask.mask_seed.eq(11).all()
+    assert mask.parent_mask_id.eq(config["mask_id"]).all()
+    observed = parent.loc[parent.split.eq("observed"), "cell_id"]
+    ranks = sorted(
+        (
+            hashlib.sha256(
+                json.dumps(
+                    [config["study_id"], config["candidate_id"], "tiny_validation", 11, int(cell)],
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest(),
+            int(cell),
+        )
+        for cell in observed
+    )
+    assert set(mask.loc[mask.split.eq("test"), "cell_id"]) == {cell for _, cell in ranks[:2]}
+    assert mask.loc[mask.split.eq("excluded"), "validation_hash_rank"].eq(0).all()
+    assert mask.loc[mask.split.eq("excluded"), "validation_stable_hash"].isna().all()
+    assert sorted(mask.loc[mask.parent_split.eq("observed"), "validation_hash_rank"]) == list(
+        range(1, 8)
+    )
+    other = make_validation_holdout(parent, _holdout_config(config, mask_seed=12))
+    assert other.split.value_counts().to_dict() == mask.split.value_counts().to_dict()
+    assert other.loc[other.split.eq("excluded"), "cell_id"].tolist() == (
+        mask.loc[mask.split.eq("excluded"), "cell_id"].tolist()
+    )
+
+
+def test_validation_contract_carries_holdout_counts_and_parent_identity(tmp_path):
+    _, config, _, _, _, _, _, _, _ = tiny_forge_study(tmp_path)
+    contract = validation_contract(_holdout_config(config))
+    assert (contract["observed_trace_count"], contract["test_trace_count"]) == (5, 2)
+    assert contract["excluded_trace_count"] == 28
+    assert (contract["mask_id"], contract["mask_seed"]) == ("tiny_validation", 11)
+    assert contract["selection_domain"] == "validation_holdout"
+    assert contract["parent_mask"] == {
+        "study_id": config["study_id"],
+        "mask_id": config["mask_id"],
+        "mask_seed": config["mask_seed"],
+        "observed_trace_count": 7,
+        "test_trace_count": 28,
+    }
+
+
+@pytest.mark.parametrize(
+    "holdout",
+    [
+        {"fraction": 0.0},
+        {"fraction": 1.0},
+        {"fraction": 0.01},
+        {"fraction": True},
+        {"mask_seed": "11"},
+        {"mask_id": "m1_random80_mvp_v1"},
+        {"extra": 1},
+    ],
+)
+def test_validation_holdout_rejects_invalid_settings(tmp_path, holdout):
+    _, config, _, _, _, _, _, _, _ = tiny_forge_study(tmp_path)
+    with pytest.raises(ValueError, match="validation"):
+        validation_holdout_counts(_holdout_config(config, **holdout))
+    with pytest.raises(ValueError, match="validation_holdout requires"):
+        validation_holdout_counts(config)

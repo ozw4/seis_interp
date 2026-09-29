@@ -76,6 +76,7 @@ def check_method_shapes(inputs, config):
             geometry=inputs.geometry.loc[selected].copy(),
             test_cells=test,
             test_rms=None if inputs.test_rms is None else inputs.test_rms[:count],
+            excluded_cells=inputs.excluded_cells[:0],
         )
         result = run_method(reduced, diagnostic, reporter=lambda message: None)
         if not np.isfinite(result.prediction).all() or result.prediction.shape[1] != len(

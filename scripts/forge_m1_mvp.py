@@ -27,16 +27,25 @@ def main():
         action="store_true",
         help="run: start all six workers together; runtimes are then not comparable",
     )
+    parser.add_argument(
+        "--validation-holdout",
+        action="store_true",
+        help="prepare: hold out the study's validation traces from the outer observed set",
+    )
     args = parser.parse_args()
     if args.concurrent and args.action != "run":
         parser.error("--concurrent is only valid for run")
+    if args.validation_holdout and args.action != "prepare":
+        parser.error("--validation-holdout is only valid for prepare")
     repo = Path(__file__).resolve().parents[1]
     if args.action == "prepare":
         if args.preparation or args.output or args.method or args.preflight:
             parser.error("prepare uses the fixed study configuration only")
         print(
             prepare_forge_mvp(
-                repo, (args.study or repo / "studies/study_052_forge_m1_mvp").resolve()
+                repo,
+                (args.study or repo / "studies/study_052_forge_m1_mvp").resolve(),
+                validation_holdout=args.validation_holdout,
             )
         )
         return

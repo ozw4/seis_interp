@@ -195,9 +195,12 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
         write_json(output / "aggregate/regsi_effect_summary.json", effect)
         plot_projection_errors(quartiles, output / "figures")
     if valid:
-        truth = np.empty((len(mask), contract["time_sample_count"]), dtype=np.float32)
+        # Excluded (validation-preparation parent test) traces are never read; they stay zero.
+        truth = np.zeros((len(mask), contract["time_sample_count"]), dtype=np.float32)
         truth[test] = target
-        truth[~test] = np.load(preparation / "input/observed_waveforms.npy", mmap_mode="r")
+        truth[mask.split.eq("observed").to_numpy()] = np.load(
+            preparation / "input/observed_waveforms.npy", mmap_mode="r"
+        )
         # Only materialize the two predeclared sections, not six complete cubes.
         selected = manifest.source_cell.eq(
             contract["visualization"]["source_cell"]

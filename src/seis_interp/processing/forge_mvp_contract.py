@@ -144,14 +144,7 @@ def make_outer_mask(manifest: pd.DataFrame, config: dict) -> pd.DataFrame:
     prefix = [config["study_id"], config["candidate_id"], config["mask_id"], config["mask_seed"]]
     if not mask.candidate_id.eq(config["candidate_id"]).all():
         raise ValueError("mask candidate mismatch")
-    mask["stable_hash"] = [
-        hashlib.sha256(
-            json.dumps([*prefix, int(cell)], ensure_ascii=True, separators=(",", ":")).encode(
-                "utf-8"
-            )
-        ).hexdigest()
-        for cell in mask.cell_id
-    ]
+    mask["stable_hash"] = stable_cell_hashes(prefix, mask.cell_id)
     order = mask.sort_values(["stable_hash", "cell_id"]).index
     mask["hash_rank"] = 0
     mask.loc[order, "hash_rank"] = np.arange(1, len(mask) + 1)
@@ -159,6 +152,113 @@ def make_outer_mask(manifest: pd.DataFrame, config: dict) -> pd.DataFrame:
     mask["mask_id"], mask["mask_seed"] = config["mask_id"], config["mask_seed"]
     if int(mask.split.eq("observed").sum()) != config["observed_trace_count"]:
         raise ValueError("outer observed count mismatch")
+    return mask
+
+
+def stable_cell_hashes(prefix: list, cells) -> list[str]:
+    """SHA256 of the UTF-8 canonical compact JSON list ``[*prefix, integer cell_id]``."""
+    return [
+        hashlib.sha256(
+            json.dumps([*prefix, int(cell)], ensure_ascii=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        for cell in cells
+    ]
+
+
+def validation_holdout_counts(config: dict) -> dict:
+    """Counts of a validation split nested inside the parent mask's observed traces.
+
+    ``round(fraction * observed_trace_count)`` parent-observed traces become the
+    validation targets; the parent test traces are excluded from input and scoring.
+    """
+    holdout = config.get("validation_holdout")
+    if not isinstance(holdout, dict) or set(holdout) != {"fraction", "mask_id", "mask_seed"}:
+        raise ValueError("validation_holdout requires fraction, mask_id and mask_seed")
+    fraction, mask_id, seed = holdout["fraction"], holdout["mask_id"], holdout["mask_seed"]
+    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not 0 < fraction < 1:
+        raise ValueError("validation_holdout.fraction must lie strictly between 0 and 1")
+    if not isinstance(mask_id, str) or not mask_id or mask_id == config["mask_id"]:
+        raise ValueError("validation_holdout.mask_id must name a mask distinct from the parent")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("validation_holdout.mask_seed must be an integer")
+    parent_observed = config["observed_trace_count"]
+    count = round(fraction * parent_observed)
+    if not 0 < count < parent_observed:
+        raise ValueError("validation holdout must leave both observed and validation traces")
+    return {
+        "observed_trace_count": parent_observed - count,
+        "test_trace_count": count,
+        "excluded_trace_count": config["test_trace_count"],
+    }
+
+
+def validation_contract(config: dict) -> dict:
+    """Input contract of the validation preparation: holdout counts and mask identity."""
+    counts = validation_holdout_counts(config)
+    holdout = config["validation_holdout"]
+    return {
+        **config,
+        **counts,
+        "mask_id": holdout["mask_id"],
+        "mask_seed": holdout["mask_seed"],
+        "selection_domain": "validation_holdout",
+        "parent_mask": {
+            "study_id": config.get("mask_study_id", config["study_id"]),
+            "mask_id": config["mask_id"],
+            "mask_seed": config["mask_seed"],
+            "observed_trace_count": config["observed_trace_count"],
+            "test_trace_count": config["test_trace_count"],
+        },
+    }
+
+
+def make_validation_holdout(parent: pd.DataFrame, config: dict) -> pd.DataFrame:
+    """Split the parent observed cells into observed and validation ``test`` cells.
+
+    Parent-observed cells are ranked by the SHA256 of ``[study_id, candidate_id,
+    holdout mask_id, holdout mask_seed, cell_id]`` (the canonical JSON of
+    ``make_outer_mask``), digest then cell ID ascending; the first
+    ``round(fraction * observed)`` become ``test``. Parent test cells become
+    ``excluded``: they stay in the table but are never model input or scored.
+    """
+    counts = validation_holdout_counts(config)
+    holdout = config["validation_holdout"]
+    observed_count = int(parent.split.eq("observed").sum())
+    if (
+        not parent.split.isin(["observed", "test"]).all()
+        or observed_count != config["observed_trace_count"]
+    ):
+        raise ValueError("validation holdout requires the parent observed/test mask")
+    if not parent.candidate_id.eq(config["candidate_id"]).all():
+        raise ValueError("mask candidate mismatch")
+    mask = parent.sort_values("cell_id").reset_index(drop=True).copy()
+    observed = mask.split.eq("observed").to_numpy()
+    prefix = [config["study_id"], config["candidate_id"], holdout["mask_id"], holdout["mask_seed"]]
+    hashes = pd.Series(None, index=mask.index, dtype=object)
+    hashes[observed] = stable_cell_hashes(prefix, mask.cell_id[observed])
+    order = (
+        pd.DataFrame({"hash": hashes[observed], "cell_id": mask.cell_id[observed]})
+        .sort_values(["hash", "cell_id"])
+        .index
+    )
+    rank = np.zeros(len(mask), dtype=np.int64)
+    rank[order] = np.arange(1, len(order) + 1)
+    mask["parent_split"] = mask.split
+    mask["parent_mask_id"], mask["parent_mask_seed"] = mask.mask_id, mask.mask_seed
+    mask["validation_stable_hash"] = hashes
+    mask["validation_hash_rank"] = rank
+    mask["split"] = np.select(
+        [~observed, rank <= counts["test_trace_count"]], ["excluded", "test"], "observed"
+    )
+    mask["mask_id"], mask["mask_seed"] = holdout["mask_id"], holdout["mask_seed"]
+    if {name: int(mask.split.eq(name).sum()) for name in ("observed", "test", "excluded")} != {
+        "observed": counts["observed_trace_count"],
+        "test": counts["test_trace_count"],
+        "excluded": counts["excluded_trace_count"],
+    }:
+        raise ValueError("validation holdout count mismatch")
     return mask
 
 
