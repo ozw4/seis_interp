@@ -26,7 +26,11 @@ from seis_interp.processing.forge_mvp_contract import (
     make_outer_mask,
     validate_mapping,
 )
-from seis_interp.processing.forge_trace_scaling import prepare_trace_scales
+from seis_interp.processing.forge_time_sampling import native_time_contract, resample_forge_traces
+from seis_interp.processing.forge_trace_scaling import (
+    prepare_oracle_trace_scales,
+    prepare_trace_scales,
+)
 from seis_interp.visualization.forge_mvp import plot_preparation
 
 
@@ -35,13 +39,14 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     inputs = yaml.safe_load((study / "inputs.yaml").read_text())
     configs = {method: yaml.safe_load((study / f"{method}.yaml").read_text()) for method in METHODS}
     validate_mvp_configs(configs, config)
+    native_contract = native_time_contract(config)
     tables, grids, hashes = load_candidate_inputs(repo, inputs, config["candidate_id"])
     manifest = validate_mapping(
         tables["trace_mapping"],
         {r: tables[f"{r}_stations"] for r in ("source", "receiver")},
         tables["grid_cells"],
         grids,
-        config,
+        native_contract,
     )
     mask_config = {**config, "study_id": config.get("mask_study_id", config["study_id"])}
     mask = make_outer_mask(manifest, mask_config)
@@ -69,8 +74,12 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     verify_hashes(raw_root, raw_hashes)
     observed_rows = manifest.loc[mask.split.eq("observed")].reset_index(drop=True)
     values = read_selected_traces(
-        raw_root, observed_rows, config["time_sample_count"], config["sample_interval_us"]
+        raw_root,
+        observed_rows,
+        native_contract["time_sample_count"],
+        native_contract["sample_interval_us"],
     )
+    values = resample_forge_traces(values, config)
     rms = observed_global_rms(values)
     commit = subprocess.check_output(
         ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
@@ -132,6 +141,7 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         {mode: sha256_file(run / "features" / f"{mode}_geometry.parquet") for mode in features},
     )
     amplitude_binding = {}
+    test_waveforms_read = 0
     if config["preprocessing"]["amplitude_scaling"] == "observed_trace_rms_idw":
         scales, spacing = prepare_trace_scales(
             values,
@@ -159,6 +169,44 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
                 "prediction_restoration": "model_output_times_idw_rms_once",
                 "zero_rms_policy": "stop",
                 "uncovered_idw_policy": "stop",
+            },
+        )
+    elif config["preprocessing"]["amplitude_scaling"] == "trace_oracle":
+        test_rows = manifest.loc[mask.split.eq("test")].reset_index(drop=True)
+        print("Computing authorized oracle test RMS after time resampling", flush=True)
+        test_values = read_selected_traces(
+            raw_root,
+            test_rows,
+            native_contract["time_sample_count"],
+            native_contract["sample_interval_us"],
+        )
+        test_values = resample_forge_traces(test_values, config)
+        test_waveforms_read = len(test_values)
+        scales = prepare_oracle_trace_scales(
+            values,
+            observed_rows.cell_id.to_numpy(),
+            test_values,
+            test_rows.cell_id.to_numpy(),
+        )
+        oracle_trace_count = len(test_values)
+        del test_values
+        scales.to_parquet(run / "input/trace_scales.parquet", index=False)
+        amplitude_binding = {
+            "amplitude_scaling": "trace_oracle",
+            "trace_scale_hash": sha256_file(run / "input/trace_scales.parquet"),
+        }
+        write_json(
+            run / "input/amplitude_contract.json",
+            {
+                **amplitude_binding,
+                "global_rms_role": "diagnostic_only",
+                "training_targets": "unit_trace_rms",
+                "model_scalar_scale": 1.0,
+                "inner_target_rms_usage": "label_normalization_only",
+                "outer_target_amplitudes_read": oracle_trace_count,
+                "outer_target_usage": "oracle_rms_only; no held-out waveform enters training",
+                "prediction_restoration": "model_output_times_oracle_rms_once",
+                "zero_rms_policy": "stop",
             },
         )
     for method, resolved in configs.items():
@@ -205,7 +253,7 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         "geometry_differs": True,
         "no_mask_round_trip_synthetic_all_cells": True,
         "waveform_round_trip_observed_only": True,
-        "test_waveforms_read": 0,
+        "test_waveforms_read": test_waveforms_read,
         "observed_waveforms_stored": len(values),
         "regsi_configs_equal_except_geometry": True,
         "evaluation_runtime_gates": "pending predictions",

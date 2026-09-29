@@ -13,6 +13,7 @@ from seis_interp.data.forge_mvp_artifacts import (
     load_model_inputs,
     mvp_implementation_files,
     read_selected_traces,
+    verify_hashes,
     verify_mvp_implementation,
     write_json,
 )
@@ -21,7 +22,9 @@ from seis_interp.pipelines.evaluate_forge_mvp import evaluate_forge_mvp
 from seis_interp.pipelines.preflight_forge_mvp import preflight_forge_method, preflight_forge_mvp
 from seis_interp.pipelines.prepare_forge_mvp import prepare_forge_mvp
 from seis_interp.pipelines.run_forge_mvp import run_forge_method, run_forge_mvp
+from seis_interp.pipelines.visualize_forge_mvp import visualize_forge_mvp
 from seis_interp.processing.forge_mvp_contract import METHODS
+from seis_interp.processing.forge_time_sampling import resample_forge_traces
 from seis_interp.training.c3_poc_trace_graph_episodes import (
     PocTraceGraphEpisodeGenerator,
     PocTraceGraphEpisodeLabelReader,
@@ -31,7 +34,7 @@ from seis_interp.training.forge_mvp_methods import graph_data
 from tests.fixtures.forge_mvp import tiny_forge_study
 
 
-@pytest.fixture(params=["observed_global_rms", "observed_trace_rms_idw"])
+@pytest.fixture(params=["observed_global_rms", "observed_trace_rms_idw", "trace_oracle"])
 def prepared(tmp_path, monkeypatch, request):
     fixture = tiny_forge_study(tmp_path)
     if request.param == "observed_trace_rms_idw":
@@ -48,6 +51,21 @@ def prepared(tmp_path, monkeypatch, request):
             },
         )
         (fixture[0] / "config.yaml").write_text(yaml.safe_dump(contract))
+    elif request.param == "trace_oracle":
+        contract = fixture[1]
+        contract["time_sampling"] = {
+            "native_sample_count": 9,
+            "native_sample_interval_us": 1000,
+            "decimation_factor": 2,
+        }
+        contract.update(time_sample_count=5, sample_interval_us=2000)
+        contract["preprocessing"].update(amplitude_scaling="trace_oracle", trace_rms=True)
+        (fixture[0] / "config.yaml").write_text(yaml.safe_dump(contract))
+        configs = fixture[3]
+        configs["nersi_real"]["model"]["time_sample_count"] = 5
+        configs["ccnet5d_grid"]["patches"]["shape"][0] = 5
+        for method in ("nersi_real", "ccnet5d_grid"):
+            (fixture[0] / f"{method}.yaml").write_text(yaml.safe_dump(configs[method]))
     repo = Path(__file__).resolve().parents[2]
     import subprocess
 
@@ -68,10 +86,23 @@ def prepared(tmp_path, monkeypatch, request):
 
 def test_preparation_contains_observed_only_and_sealed_geometry(prepared):
     run, fixture = prepared
-    values = fixture[-1]
+    values = resample_forge_traces(fixture[-1], fixture[1])
     mask = pd.read_parquet(run / "masks/m1_random80_mvp_v1.parquet")
     seal = json.loads((run / "preparation_manifest.json").read_text())
     observed = mask.loc[mask.split.eq("observed"), "cell_id"].to_numpy()
+    gates = json.loads((run / "preparation_gates.json").read_text())
+    if fixture[1]["preprocessing"]["amplitude_scaling"] == "trace_oracle":
+        scales = pd.read_parquet(run / "input/trace_scales.parquet")
+        np.testing.assert_array_equal(
+            scales.rms, np.sqrt(np.mean(np.square(values[:35].astype(np.float64)), axis=1))
+        )
+        assert gates["test_waveforms_read"] == 28
+        assert set(scales.scale_source) == {"observed", "oracle_test"}
+        assert seal["amplitude_scaling"] == "trace_oracle"
+        assert "idw" not in seal
+    else:
+        assert gates["test_waveforms_read"] == 0
+    assert not (run / "input/test_waveforms.npy").exists()
     assert seal["global_rms"] == pytest.approx(
         np.sqrt(np.square(values[observed].astype(float)).mean())
     )
@@ -83,8 +114,13 @@ def test_preparation_contains_observed_only_and_sealed_geometry(prepared):
         with pytest.raises(ValueError, match="outside outer observed"):
             inputs.read_observed(inputs.test_cells[:1])
         volume = inputs.volume()
-        assert np.all(volume.values.reshape(9, -1)[:, inputs.test_cells] == 0)
-        np.testing.assert_array_equal(volume.values.reshape(9, -1)[:, observed].T, values[observed])
+        assert np.all(volume.values.reshape(values.shape[1], -1)[:, inputs.test_cells] == 0)
+        np.testing.assert_array_equal(
+            volume.values.reshape(values.shape[1], -1)[:, observed].T, values[observed]
+        )
+        np.testing.assert_array_equal(
+            inputs.time_s, np.arange(values.shape[1]) * fixture[1]["sample_interval_us"] / 1e6
+        )
         assert not hasattr(inputs, "dataset_root")
         assert "source_file" not in inputs.geometry
     path = run / "features/grid_geometry.parquet"
@@ -103,6 +139,7 @@ def prediction_matrix(prepared, tmp_path):
         output / "matrix_manifest.json",
         {
             "methods": list(METHODS),
+            "preparation": str(preparation.relative_to(tmp_path)),
             "preparation_hash": sha256_file(preparation / "preparation_manifest.json"),
             **execution_identity(tmp_path),
         },
@@ -140,6 +177,33 @@ def test_all_six_synthetic_methods_and_evaluation(prediction_matrix, tmp_path):
         assert record["runtime_seconds"] > 0
         assert record["peak_cpu_rss_bytes"] > 0
     assert (output / "figures/common_source.png").is_file()
+    final_hash = sha256_file(output / "aggregate/final_mvp_manifest.json")
+    with patch(
+        "seis_interp.pipelines.visualize_forge_mvp.read_selected_traces",
+        wraps=read_selected_traces,
+    ) as reader:
+        figures = visualize_forge_mvp(tmp_path, output)
+    reader.assert_called_once()
+    assert figures != output
+    verify_hashes(output, result["artifacts"])
+    assert sha256_file(output / "aggregate/final_mvp_manifest.json") == final_hash
+    record = json.loads((figures / "manifest.json").read_text())
+    assert record["status"] == "completed"
+    assert record["source_manifest_hash"] == final_hash
+    verify_hashes(figures, record["artifacts"])
+    for role in ("source", "receiver"):
+        for suffix in ("", "_errors"):
+            name = f"figures/common_{role}{suffix}.png"
+            # Saved predictions and native/resampled targets reconstruct the same panels.
+            assert sha256_file(figures / name) == sha256_file(output / name)
+    path = output / "runs/regsi_grid/prediction.npy"
+    path.write_bytes(path.read_bytes() + b"tamper")
+    with (
+        patch("seis_interp.pipelines.visualize_forge_mvp.read_selected_traces") as reader,
+        pytest.raises(ValueError, match="input hash mismatch"),
+    ):
+        visualize_forge_mvp(tmp_path, output)
+    reader.assert_not_called()
 
 
 @pytest.mark.parametrize("status", ["failed", "running", "missing"])
@@ -169,6 +233,12 @@ def test_incomplete_matrix_does_not_open_test_amplitudes(prediction_matrix, tmp_
     assert not (output / "figures").exists()
     assert json.loads((output / "aggregate/final_mvp_manifest.json").read_text()) == result
     assert (output / "aggregate/runtime_summary.parquet").is_file()
+    with (
+        patch("seis_interp.pipelines.visualize_forge_mvp.read_selected_traces") as reader,
+        pytest.raises(ValueError, match="requires an accepted six-method matrix"),
+    ):
+        visualize_forge_mvp(tmp_path, output)
+    reader.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -374,9 +444,12 @@ def test_trace_scaling_preserves_locked_mask_across_studies(prepared, tmp_path):
         "seis_interp.pipelines.prepare_forge_mvp.read_selected_traces", wraps=read_selected_traces
     ) as reader:
         followup = prepare_forge_mvp(tmp_path, study)
-    requested = reader.call_args.args[1].cell_id.to_numpy()
+    requested = reader.call_args_list[0].args[1].cell_id.to_numpy()
     expected = pd.read_parquet(mask).query("split == 'observed'").cell_id.to_numpy()
     np.testing.assert_array_equal(requested, expected)
+    assert reader.call_count == (
+        2 if config["preprocessing"]["amplitude_scaling"] == "trace_oracle" else 1
+    )
     assert sha256_file(followup / "masks/m1_random80_mvp_v1.parquet") == sha256_file(mask)
 
 

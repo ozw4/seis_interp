@@ -1,15 +1,19 @@
 """Validate the fixed MVP method matrix before reading any waveform."""
 
 from seis_interp.processing.forge_mvp_contract import METHODS, validate_regsi_pair
+from seis_interp.processing.forge_time_sampling import native_time_contract
 
 
 def validate_mvp_configs(configs, contract):
+    native_time_contract(contract)
     preprocessing = contract["preprocessing"]
     mode = preprocessing["amplitude_scaling"]
-    if mode not in ("observed_global_rms", "observed_trace_rms_idw"):
+    if mode not in ("observed_global_rms", "observed_trace_rms_idw", "trace_oracle"):
         raise ValueError("unsupported amplitude scaling")
-    if bool(preprocessing["trace_rms"]) != (mode == "observed_trace_rms_idw"):
+    if bool(preprocessing["trace_rms"]) != (mode != "observed_global_rms"):
         raise ValueError("trace RMS preprocessing contract mismatch")
+    if mode == "trace_oracle" and preprocessing.get("idw") is not None:
+        raise ValueError("oracle trace RMS must not declare IDW restoration")
     if mode == "observed_trace_rms_idw" and preprocessing.get("idw") != {
         "geometry": "projected_grid",
         "radius": 2,

@@ -220,12 +220,10 @@ def load_model_inputs(preparation: Path, method_id: str) -> tuple[ForgeModelInpu
     }
     binding["preparation_hash"] = sha256_file(preparation / "preparation_manifest.json")
     trace_scales = {}
-    if contract["preprocessing"]["amplitude_scaling"] == "observed_trace_rms_idw":
+    mode = contract["preprocessing"]["amplitude_scaling"]
+    if mode in ("observed_trace_rms_idw", "trace_oracle"):
         scale_hash = seal["trace_scale_hash"]
-        if (
-            config["trace_scale_hash"] != scale_hash
-            or config["amplitude_scaling"] != "observed_trace_rms_idw"
-        ):
+        if config["trace_scale_hash"] != scale_hash or config["amplitude_scaling"] != mode:
             raise ValueError("trace scale binding mismatch")
         verify_hashes(preparation, {"input/trace_scales.parquet": scale_hash})
         scales = pd.read_parquet(preparation / "input/trace_scales.parquet").set_index("cell_id")
@@ -235,7 +233,7 @@ def load_model_inputs(preparation: Path, method_id: str) -> tuple[ForgeModelInpu
             "observed_rms": scales.loc[observed, "rms"].to_numpy(),
             "test_rms": scales.loc[mask.loc[mask.split.eq("test"), "cell_id"], "rms"].to_numpy(),
         }
-        binding.update(amplitude_scaling="observed_trace_rms_idw", trace_scale_hash=scale_hash)
+        binding.update(amplitude_scaling=mode, trace_scale_hash=scale_hash)
     return ForgeModelInputs(
         **trace_scales,
         geometry=geometry,

@@ -51,7 +51,11 @@ def run_forge_method(repo: Path, preparation: Path, output: Path, method_id: str
     }
     if "trace_scale_hash" in seal:
         manifest.update(
-            {key: seal[key] for key in ("amplitude_scaling", "trace_scale_hash", "idw")}
+            {
+                key: seal[key]
+                for key in ("amplitude_scaling", "trace_scale_hash", "idw")
+                if key in seal
+            }
         )
     manifest.update(execution_identity(repo))
     manifest.update(

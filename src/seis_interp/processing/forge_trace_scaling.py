@@ -6,6 +6,29 @@ import pandas as pd
 from seis_interp.processing.trace_rms_idw import interpolate_trace_rms_idw
 
 
+def prepare_oracle_trace_scales(observed_values, observed_cells, test_values, test_cells):
+    """Keep authorized test RMS as restoration scalars, separate from model inputs."""
+    tables = []
+    for values, cells, source in (
+        (observed_values, observed_cells, "observed"),
+        (test_values, test_cells, "oracle_test"),
+    ):
+        if values.ndim != 2 or len(values) != len(cells) or not values.shape[1]:
+            raise ValueError("oracle RMS waveforms must match their cell IDs")
+        rms = np.empty(len(values), dtype=np.float64)
+        for start in range(0, len(values), 128):
+            rms[start : start + 128] = np.sqrt(
+                np.mean(np.square(values[start : start + 128].astype(np.float64)), axis=1)
+            )
+        if not np.isfinite(rms).all() or np.any(rms <= 0):
+            raise ValueError("oracle trace RMS must be finite and positive")
+        tables.append(pd.DataFrame({"cell_id": cells, "rms": rms, "scale_source": source}))
+    result = pd.concat(tables, ignore_index=True).sort_values("cell_id").reset_index(drop=True)
+    if result.cell_id.duplicated().any():
+        raise ValueError("oracle trace RMS requires disjoint unique cell IDs")
+    return result
+
+
 def prepare_trace_scales(values, observed_cells, eligible_cells, spatial_shape, grids, settings):
     """Interpolate scalar RMS only; no missing waveform or real coordinate is accepted."""
     if settings != {

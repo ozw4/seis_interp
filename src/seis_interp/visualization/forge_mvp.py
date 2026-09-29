@@ -40,7 +40,12 @@ def plot_preparation(manifest, mask, features, output):
 
 
 def plot_sections(manifest, mask, truth, predictions, contract, output):
-    """Call only after evaluation opens test amplitudes; fixed source/receiver IDs."""
+    """Evaluation-only sections, sharing each reference trace's full-duration RMS."""
+    rms = np.sqrt(np.mean(np.square(truth.astype(np.float64)), axis=1, keepdims=True))
+    # A silent reference trace stays zero without dividing by zero.
+    scale = np.where(rms > 0, rms, 1.0)
+    truth = truth / scale
+    predictions = {name: values / scale for name, values in predictions.items()}
     time = np.arange(contract["time_sample_count"]) * contract["sample_interval_us"] / 1e6
     settings = contract["visualization"]
     keep = (time >= settings["time_range_s"][0]) & (time <= settings["time_range_s"][1])
@@ -52,12 +57,14 @@ def plot_sections(manifest, mask, truth, predictions, contract, output):
         observed_panel = np.where(observed[rows, None], truth[rows], 0)
         panels = {"ground truth": truth[rows], "observed input": observed_panel}
         panels.update({name: value[rows] for name, value in predictions.items()})
-        fig, axes = plt.subplots(2, 4, figsize=(18, 10), squeeze=False)
+        fig, axes = plt.subplots(2, 4, figsize=(18, 10), squeeze=False, layout="constrained")
+        title = f"Common {role} {settings[f'{role}_cell']} | Per-trace reference RMS normalization"
+        fig.suptitle(title)
         for ax, (name, values) in zip(axes.flat, panels.items(), strict=False):
-            ax.imshow(
+            plot = ax.imshow(
                 values[:, keep].T,
                 aspect="auto",
-                cmap="gray",
+                cmap="seismic",
                 vmin=-clip,
                 vmax=clip,
                 extent=(0, len(rows), time[keep][-1], time[keep][0]),
@@ -66,12 +73,15 @@ def plot_sections(manifest, mask, truth, predictions, contract, output):
             ax.set(title=name, xlabel="trace in fixed section", ylabel="time [s]")
         for ax in list(axes.flat)[len(panels) :]:
             ax.set_visible(False)
-        fig.tight_layout()
+        fig.colorbar(
+            plot, ax=axes.ravel().tolist(), shrink=0.8, label="Amplitude / reference trace RMS"
+        )
         fig.savefig(output / f"common_{role}.png", dpi=150)
         plt.close(fig)
-        fig, axes = plt.subplots(2, 3, figsize=(15, 10), squeeze=False)
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10), squeeze=False, layout="constrained")
+        fig.suptitle(title)
         for ax, (name, values) in zip(axes.flat, predictions.items(), strict=False):
-            ax.imshow(
+            plot = ax.imshow(
                 (values[rows] - truth[rows])[:, keep].T,
                 aspect="auto",
                 cmap="seismic",
@@ -83,7 +93,13 @@ def plot_sections(manifest, mask, truth, predictions, contract, output):
             ax.set(title=name + " error", xlabel="trace in fixed section", ylabel="time [s]")
         for ax in list(axes.flat)[len(predictions) :]:
             ax.set_visible(False)
-        fig.tight_layout()
+        if predictions:
+            fig.colorbar(
+                plot,
+                ax=axes.ravel().tolist(),
+                shrink=0.8,
+                label="(Prediction - reference) / reference trace RMS",
+            )
         fig.savefig(output / f"common_{role}_errors.png", dpi=150)
         plt.close(fig)
 

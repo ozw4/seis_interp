@@ -22,6 +22,7 @@ from seis_interp.evaluation.forge_mvp_metrics import (
     verify_saved_metrics,
 )
 from seis_interp.processing.forge_mvp_contract import METHODS
+from seis_interp.processing.forge_time_sampling import native_time_contract, resample_forge_traces
 from seis_interp.visualization.forge_mvp import plot_projection_errors, plot_sections
 
 
@@ -45,7 +46,7 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
             if path.is_file():
                 record = json.loads(path.read_text())
                 for key in ("amplitude_scaling", "trace_scale_hash", "idw"):
-                    if record.get(key) != seal[key]:
+                    if record.get(key) != seal.get(key):
                         raise ValueError("run trace scale binding mismatch")
 
     # Inspect the whole matrix before inspecting predictions or opening targets.
@@ -120,12 +121,14 @@ def evaluate_forge_mvp(repo: Path, preparation: Path, output: Path):
         raise ValueError("ReGSI initial state or parameter count differs")
     raw = json.loads((preparation / "input/raw_input_hashes.json").read_text())
     verify_hashes(repo / raw["dataset_root"], raw["hashes"])
+    native_contract = native_time_contract(contract)
     target = read_selected_traces(
         repo / raw["dataset_root"],
         manifest.loc[test],
-        contract["time_sample_count"],
-        contract["sample_interval_us"],
+        native_contract["time_sample_count"],
+        native_contract["sample_interval_us"],
     )
+    target = resample_forge_traces(target, contract)
     for name in ("aggregate", "figures", "tables"):
         (output / name).mkdir(exist_ok=False)
     for method in METHODS:

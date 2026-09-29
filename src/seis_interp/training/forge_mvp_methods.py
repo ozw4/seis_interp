@@ -110,14 +110,14 @@ def graph_data(inputs, config):
 
 
 def run_method(inputs: ForgeModelInputs, config: dict, reporter=print) -> ForgeMethodResult:
-    """Run in model amplitude units, then restore O-only estimated physical RMS."""
+    """Run in model amplitude units, then apply the preparation's restoration RMS."""
     result = _run_method(inputs.model_space(), config, reporter)
     if inputs.test_rms is not None:
         result.prediction = (
             result.prediction.astype(np.float64) * inputs.test_rms[:, None]
         ).astype(np.float32)
         result.diagnostics.update(
-            amplitude_scaling="observed_trace_rms_idw",
+            amplitude_scaling=inputs.binding.get("amplitude_scaling", "observed_trace_rms_idw"),
             trace_scale_hash=inputs.binding["trace_scale_hash"],
         )
     return result

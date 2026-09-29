@@ -79,6 +79,8 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_052_forge_m1_mvp](study_052_forge_m1_mvp/README.md): prepared — frozen M1 input, random-80 mask, six method configs, observed-only preflight; production metrics pending.
 
+- [study_056_forge_2ms_random80_trace_rms](study_056_forge_2ms_random80_trace_rms/README.md): completed — all six methods predicted and evaluated; oracle trace RMS and matched neural update counts.
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.
