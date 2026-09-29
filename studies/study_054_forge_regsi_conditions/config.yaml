@@ -1,0 +1,63 @@
+study_id: study_054_forge_regsi_conditions
+method: regsi_real
+model_seed: 7301
+main_experiment:
+  missing_fraction: 0.8
+  time_decimation_factor: 2
+  normalization: trace_oracle
+  steps: 5000
+  query_batch_size: 32
+  inner_mask_fraction: 0.1
+  learning_rate: 0.001
+  ema_decay: 0.999
+  max_edge_time_shift_samples: 0
+  checkpoint: fixed_final_ema
+screening:
+  time_decimation_factor: 8
+  fallback_time_decimation_factor: 16
+  missing_fractions: [0.8, 0.5, 0.2, 0.1]
+  normalization: trace_oracle
+  steps: 5000
+  query_batch_size: 32
+  inner_mask_fraction: 0.1
+  learning_rate: 0.001
+  ema_decay: 0.999
+evaluation:
+  common_probe_count: 512
+  common_probe_seed: 5401
+  common_probe_pool: original_hash_rank_lowest_5_percent
+  primary_domain: clean_target
+  exploratory_success_relative_mse_max: 0.8
+  exploratory_success_median_correlation_min: 0.3
+  checkpoints: [fixed_final_raw, fixed_final_ema]
+  test_rms_usage: explicitly_authorized_oracle_normalization_and_restoration_only
+  held_out_waveforms_in_training: false
+native_confirmation:
+  time_decimation_factor: 1
+  evaluation: common_probe_for_each_successful_missing_fraction
+  additional_evaluation: all_test_for_missing_fraction_0p1
+high_missing_extension:
+  missing_fractions: [0.6, 0.7, 0.8]
+  time_decimation_factors: [8, 2]
+  reuse_completed_cases: true
+  training: same_as_screening
+  native_confirmation: any_successful_missing_fraction_not_already_confirmed
+gather_visualization:
+  missing_fractions: [0.6, 0.7, 0.8]
+  time_decimation_factors: [8, 2, 1]
+  completed_conditions_only: true
+  checkpoint: fixed_final_ema
+  source_cell: 112
+  receiver_cell: 144
+  observed_traces: retained_in_reconstruction
+  time_ranges_s: [[0.0, 4.0], [0.0, 1.5]]
+  normalized_display: all_panels_divided_by_same_native_target_trace_rms
+  normalized_clip: 3.0
+  physical_clip: native_target_absolute_amplitude_99th_percentile_per_gather
+restoration_diagnostics:
+  estimators: [oracle_trace_rms, grid_radius2_idw, real_coordinate_k16_idw]
+  idw_power: 2
+  real_coordinate_axes: [source_x_m, source_y_m, receiver_x_m, receiver_y_m]
+  independent_observed_only_inference:
+    missing_fraction: 0.1
+    time_decimation_factors: [8, 1]
