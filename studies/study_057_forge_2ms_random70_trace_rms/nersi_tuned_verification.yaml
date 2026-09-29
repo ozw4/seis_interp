@@ -1,0 +1,62 @@
+target_relative_mse: 0.85
+stop_when_target_met: true
+device: cuda:1
+candidates:
+- name: nersi_real_tuned
+  model:
+    fourier_components: 80
+    frequency_base:
+    - 1.005
+    - 1.005
+    - 1.04
+    - 1.00001
+    encoder_width: 512
+    latent_channels: 8
+    decoder_channels:
+    - 16
+    - 8
+    - 4
+    upsample_scales:
+    - 2
+    - 2
+    - 2
+    kernel_size: 5
+    activation: gelu
+    output_activation: linear
+    time_sample_count: 2001
+    input_features: 4
+    coordinate_transform:
+    - - 0.139216388554049
+      - 0.4403452127919225
+      - -0.4127179381839228
+      - 0.008208461987098563
+      - 0.41546931390767877
+    - - 0.46751068587523004
+      - -0.11405393803902483
+      - 0.006914602534734797
+      - 0.4261535395452449
+      - 0.12937064376415902
+    - - -0.20831176779070318
+      - -0.65889577130675
+      - -0.6175566267375916
+      - 0.012282456434440136
+      - 0.7459223302711473
+    - - -0.7500770727971708
+      - 0.1829888525973457
+      - 0.011093831618204307
+      - 0.6837234081737625
+      - -0.13221560435704688
+    polar_offset: true
+    moveout_samples_per_radius: 1619.023490016167
+  training:
+    optimizer: adam
+    learning_rate: 0.0003
+    max_steps: 24000
+    weight_decay: 0.0001
+    report_interval: 500
+    learning_rate_schedule: constant
+    mixed_precision: 'off'
+    batch_size: 64
+    ema_decay: 0.999
+  prediction:
+    batch_size: 64

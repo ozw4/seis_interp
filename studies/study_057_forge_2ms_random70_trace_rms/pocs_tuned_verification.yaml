@@ -1,0 +1,21 @@
+target_relative_mse: 0.85
+backend: batched
+device: cpu
+candidates:
+- name: pocs_grid_tuned
+  algorithm:
+    n_iterations: 4
+    threshold_start: 1.0
+    threshold_end: 0.4
+    window_shape:
+    - 512
+    - 1
+    - 8
+    - 1
+    - 8
+    overlap:
+    - 256
+    - 0
+    - 6
+    - 0
+    - 6

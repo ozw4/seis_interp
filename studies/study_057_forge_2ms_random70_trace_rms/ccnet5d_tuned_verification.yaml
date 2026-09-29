@@ -1,0 +1,36 @@
+target_relative_mse: 0.85
+stop_when_target_met: true
+device: cuda:1
+candidates:
+- name: ccnet5d_grid_tuned
+  model:
+    hidden_channels: 32
+    intermediate_channels: 32
+    kernel_size: 3
+    output_activation: linear
+  training:
+    optimizer: adam
+    learning_rate: 0.001
+    max_steps: 10000
+    weight_decay: 0.0
+    report_interval: 100
+    learning_rate_schedule: constant
+    mixed_precision: 'off'
+    ema_decay: 0.999
+  patches:
+    shape:
+    - 2001
+    - 4
+    - 8
+    - 4
+    - 8
+    inner_mask_fraction: 0.1
+  prediction:
+    core_shape:
+    - 256
+    - 6
+    - 32
+    - 8
+    - 32
+  alignment:
+    velocity_m_per_s: 500.0

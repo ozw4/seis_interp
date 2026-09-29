@@ -1,0 +1,23 @@
+target_relative_mse: 0.85
+stop_when_target_met: true
+backend: batched
+device: cpu
+workers: 16
+candidates:
+- name: drr_grid_tuned
+  algorithm:
+    rank: 2
+    damping_power: 3
+    n_iterations: 6
+    frequency_min_hz: 0.0
+    frequency_max_hz: null
+    spatial_window_shape:
+    - 1
+    - 8
+    - 1
+    - 8
+    spatial_overlap:
+    - 0
+    - 6
+    - 0
+    - 6

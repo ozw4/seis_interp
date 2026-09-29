@@ -1,0 +1,50 @@
+method_id: ccnet5d_grid
+geometry_mode: grid
+model_seed: 7301
+source_config: studies/study_042_c3_v3_five_method_comparison/ccnet5d.yaml
+source_config_sha256: 561cf0436d1578e036de1bd12d7e3d195554b5ab72a8cbed51f460c2e2a359f9
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final_ema
+device: cuda:1
+model:
+  hidden_channels: 32
+  intermediate_channels: 32
+  kernel_size: 3
+  output_activation: linear
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  max_steps: 10000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+  ema_decay: 0.999
+patches:
+  shape:
+  - 2001
+  - 4
+  - 8
+  - 4
+  - 8
+  inner_mask_fraction: 0.1
+prediction:
+  core_shape:
+  - 256
+  - 6
+  - 32
+  - 8
+  - 32
+alignment:
+  velocity_m_per_s: 500.0
+changes_from_source:
+- Best CCNet5D candidate; relative-MSE target 0.85 was met.
+- Preserve original preparation, observed-only training, complete traces at 2 ms and
+  oracle RMS restoration.
+- Delay every cell by geometry-only offset / 500 m/s in integer samples on an extended
+  time canvas and invert exactly after prediction.
+- Keep the CCNet5D architecture, channel widths, kernel size and initialization seed
+  unchanged.
+- Use the 4x8x4x8 spatial training patch, inner mask 0.1, 10000 updates and the recorded
+  final checkpoint rule.
+- Select on the original clean_target test set; this is not an independent test estimate.

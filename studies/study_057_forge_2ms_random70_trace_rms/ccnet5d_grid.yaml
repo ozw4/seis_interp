@@ -1,0 +1,40 @@
+method_id: ccnet5d_grid
+geometry_mode: grid
+model_seed: 7301
+source_config: studies/study_042_c3_v3_five_method_comparison/ccnet5d.yaml
+source_config_sha256: 561cf0436d1578e036de1bd12d7e3d195554b5ab72a8cbed51f460c2e2a359f9
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final
+device: cuda:1
+model:
+  hidden_channels: 32
+  intermediate_channels: 32
+  kernel_size: 3
+  output_activation: linear
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  max_steps: 10000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+patches:
+  shape:
+  - 2001
+  - 2
+  - 4
+  - 2
+  - 4
+  inner_mask_fraction: 0.8
+prediction:
+  core_shape:
+  - 64
+  - 6
+  - 16
+  - 8
+  - 16
+changes_from_source:
+- Use complete 2001-sample traces after shared anti-alias decimation to 2 ms.
+- Retain study_053 spatial patch and prediction core sizes.
+- Use 10000 optimizer updates and unit-trace-RMS relative-MSE loss.

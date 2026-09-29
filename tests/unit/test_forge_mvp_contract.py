@@ -33,6 +33,25 @@ def test_mask_is_exact_hash_order_and_row_order_independent(tmp_path):
     assert 35 not in set(mask.cell_id)
 
 
+def test_lower_missing_fraction_preserves_hash_order_and_nested_test_cells(tmp_path):
+    _, config, _, _, mapping, stations, cells, grids, _ = tiny_forge_study(tmp_path)
+    manifest = validate_mapping(mapping, stations, cells, grids, config)
+    original = make_outer_mask(manifest, config)
+    smaller_config = {
+        **config,
+        "missing_fraction": 0.7,
+        "test_trace_count": round(len(manifest) * 0.7),
+    }
+    smaller_config["observed_trace_count"] = len(manifest) - smaller_config["test_trace_count"]
+    smaller = make_outer_mask(manifest, smaller_config)
+    pd.testing.assert_frame_equal(smaller.drop(columns="split"), original.drop(columns="split"))
+    assert int(smaller.split.eq("test").sum()) == smaller_config["test_trace_count"]
+    assert set(smaller.loc[smaller.split.eq("test"), "cell_id"]) < set(
+        original.loc[original.split.eq("test"), "cell_id"]
+    )
+    pd.testing.assert_frame_equal(smaller, make_outer_mask(manifest.iloc[::-1], smaller_config))
+
+
 @pytest.mark.parametrize("fault", ["collision", "counts", "axis", "coordinates", "distance"])
 def test_mapping_rejects_integrity_faults(tmp_path, fault):
     _, config, _, _, mapping, stations, cells, grids, _ = tiny_forge_study(tmp_path)
