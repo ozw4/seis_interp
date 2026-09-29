@@ -1,6 +1,6 @@
 # study_060_forge_fair_grid
 
-Status: `pre-registered` — 探索グリッド・選択規則・検証holdoutを固定した。S1の探索yamlを生成済みで、学習runはまだ行っていない。
+Status: `running` — 探索グリッド・選択規則・検証holdoutを事前登録し、探索を実行中。NeRSI・POCS・DRRは選択と最終再学習まで完了し、ReGSIは再seedの段階、CCNet5DはS1の段階にある。最終testの評価は未実施。
 
 ## 目的
 

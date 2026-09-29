@@ -79,15 +79,21 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_052_forge_m1_mvp](study_052_forge_m1_mvp/README.md): prepared — frozen M1 input, random-80 mask, six method configs, observed-only preflight; production metrics pending.
 
+- [study_053_forge_m1_trace_rms_idw](study_053_forge_m1_trace_rms_idw/README.md): follow-up — study_052 rerun with per-trace RMS normalization and projected-grid IDW amplitude restoration; designed after the study_052 test set was observed.
+
+- [study_054_forge_regsi_conditions](study_054_forge_regsi_conditions/README.md): completed — ReGSI-real condition search over missing fraction and time sampling (14 conditions); the main-experiment condition is fixed (clean relative MSE 0.8788).
+
+- [study_055_forge_amplitude_compression](study_055_forge_amplitude_compression/README.md): runs recorded — ReGSI-real without per-trace RMS, comparing linear scaling and asinh compression with an observed-only scale, plus an asinh scale sweep.
+
 - [study_056_forge_2ms_random80_trace_rms](study_056_forge_2ms_random80_trace_rms/README.md): completed — all six methods predicted and evaluated; oracle trace RMS and matched neural update counts.
 
-- [study_057_forge_2ms_random70_trace_rms](study_057_forge_2ms_random70_trace_rms/README.md): running — six-method FORGE comparison at a lower missing fraction, retaining the original hash order and all method settings; all preflights passed, production matrix launched.
+- [study_057_forge_2ms_random70_trace_rms](study_057_forge_2ms_random70_trace_rms/README.md): completed — six-method FORGE comparison at 70% missing, retaining the original hash order and all method settings; all methods predicted and evaluated. Follow-up tuning on the original test set (not an independent estimate) reached POCS 0.8381, DRR 0.8373 and CCNet5D 0.8175; NeRSI's best was 0.9212.
 
 - [study_058_forge_2ms_random80_align500_matched20k](study_058_forge_2ms_random80_align500_matched20k/README.md): first matrix complete — six-method FORGE comparison on the study_056 mask with a shared 500 m/s moveout canvas; neural methods at 20,000 updates, 64 loss traces per update and about 363k parameters. POCS, DRR and ReGSI-real reach relative MSE ≤ 0.9; ReGSI-grid, CCNet5D and NeRSI do not.
 
 - [study_059_forge_2ms_random70_align500_matched20k](study_059_forge_2ms_random70_align500_matched20k/README.md): completed — study_058 conditions on the study_057 70% mask; CCNet5D, NeRSI and ReGSI each use exactly 64 loss traces per update; CCNet5D patches span several lines so that every kernel tap is trained. All six methods reach relative MSE ≤ 0.9.
 
-- [study_060_forge_fair_grid](study_060_forge_fair_grid/README.md): pre-registered — fair grid search of GeRSI (ReGSI real/grid), NeRSI, CCNet5D, POCS and DRR under the study_059 budget. Every method is selected on one shared validation holdout, using the same staged rules (16 runs × 3 EMA shadows per neural method), and scored once on the test set of a new mask B. S1 search configurations are generated; no training run has started.
+- [study_060_forge_fair_grid](study_060_forge_fair_grid/README.md): running (pre-registered) — fair grid search of GeRSI (ReGSI real/grid), NeRSI, CCNet5D, POCS and DRR under the study_059 budget. Every method is selected on one shared validation holdout, using the same staged rules (16 runs × 3 EMA shadows per neural method), and scored once on the test set of a new mask B. Running: NeRSI, POCS and DRR have finished selection and final retraining; ReGSI is in the reseed stage and CCNet5D in S1. The final test evaluation has not been run.
 
 ## Scratch workspaces
 
