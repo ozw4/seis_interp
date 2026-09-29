@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import torch
 
+from seis_interp.data.forge_aligned_inputs import align_model_inputs
 from seis_interp.processing.ccnet5d_tiles import iter_ccnet5d_tiles
 from seis_interp.processing.drr import interpolate_drr_frequency_slice
 from seis_interp.processing.pocs import interpolate_pocs_frequency_slice
@@ -26,6 +27,8 @@ def check_method_shapes(inputs, config):
     torch.backends.cudnn.deterministic = True
     if method in ("pocs_grid", "drr_grid", "ccnet5d_grid"):
         inputs = inputs.model_space()
+        if config.get("alignment") is not None:
+            inputs = align_model_inputs(inputs, config["alignment"])[0]
     if method in ("pocs_grid", "drr_grid"):
         volume = inputs.volume()
         algorithm = config["algorithm"]
@@ -90,7 +93,7 @@ def check_method_shapes(inputs, config):
     source = CCNet5DObservedPatchSource(
         volume,
         amplitude_scale=inputs.global_rms,
-        patch_shape=tuple(config["patches"]["shape"]),
+        patch_shape=(volume.values.shape[0], *config["patches"]["shape"][1:]),
         inner_mask_fraction=config["patches"]["inner_mask_fraction"],
         placement_seed=config["model_seed"],
         inner_mask_seed=config["model_seed"],
@@ -106,6 +109,8 @@ def check_method_shapes(inputs, config):
         loss_name=config["loss"],
         optimizer_name=tr["optimizer"],
         weight_decay=tr["weight_decay"],
+        ema_decay=tr.get("ema_decay"),
+        supervised_traces_per_update=tr.get("supervised_traces_per_update"),
     )
     tile = next(
         iter(

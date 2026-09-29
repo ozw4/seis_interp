@@ -92,3 +92,10 @@ def test_regsi_pair_rejects_non_geometry_changes(tmp_path):
     changed["regsi_grid"]["training"]["learning_rate"] *= 2
     with pytest.raises(ValueError, match="beyond geometry"):
         validate_regsi_pair(changed)
+
+
+def test_regsi_pair_may_run_on_different_devices(tmp_path):
+    configs = tiny_forge_study(tmp_path)[3]
+    configs["regsi_real"]["device"] = "cuda:1"
+    configs["regsi_grid"]["device"] = "cuda:0"
+    validate_regsi_pair(configs)

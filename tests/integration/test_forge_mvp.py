@@ -382,6 +382,7 @@ def test_modified_cli_stops_before_subprocess(prepared, tmp_path, entrypoint):
     script.write_text(script.read_text() + "\n# changed after preparation\n")
     with (
         patch("subprocess.run") as launch,
+        patch("subprocess.Popen") as start,
         pytest.raises(ValueError, match="input hash mismatch: scripts/forge_m1_mvp.py"),
     ):
         if entrypoint == "run":
@@ -389,6 +390,108 @@ def test_modified_cli_stops_before_subprocess(prepared, tmp_path, entrypoint):
         else:
             preflight_forge_mvp(tmp_path, preparation, tmp_path / "preflight")
     launch.assert_not_called()
+    start.assert_not_called()
+
+
+DEVICES = {
+    "pocs_grid": "cpu",
+    "drr_grid": "cpu",
+    "ccnet5d_grid": "cuda:0",
+    "nersi_real": "cuda:1",
+    "regsi_real": "cuda:1",
+    "regsi_grid": "cuda:1",
+}
+
+
+def _fake_matrix(tmp_path, monkeypatch, worker):
+    module = "seis_interp.pipelines.run_forge_mvp"
+    monkeypatch.setattr(f"{module}.subprocess.Popen", worker)
+    for name in ("verify_hashes", "verify_mvp_implementation"):
+        monkeypatch.setattr(f"{module}.{name}", lambda *args: None)
+    monkeypatch.setattr(f"{module}.validate_preflight", lambda *args: "preflight")
+    monkeypatch.setattr(f"{module}.sha256_file", lambda path: "hash")
+    monkeypatch.setattr(f"{module}.execution_identity", lambda repo: {"git_commit": "c"})
+    monkeypatch.setattr(
+        "seis_interp.pipelines.evaluate_forge_mvp.evaluate_forge_mvp",
+        lambda *args: {"status": "accepted"},
+    )
+    preparation = tmp_path / "preparation"
+    write_json(
+        preparation / "preparation_manifest.json", {"artifacts": {}, "implementation_hashes": {}}
+    )
+    for method, device in DEVICES.items():
+        (preparation / "configs").mkdir(exist_ok=True)
+        (preparation / "configs" / f"{method}.yaml").write_text(yaml.safe_dump({"device": device}))
+    return preparation
+
+
+@pytest.mark.parametrize("concurrent", [False, True])
+def test_matrix_runner_serializes_each_cuda_device(tmp_path, monkeypatch, concurrent):
+    events = []
+
+    class Worker:
+        def __init__(self, args, **kwargs):
+            self.method = args[args.index("--method") + 1]
+            self.polls = 0
+            events.append(("start", self.method))
+
+        def poll(self):
+            self.polls += 1
+            return 0 if self.polls > 1 else None
+
+        def wait(self, timeout=None):
+            events.append(("finish", self.method))
+            return 0
+
+    monkeypatch.setattr("seis_interp.pipelines.run_forge_mvp.sleep", lambda seconds: None)
+    preparation = _fake_matrix(tmp_path, monkeypatch, Worker)
+    output = tmp_path / "run"
+    run_forge_mvp(tmp_path, preparation, output, tmp_path / "preflight", concurrent=concurrent)
+    position = {event: index for index, event in enumerate(events)}
+    assert len(events) == 2 * len(METHODS)
+    manifest = json.loads((output / "matrix_manifest.json").read_text())
+    if not concurrent:
+        assert events == [(kind, m) for m in METHODS for kind in ("start", "finish")]
+        assert "execution" not in manifest
+    else:
+        assert events[:4] == [
+            ("start", m) for m in ("pocs_grid", "drr_grid", "ccnet5d_grid", "nersi_real")
+        ]
+        assert position[("start", "regsi_real")] > position[("finish", "nersi_real")]
+        assert position[("start", "regsi_grid")] > position[("finish", "regsi_real")]
+        assert manifest["execution"] == "concurrent_by_device"
+        assert manifest["execution_queues"]["cuda:1"] == ["nersi_real", "regsi_real", "regsi_grid"]
+        assert manifest["runtime_comparable"] is False
+    assert all((output / f"{method}.log").is_file() for method in METHODS)
+
+
+def test_interrupted_concurrent_runner_stops_every_started_worker(tmp_path, monkeypatch):
+    workers = []
+
+    class Worker:
+        def __init__(self, args, **kwargs):
+            self.stopped = False
+            workers.append(self)
+
+        def poll(self):
+            return -15 if self.stopped else None
+
+        def wait(self, timeout=None):
+            return -15
+
+        def terminate(self):
+            self.stopped = True
+
+    def interrupt(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("seis_interp.pipelines.run_forge_mvp.sleep", interrupt)
+    preparation = _fake_matrix(tmp_path, monkeypatch, Worker)
+    with pytest.raises(KeyboardInterrupt):
+        run_forge_mvp(tmp_path, preparation, tmp_path / "run", tmp_path / "pf", concurrent=True)
+    # One head per queue was running: two CPU methods, cuda:0 and cuda:1.
+    assert len(workers) == 4
+    assert all(worker.stopped for worker in workers)
 
 
 def test_implementation_manifest_must_include_cli(prepared, tmp_path):

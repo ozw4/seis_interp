@@ -14,7 +14,9 @@ from seis_interp.data.trace_graph_domain import build_trace_graph_domain
 from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.models.nersi_trace import NersiTrace
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
+from seis_interp.processing.drr_batched import interpolate_drr_volume_batched
 from seis_interp.processing.drr_windows import interpolate_drr_volume
+from seis_interp.processing.pocs_batched import interpolate_pocs_volume_batched
 from seis_interp.processing.pocs_windows import interpolate_pocs_volume
 from seis_interp.processing.trace_graph_preprocessing import build_poc_trace_graph_preprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
@@ -49,6 +51,12 @@ def initialize_model(config):
     if method in ("regsi_real", "regsi_grid"):
         return RelationalTraceGraphInterpolator(**config["model"])
     raise ValueError("method has no neural model")
+
+
+def model_parameter_count(config: dict, canvas_length: int) -> int:
+    """Parameters of the neural model as constructed for this time canvas."""
+    model = initialize_model(canvas_method_config(config, canvas_length))
+    return sum(parameter.numel() for parameter in model.parameters())
 
 
 def model_state_hash(model):
@@ -160,13 +168,23 @@ def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethod
     if method in ("pocs_grid", "drr_grid"):
         volume = inputs.volume()
         observed = (volume.values.astype(np.float64) / inputs.global_rms).astype(np.float32)
+        execution = config.get("execution", {"backend": "sequential"})
+        batched = execution["backend"] == "batched"
         if method == "pocs_grid":
-            result = interpolate_pocs_volume(
-                observed, volume.observed_trace_mask, **config["algorithm"]
+            interpolate = interpolate_pocs_volume_batched if batched else interpolate_pocs_volume
+            options = {"device": "cpu"} if batched else {}
+            result = interpolate(
+                observed, volume.observed_trace_mask, **config["algorithm"], **options
             )
         else:
-            result = interpolate_drr_volume(
-                observed, volume.observed_trace_mask, inputs.time_s, **config["algorithm"]
+            interpolate = interpolate_drr_volume_batched if batched else interpolate_drr_volume
+            options = {"device": "cpu", "workers": execution.get("workers", 1)} if batched else {}
+            result = interpolate(
+                observed,
+                volume.observed_trace_mask,
+                inputs.time_s,
+                **config["algorithm"],
+                **options,
             )
         prediction = result.values.reshape(len(inputs.time_s), -1)[:, inputs.test_cells].T
         prediction = (prediction.astype(np.float64) * inputs.global_rms).astype(np.float32)

@@ -83,6 +83,8 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_057_forge_2ms_random70_trace_rms](study_057_forge_2ms_random70_trace_rms/README.md): running — six-method FORGE comparison at a lower missing fraction, retaining the original hash order and all method settings; all preflights passed, production matrix launched.
 
+- [study_058_forge_2ms_random80_align500_matched20k](study_058_forge_2ms_random80_align500_matched20k/README.md): first matrix complete — six-method FORGE comparison on the study_056 mask with a shared 500 m/s moveout canvas; neural methods at 20,000 updates, 64 loss traces per update and about 363k parameters. POCS, DRR and ReGSI-real reach relative MSE ≤ 0.9; ReGSI-grid, CCNet5D and NeRSI do not.
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.

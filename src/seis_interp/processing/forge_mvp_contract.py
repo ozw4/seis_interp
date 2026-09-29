@@ -192,9 +192,16 @@ def make_geometry(manifest: pd.DataFrame, grids: dict, mode: str) -> pd.DataFram
 
 
 def validate_regsi_pair(configs: dict) -> None:
-    """Reject any ablation change besides method identity and geometry."""
+    """Reject any ablation change besides method identity and geometry.
+
+    The execution device may differ; it places the run without changing the method.
+    """
     left, right = (
-        {k: v for k, v in configs[name].items() if k not in ("method_id", "geometry_mode")}
+        {
+            k: v
+            for k, v in configs[name].items()
+            if k not in ("method_id", "geometry_mode", "device")
+        }
         for name in ("regsi_real", "regsi_grid")
     )
     if left != right:

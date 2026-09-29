@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,8 @@ from seis_interp.evaluation.forge_mvp_metrics import validate_predictions
 from seis_interp.pipelines.preflight_forge_mvp import validate_preflight
 from seis_interp.processing.forge_mvp_contract import METHODS
 from seis_interp.training.forge_mvp_methods import run_method
+
+POLL_SECONDS = 5
 
 
 def run_forge_method(repo: Path, preparation: Path, output: Path, method_id: str):
@@ -115,11 +117,21 @@ def run_forge_method(repo: Path, preparation: Path, output: Path, method_id: str
         write_json(output / "run_manifest.json", manifest)
 
 
-def run_forge_mvp(repo: Path, preparation: Path, output: Path, preflight: Path):
+def run_forge_mvp(
+    repo: Path, preparation: Path, output: Path, preflight: Path, *, concurrent: bool = False
+):
+    """Run every frozen method in its own process, then evaluate once.
+
+    ``concurrent`` runs CPU methods and different CUDA devices at the same time,
+    while methods configured on the same CUDA device still run one after another
+    in the fixed method order. Predictions and metrics are unchanged; per-method
+    runtimes then share the machine and are recorded as not comparable.
+    """
     seal = json.loads((preparation / "preparation_manifest.json").read_text())
     verify_hashes(preparation, seal["artifacts"])
     verify_mvp_implementation(repo, seal["implementation_hashes"])
     preflight_hash = validate_preflight(preparation, preflight)
+    queues = _execution_queues(preparation, concurrent)
     output.mkdir(parents=True, exist_ok=False)
     identity = execution_identity(repo)
     write_json(
@@ -131,6 +143,15 @@ def run_forge_mvp(repo: Path, preparation: Path, output: Path, preflight: Path):
             "start_time": utc_now(),
             "preflight_hash": preflight_hash,
             **identity,
+            **(
+                {
+                    "execution": "concurrent_by_device",
+                    "execution_queues": queues,
+                    "runtime_comparable": False,
+                }
+                if concurrent
+                else {}
+            ),
         },
     )
     environment = dict(
@@ -140,10 +161,12 @@ def run_forge_mvp(repo: Path, preparation: Path, output: Path, preflight: Path):
         MKL_NUM_THREADS="1",
         CUBLAS_WORKSPACE_CONFIG=":4096:8",
     )
-    for method in METHODS:
+
+    def start(method):
         print(f"Starting fixed MVP method: {method}", flush=True)
-        with (output / f"{method}.log").open("w") as log:
-            result = subprocess.run(
+        log = (output / f"{method}.log").open("w")
+        try:
+            process = subprocess.Popen(
                 [
                     sys.executable,
                     str(repo / "scripts/forge_m1_mvp.py"),
@@ -160,10 +183,63 @@ def run_forge_mvp(repo: Path, preparation: Path, output: Path, preflight: Path):
                 stdout=log,
                 stderr=subprocess.STDOUT,
             )
-        if result.returncode:
-            print(
-                f"{method} exited with status {result.returncode}; preserving failure", flush=True
-            )
+        except BaseException:
+            log.close()
+            raise
+        return method, process, log
+
+    pending = {key: list(methods) for key, methods in queues.items()}
+    running = {}
+    try:
+        for key, methods in pending.items():
+            running[key] = start(methods.pop(0))
+        while running:
+            for key, (method, process, log) in list(running.items()):
+                if process.poll() is None:
+                    continue
+                _finish_method(method, process, log)
+                del running[key]
+                if pending[key]:
+                    running[key] = start(pending[key].pop(0))
+            if running:
+                sleep(POLL_SECONDS)
+    except BaseException:
+        # Never leave workers training for a matrix that will not be evaluated.
+        _stop_methods(running.values())
+        raise
     from seis_interp.pipelines.evaluate_forge_mvp import evaluate_forge_mvp
 
     return evaluate_forge_mvp(repo, preparation, output)
+
+
+def _execution_queues(preparation, concurrent):
+    """One queue in fixed order, or one per CUDA device plus one per CPU method."""
+    if not concurrent:
+        return {"sequential": list(METHODS)}
+    queues = {}
+    for method in METHODS:
+        config = yaml.safe_load((preparation / "configs" / f"{method}.yaml").read_text())
+        device = config["device"]
+        queues.setdefault(device if device.startswith("cuda") else method, []).append(method)
+    return queues
+
+
+def _finish_method(method, process, log):
+    returncode = process.wait()
+    log.close()
+    if returncode:
+        print(f"{method} exited with status {returncode}; preserving failure", flush=True)
+
+
+def _stop_methods(running):
+    running = list(running)
+    for _, process, _ in running:
+        if process.poll() is None:
+            process.terminate()
+    for _, process, log in running:
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        log.close()

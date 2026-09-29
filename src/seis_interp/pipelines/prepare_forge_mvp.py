@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from seis_interp.data.forge_aligned_inputs import shared_alignment
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import (
     load_candidate_inputs,
@@ -19,7 +20,11 @@ from seis_interp.data.forge_mvp_artifacts import (
     verify_hashes,
     write_json,
 )
-from seis_interp.forge_mvp_config import validate_mvp_configs
+from seis_interp.forge_mvp_config import (
+    NEURAL_METHODS,
+    validate_mvp_configs,
+    validate_parameter_counts,
+)
 from seis_interp.processing.forge_mvp_contract import (
     METHODS,
     make_geometry,
@@ -31,6 +36,7 @@ from seis_interp.processing.forge_trace_scaling import (
     prepare_oracle_trace_scales,
     prepare_trace_scales,
 )
+from seis_interp.training.forge_mvp_methods import model_parameter_count
 from seis_interp.visualization.forge_mvp import plot_preparation
 
 
@@ -62,6 +68,22 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
     pd.testing.assert_frame_equal(features["grid"], make_geometry(poisoned, grids, "grid"))
     if features["real"].equals(features["grid"]):
         raise ValueError("real and projected geometry are identical")
+    alignment = None
+    canvas_length = config["time_sample_count"]
+    if config["preprocessing"].get("alignment") is not None:
+        interval = np.arange(2, dtype=np.float64) * config["sample_interval_us"] / 1e6
+        alignment = shared_alignment(
+            config["preprocessing"]["alignment"]["velocity_m_per_s"],
+            [features["real"], features["grid"]],
+            float(interval[1] - interval[0]),
+        )
+        canvas_length += alignment["max_delay_samples"]
+    parameter_counts = {}
+    if "matched_training" in config:
+        parameter_counts = {
+            name: model_parameter_count(configs[name], canvas_length) for name in NEURAL_METHODS
+        }
+        validate_parameter_counts(parameter_counts, config["matched_training"])
     raw_lock_path = repo / inputs["raw_input_lock"]
     verify_hashes(repo, {inputs["raw_input_lock"]: inputs["raw_input_lock_sha256"]})
     raw_inventory = {r["path"]: r["sha256"] for r in json.loads(raw_lock_path.read_text())}
@@ -211,6 +233,8 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         )
     for method, resolved in configs.items():
         resolved.update(amplitude_binding)
+        if alignment is not None:
+            resolved["alignment"] = dict(alignment)
         resolved.update(
             mask_hash=mask_hash,
             mask_id=config["mask_id"],
@@ -256,6 +280,8 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         "test_waveforms_read": test_waveforms_read,
         "observed_waveforms_stored": len(values),
         "regsi_configs_equal_except_geometry": True,
+        "shared_alignment": alignment,
+        "matched_parameter_counts": parameter_counts,
         "evaluation_runtime_gates": "pending predictions",
         "production_runs_started": 0,
     }
@@ -293,6 +319,8 @@ def prepare_forge_mvp(repo: Path, study: Path) -> Path:
         "test_trace_count": int(mask.split.eq("test").sum()),
         "clean_test_trace_count": int((mask.split.eq("test") & mask.clean_target).sum()),
         "time_sample_count": values.shape[1],
+        **({"alignment": alignment, "canvas_sample_count": canvas_length} if alignment else {}),
+        **({"parameter_counts": parameter_counts} if parameter_counts else {}),
         "implementation_hashes": implementation_hashes,
         "artifacts": artifacts,
     }

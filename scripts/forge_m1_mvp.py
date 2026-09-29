@@ -22,7 +22,14 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--method", choices=METHODS)
     parser.add_argument("--preflight", type=Path)
+    parser.add_argument(
+        "--concurrent",
+        action="store_true",
+        help="run: start all six workers together; runtimes are then not comparable",
+    )
     args = parser.parse_args()
+    if args.concurrent and args.action != "run":
+        parser.error("--concurrent is only valid for run")
     repo = Path(__file__).resolve().parents[1]
     if args.action == "prepare":
         if args.preparation or args.output or args.method or args.preflight:
@@ -56,7 +63,13 @@ def main():
         else:
             if args.preflight is None:
                 parser.error("run requires --preflight from the passing resource checks")
-            result = run_forge_mvp(repo, preparation, output.resolve(), args.preflight.resolve())
+            result = run_forge_mvp(
+                repo,
+                preparation,
+                output.resolve(),
+                args.preflight.resolve(),
+                concurrent=args.concurrent,
+            )
         print(output)
         if result["status"] not in ("accepted", "passed"):
             raise SystemExit(1)
