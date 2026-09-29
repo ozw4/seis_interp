@@ -1,0 +1,4 @@
+cache: runs/study_054_forge_regsi_conditions/20260921T054308507963Z_51acdb640a29_data
+reference_run: runs/study_054_forge_regsi_conditions/20260921T054436883421Z_51acdb640a29_q2_missing0.8_trace_oracle
+mask_order: original_study_052_and_053_hash_rank
+model_config: reference_run/config.yaml

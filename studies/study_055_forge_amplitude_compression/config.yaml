@@ -1,0 +1,33 @@
+study_id: study_055_forge_amplitude_compression
+method: regsi_real
+model_seed: 7301
+missing_fraction: 0.8
+time_decimation_factor: 2
+amplitude_transform:
+  variants: [linear, asinh]
+  scale: observed_absolute_sample_percentile
+  percentile: 90.0
+  per_trace_rms: false
+  test_rms: false
+  fit_domain: outer_observed_traces_only
+  inverse: exact_without_clipping
+asinh_scale_sweep:
+  scale_multipliers: [0.1, 0.3, 1.0, 3.0, 10.0]
+  existing_scale_one_run: runs/study_055_forge_amplitude_compression/20260921T084354787401Z_51acdb640a29_asinh
+  reuse_completed_scale_one: true
+  training: same_as_primary_comparison
+training:
+  max_steps: 5000
+  query_batch_size: 32
+  inner_mask_fraction: 0.1
+  learning_rate: 0.001
+  ema_decay: 0.999
+loss: masked_trace_mse
+max_edge_time_shift_samples: 0
+evaluation:
+  domain: original_physical_amplitudes_after_inverse_transform
+  queries: same_common_probe_as_study_054
+  primary_domain: clean_target
+  metrics: [masked_trace_relative_mse, global_nmse, correlation]
+  checkpoints: [fixed_final_raw, fixed_final_ema]
+  primary_checkpoint: fixed_final_ema
