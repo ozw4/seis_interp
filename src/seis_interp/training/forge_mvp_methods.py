@@ -1,12 +1,14 @@
 """Six fixed-method adapters consuming only compact observed FORGE inputs."""
 
 import hashlib
+from copy import deepcopy
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 
 from seis_interp.data.c3_poc_trace_graph import C3PocTraceGraphTrainingData
+from seis_interp.data.forge_aligned_inputs import align_model_inputs, unalign_predictions
 from seis_interp.data.forge_mvp_artifacts import ForgeModelInputs
 from seis_interp.data.trace_graph_domain import build_trace_graph_domain
 from seis_interp.models.ccnet5d import CCNet5D
@@ -109,18 +111,45 @@ def graph_data(inputs, config):
     return domain, training, settings
 
 
+def canvas_method_config(config: dict, canvas_length: int) -> dict:
+    """Copy of ``config`` whose NeRSI decoder emits the whole aligned canvas."""
+    resolved = deepcopy(config)
+    if resolved["method_id"] == "nersi_real":
+        resolved["model"]["time_sample_count"] = int(canvas_length)
+    return resolved
+
+
 def run_method(inputs: ForgeModelInputs, config: dict, reporter=print) -> ForgeMethodResult:
-    """Run in model amplitude units, then apply the preparation's restoration RMS."""
-    result = _run_method(inputs.model_space(), config, reporter)
+    """Run in model amplitude units, then apply the preparation's restoration RMS.
+
+    With ``config["alignment"]`` every method fits and predicts on the common
+    geometry-only moveout canvas; predictions return to the original samples by
+    the exact inverse shift before amplitude restoration.
+    """
+    model_inputs = inputs.model_space()
+    canvas = None
+    if config.get("alignment") is None:
+        result = _run_method(model_inputs, config, reporter)
+    else:
+        aligned, canvas = align_model_inputs(model_inputs, config["alignment"])
+        result = _run_method(aligned, canvas_method_config(config, canvas.length), reporter)
+        result.diagnostics["alignment_canvas_sample_count"] = canvas.length
+    result.prediction = _physical_prediction(result.prediction, result.cell_ids, canvas, inputs)
     if inputs.test_rms is not None:
-        result.prediction = (
-            result.prediction.astype(np.float64) * inputs.test_rms[:, None]
-        ).astype(np.float32)
         result.diagnostics.update(
             amplitude_scaling=inputs.binding.get("amplitude_scaling", "observed_trace_rms_idw"),
             trace_scale_hash=inputs.binding["trace_scale_hash"],
         )
     return result
+
+
+def _physical_prediction(prediction, cell_ids, canvas, inputs):
+    """Exact inverse moveout shift, then the preparation's restoration RMS."""
+    if canvas is not None:
+        prediction = unalign_predictions(prediction, cell_ids, canvas)
+    if inputs.test_rms is not None:
+        prediction = (prediction.astype(np.float64) * inputs.test_rms[:, None]).astype(np.float32)
+    return prediction
 
 
 def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethodResult:
@@ -153,7 +182,7 @@ def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethod
         source = CCNet5DObservedPatchSource(
             volume,
             amplitude_scale=inputs.global_rms,
-            patch_shape=tuple(config["patches"]["shape"]),
+            patch_shape=(volume.values.shape[0], *config["patches"]["shape"][1:]),
             inner_mask_fraction=config["patches"]["inner_mask_fraction"],
             placement_seed=config["model_seed"],
             inner_mask_seed=config["model_seed"],
@@ -166,8 +195,10 @@ def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethod
             learning_rate=tr["learning_rate"],
             report_every_steps=tr["report_interval"],
             loss_name=config["loss"],
+            ema_decay=tr.get("ema_decay"),
             optimizer_name=tr["optimizer"],
             weight_decay=tr["weight_decay"],
+            supervised_traces_per_update=tr.get("supervised_traces_per_update"),
             reporter=reporter,
         )
         history = list(result.history)
@@ -228,6 +259,8 @@ def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethod
         "model_seed": config["model_seed"],
         "input_binding": inputs.binding,
     }
+    if config.get("alignment") is not None:
+        checkpoint["alignment"] = dict(config["alignment"])
     return ForgeMethodResult(
         prediction,
         inputs.test_cells.copy(),

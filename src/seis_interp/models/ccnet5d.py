@@ -16,12 +16,28 @@ def _validate_output_activation(value: str) -> None:
         raise ValueError("output_activation must be 'relu' or 'linear'")
 
 
+def _validate_odd_kernel(name: str, value: int) -> None:
+    _validate_positive_integer(name, value)
+    if value % 2 != 1:
+        raise ValueError(f"{name} must be odd")
+
+
+def _time_kernel_size(kernel_size: int, time_kernel_size: int | None) -> int:
+    if time_kernel_size is None:
+        return kernel_size
+    _validate_odd_kernel("time_kernel_size", time_kernel_size)
+    return time_kernel_size
+
+
 class CC3D2D(nn.Module):
     """Apply Conv3D/ReLU, then Conv2D over the remaining two spatial axes.
 
     Input and output use ``(B, C, T, Sx, Sy, Rx, Ry)``. Both convolutions
     preserve their spatial shapes with same zero padding. The intermediate
     channels are reduced by Conv2D, without an additional branch sum.
+
+    ``time_kernel_size`` and ``time_dilation`` widen only the Conv3D time axis;
+    the default keeps the isotropic, undilated kernel.
     """
 
     def __init__(
@@ -32,21 +48,28 @@ class CC3D2D(nn.Module):
         *,
         kernel_size: int = 5,
         output_activation: str = "relu",
+        time_kernel_size: int | None = None,
+        time_dilation: int = 1,
     ) -> None:
         super().__init__()
         for name, value in (
             ("in_channels", in_channels),
             ("intermediate_channels", intermediate_channels),
             ("out_channels", out_channels),
-            ("kernel_size", kernel_size),
         ):
             _validate_positive_integer(name, value)
-        if kernel_size % 2 != 1:
-            raise ValueError("kernel_size must be odd")
+        _validate_odd_kernel("kernel_size", kernel_size)
+        time_kernel = _time_kernel_size(kernel_size, time_kernel_size)
+        _validate_positive_integer("time_dilation", time_dilation)
         _validate_output_activation(output_activation)
         self.output_activation = output_activation
         self.conv3d = nn.Conv3d(
-            in_channels, intermediate_channels, kernel_size, padding=kernel_size // 2, bias=True
+            in_channels,
+            intermediate_channels,
+            (time_kernel, kernel_size, kernel_size),
+            padding=(time_dilation * (time_kernel // 2), kernel_size // 2, kernel_size // 2),
+            dilation=(time_dilation, 1, 1),
+            bias=True,
         )
         self.conv2d = nn.Conv2d(
             intermediate_channels, out_channels, kernel_size, padding=kernel_size // 2, bias=True
@@ -96,6 +119,9 @@ class CCNet5D(nn.Module):
     modification, not a claim of complete paper reproduction. ``relu`` keeps
     the final Conv2D activation for an audit variant. All earlier convolution
     activations remain ReLU; there are no skip or normalization layers.
+
+    ``time_kernel_size`` and ``time_dilation`` enlarge only the time-axis
+    receptive field of every Conv3D; the defaults reproduce the isotropic model.
     """
 
     def __init__(
@@ -105,6 +131,8 @@ class CCNet5D(nn.Module):
         intermediate_channels: int = 64,
         kernel_size: int = 5,
         output_activation: str = "linear",
+        time_kernel_size: int | None = None,
+        time_dilation: int = 1,
     ) -> None:
         super().__init__()
         _validate_positive_integer("hidden_channels", hidden_channels)
@@ -114,13 +142,25 @@ class CCNet5D(nn.Module):
         self.intermediate_channels = intermediate_channels
         self.kernel_size = kernel_size
         self.output_activation = output_activation
+        self.time_kernel_size = _time_kernel_size(kernel_size, time_kernel_size)
+        _validate_positive_integer("time_dilation", time_dilation)
+        self.time_dilation = time_dilation
+        time_axis = {"time_kernel_size": time_kernel_size, "time_dilation": time_dilation}
         self.network = nn.Sequential(
-            CC3D2D(1, intermediate_channels, hidden_channels, kernel_size=kernel_size),
+            CC3D2D(1, intermediate_channels, hidden_channels, kernel_size=kernel_size, **time_axis),
             CC3D2D(
-                hidden_channels, intermediate_channels, hidden_channels, kernel_size=kernel_size
+                hidden_channels,
+                intermediate_channels,
+                hidden_channels,
+                kernel_size=kernel_size,
+                **time_axis,
             ),
             CC3D2D(
-                hidden_channels, intermediate_channels, hidden_channels, kernel_size=kernel_size
+                hidden_channels,
+                intermediate_channels,
+                hidden_channels,
+                kernel_size=kernel_size,
+                **time_axis,
             ),
             CC3D2D(
                 hidden_channels,
@@ -128,6 +168,7 @@ class CCNet5D(nn.Module):
                 1,
                 kernel_size=kernel_size,
                 output_activation=output_activation,
+                **time_axis,
             ),
         )
 
@@ -135,15 +176,29 @@ class CCNet5D(nn.Module):
         return self.network(values)
 
     @property
+    def time_halo_radius(self) -> int:
+        """Return the time-axis receptive-field radius for four stride-one modules."""
+        return 4 * self.time_dilation * (self.time_kernel_size // 2)
+
+    @property
     def halo_radius(self) -> int:
-        """Return each axis' receptive-field radius for four stride-one modules."""
-        return 4 * (self.kernel_size // 2)
+        """Return the largest per-axis receptive-field radius; spatial axes need at most this."""
+        return max(4 * (self.kernel_size // 2), self.time_halo_radius)
 
     def constructor_config(self) -> dict[str, object]:
-        """Return every constructor value needed to restore the same function."""
-        return {
+        """Return every constructor value needed to restore the same function.
+
+        Time-axis keys appear only when they differ from the isotropic default,
+        so existing checkpoint payloads are unchanged.
+        """
+        config: dict[str, object] = {
             "hidden_channels": self.hidden_channels,
             "intermediate_channels": self.intermediate_channels,
             "kernel_size": self.kernel_size,
             "output_activation": self.output_activation,
         }
+        if self.time_kernel_size != self.kernel_size:
+            config["time_kernel_size"] = self.time_kernel_size
+        if self.time_dilation != 1:
+            config["time_dilation"] = self.time_dilation
+        return config

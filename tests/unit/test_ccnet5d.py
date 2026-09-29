@@ -273,3 +273,89 @@ def test_ccnet5d_method_variant_matches_final_activation(activation: str, expect
 def test_ccnet5d_rejects_invalid_constructor_values(changed: dict[str, object], match: str) -> None:
     with pytest.raises(ValueError, match=match):
         CCNet5D(**changed)
+
+
+def test_ccnet5d_time_axis_options_default_to_the_isotropic_model() -> None:
+    isotropic = CCNet5D(hidden_channels=3, intermediate_channels=2, kernel_size=3)
+    explicit = CCNet5D(
+        hidden_channels=3,
+        intermediate_channels=2,
+        kernel_size=3,
+        time_kernel_size=3,
+        time_dilation=1,
+    )
+    explicit.load_state_dict(isotropic.state_dict(), strict=True)
+    values = torch.randn(1, 1, 6, 2, 3, 2, 3)
+
+    torch.testing.assert_close(explicit(values), isotropic(values), rtol=0.0, atol=0.0)
+    assert explicit.constructor_config() == isotropic.constructor_config()
+    assert "time_kernel_size" not in isotropic.constructor_config()
+    assert explicit.halo_radius == explicit.time_halo_radius == 4
+
+
+def test_ccnet5d_time_kernel_and_dilation_widen_only_the_time_axis() -> None:
+    model = CCNet5D(
+        hidden_channels=3,
+        intermediate_channels=2,
+        kernel_size=3,
+        time_kernel_size=9,
+        time_dilation=2,
+    )
+    values = torch.randn(1, 1, 40, 2, 3, 2, 3, requires_grad=True)
+
+    output = model(values)
+    output.square().mean().backward()
+
+    assert output.shape == values.shape
+    assert values.grad is not None and torch.isfinite(values.grad).all()
+    assert all(module.conv3d.kernel_size == (9, 3, 3) for module in model.network)
+    assert all(module.conv3d.dilation == (2, 1, 1) for module in model.network)
+    assert all(module.conv3d.padding == (8, 1, 1) for module in model.network)
+    assert all(module.conv2d.kernel_size == (3, 3) for module in model.network)
+    assert model.time_halo_radius == 4 * 2 * 4
+    assert model.halo_radius == 32
+    config = model.constructor_config()
+    assert config["time_kernel_size"] == 9 and config["time_dilation"] == 2
+    restored = CCNet5D(**config)
+    restored.load_state_dict(model.state_dict(), strict=True)
+    torch.testing.assert_close(restored(values), output, rtol=0.0, atol=0.0)
+
+
+def test_ccnet5d_time_receptive_field_is_bounded_by_the_time_halo() -> None:
+    model = CCNet5D(
+        hidden_channels=2,
+        intermediate_channels=2,
+        kernel_size=1,
+        time_kernel_size=5,
+        time_dilation=3,
+    )
+    with torch.no_grad():
+        # Positive weights and zero biases keep every ReLU open, so the difference
+        # marks exactly the samples the time-axis receptive field can reach.
+        for parameter in model.parameters():
+            parameter.copy_(parameter.abs() if parameter.ndim > 1 else torch.zeros_like(parameter))
+    time = 4 * model.time_halo_radius + 1
+    base = torch.zeros(1, 1, time, 1, 1, 1, 1)
+    perturbed = base.clone()
+    perturbed[0, 0, 0] = 1.0
+
+    with torch.no_grad():
+        difference = (model(perturbed) - model(base))[0, 0, :, 0, 0, 0, 0]
+
+    assert model.time_halo_radius == 24
+    assert torch.any(difference[: model.time_halo_radius + 1] != 0)
+    assert torch.all(difference[model.time_halo_radius + 1 :] == 0)
+
+
+@pytest.mark.parametrize(
+    ("changed", "match"),
+    [
+        ({"time_kernel_size": 4}, "time_kernel_size"),
+        ({"time_kernel_size": 0}, "time_kernel_size"),
+        ({"time_dilation": 0}, "time_dilation"),
+        ({"time_dilation": True}, "time_dilation"),
+    ],
+)
+def test_ccnet5d_rejects_invalid_time_axis_values(changed: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        CCNet5D(hidden_channels=2, intermediate_channels=2, kernel_size=3, **changed)
