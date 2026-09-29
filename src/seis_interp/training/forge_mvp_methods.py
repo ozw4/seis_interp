@@ -517,6 +517,29 @@ def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates):
     return prediction, history, shadows, records, states
 
 
+def _weight_decay_after(training):
+    """Optional one-time switch of Adam's weight decay, applied before that step's update."""
+    schedule = training.get("weight_decay_after")
+    if schedule is None:
+        return None
+    step, value = schedule.get("step"), schedule.get("value")
+    if (
+        set(schedule) != {"step", "value"}
+        or isinstance(step, bool)
+        or not isinstance(step, int)
+        or not 1 <= step <= training["max_steps"]
+        or isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not np.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(
+            "training.weight_decay_after needs an integer step in [1, max_steps] and a "
+            "finite value >= 0"
+        )
+    return {"step": step, "value": float(value)}
+
+
 def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
     """Fit observed traces at four unrounded local coordinates; fixed final EMA.
 
@@ -539,6 +562,7 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
     primary = tr.get("ema_decay")
     ema = TraceGraphEMA(primary, snapshot_updates) if primary else None
     extra = {decay: TraceGraphEMA(decay, snapshot_updates) for decay in decays if decay != primary}
+    decay_after = _weight_decay_after(tr)
     history = []
     window_first = tr["max_steps"] - min(LOSS_WINDOW_UPDATES, tr["max_steps"])
     window_losses = []
@@ -547,6 +571,9 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
         target = torch.from_numpy(
             (inputs.observed_values[rows].astype(np.float64) / inputs.global_rms).astype(np.float32)
         ).to(device)
+        if decay_after is not None and step == decay_after["step"]:
+            for group in optimizer.param_groups:
+                group["weight_decay"] = decay_after["value"]
         optimizer.zero_grad(set_to_none=True)
         prediction = model(coordinates[observed_rows[rows]].to(device))
         loss = masked_trace_relative_mse(prediction, target)

@@ -1,5 +1,7 @@
 """Geometry-only affine coordinates for trace-wise NeRSI Fourier features."""
 
+import math
+
 import numpy as np
 
 
@@ -32,3 +34,57 @@ def midpoint_offset_transform(geometry, spatial_shape, *, polar=False):
     if not np.allclose(design @ transform.T, normalized, rtol=0, atol=1e-8):
         raise ValueError("actual midpoint/offset geometry is not affine in the local coordinates")
     return transform
+
+
+def head_samples_per_radius(
+    geometry, slowness_ms_per_m, sample_interval_s, alignment_velocity_m_per_s=None
+):
+    """Signed decoder shifts per unit polar radius for absolute apparent slownesses.
+
+    Head ``k`` reads the decoder at ``t + m_k * r`` on a canvas already aligned
+    at ``p_align = 1 / alignment velocity`` (0 without alignment), so an event
+    with raw slowness ``p_k`` is flat in that head:
+    ``m_k = (p_align - p_k) * 2 * R_max / dt``. Slownesses stay in ms/m until the
+    final ``1e-3`` factor.
+    """
+    interval = _sample_interval(sample_interval_s)
+    maximum_radius = _maximum_half_offset(geometry, "slowness heads")
+    aligned = 0.0
+    if alignment_velocity_m_per_s is not None:
+        velocity = float(alignment_velocity_m_per_s)
+        if not math.isfinite(velocity) or velocity <= 0:
+            raise ValueError("alignment velocity must be finite and positive")
+        aligned = 1e3 / velocity
+    shifts = []
+    for value in slowness_ms_per_m:
+        slowness = float(value)
+        if not math.isfinite(slowness) or slowness <= 0:
+            raise ValueError("head slownesses must be finite and positive")
+        shifts.append((aligned - slowness) * 1e-3 * 2 * maximum_radius / interval)
+    return shifts
+
+
+def slowness_samples_per_radius(geometry, slowness_ms_per_m, sample_interval_s):
+    """Decoder samples per unit polar radius for a slowness increment in ms/m."""
+    slowness = float(slowness_ms_per_m)
+    if not math.isfinite(slowness) or slowness < 0:
+        raise ValueError("slowness increment must be finite and nonnegative")
+    interval = _sample_interval(sample_interval_s)
+    maximum_radius = _maximum_half_offset(geometry, "slowness")
+    return slowness * 1e-3 * 2 * maximum_radius / interval
+
+
+def _sample_interval(sample_interval_s):
+    interval = float(sample_interval_s)
+    if not math.isfinite(interval) or interval <= 0:
+        raise ValueError("sample interval must be finite and positive")
+    return interval
+
+
+def _maximum_half_offset(geometry, purpose):
+    source = geometry[["source_x_m", "source_y_m"]].to_numpy(dtype=np.float64)
+    receiver = geometry[["receiver_x_m", "receiver_y_m"]].to_numpy(dtype=np.float64)
+    maximum_radius = float(np.linalg.norm((receiver - source) / 2, axis=1).max(initial=0.0))
+    if not math.isfinite(maximum_radius) or maximum_radius == 0:
+        raise ValueError(f"{purpose} requires a nonzero finite maximum half-offset")
+    return maximum_radius
