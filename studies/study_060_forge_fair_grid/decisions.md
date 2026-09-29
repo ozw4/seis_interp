@@ -55,6 +55,8 @@ Vの実RMSは、testと同じく振幅の復元にだけ使う。
   - 探索量の曲線は、各 `final/stage.json` の `rule_inputs` のS1〜E（POCS・DRRはS1）から作る。tuning manifestのsha256も照合する。
 - **最終testの保護:** 検証holdoutを宣言したstudyでは、tunerは最終準備run上で `purpose: final_evaluation`・`evaluate: false` 以外の探索を拒否する。
 
+2026-09-28、ユーザーが上記の解釈と補完（grid.yamlの `fill:`）をこの内容で承認した。
+
 **計画書からの逸脱:**
 
 - **IDW（計画書§3.4、§5、§6.9）:** 行わない。FORGEの整合パイプラインにはIDWの波形補間手法がなく、比較契約の6手法（`forge_mvp_contract.METHODS`）にも含まれない。IDWは下限の目安で、事前宣言した6対比には入らない。

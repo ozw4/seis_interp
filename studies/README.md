@@ -87,6 +87,8 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_059_forge_2ms_random70_align500_matched20k](study_059_forge_2ms_random70_align500_matched20k/README.md): completed — study_058 conditions on the study_057 70% mask; CCNet5D, NeRSI and ReGSI each use exactly 64 loss traces per update; CCNet5D patches span several lines so that every kernel tap is trained. All six methods reach relative MSE ≤ 0.9.
 
+- [study_060_forge_fair_grid](study_060_forge_fair_grid/README.md): pre-registered — fair grid search of GeRSI (ReGSI real/grid), NeRSI, CCNet5D, POCS and DRR under the study_059 budget. Every method is selected on one shared validation holdout, using the same staged rules (16 runs × 3 EMA shadows per neural method), and scored once on the test set of a new mask B. S1 search configurations are generated; no training run has started.
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.
