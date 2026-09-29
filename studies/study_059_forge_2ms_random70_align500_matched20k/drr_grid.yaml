@@ -1,0 +1,34 @@
+method_id: drr_grid
+geometry_mode: grid
+model_seed: null
+source_config: studies/study_042_c3_v3_five_method_comparison/drr.yaml
+source_config_sha256: 6afe1412f74ea84d9296bb85d967e47307f9288f92e0f7816d07908f9f0b9731
+loss: masked_trace_relative_mse
+checkpoint_rule: none
+device: cpu
+algorithm:
+  rank: 2
+  damping_power: 3
+  n_iterations: 6
+  frequency_min_hz: 0.0
+  frequency_max_hz: null
+  spatial_window_shape:
+  - 1
+  - 8
+  - 1
+  - 8
+  spatial_overlap:
+  - 0
+  - 6
+  - 0
+  - 6
+changes_from_source:
+- 'Frequency minimum 5 -> 0 Hz: MVP prohibits method-specific band-pass.'
+- Rank, iterations and spatial windows from study_057, re-selected on the original
+  study_058 test set (retained unchanged for study_059) (matched tuning candidate
+  d057_tuned); not an independent test estimate.
+- Run the batched NumPy reference implementation on the CPU; predictions match the
+  sequential path.
+execution:
+  backend: batched
+  workers: 32
