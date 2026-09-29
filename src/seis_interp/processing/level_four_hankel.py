@@ -59,14 +59,20 @@ def average_level_four_hankel(
 
     windows = np.asarray(matrix, dtype=np.complex128).reshape(*embedding_shape, *start_shape)
     total = np.zeros(spatial_shape, dtype=np.complex128)
-    count = np.zeros(spatial_shape, dtype=np.int64)
     for start in np.ndindex(start_shape):
         region = tuple(
             slice(first, first + length)
             for first, length in zip(start, embedding_shape, strict=True)
         )
         total[region] += windows[(slice(None),) * 4 + start]
-        count[region] += 1
+
+    # Independent axis overlaps multiply; do not count each window's cells again.
+    # Keep the accumulation above in start order to preserve floating-point sums.
+    count = np.array(1, dtype=np.int64)
+    for length, window, starts in zip(spatial_shape, embedding_shape, start_shape, strict=True):
+        positions = np.arange(length)
+        axis_count = np.minimum(positions + 1, starts) - np.maximum(positions - window + 1, 0)
+        count = np.multiply.outer(count, axis_count)
     return total / count
 
 

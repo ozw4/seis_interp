@@ -39,18 +39,21 @@ def interpolate_pocs_frequency_slice(
     if np.all(mask):
         return zero_filled.copy()
 
-    initial_spectrum = np.fft.fftn(zero_filled, axes=_SPATIAL_AXES, norm="ortho")
-    initial_maximum = float(np.max(np.abs(initial_spectrum)))
+    spectrum = np.fft.fftn(zero_filled, axes=_SPATIAL_AXES, norm="ortho")
+    initial_maximum = float(np.max(np.abs(spectrum)))
     if initial_maximum == 0.0:
         return zero_filled
 
-    reconstructed = zero_filled.copy()
+    observed_values = zero_filled[mask]
+    reconstructed = zero_filled
     ratios = np.geomspace(start_ratio, end_ratio, iteration_count)
-    for ratio in ratios:
-        spectrum = np.fft.fftn(reconstructed, axes=_SPATIAL_AXES, norm="ortho")
+    for iteration, ratio in enumerate(ratios):
+        # The initial transform is already the first iteration's spectrum.
+        if iteration:
+            spectrum = np.fft.fftn(reconstructed, axes=_SPATIAL_AXES, norm="ortho")
         spectrum[np.abs(spectrum) < ratio * initial_maximum] = 0.0
         reconstructed = np.fft.ifftn(spectrum, axes=_SPATIAL_AXES, norm="ortho")
-        reconstructed[mask] = zero_filled[mask]
+        reconstructed[mask] = observed_values
 
     return reconstructed
 

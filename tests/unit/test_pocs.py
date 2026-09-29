@@ -54,7 +54,7 @@ def _reference_block_from_frequency_slices(
     zero_filled[:, mask] = observed[:, mask]
     transformed = np.fft.rfft(zero_filled, axis=0, norm="ortho")
     for frequency_index in range(len(transformed)):
-        reconstructed = interpolate_pocs_frequency_slice(
+        reconstructed = _reference_frequency_slice(
             transformed[frequency_index],
             mask,
             n_iterations=n_iterations,
@@ -175,6 +175,38 @@ def test_frequency_slice_keeps_complex_phase_and_matches_independent_reference()
 
     np.testing.assert_allclose(result, expected, rtol=1.0e-13, atol=1.0e-13)
     assert np.max(np.abs(result[~mask].imag)) > 0.1
+
+
+@pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
+@pytest.mark.parametrize("n_iterations", [2, 5, 20])
+def test_frequency_slice_reuses_initial_fft_and_matches_reference_exactly(
+    dtype: type[np.complexfloating], n_iterations: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rng = np.random.default_rng(37)
+    shape = (1, 3, 4, 5)
+    observed = (rng.normal(size=shape) + 1j * rng.normal(size=shape)).astype(dtype)[..., ::-1]
+    mask = rng.random(shape) > 0.5
+    observed[~mask] = np.nan
+    original = observed.copy()
+    observed.setflags(write=False)
+    parameters = dict(n_iterations=n_iterations, threshold_start=0.9, threshold_end=0.1)
+    expected = _reference_frequency_slice(observed, mask, **parameters)
+    transform = np.fft.fftn
+    fft_calls = 0
+
+    def record_transform(*args, **kwargs):
+        nonlocal fft_calls
+        fft_calls += 1
+        return transform(*args, **kwargs)
+
+    monkeypatch.setattr(np.fft, "fftn", record_transform)
+
+    result = interpolate_pocs_frequency_slice(observed, mask, **parameters)
+
+    assert fft_calls == n_iterations
+    assert result.dtype == np.complex128
+    np.testing.assert_array_equal(result, expected)
+    np.testing.assert_array_equal(observed, original)
 
 
 def test_frequency_slice_keeps_coefficients_equal_to_the_hard_threshold() -> None:
@@ -326,7 +358,7 @@ def test_block_matches_direct_rfft_and_frequency_slice_reference(
     assert result.shape == observed.shape
     assert result.dtype == observed.dtype
     assert np.isrealobj(result)
-    np.testing.assert_allclose(result, expected, rtol=2.0e-6, atol=2.0e-6)
+    np.testing.assert_array_equal(result, expected)
     np.testing.assert_array_equal(result[:, mask], observed[:, mask])
     np.testing.assert_array_equal(observed, original)
 

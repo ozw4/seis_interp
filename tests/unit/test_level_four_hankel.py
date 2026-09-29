@@ -66,17 +66,35 @@ def test_complex_grid_round_trip_preserves_values_and_inputs(
     np.testing.assert_array_equal(matrix, original_matrix)
 
 
-def test_non_hankel_matrix_averaging_matches_explicit_entry_reference() -> None:
-    shape = (3, 4, 3, 2)
-    embedding_shape = (2, 3, 2, 2)
-    start_shape = (2, 2, 2, 1)
+@pytest.mark.parametrize("shape", [(1, 1, 1, 1), (3, 4, 5, 6), (2, 5, 1, 4), (4, 1, 3, 2)])
+@pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
+@pytest.mark.parametrize("layout", ["c", "fortran", "strided"])
+def test_non_hankel_matrix_averaging_matches_explicit_entry_reference(
+    shape: tuple[int, int, int, int], dtype: type[np.complexfloating], layout: str
+) -> None:
+    embedding_shape = tuple(length // 2 + 1 for length in shape)
+    start_shape = tuple(
+        length - window + 1 for length, window in zip(shape, embedding_shape, strict=True)
+    )
     rng = np.random.default_rng(42)
-    matrix = rng.normal(size=(24, 8)) + 1j * rng.normal(size=(24, 8))
+    matrix_shape = (prod(embedding_shape), prod(start_shape))
+    matrix = (
+        (rng.normal(size=matrix_shape) + 1j * rng.normal(size=matrix_shape))
+        * 10.0 ** rng.integers(-10, 10, size=matrix_shape)
+    ).astype(dtype)
+    if layout == "fortran":
+        matrix = np.asfortranarray(matrix)
+    elif layout == "strided":
+        storage = np.empty((matrix.shape[0], matrix.shape[1] * 2), dtype=dtype)
+        storage[:, ::2] = matrix
+        matrix = storage[:, ::2]
+    matrix.setflags(write=False)
     original = matrix.copy()
     expected = np.zeros(shape, dtype=np.complex128)
     counts = np.zeros(shape, dtype=np.int64)
-    for row, offset in enumerate(product(*(range(length) for length in embedding_shape))):
-        for column, start in enumerate(product(*(range(length) for length in start_shape))):
+    # Every output cell receives contributions in the original C-order of starts.
+    for column, start in enumerate(product(*(range(length) for length in start_shape))):
+        for row, offset in enumerate(product(*(range(length) for length in embedding_shape))):
             index = tuple(first + delta for first, delta in zip(start, offset, strict=True))
             expected[index] += matrix[row, column]
             counts[index] += 1
@@ -84,7 +102,8 @@ def test_non_hankel_matrix_averaging_matches_explicit_entry_reference() -> None:
 
     result = average_level_four_hankel(matrix, shape)
 
-    np.testing.assert_allclose(result, expected, rtol=1.0e-14, atol=1.0e-14)
+    np.testing.assert_array_equal(result, expected)
+    assert result.dtype == np.complex128
     np.testing.assert_array_equal(matrix, original)
 
 
