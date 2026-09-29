@@ -104,6 +104,26 @@ def plot_sections(manifest, mask, truth, predictions, contract, output):
         plt.close(fig)
 
 
+def plot_training_loss(history, output_file, *, report_interval):
+    """Logged training minibatch losses of the live weights; not a validation curve."""
+    steps = [row["step"] for row in history]
+    losses = [row["loss"] for row in history]
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(steps, losses, "-", linewidth=1)
+    ax.set_yscale("log")
+    ax.set(
+        title="NeRSI training minibatch loss (not validation)",
+        xlabel=f"optimizer step (logged every {report_interval})",
+    )
+    ax.set_ylabel(
+        "minibatch masked_trace_relative_mse (live weights, aligned canvas incl. padding)",
+        fontsize=8,
+    )
+    fig.tight_layout()
+    fig.savefig(output_file, dpi=150)
+    plt.close(fig)
+
+
 def plot_projection_errors(quartiles, output):
     fig, ax = plt.subplots(figsize=(7, 4))
     clean = quartiles.loc[quartiles.domain.eq("clean_target")]

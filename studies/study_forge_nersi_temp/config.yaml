@@ -1,0 +1,42 @@
+# FORGE NeRSI scratch experiment. Every key is required; unknown or fixed keys are rejected.
+# Data binding (alignment canvas, mask, amplitude scaling, geometry) comes from inputs.yaml's
+# preparation. Run `python scripts/run_study_forge_nersi_temp.py --check` before training.
+name: baseline            # run label, one per condition: lowercase snake_case, [a-z][a-z0-9_]{0,47}; part of the run directory
+device: cuda:0            # cpu or cuda:<index>; --device overrides
+model_seed: 7301          # seeds weight initialization and the minibatch order
+torch_threads: 4          # CPU threads for this run; restored afterwards
+
+model:
+  coordinate_frame: midpoint_offset   # midpoint_offset | source_receiver (transform built from prep geometry)
+  polar_offset: true                  # true: offset axes -> (radius, azimuth/pi); requires midpoint_offset
+  moveout_velocity_m_per_s: null      # null = off; > 0 is a residual velocity V whose delay adds to the
+                                      # prep alignment: decoder-flat events have 1/(1/v_align + 1/V) m/s
+                                      # (README); requires polar_offset; adds padding and parameters
+  fourier_components: 16              # F per axis; frequencies pi*base^1 .. pi*base^F; features 4*2*F
+  frequency_base: [1.05, 1.05, 1.1, 1.1]  # scalar or 4 values > 1, in the frame's axis order (README)
+  encoder_width: 150                  # W; parameters ~ W * latent_channels * ceil(canvas/8)
+  latent_channels: 4                  # L
+  decoder_channels: [16, 8, 4]        # exactly 3 positive integers
+  kernel_size: 5                      # odd positive integer
+  head_slowness_ms_per_m: null        # null = one head; list of raw apparent slownesses (ms/m) = one
+                                      # decoder head each, read along its own moveout and summed;
+                                      # requires polar_offset; exclusive with moveout (README)
+  static_shift_samples: 0.0           # 0 = off; > 0 learns source/receiver shifts bounded by +-this
+                                      # many samples each (requires heads)
+  residual_slowness_ms_per_m: 0.0     # 0 = off; > 0 adds a coordinate-dependent slowness per head
+                                      # bounded by +-this ms/m (requires heads)
+  output_band_hz: null                # null = off; [lo, hi] fixed zero-phase taper, 2 < lo < hi
+  output_window_mask: false           # true zeros the output outside each trace's recorded window
+                                      # on the aligned canvas (requires polar_offset, aligned prep)
+
+training:                  # Adam with coupled L2 weight decay, constant LR, fp32 (fixed by code)
+  learning_rate: 0.001     # write 0.001 or 1.0e-3 (PyYAML reads 1e-3 as a string)
+  max_steps: 20000
+  batch_size: 64           # observed traces per update, drawn without replacement
+  weight_decay: 5.0e-05
+  weight_decay_after: null # null = constant; {step: N, value: X} sets weight decay X from update N
+  ema_decay: 0.9998        # null disables EMA; short runs need a smaller decay (see --check)
+  report_interval: 100     # steps between logged minibatch losses
+
+prediction:
+  batch_size: 256          # inference traces per batch; training unaffected

@@ -25,7 +25,7 @@ Model-selection training saves `best.pt`; per-volume SIREN saves `final.pt` and 
 
 A runner that trains several conditions in one invocation writes one such directory per condition plus a sibling summary JSON sharing the timestamp and Git SHA prefix; the training-fit diagnostics record metrics only and write no `artifacts/`.
 
-Formal study run directories are immutable. Scratch workspaces labeled in [`studies/README.md`](../studies/README.md) instead maintain an overwriteable current output under their own `runs/` subdirectory.
+Formal study run directories are immutable. Scratch workspaces labeled in [`studies/README.md`](../studies/README.md) instead maintain an overwriteable current output under their own `runs/` subdirectory. `study_forge_nersi_temp` differs: it writes one immutable `<UTC>_<sha12>_<name>/` directory per experiment (`config.resolved.yaml`, `inputs.lock.json`, `run.json`, metrics, `artifacts/`) and keeps `summary.csv` as its overwriteable current output.
 
 Shared run pipelines capture `git_commit` and `git_worktree_dirty` in run metadata (`metadata.json.method_details` for PoC) at run start. The dirty flag includes staged, unstaged, and untracked files, excluding ignored files. Dirty runs are allowed for development; promotion to formal results requires `git_worktree_dirty` to be `false`.
 

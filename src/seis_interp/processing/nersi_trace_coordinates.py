@@ -36,6 +36,21 @@ def midpoint_offset_transform(geometry, spatial_shape, *, polar=False):
     return transform
 
 
+def linear_moveout_samples_per_radius(geometry, velocity_m_per_s, sample_interval_s):
+    """Return linear-moveout samples per unit polar radius for one velocity.
+
+    The unit radius is the largest actual half-offset, the same radius that
+    ``midpoint_offset_transform(..., polar=True)`` normalizes by, so a trace at
+    normalized radius ``r`` is delayed by ``r * 2 * R_max / (velocity * dt)``.
+    """
+    velocity = float(velocity_m_per_s)
+    if not math.isfinite(velocity) or velocity <= 0:
+        raise ValueError("moveout velocity must be finite and positive")
+    interval = _sample_interval(sample_interval_s)
+    maximum_radius = _maximum_half_offset(geometry, "moveout")
+    return 2 * maximum_radius / (velocity * interval)
+
+
 def head_samples_per_radius(
     geometry, slowness_ms_per_m, sample_interval_s, alignment_velocity_m_per_s=None
 ):

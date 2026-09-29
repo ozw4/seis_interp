@@ -578,7 +578,7 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
         prediction = model(coordinates[observed_rows[rows]].to(device))
         loss = masked_trace_relative_mse(prediction, target)
         if not torch.isfinite(loss):
-            raise RuntimeError("nonfinite NeRSI loss")
+            raise RuntimeError(f"nonfinite NeRSI loss at step {step}")
         loss.backward()
         optimizer.step()
         if ema is not None:
@@ -590,7 +590,7 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
         if step % tr["report_interval"] == 0 or step == tr["max_steps"]:
             value = float(loss.detach())
             history.append({"step": step, "loss": value, "learning_rate": tr["learning_rate"]})
-            reporter(f"NeRSI step {step}/{tr['max_steps']}")
+            reporter(f"NeRSI step {step}/{tr['max_steps']} minibatch_loss {value:.6g}")
     records = {"training_end": _training_end(device)}
     if ema is not None:
         model.load_state_dict(ema.state_dict())

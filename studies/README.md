@@ -92,3 +92,5 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.
+
+`study_forge_nersi_temp` is a scratch FORGE NeRSI parameter workspace, not a numbered study and not formal evidence. Each experiment writes an immutable timestamped run under `runs/study_forge_nersi_temp/`; its `summary.csv` is the overwriteable current output. [`study_forge_nersi_temp/README.md`](study_forge_nersi_temp/README.md) describes the knobs and commands.

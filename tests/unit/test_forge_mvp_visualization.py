@@ -5,7 +5,11 @@ import pandas as pd
 import pytest
 from matplotlib.figure import Figure
 
-from seis_interp.visualization.forge_mvp import plot_preparation, plot_sections
+from seis_interp.visualization.forge_mvp import (
+    plot_preparation,
+    plot_sections,
+    plot_training_loss,
+)
 
 
 @pytest.mark.parametrize("test_count", [7, 8])
@@ -86,3 +90,15 @@ def test_sections_share_full_trace_reference_rms_and_observed_clip(tmp_path, mon
         assert all(limits == (-2, 2) for _, limits in [*panels.values(), *errors.values()])
     for values, original in zip((truth, low, high), originals, strict=True):
         np.testing.assert_array_equal(values, original)
+
+
+def test_training_loss_plot_writes_png_and_keeps_history(tmp_path):
+    history = [
+        {"step": 1, "loss": 1.0, "learning_rate": 0.001},
+        {"step": 2, "loss": 0.5, "learning_rate": 0.001},
+    ]
+    original = [dict(row) for row in history]
+    output = tmp_path / "training_loss.png"
+    plot_training_loss(history, output, report_interval=1)
+    assert output.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert history == original

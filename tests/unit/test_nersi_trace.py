@@ -10,6 +10,7 @@ import torch
 from seis_interp.models.nersi_trace import NersiTrace, band_taper
 from seis_interp.processing.nersi_trace_coordinates import (
     head_samples_per_radius,
+    linear_moveout_samples_per_radius,
     midpoint_offset_transform,
     slowness_samples_per_radius,
 )
@@ -145,6 +146,27 @@ def test_fractional_moveout_keeps_every_requested_time_sample_and_gradients():
 def test_moveout_requires_valid_polar_geometry(moveout):
     with pytest.raises(ValueError, match="moveout requires"):
         NersiTrace(time_sample_count=9, moveout_samples_per_radius=moveout)
+
+
+def test_moveout_velocity_converts_to_samples_per_unit_polar_radius():
+    # Half-offsets are 60 m and 100 m; the larger one is the unit polar radius.
+    geometry = pd.DataFrame(
+        {
+            "source_x_m": [0.0, 10.0],
+            "source_y_m": [0.0, 0.0],
+            "receiver_x_m": [120.0, 10.0],
+            "receiver_y_m": [0.0, 200.0],
+        }
+    )
+    assert linear_moveout_samples_per_radius(geometry, 1000.0, 0.002) == pytest.approx(100.0)
+    for velocity in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="velocity"):
+            linear_moveout_samples_per_radius(geometry, velocity, 0.002)
+    with pytest.raises(ValueError, match="sample interval"):
+        linear_moveout_samples_per_radius(geometry, 1000.0, 0.0)
+    flat = geometry.assign(receiver_x_m=geometry.source_x_m, receiver_y_m=geometry.source_y_m)
+    with pytest.raises(ValueError, match="half-offset"):
+        linear_moveout_samples_per_radius(flat, 1000.0, 0.002)
 
 
 SMALL = dict(
