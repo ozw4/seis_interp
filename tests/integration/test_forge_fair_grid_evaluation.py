@@ -364,6 +364,23 @@ def test_final_evaluation_scores_every_run_once_and_records_statistics(evaluatio
     pd.testing.assert_frame_equal(contrasts, pd.read_csv(second / "aggregate/contrasts.csv"))
 
 
+def test_archived_metric_source_is_not_a_prior_evaluation(evaluation, monkeypatch):
+    root, preparation, config, path = evaluation
+    entry = config["final_runs"]["pocs_grid"][0]
+    tuning = root / entry["tuning_run"]
+    relative = "source/src/seis_interp/evaluation/forge_mvp_metrics.py"
+    source = tuning / relative
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("# Archived evaluation implementation\n")
+    _rebind(tuning, relative)
+    reads = _count_target_reads(monkeypatch)
+
+    output = evaluate_forge_fair_grid(root, path)
+
+    assert reads == [len(_test_frame(preparation))]
+    assert json.loads((output / "manifest.json").read_text())["status"] == "completed"
+
+
 def test_non_oracle_restoration_rescales_the_unit_prediction(evaluation):
     root, preparation, config, path = evaluation
     output = evaluate_forge_fair_grid(root, path)

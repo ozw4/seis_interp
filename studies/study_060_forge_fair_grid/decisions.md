@@ -101,5 +101,7 @@ grid.yaml・候補・選択規則・予算は変えない。変わるのは実�
 GPU上の計算はGPUが違うとビット単位では一致しないが、どのGPUでも同じ条件で学習する。
 それ以前に生成した段階（S1など）は元のcuda:0のままとする。
 
+CCNet5DのS2はReGSIの終了前に生成したため、3 runともcuda:0に割り当てられた。ReGSIの終了後にGPU 1が空いたので、最も遅れていた `s2_k5c22`（4,800/20,000更新）を中断し、同じyamlのまま `scripts/forge_matched_tuning.py --device cuda:1` で最初から再実行した。中断したrunは同じyamlで再実行する規則（失敗runの項）の範囲内である。上書きした実行先はtuning manifestの `device_override` に記録する。
+
 **Evidence:**
 - CCNet5DのS1は3本並列でGPU 0を使い切り、1 runに約10〜14時間かかった。ReGSIの終了後はGPU 1が空く。

@@ -6,7 +6,12 @@ import resource
 import subprocess
 from datetime import datetime, timezone
 
+import pandas as pd
 import torch
+
+# Text columns of a tuner's search_results.csv. A hex hash such as "8228172598e7298...f45"
+# reads as a float with a huge exponent and crashes the pandas C parser (pandas 2.3.3).
+SEARCH_RESULT_TEXT_COLUMNS = {"ema_decay": str, "initialization_hash": str}
 
 
 def utc_now():
@@ -56,3 +61,8 @@ def peak_memory(device):
         if gpu.type == "cuda" and torch.cuda.is_available()
         else 0,
     }
+
+
+def read_search_results(path):
+    """A tuner's ``search_results.csv`` with its EMA keys and hashes kept as text."""
+    return pd.read_csv(path, dtype=SEARCH_RESULT_TEXT_COLUMNS)

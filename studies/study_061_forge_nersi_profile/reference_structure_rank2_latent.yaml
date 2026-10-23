@@ -1,0 +1,53 @@
+# Reference-only structure exploration (outside the pre-registered grid; inside the band).
+# Rank-2 separable latent (each latent channel a sum of 2 time x receiver outer
+# products, the C3 study_046 rank2_latent option); 353,755 parameters.
+# Fourier 40, FORGE axis-Nyquist bases, weight decay 0 and EMA 0.999 as reference_c3_layout.yaml;
+# updates, learning rate, exactly 64 loss traces per update and loss are study_061's.
+# Seeds 7301-7303; scored on V only.
+method_id: nersi_profile
+purpose: selection
+evaluate: true
+reference_only: true
+target_relative_mse: 0.0
+stop_when_target_met: false
+device: cuda:0
+candidates:
+- name: rank2_latent_p353755_seed7301
+  model_seed: 7301
+  model:
+    fourier_components: 40
+    frequency_base: [1.041056, 1.089643, 1.04985]
+    encoder_width: 30
+    latent_channels: 8
+    decoder_channels: [29, 14, 8]
+    latent_spatial_rank: 2
+  training:
+    weight_decay: 0.0
+    ema_decay: 0.999
+    ema_eval_decays: [0.999, 0.9995, 0.9998]
+- name: rank2_latent_p353755_seed7302
+  model_seed: 7302
+  model:
+    fourier_components: 40
+    frequency_base: [1.041056, 1.089643, 1.04985]
+    encoder_width: 30
+    latent_channels: 8
+    decoder_channels: [29, 14, 8]
+    latent_spatial_rank: 2
+  training:
+    weight_decay: 0.0
+    ema_decay: 0.999
+    ema_eval_decays: [0.999, 0.9995, 0.9998]
+- name: rank2_latent_p353755_seed7303
+  model_seed: 7303
+  model:
+    fourier_components: 40
+    frequency_base: [1.041056, 1.089643, 1.04985]
+    encoder_width: 30
+    latent_channels: 8
+    decoder_channels: [29, 14, 8]
+    latent_spatial_rank: 2
+  training:
+    weight_decay: 0.0
+    ema_decay: 0.999
+    ema_eval_decays: [0.999, 0.9995, 0.9998]

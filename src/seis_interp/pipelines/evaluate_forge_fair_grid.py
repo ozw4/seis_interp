@@ -19,10 +19,25 @@ Evaluation config (paths relative to the repository)::
     preparation: runs/<study>/<final preparation run>
     bootstrap: {resamples: 10000, seed: <int>}   # must equal grid.yaml evaluation.bootstrap
     final_runs:
-      <method>:          # all six methods
+      <method>:          # every method of the grid
         - {seed: <int or null>, tuning_run: <dir>, candidate: <name>}
 
 A prediction is ``<tuning_run>/<candidate>/prediction.npy``.
+
+A grid that adds methods to a completed study (a preparation derived by
+``derive_forge_preparation``) declares ``evaluation.reference_evaluation``
+(``{path, manifest_sha256}`` of the parent study's completed final evaluation on
+the parent preparation) and ``evaluation.contrasts``. The reference methods'
+seed-averaged errors enter the contrasts unchanged after their rows, test traces
+and non-oracle restoration scales are checked to equal this evaluation's.
+
+A C3 preparation (``dataset_id: seg_c3_na``) uses the observed global RMS: its
+predictions are already physical, so the restorations are ``observed_global_rms``
+and ``scale_invariant`` (no oracle or IDW scales). Its test targets come from
+the interim C3 trace array (``read_c3_scored_targets``), its grid must declare
+``evaluation.contrasts`` and no reference evaluation, and a fourth Holm family
+compares the seed-averaged per-trace SNR dB (``left - right``; positive favours
+the left method).
 """
 
 import json
@@ -33,9 +48,19 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from seis_interp.data.c3_fair_grid_truth import read_c3_scored_targets
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import read_selected_traces, verify_hashes, write_json
-from seis_interp.data.forge_mvp_run_records import execution_identity, utc_now
+from seis_interp.data.forge_mvp_run_records import (
+    execution_identity,
+    read_search_results,
+    utc_now,
+)
+from seis_interp.evaluation.fair_grid_trace_snr import (
+    paired_trace_snr_contrasts,
+    seed_averaged_trace_snr,
+    trace_snr_by_trace,
+)
 from seis_interp.evaluation.forge_fair_grid_statistics import (
     FAIR_GRID_CONTRASTS,
     cluster_bootstrap_weights,
@@ -52,7 +77,9 @@ from seis_interp.evaluation.forge_mvp_metrics import (
     verify_metrics_from_waveforms,
     verify_saved_metrics,
 )
-from seis_interp.forge_mvp_config import NEURAL_METHODS
+from seis_interp.evaluation.trace_snr import summarize_trace_snr
+from seis_interp.forge_mvp_config import ADDED_METHODS, TUNABLE_NEURAL_METHODS
+from seis_interp.processing.c3_fair_grid_contract import C3_DATASET_ID
 from seis_interp.processing.fair_grid_rules import decay_key, is_divergence
 from seis_interp.processing.forge_log_rms_idw import LOG_RMS_IDW_SETTINGS, log_rms_idw_scales
 from seis_interp.processing.forge_mvp_contract import METHODS
@@ -67,8 +94,17 @@ CONTRAST_FAMILIES = (
     ("secondary_non_oracle", "non_oracle_log_rms_idw", "clean_target"),
     ("secondary_scale_invariant", "scale_invariant", "clean_target"),
 )
+# Observed-global-RMS (C3) preparations: physical predictions, no trace scales.
+GLOBAL_RMS_RESTORATIONS = ("observed_global_rms", "scale_invariant")
+GLOBAL_RMS_CONTRAST_FAMILIES = (
+    ("primary", "observed_global_rms", "clean_target"),
+    ("secondary_all_eligible", "observed_global_rms", "all_eligible"),
+    ("secondary_scale_invariant", "scale_invariant", "clean_target"),
+)
+TRACE_SNR_CONTRAST_FAMILY = ("secondary_trace_snr_db", "observed_global_rms", "clean_target")
 FINAL_RUN_KEYS = {"seed", "tuning_run", "candidate"}
 SEARCH_STAGES = ("S1", "S2", "S3", "E")
+ERROR_KEYS = ["restoration", "trace_id", "cell_id", "source_cell", "clean_target"]
 
 
 def evaluate_forge_fair_grid(repo: Path, evaluation_config: Path) -> Path:
@@ -76,16 +112,28 @@ def evaluate_forge_fair_grid(repo: Path, evaluation_config: Path) -> Path:
     _validate_evaluation_config(config)
     preparation = repo / config["preparation"]
     seal, contract = _final_preparation(preparation)
+    oracle = seal["amplitude_scaling"] == "trace_oracle"
     preparation_hash = sha256_file(preparation / "preparation_manifest.json")
     grid_path = repo / "studies" / contract["study_id"] / "grid.yaml"
     grid, grid_hash = yaml.safe_load(grid_path.read_text()), sha256_file(grid_path)
     if grid["study_id"] != contract["study_id"]:
         raise ValueError("grid.yaml belongs to another study")
+    methods = _grid_methods(grid)
+    if set(config["final_runs"]) != set(methods):
+        raise ValueError("final_runs must list every method")
     if config["bootstrap"] != grid["evaluation"]["bootstrap"]:
         raise ValueError("bootstrap differs from the pre-registered grid.yaml")
+    if not oracle and (
+        "contrasts" not in grid["evaluation"] or "reference_evaluation" in grid["evaluation"]
+    ):
+        raise ValueError("a global-RMS evaluation declares contrasts and no reference evaluation")
+    contrasts = tuple(
+        tuple(contrast) for contrast in grid["evaluation"].get("contrasts", FAIR_GRID_CONTRASTS)
+    )
+    reference = _reference_evaluation(repo, grid, seal)
     final_preparation = {"path": config["preparation"], "manifest_sha256": preparation_hash}
     selections = {
-        method: _selection(repo, grid, grid_hash, method, final_preparation) for method in METHODS
+        method: _selection(repo, grid, grid_hash, method, final_preparation) for method in methods
     }
     mask = pd.read_parquet(preparation / MASK_PATH)
     test = mask.split.eq("test").to_numpy()
@@ -93,10 +141,14 @@ def evaluate_forge_fair_grid(repo: Path, evaluation_config: Path) -> Path:
     # Verify every prediction and search record before any target is opened.
     runs = [
         _final_run(repo, method, entry, preparation_hash, index, mask, contract, selections[method])
-        for method in METHODS
+        for method in methods
         for entry in config["final_runs"][method]
     ]
-    for method in METHODS:
+    reference_errors = None if reference is None else _reference_errors(reference, index)
+    compared = [*methods, *([] if reference_errors is None else reference["methods"])]
+    if {m for contrast in contrasts for m in contrast[1:3]} - set(compared):
+        raise ValueError("a contrast names a method that is not evaluated or referenced")
+    for method in methods:
         planned = sorted(run["name"] for run in _planned_runs(selections[method], method))
         if sorted(run["run"] for run in runs if run["method_id"] == method) != planned:
             raise ValueError(f"{method}: final runs differ from the recorded selection")
@@ -120,40 +172,90 @@ def evaluate_forge_fair_grid(repo: Path, evaluation_config: Path) -> Path:
         preparation_hash=preparation_hash,
         grid_sha256=grid_hash,
         selection_records={
-            method: sha256_file(_selection_path(repo, grid, method)) for method in METHODS
+            method: sha256_file(_selection_path(repo, grid, method)) for method in methods
         },
         mask_hash=seal["mask_hash"],
         selection_domain="final_test",
         independent_test_estimate=True,
         bootstrap=config["bootstrap"],
         cluster="source_cell",
-        contrasts=[list(contrast) for contrast in FAIR_GRID_CONTRASTS],
-        non_oracle_restoration={**LOG_RMS_IDW_SETTINGS, "interpolated_quantity": "log_rms"},
+        contrasts=[list(contrast) for contrast in contrasts],
+        **(
+            {}
+            if reference is None
+            else {
+                "reference_evaluation": {
+                    key: reference[key] for key in ("path", "manifest_sha256", "methods")
+                }
+            }
+        ),
+        **(
+            {"non_oracle_restoration": {**LOG_RMS_IDW_SETTINGS, "interpolated_quantity": "log_rms"}}
+            if oracle
+            else {
+                "amplitude_scaling": "observed_global_rms",
+                "restorations": list(GLOBAL_RMS_RESTORATIONS),
+                "trace_snr_db": "10 log10(target energy / error energy) per test trace",
+            }
+        ),
         final_runs=[{k: v for k, v in run.items() if k != "prediction"} for run in runs],
         test_waveform_reads=0,
     )
     write_json(output / "manifest.json", record)
     try:
+        scales = None
+        if oracle:
+            # Restoration scales read observed traces only; they are checked before any target.
+            scales, spacing = _restoration_scales(preparation, contract, mask, index)
+            record["non_oracle_restoration"]["axis_scales_m"] = list(spacing)
+            if reference is not None and not scales.equals(reference["scales"]):
+                raise ValueError(
+                    "non-oracle restoration scales differ from the reference evaluation"
+                )
         target = _read_test_targets(repo, preparation, contract, mask)
         record.update(test_waveform_reads=1, test_waveforms_read=len(target))
-        scales, spacing = _restoration_scales(preparation, contract, mask, index)
-        record["non_oracle_restoration"]["axis_scales_m"] = list(spacing)
         aggregate = output / "aggregate"
         aggregate.mkdir()
-        scales.to_parquet(aggregate / "non_oracle_trace_scales.parquet", index=False)
+        if oracle:
+            scales.to_parquet(aggregate / "non_oracle_trace_scales.parquet", index=False)
         errors, seed_rows = {}, []
         for run in runs:
-            run_errors, rows = _score_run(run, target, index, scales, output)
+            run_errors, rows = (
+                _score_run(run, target, index, scales, output)
+                if oracle
+                else _score_global_rms_run(run, target, index, output)
+            )
             errors.setdefault(run["method_id"], []).append(run_errors)
             seed_rows.extend(rows)
         seed_metrics = pd.DataFrame(seed_rows)
         seed_metrics.to_csv(aggregate / "seed_metrics.csv", index=False)
-        _method_summary(seed_metrics).to_csv(aggregate / "method_summary.csv", index=False)
-        averaged = _seed_averaged_errors(errors, index)
+        summary = _method_summary(seed_metrics) if oracle else _trace_snr_summary(seed_metrics)
+        summary.to_csv(aggregate / "method_summary.csv", index=False)
+        restorations = RESTORATIONS if oracle else GLOBAL_RMS_RESTORATIONS
+        averaged = _seed_averaged_errors(errors, index, methods, restorations)
         averaged.to_parquet(aggregate / "seed_averaged_errors.parquet", index=False)
-        _contrast_table(averaged, config["bootstrap"]).to_csv(
-            aggregate / "contrasts.csv", index=False
-        )
+        if reference_errors is not None:
+            averaged = pd.concat([averaged, reference_errors], axis=1)
+        if oracle:
+            table = _contrast_table(averaged, config["bootstrap"], compared, contrasts)
+        else:
+            # A non-finite per-trace SNR is counted in seed_metrics; it skips only the SNR
+            # family so that the one test read still yields the relative-MSE contrasts.
+            nonfinite = sum(
+                int(np.count_nonzero(~np.isfinite(run["trace_snr_db"])))
+                for method in methods
+                for run in errors[method]
+            )
+            record["trace_snr_contrasts"] = (
+                f"skipped: {nonfinite} non-finite per-trace SNR values" if nonfinite else "computed"
+            )
+            snr = None if nonfinite else _seed_averaged_trace_snr(errors, index, methods)
+            if snr is not None:
+                snr.to_parquet(aggregate / "seed_averaged_trace_snr_db.parquet", index=False)
+            table = _global_rms_contrast_table(
+                averaged, snr, config["bootstrap"], methods, contrasts
+            )
+        table.to_csv(aggregate / "contrasts.csv", index=False)
         if search is not None:
             search.to_csv(aggregate / "search_scores.csv", index=False)
             curves = [
@@ -181,6 +283,70 @@ def evaluate_forge_fair_grid(repo: Path, evaluation_config: Path) -> Path:
     return output
 
 
+def _grid_methods(grid):
+    """Method IDs of the grid in the fixed method order (the six MVP methods first)."""
+    ids = {m for spec in grid["methods"].values() for m in _spec_method_ids(spec)}
+    if ids - {*METHODS, *ADDED_METHODS}:
+        raise ValueError("grid.yaml lists an unknown method")
+    return [method for method in (*METHODS, *ADDED_METHODS) if method in ids]
+
+
+def _spec_method_ids(spec):
+    return [spec["method_id"], *([spec["pair_method_id"]] if "pair_method_id" in spec else [])]
+
+
+def _reference_evaluation(repo, grid, seal):
+    """The parent study's completed final evaluation on this preparation's parent, or None."""
+    declared = grid["evaluation"].get("reference_evaluation")
+    if declared is None:
+        return None
+    if set(declared) != {"path", "manifest_sha256"}:
+        raise ValueError("reference_evaluation needs path and manifest_sha256")
+    path = repo / declared["path"]
+    if sha256_file(path / "manifest.json") != declared["manifest_sha256"]:
+        raise ValueError("reference evaluation manifest differs from grid.yaml")
+    manifest = json.loads((path / "manifest.json").read_text())
+    names = ("seed_averaged_errors.parquet", "non_oracle_trace_scales.parquet")
+    verify_hashes(
+        path, {f"aggregate/{name}": manifest["artifacts"][f"aggregate/{name}"] for name in names}
+    )
+    parent = seal.get("derived_from", {})
+    if (
+        manifest["status"] != "completed"
+        or manifest["preparation_hash"] != parent.get("manifest_sha256")
+        or manifest["mask_hash"] != seal["mask_hash"]
+        or manifest["bootstrap"] != grid["evaluation"]["bootstrap"]
+    ):
+        raise ValueError("reference evaluation is not the completed evaluation of the parent")
+    order = (*METHODS, *ADDED_METHODS)
+    methods = sorted({run["method_id"] for run in manifest["final_runs"]}, key=order.index)
+    if set(methods) & set(_grid_methods(grid)):
+        raise ValueError("the grid re-evaluates a method of its reference evaluation")
+    return {
+        **declared,
+        "methods": methods,
+        "errors": pd.read_parquet(path / "aggregate/seed_averaged_errors.parquet"),
+        "scales": pd.read_parquet(path / "aggregate/non_oracle_trace_scales.parquet"),
+    }
+
+
+def _reference_errors(reference, index):
+    """Reference method columns, on exactly this evaluation's error-table rows."""
+    table = reference["errors"]
+    expected = pd.concat(
+        [
+            index[ERROR_KEYS[1:]].assign(restoration=restoration)[ERROR_KEYS]
+            for restoration in RESTORATIONS
+        ],
+        ignore_index=True,
+    )
+    if list(table.columns) != [*ERROR_KEYS, *reference["methods"]] or not table[ERROR_KEYS].equals(
+        expected
+    ):
+        raise ValueError("reference errors cover other rows or methods")
+    return table[reference["methods"]]
+
+
 def _validate_evaluation_config(config):
     if set(config) - {"preparation", "bootstrap", "final_runs"}:
         raise ValueError("unsupported final-evaluation keys")
@@ -189,8 +355,6 @@ def _validate_evaluation_config(config):
         isinstance(v, bool) or not isinstance(v, int) for v in bootstrap.values()
     ):
         raise ValueError("bootstrap needs integer resamples and seed")
-    if set(config["final_runs"]) != set(METHODS):
-        raise ValueError("final_runs must list every method")
     for method, entries in config["final_runs"].items():
         if not entries:
             raise ValueError(f"{method}: no final runs")
@@ -244,7 +408,10 @@ def _final_preparation(preparation):
         raise ValueError("preparation is not complete")
     if seal.get("selection_domain", "final_test") != "final_test":
         raise ValueError("final evaluation requires the final (mask-B test) preparation")
-    if seal.get("amplitude_scaling") != "trace_oracle":
+    if seal.get("amplitude_scaling") != "trace_oracle" and not (
+        seal.get("amplitude_scaling") == "observed_global_rms"
+        and seal.get("dataset_id") == C3_DATASET_ID
+    ):
         raise ValueError("final evaluation requires the trace-oracle preparation")
     contract = json.loads((preparation / "input/input_contract.json").read_text())
     return seal, contract
@@ -260,7 +427,10 @@ def _final_run(repo, method, entry, preparation_hash, index, mask, contract, sel
     if (
         manifest.get("purpose") != "final_evaluation"
         or manifest.get("evaluate") is not False
-        or any("metrics" in Path(name).name for name in manifest["artifacts"])
+        or any(
+            "metrics" in Path(name).name and Path(name).parts[0] != "source"
+            for name in manifest["artifacts"]
+        )
     ):
         raise ValueError(f"{method}: final runs must be unevaluated final_evaluation runs")
     candidate = entry["candidate"]
@@ -345,7 +515,7 @@ def _search_scores(repo, grid, selections, final_mask_hash):
                     manifest.get("failure_reason"), diverged["failure_reason_pattern"]
                 ):
                     raise ValueError(f"{method}: {entry['run']} is recorded as diverged")
-                shadows = keys if method in NEURAL_METHODS else [None]
+                shadows = keys if method in TUNABLE_NEURAL_METHODS else [None]
                 rows = pd.DataFrame(
                     {
                         "name": entry["run"],
@@ -360,7 +530,7 @@ def _search_scores(repo, grid, selections, final_mask_hash):
                 verify_hashes(
                     tuning, {"search_results.csv": manifest["artifacts"]["search_results.csv"]}
                 )
-                rows = pd.read_csv(tuning / "search_results.csv", dtype={"ema_decay": str})
+                rows = read_search_results(tuning / "search_results.csv")
                 rows = rows.loc[rows.name.eq(entry["run"])].assign(diverged=False)
             tables.append(
                 rows.assign(method_id=method, stage=entry["stage"], tuning_run=entry["tuning_run"])
@@ -374,6 +544,8 @@ def _search_scores(repo, grid, selections, final_mask_hash):
 
 
 def _read_test_targets(repo, preparation, contract, mask):
+    if contract.get("dataset_id") == C3_DATASET_ID:
+        return read_c3_scored_targets(repo, preparation, mask)
     raw = json.loads((preparation / "input/raw_input_hashes.json").read_text())
     verify_hashes(repo / raw["dataset_root"], raw["hashes"])
     rows = pd.read_parquet(preparation / "input/m1_trace_manifest.parquet")
@@ -467,6 +639,71 @@ def _score_run(run, target, index, scales, output):
     return errors, rows
 
 
+def _score_global_rms_run(run, target, index, output):
+    """Score one physical prediction: relative MSE, scale-invariant error and trace SNR dB."""
+    prediction = np.load(run["prediction"])
+    label = "deterministic" if run["seed"] is None else f"seed_{run['seed']}"
+    path = output / "runs" / run["method_id"] / label
+    metrics, traces = evaluate_traces(prediction, target, index)
+    verify_saved_metrics(metrics, traces)
+    verify_metrics_from_waveforms(metrics, prediction, target, index.clean_target.to_numpy())
+    write_json(path / "observed_global_rms_metrics.json", metrics)
+    traces.to_parquet(path / "observed_global_rms_metrics_by_trace.parquet", index=False)
+    invariant = scale_invariant_relative_mse(prediction, target)
+    pd.DataFrame({"cell_id": index.cell_id, "relative_mse": invariant}).to_parquet(
+        path / "scale_invariant_by_trace.parquet", index=False
+    )
+    snr = trace_snr_by_trace(target, prediction)
+    pd.DataFrame({"cell_id": index.cell_id, "trace_snr_db": snr}).to_parquet(
+        path / "trace_snr_db_by_trace.parquet", index=False
+    )
+    errors = {
+        "observed_global_rms": traces.relative_mse.to_numpy(),
+        "scale_invariant": invariant,
+        "trace_snr_db": snr,
+    }
+    rows = []
+    clean = index.clean_target.to_numpy()
+    for restoration in GLOBAL_RMS_RESTORATIONS:
+        physical = restoration == "observed_global_rms"
+        for domain, selected in (("clean_target", clean), ("all_eligible", np.ones_like(clean))):
+            summary = error_summary(errors[restoration][selected])
+            snr_summary = summarize_trace_snr(snr[selected])
+            nonfinite = sum(
+                snr_summary[f"trace_snr_{kind}_count"]
+                for kind in ("positive_infinity", "negative_infinity", "undefined")
+            )
+            rows.append(
+                {
+                    "method_id": run["method_id"],
+                    "seed": run["seed"],
+                    "ema_decay": run["ema_decay"],
+                    "restoration": restoration,
+                    "domain": domain,
+                    "trace_count": summary["trace_count"],
+                    "mean_relative_mse": metrics[domain]["masked_trace_relative_mse"]
+                    if physical
+                    else summary["mean"],
+                    "median_relative_mse": summary["median"],
+                    "global_nmse": metrics[domain]["global_nmse"] if physical else None,
+                    "median_correlation": metrics[domain]["correlation"]["median"]
+                    if physical
+                    else None,
+                    "mean_trace_snr_db": snr_summary["mean_trace_snr_db"] if physical else None,
+                    "trace_snr_nonfinite_count": nonfinite if physical else None,
+                    "global_snr_db": _global_snr_db(metrics[domain]["global_nmse"])
+                    if physical
+                    else None,
+                }
+            )
+    return errors, rows
+
+
+def _global_snr_db(global_nmse):
+    """``10 log10(target energy / error energy)`` summed over the domain; None without error."""
+    return None if global_nmse is None or global_nmse <= 0 else float(-10 * np.log10(global_nmse))
+
+
 def _method_summary(seed_metrics):
     rows = []
     keys = ["method_id", "restoration", "domain"]
@@ -485,21 +722,40 @@ def _method_summary(seed_metrics):
     return pd.DataFrame(rows)
 
 
-def _seed_averaged_errors(errors, index):
+def _trace_snr_summary(seed_metrics):
+    """``_method_summary`` plus the seed mean/sd of the mean trace and global SNR dB.
+
+    A seed whose SNR has a non-finite trace has no mean SNR, so neither has its
+    method row; the summed non-finite count shows why.
+    """
+    rows = []
+    for _, group in seed_metrics.groupby(["method_id", "restoration", "domain"], sort=False):
+        row = {}
+        for metric in ("mean_trace_snr_db", "global_snr_db"):
+            values = group[metric]
+            mean, sd = (None, None) if values.isna().any() else seed_mean_sd(values)
+            row.update({f"{metric}_seed_mean": mean, f"{metric}_seed_sd": sd})
+        counts = group.trace_snr_nonfinite_count
+        row["trace_snr_nonfinite_count"] = None if counts.isna().all() else int(counts.sum())
+        rows.append(row)
+    return pd.concat([_method_summary(seed_metrics), pd.DataFrame(rows)], axis=1)
+
+
+def _seed_averaged_errors(errors, index, methods, restorations=RESTORATIONS):
     """Long table: one row per (restoration, test trace) with one column per method."""
     tables = []
-    for restoration in RESTORATIONS:
+    for restoration in restorations:
         table = index[["trace_id", "cell_id", "source_cell", "clean_target"]].copy()
         table.insert(0, "restoration", restoration)
-        for method in METHODS:
+        for method in methods:
             table[method] = seed_average_errors([run[restoration] for run in errors[method]])
         tables.append(table)
     return pd.concat(tables, ignore_index=True)
 
 
-def _contrast_table(averaged, bootstrap):
+def _contrast_table(averaged, bootstrap, methods, contrasts, families=CONTRAST_FAMILIES):
     tables = []
-    for family, restoration, domain in CONTRAST_FAMILIES:
+    for family, restoration, domain in families:
         rows = averaged.loc[averaged.restoration.eq(restoration)]
         if domain == "clean_target":
             rows = rows.loc[rows.clean_target]
@@ -508,10 +764,49 @@ def _contrast_table(averaged, bootstrap):
             len(np.unique(clusters)), bootstrap["resamples"], bootstrap["seed"]
         )
         table = paired_contrasts(
-            {method: rows[method].to_numpy() for method in METHODS}, clusters, weights
+            {method: rows[method].to_numpy() for method in methods}, clusters, weights, contrasts
         )
         table.insert(0, "domain", domain)
         table.insert(0, "restoration", restoration)
         table.insert(0, "family", family)
         tables.append(table)
     return pd.concat(tables, ignore_index=True)
+
+
+def _seed_averaged_trace_snr(errors, index, methods):
+    """One row per test trace with each method's seed-mean per-trace SNR dB."""
+    table = index[["trace_id", "cell_id", "source_cell", "clean_target"]].copy()
+    for method in methods:
+        table[method] = seed_averaged_trace_snr([run["trace_snr_db"] for run in errors[method]])
+    return table
+
+
+def _global_rms_contrast_table(averaged, snr, bootstrap, methods, contrasts):
+    """Relative-MSE families (a negative difference favours the left method), then trace SNR.
+
+    The SNR family's difference is ``left - right`` dB, so a positive one favours left;
+    without finite per-trace SNR (``snr`` None) only the relative-MSE families are returned.
+    """
+    errors = _contrast_table(averaged, bootstrap, methods, contrasts, GLOBAL_RMS_CONTRAST_FAMILIES)
+    errors.insert(3, "left_better_when", "difference_negative")
+    if snr is None:
+        return errors
+    family, restoration, domain = TRACE_SNR_CONTRAST_FAMILY
+    rows = snr.loc[snr.clean_target] if domain == "clean_target" else snr
+    clusters = rows.source_cell.to_numpy()
+    weights = cluster_bootstrap_weights(
+        len(np.unique(clusters)), bootstrap["resamples"], bootstrap["seed"]
+    )
+    table = paired_trace_snr_contrasts(
+        {method: rows[method].to_numpy() for method in methods}, clusters, weights, contrasts
+    )
+    for position, (name, value) in enumerate(
+        (
+            ("family", family),
+            ("restoration", restoration),
+            ("domain", domain),
+            ("left_better_when", "difference_positive"),
+        )
+    ):
+        table.insert(position, name, value)
+    return pd.concat([errors, table], ignore_index=True)

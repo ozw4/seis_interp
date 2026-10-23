@@ -1,0 +1,40 @@
+# Reference-only overfitting countermeasures for the deep-time structure (355,653 parameters,
+# unchanged): Adam weight decay 1e-4 / 1e-3.
+# Everything else equals reference_structure_deep_time.yaml seed 7301 (Fourier 40, FORGE
+# axis-Nyquist bases, weight decay 0 unless set, EMA 0.999 primary with shadows). Scored on V only.
+method_id: nersi_profile
+purpose: selection
+evaluate: true
+reference_only: true
+target_relative_mse: 0.0
+stop_when_target_met: false
+device: cuda:0
+candidates:
+- name: deep_time_wd1e-4_seed7301
+  model_seed: 7301
+  model:
+    fourier_components: 40
+    frequency_base: [1.041056, 1.089643, 1.04985]
+    encoder_width: 40
+    latent_channels: 28
+    decoder_channels: [29, 14, 8]
+    time_upsample_channels: [28, 28, 28, 28]
+    time_kernel_size: 3
+  training:
+    ema_decay: 0.999
+    ema_eval_decays: [0.999, 0.9995, 0.9998]
+    weight_decay: 0.0001
+- name: deep_time_wd1e-3_seed7301
+  model_seed: 7301
+  model:
+    fourier_components: 40
+    frequency_base: [1.041056, 1.089643, 1.04985]
+    encoder_width: 40
+    latent_channels: 28
+    decoder_channels: [29, 14, 8]
+    time_upsample_channels: [28, 28, 28, 28]
+    time_kernel_size: 3
+  training:
+    ema_decay: 0.999
+    ema_eval_decays: [0.999, 0.9995, 0.9998]
+    weight_decay: 0.001

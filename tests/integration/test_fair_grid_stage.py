@@ -59,6 +59,7 @@ def _stage(repo, method, stage):
 
 
 DIVERGED = "RuntimeError: non-finite CCNet-5D training loss at step 17"
+FLOAT_LIKE_HASH = "8228172598e729840098733f451de5541f809dd7925f2e029355259e55d172a1"
 OUT_OF_MEMORY = "OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB"
 
 
@@ -102,6 +103,8 @@ def _complete(
                 "ema_decay": None if classical else key,
                 "primary_relative_mse": score(run["name"]) + 0.01 * i,
                 "final_training_loss_window_mean": loss(run["name"]),
+                # A tuner hash that the pandas C parser would read as a huge float.
+                **({} if classical else {"initialization_hash": FLOAT_LIKE_HASH}),
             }
             for i, key in enumerate([None] if classical else KEYS)
         ]

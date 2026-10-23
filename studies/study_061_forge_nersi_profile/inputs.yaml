@@ -1,0 +1,10 @@
+# Sealed study_060 preparations re-sealed for this study by scripts/forge_derive_preparation.py
+# (byte-identical inputs; only study_id, the added nersi_profile config and the seal change).
+parent_preparations:
+  validation: runs/study_060_forge_fair_grid/20260927T133848730415Z_25c5193588b2_validation
+  validation_manifest_sha256: 9cbdba31a096773120dea5ad45f0edfaed3b73919f2b714a1cb4855d612d0438
+  final: runs/study_060_forge_fair_grid/20260927T133829534335Z_25c5193588b2
+  final_manifest_sha256: fcc23bd619a80e95d556b5d637cc1d2f3b51c0982f98c094632428c2afcaac70
+# Completed study_060 final evaluation whose six methods enter the contrasts (grid.yaml).
+reference_evaluation: runs/study_060_forge_fair_grid/20261008T030804955521Z_05c92e79ce80_final_evaluation
+reference_evaluation_manifest_sha256: 1b40bc364d3b56c32f5e22b3617cb344850e0e3ed631c0e411cffa73283e3048

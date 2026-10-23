@@ -1,0 +1,144 @@
+# Pre-registered fair grid of study_061 (protocol: README.md; rationale: decisions.md).
+# Protocol, masks, seeds, EMA levels, selection rules and bootstrap are study_060's grid.yaml.
+# Differences: the searched method (profile-wise NeRSI), its search space, and the final
+# evaluation, which compares it with study_060's six final methods. Overrides are dotted paths into the method config; an
+# integer segment indexes a list. Search values run on the validation preparation
+# (N = 13,271 observed); final retraining on the final preparation (mask B, N = 14,745).
+# Lines marked "fill:" are values the study_060 protocol leaves undefined (decisions.md).
+study_id: study_061_forge_nersi_profile
+preparations:
+  final_mask_hash: 4eaa2494eb9ea71b8de392b18d82ee5e9a05f44c5b13d30ad689077d5176701e
+  validation_mask_hash: a1e15422431f7aeac429c4c9e01d2218af3a43a9ab4aeefd81b6ab6ccd494531
+  # sha256 of the sorted int64 validation (V) cell IDs.
+  validation_cells_sha256: 092815f4ac87641e9f0d0a8dd82931eef035ef056782d3d433bb62e33f2e01b6
+  observed_trace_counts:
+    validation: 13271
+    final: 14745
+selection:
+  score: primary_relative_mse
+  train_loss: final_training_loss_window_mean
+  wd_calibration_max_relative_increase: 0.05
+  reseed_top_runs: 2
+  diverged_runs:
+    failure_reason_pattern: non-?finite
+    reported_score: 1.0
+ema_eval_decays:
+- 0.999
+- 0.9995
+- 0.9998
+ema_snapshot_updates:
+- 10000
+evaluation:
+  bootstrap:
+    resamples: 10000
+    seed: 600703
+  # The six study_060 methods enter the contrasts from their completed final evaluation.
+  reference_evaluation:
+    path: runs/study_060_forge_fair_grid/20261008T030804955521Z_05c92e79ce80_final_evaluation
+    manifest_sha256: 1b40bc364d3b56c32f5e22b3617cb344850e0e3ed631c0e411cffa73283e3048
+  # [name, left, right, role]; difference nersi_profile - other (negative: nersi_profile has
+  # the smaller error), Holm within each family of these six. Decided after study_060's test
+  # result: exploratory, outside study_060's pre-registered family.
+  contrasts:
+  - [nersi_profile_vs_nersi_real, nersi_profile, nersi_real, post_hoc_profile_vs_trace_nersi]
+  - [nersi_profile_vs_regsi_real, nersi_profile, regsi_real, post_hoc_real_geometry]
+  - [nersi_profile_vs_regsi_grid, nersi_profile, regsi_grid, post_hoc_includes_geometry_difference]
+  - [nersi_profile_vs_ccnet5d_grid, nersi_profile, ccnet5d_grid, post_hoc_includes_geometry_difference]
+  - [nersi_profile_vs_pocs_grid, nersi_profile, pocs_grid, post_hoc_includes_geometry_difference]
+  - [nersi_profile_vs_drr_grid, nersi_profile, drr_grid, post_hoc_includes_geometry_difference]
+seeds:
+  search: 7301
+  reseed:
+  - 7302
+  - 7303
+  final:
+  - 7311
+  - 7312
+  - 7313
+methods:
+  nersi_profile:
+    method_id: nersi_profile
+    device: cuda:0
+    fixed:
+      model.fourier_components: 16
+      model.latent_channels: 1
+      model.encoder_width: 150
+      model.decoder_channels: [16, 8, 4]
+      training.weight_decay: 5.0e-05
+    # Bandwidth of each coordinate group: the 16th Fourier frequency is q times the
+    # index-lattice Nyquist of its axis, base = (q (n - 1))^(1/16) with n = 6 source lines,
+    # 32 source points and 8 receiver lines. q = 0.25 / 0.5 / 1.
+    axis1:
+      name: source_bandwidth
+      ordered: true
+      values:
+      - id: src_q025
+        set: {model.frequency_base.0: 1.014044, model.frequency_base.1: 1.136531}
+      - id: src_q05
+        set: {model.frequency_base.0: 1.05894, model.frequency_base.1: 1.18685}
+      - id: src_q1
+        set: {model.frequency_base.0: 1.105823, model.frequency_base.1: 1.239396}
+      extension:
+        # fill: no frequency growth, as study_060's azimuth lower extension (q = 0.125 would
+        # make the source-line base < 1). It lowers the source point (q_eff 0.03) far more
+        # than the source line (q_eff 0.2).
+        lower:
+          id: src_flat
+          set: {model.frequency_base.0: 1.00001, model.frequency_base.1: 1.00001}
+        upper:
+          id: src_q2
+          set: {model.frequency_base.0: 1.154782, model.frequency_base.1: 1.294269}
+      # fill: midpoints in q (0.375, 0.75).
+      midpoints:
+      - between: [0, 1]
+        id: src_q0375
+        set: {model.frequency_base.0: 1.04007, model.frequency_base.1: 1.165701}
+      - between: [1, 2]
+        id: src_q075
+        set: {model.frequency_base.0: 1.086118, model.frequency_base.1: 1.217311}
+    axis2:
+      name: receiver_line_bandwidth
+      ordered: true
+      values:
+      - id: rl_q025
+        set: {model.frequency_base.2: 1.035595}
+      - id: rl_q05
+        set: {model.frequency_base.2: 1.081445}
+      - id: rl_q1
+        set: {model.frequency_base.2: 1.129324}
+      # r_x lies on the receiver-line lattice in this survey (max 0.04 m off), so q > 1
+      # aliases: the upper extension adds no distinct bandwidth.
+      extension:
+        lower:
+          id: rl_flat
+          set: {model.frequency_base.2: 1.00001}
+        upper:
+          id: rl_q2
+          set: {model.frequency_base.2: 1.179324}
+      midpoints:
+      - between: [0, 1]
+        id: rl_q0375
+        set: {model.frequency_base.2: 1.062174}
+      - between: [1, 2]
+        id: rl_q075
+        set: {model.frequency_base.2: 1.1092}
+    # Capacity reallocations inside the parameter band (cf. study_060 l8w74 / l4w123dec32)
+    # and the repository C3 kernel 3; none changes the Fourier bandwidth of the S1 axes.
+    s2:
+    - id: l2w74
+      set:
+        model.latent_channels: 2
+        model.encoder_width: 74
+    - id: l1w123dec32
+      set:
+        model.encoder_width: 123
+        model.decoder_channels: [32, 16, 8]
+    - id: k3
+      set:
+        model.kernel_size: 3
+    weight_decay:
+      path: training.weight_decay
+      s3: [3.0e-05, 7.0e-05, 0.0001]
+      extension:
+        lower: 2.0e-05
+        upper: 0.00015

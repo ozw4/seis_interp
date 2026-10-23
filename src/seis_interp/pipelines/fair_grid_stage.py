@@ -32,7 +32,8 @@ import yaml
 
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import load_model_inputs, write_json
-from seis_interp.forge_mvp_config import NEURAL_METHODS
+from seis_interp.data.forge_mvp_run_records import read_search_results
+from seis_interp.forge_mvp_config import TUNABLE_NEURAL_METHODS
 from seis_interp.pipelines.tune_forge_matched import TUNABLE_SECTIONS, matched_candidate_config
 from seis_interp.processing.fair_grid_rules import (
     STAGES,
@@ -301,7 +302,7 @@ def _history(repo, grid, grid_hash, method, stages, context) -> _History:
 
 
 def _score_keys(run, decays):
-    return ["none"] if run["method_id"] not in NEURAL_METHODS else decays
+    return ["none"] if run["method_id"] not in TUNABLE_NEURAL_METHODS else decays
 
 
 def _run_record(run, stage, results, decays, selection) -> RunRecord:
@@ -450,7 +451,7 @@ def _run_status(index, run, preparation, pattern):
         directory, status = sorted(matches)[-1]
         return status, directory, None
     directory = completed[0]
-    results = pd.read_csv(directory / "search_results.csv", dtype={"ema_decay": str})
+    results = read_search_results(directory / "search_results.csv")
     results = results.loc[results.name.eq(run["name"])].reset_index(drop=True)
     results["ema_decay"] = results.ema_decay.fillna("none")
     return "completed", directory, results

@@ -1,0 +1,59 @@
+method_id: nersi_profile
+geometry_mode: real
+model_seed: 7301
+source_config: studies/study_060_forge_fair_grid/nersi_real.yaml
+source_config_sha256: 96b29db439732cc7a53cd73a5ca0f1b7435d93c4dbdd72a06ba20eef371dc9c8
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final_ema
+device: cuda:0
+model:
+  input_features: 3
+  fourier_components: 16
+  # Source line, source point, receiver line: the 16th frequency is half each axis's
+  # index-lattice Nyquist, (0.5 (n - 1))^(1/16) for n = 6, 32, 8 (grid.yaml searches it).
+  frequency_base:
+  - 1.05894
+  - 1.18685
+  - 1.081445
+  encoder_width: 150
+  latent_channels: 1
+  decoder_channels:
+  - 16
+  - 8
+  - 4
+  # Padded (time, receiver point); the aligned canvas replaces the time side at run time.
+  profile_shape:
+  - 2008
+  - 32
+  upsample_scales:
+  - 2
+  - 2
+  - 2
+  kernel_size: 5
+  activation: gelu
+  output_activation: linear
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  max_steps: 20000
+  weight_decay: 5.0e-05
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+  supervised_traces_per_update: 64
+  ema_decay: 0.9998
+prediction:
+  profile_batch_size: 64
+changes_from_source:
+- Profile-wise NeRSI (Gao et al. 2025) instead of the trace-wise adaptation; one decoded
+  (time, receiver point) profile per source cell and receiver line.
+- Inputs are the unrounded source line, source point and receiver-line mean coordinates;
+  only the receiver point is a grid column (actual receiver-point residual at most 3.4 m).
+- Latent 1 x (543 x 4) per profile keeps the trace-wise 4 x 543 latent size per decoded
+  output and encoder width 150; per trace it is 1/32 of the trace-wise latent.
+- Inherited from the study_060 nersi_real center (encoder width 150, decoder [16, 8, 4],
+  kernel 5, 16 Fourier components, weight decay 5e-5, EMA 0.9998); they were selected
+  for the trace-wise model on the mask-A test sets of studies 058/059 (not independent).
+- Exactly 64 loss traces per update by stacking drawn profiles (the CCNet5D rule).
+- Fourier bases set from each axis's lattice Nyquist; the polar midpoint/offset map of the
+  trace-wise version does not apply to source-receiver profile coordinates.

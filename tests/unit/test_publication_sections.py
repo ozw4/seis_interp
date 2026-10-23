@@ -220,3 +220,45 @@ def test_two_five_five_layout_keeps_all_panels_in_order() -> None:
         assert gap / figure.axes[0].get_position().height == pytest.approx(0.27)
     finally:
         plt.close(figure)
+
+
+def test_two_six_six_layout_keeps_predictions_and_residuals_in_equal_panels() -> None:
+    from seis_interp.visualization.forge_publication_gathers import PANEL_TITLES
+
+    panels = [np.full((4, 3), index) for index in range(14)]
+    figure = create_publication_section(
+        panels,
+        time_s=np.arange(4),
+        spatial_label="Receiver point\nindex",
+        clip=14,
+        show_colorbar=False,
+        layout="2-6-6",
+        font_family="DejaVu Sans",
+        panel_titles=PANEL_TITLES,
+    )
+    try:
+        figure.canvas.draw()
+        assert len(figure.axes) == 14
+        assert figure.get_figwidth() * 25.4 == pytest.approx(178)
+        assert figure.get_figheight() * 25.4 == pytest.approx(142)
+        for index, axis in enumerate(figure.axes):
+            np.testing.assert_array_equal(axis.images[0].get_array(), panels[index])
+            assert axis.images[0].get_clim() == (-14, 14)
+            assert bool(axis.get_yticklabels()) == (index in {0, 2, 8})
+            assert bool(axis.get_xticklabels()) == (index < 2 or index >= 8)
+            assert axis.get_position().width == pytest.approx(figure.axes[2].get_position().width)
+            assert axis.get_position().height == pytest.approx(figure.axes[2].get_position().height)
+            for text in [
+                axis.title,
+                axis.xaxis.label,
+                axis.yaxis.label,
+                *axis.get_xticklabels(),
+                *axis.get_yticklabels(),
+                *axis.texts,
+            ]:
+                if text.get_text():
+                    bounds = text.get_window_extent(figure.canvas.get_renderer())
+                    assert figure.bbox.contains(bounds.x0, bounds.y0)
+                    assert figure.bbox.contains(bounds.x1, bounds.y1)
+    finally:
+        plt.close(figure)

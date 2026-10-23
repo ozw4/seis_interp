@@ -9,9 +9,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preparation", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--device", help="execute on this device instead of the yaml's device")
     args = parser.parse_args()
     print(
         tune_forge_matched(
-            Path(__file__).resolve().parents[1], args.preparation.resolve(), args.config.resolve()
+            Path(__file__).resolve().parents[1],
+            args.preparation.resolve(),
+            args.config.resolve(),
+            device=args.device,
         )
     )

@@ -153,6 +153,41 @@ class NersiBlock(nn.Module):
         return self.activation(self.pixel_shuffle(convolved))
 
 
+class NersiTimeBlock(nn.Module):
+    """Apply same-padded convolution, 2x upsampling along time only, and GELU.
+
+    The time-only analogue of ``NersiBlock``: output channel ``c`` at time
+    ``2h + j`` takes convolution channel ``2c + j`` at time ``h``.
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, *, kernel_size: int = 3) -> None:
+        super().__init__()
+        self.in_channels = _positive_integer(in_channels, "in_channels")
+        self.out_channels = _positive_integer(out_channels, "out_channels")
+        self.kernel_size = _odd_kernel_size(kernel_size)
+        self.convolution = nn.Conv2d(
+            self.in_channels,
+            self.out_channels * 2,
+            self.kernel_size,
+            padding=self.kernel_size // 2,
+        )
+        self.activation = nn.GELU()
+
+    def forward(self, values: torch.Tensor) -> torch.Tensor:
+        if values.ndim != 4 or values.shape[1] != self.in_channels:
+            raise ValueError(
+                f"values must have shape (B, {self.in_channels}, H, W), got {tuple(values.shape)}"
+            )
+        convolved = self.convolution(values)
+        batch, _, height, width = convolved.shape
+        shuffled = (
+            convolved.reshape(batch, self.out_channels, 2, height, width)
+            .permute(0, 1, 3, 2, 4)
+            .reshape(batch, self.out_channels, 2 * height, width)
+        )
+        return self.activation(shuffled)
+
+
 class Nersi(nn.Module):
     """Generate a complete ``(time, receiver-y)`` profile from three indices.
 
@@ -160,6 +195,10 @@ class Nersi(nn.Module):
     shape and Fourier frequencies determine both the decoder base grid and the
     coordinate mapping.  Callers saving weights must therefore also store all
     values returned by :meth:`constructor_config`.
+
+    ``time_upsample_channels`` prepends one ``NersiTimeBlock`` per entry, so the
+    latent grid is ``2**len`` times shorter in time and the encoder's last layer
+    shrinks by the same factor; ``time_kernel_size`` is their kernel.
     """
 
     def __init__(
@@ -182,6 +221,8 @@ class Nersi(nn.Module):
         profile_grid_shape: Sequence[int] | None = None,
         latent_spatial_rank: int | None = None,
         temporal_basis_components: int | None = None,
+        time_upsample_channels: Sequence[int] | None = None,
+        time_kernel_size: int | None = None,
     ) -> None:
         super().__init__()
         if isinstance(input_features, bool) or not isinstance(input_features, Integral):
@@ -215,6 +256,20 @@ class Nersi(nn.Module):
             None
             if temporal_basis_components is None
             else _positive_integer(temporal_basis_components, "temporal_basis_components")
+        )
+        if time_upsample_channels is None and time_kernel_size is not None:
+            raise ValueError("time_kernel_size requires time_upsample_channels")
+        self.time_upsample_channels = (
+            None
+            if time_upsample_channels is None
+            else _positive_integers(time_upsample_channels, "time_upsample_channels")
+        )
+        self.time_kernel_size = (
+            None
+            if self.time_upsample_channels is None
+            else _odd_kernel_size(
+                self.kernel_size if time_kernel_size is None else time_kernel_size
+            )
         )
         self.coordinate_mapping = deepcopy(coordinate_mapping)
         self.profile_embedding_channels = None
@@ -262,16 +317,23 @@ class Nersi(nn.Module):
             self.coordinate_grid_shape = shape
 
         total_scale = math.prod(self.upsample_scales)
+        time_scale = total_scale * 2 ** len(self.time_upsample_channels or ())
         time_count, receiver_y = self.profile_shape
         decoder_time_count = self.temporal_basis_components or time_count
-        if decoder_time_count > time_count or decoder_time_count % total_scale:
+        if decoder_time_count > time_count:
+            raise ValueError("temporal_basis_components must not exceed profile time")
+        if decoder_time_count % time_scale:
+            subject = (
+                "temporal_basis_components"
+                if self.temporal_basis_components is not None
+                else f"decoded time {decoder_time_count}"
+            )
             raise ValueError(
-                "temporal_basis_components must not exceed profile time and must be divisible "
-                "by the total upsample scale"
+                f"{subject} must be divisible by the total time upsample scale {time_scale}"
             )
         self.decoder_profile_shape = (decoder_time_count, receiver_y)
         self.base_profile_shape = (
-            decoder_time_count // total_scale,
+            decoder_time_count // time_scale,
             receiver_y // total_scale,
         )
         latent_size = (
@@ -295,8 +357,21 @@ class Nersi(nn.Module):
             nn.Linear(self.encoder_width, latent_size),
             nn.GELU(),
         )
-        incoming_channels = (self.latent_channels, *self.decoder_channels[:-1])
+        time_channels = self.time_upsample_channels or ()
+        time_blocks = [
+            NersiTimeBlock(incoming, outgoing, kernel_size=self.time_kernel_size)
+            for incoming, outgoing in zip(
+                (self.latent_channels, *time_channels)[: len(time_channels)],
+                time_channels,
+                strict=True,
+            )
+        ]
+        incoming_channels = (
+            time_channels[-1] if time_channels else self.latent_channels,
+            *self.decoder_channels[:-1],
+        )
         self.decoder = nn.Sequential(
+            *time_blocks,
             *(
                 NersiBlock(
                     incoming,
@@ -311,7 +386,7 @@ class Nersi(nn.Module):
                     self.upsample_scales,
                     strict=True,
                 )
-            )
+            ),
         )
         self.output_convolution = nn.Conv2d(self.decoder_channels[-1], 1, kernel_size=1)
         if self.temporal_basis_components is not None:
@@ -420,6 +495,14 @@ class Nersi(nn.Module):
                 if self.temporal_basis_components is not None
                 else {}
             ),
+            **(
+                {
+                    "time_upsample_channels": self.time_upsample_channels,
+                    "time_kernel_size": self.time_kernel_size,
+                }
+                if self.time_upsample_channels is not None
+                else {}
+            ),
         }
 
 
@@ -451,6 +534,12 @@ def _odd_kernel_size(value: object) -> int:
     if kernel_size % 2 == 0:
         raise ValueError("kernel_size must be odd")
     return kernel_size
+
+
+def _positive_integers(values: object, name: str) -> tuple[int, ...]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence) or not values:
+        raise ValueError(f"{name} must be a nonempty sequence of positive integers")
+    return tuple(_positive_integer(value, name) for value in values)
 
 
 def _three_positive_integers(values: object, *, name: str) -> tuple[int, int, int]:
