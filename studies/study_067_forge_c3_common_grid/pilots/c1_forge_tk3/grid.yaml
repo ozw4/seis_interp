@@ -1,0 +1,49 @@
+methods:
+  ccnet5d_grid:
+    axis_a:
+    - id: '[4, 8, 4, 8]'
+      set:
+        patches.shape.1: 4
+        patches.shape.2: 8
+        patches.shape.3: 4
+        patches.shape.4: 8
+    - id: '[4, 12, 4, 12]'
+      set:
+        patches.shape.1: 4
+        patches.shape.2: 12
+        patches.shape.3: 4
+        patches.shape.4: 12
+    - id: '[6, 12, 6, 12]'
+      set:
+        patches.shape.1: 6
+        patches.shape.2: 12
+        patches.shape.3: 6
+        patches.shape.4: 12
+    - id: '[8, 12, 8, 12]'
+      set:
+        patches.shape.1: 8
+        patches.shape.2: 12
+        patches.shape.3: 8
+        patches.shape.4: 12
+    - id: '[8, 16, 8, 16]'
+      set:
+        patches.shape.1: 8
+        patches.shape.2: 16
+        patches.shape.3: 8
+        patches.shape.4: 16
+    axis_b:
+    - id: '1'
+      set:
+        model.time_dilation: 1
+    - id: '2'
+      set:
+        model.time_dilation: 2
+    - id: '3'
+      set:
+        model.time_dilation: 3
+    - id: '4'
+      set:
+        model.time_dilation: 4
+    - id: '6'
+      set:
+        model.time_dilation: 6

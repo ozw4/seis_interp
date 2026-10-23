@@ -1,0 +1,29 @@
+method_id: drr_grid
+loss: masked_trace_relative_mse
+checkpoint_rule: none
+model_seed: null
+device: cpu
+geometry_mode: grid
+algorithm:
+  rank: 6
+  damping_power: 2
+  n_iterations: 60
+  frequency_min_hz: 0.0
+  frequency_max_hz: null
+  spatial_window_shape:
+  - 4
+  - 6
+  - 4
+  - 6
+  overlap_policy: explicit
+  # Backend and boundary_rule are resolved from the effective overlap.
+  spatial_overlap:
+  - 0
+  - 3
+  - 0
+  - 3
+execution:
+  backend: batched
+  workers: 12
+  cpu_threads: 1
+  batch_matrix_limit: 2000000

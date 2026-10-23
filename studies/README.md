@@ -93,7 +93,19 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_059_forge_2ms_random70_align500_matched20k](study_059_forge_2ms_random70_align500_matched20k/README.md): completed — study_058 conditions on the study_057 70% mask; CCNet5D, NeRSI and ReGSI each use exactly 64 loss traces per update; CCNet5D patches span several lines so that every kernel tap is trained. All six methods reach relative MSE ≤ 0.9.
 
-- [study_060_forge_fair_grid](study_060_forge_fair_grid/README.md): running (pre-registered) — fair grid search of GeRSI (ReGSI real/grid), NeRSI, CCNet5D, POCS and DRR under the study_059 budget. Every method is selected on one shared validation holdout, using the same staged rules (16 runs × 3 EMA shadows per neural method), and scored once on the test set of a new mask B. Running: NeRSI, POCS and DRR have finished selection and final retraining; ReGSI is in the reseed stage and CCNet5D in S1. The final test evaluation has not been run.
+- [study_060_forge_fair_grid](study_060_forge_fair_grid/README.md): primary comparison completed — all searches, selections and 14 final predictions evaluated on mask B. Clean-test relative MSE: ReGSI-real 0.5779, ReGSI-grid 0.5884, CCNet5D 0.6526, POCS 0.7310, DRR 0.7754, NeRSI 0.8865. All six pre-registered contrasts favour ReGSI with cluster-bootstrap 95% CIs excluding zero and Holm-adjusted p = 0.0006. Density and 10,000-update sensitivity supplements remain pending.
+
+- [study_061_forge_nersi_profile](study_061_forge_nersi_profile/README.md): completed — post-hoc re-run of NeRSI in the paper's profile-wise form on the re-sealed study_060 inputs with the study_060 search protocol. All three final seeds stayed at near-zero output (training loss ≈ 1.0 throughout): clean-test relative MSE 1.0001 ± 0.0001, worse than all six study_060 methods (exploratory contrasts, Holm p = 0.0006). Two of six seeds of the selected setting trained (validation 0.9697 / 0.9698).
+
+- [study_063_c3_trace_grid](study_063_c3_trace_grid/README.md): partially stopped — C3 full-crop trace assignments, 10% observed validation holdout following study_060, five methods with 25 configurations and three additional assignment seeds.
+
+- [study_064_c3_reference_grid](study_064_c3_reference_grid/README.md): running / queued — replacement ReGSI / CCNet5D / profile NeRSI 25-candidate grids with matched MSE, AdamW lr=1e-3, 50k updates, 64 traces and EMA; POCS / DRR continue from study_063.
+
+- [study_065_forge_expanded_grid](study_065_forge_expanded_grid/README.md): stopped by user — fixed C3 S1 winners for five methods on the one-to-one FORGE extension [6,56,16,48], at 4 ms with 50,000 neural updates. NeRSI, POCS and DRR results are retained; CCNet5D training and the ReGSI retry queue are stopped. Source/receiver grid areas are 1.75/3 times the original, with 248,125 eligible traces and no collisions.
+
+- [study_066_forge_c3_reference](study_066_forge_c3_reference/README.md): running CCNet / ReGSI queued — original study060 region [6,32,8,32] at 4 ms with the same trace assignment. CCNet uses patch [4,8,4,8], BF16 and 64-trace updates across independent full-time patches. ReGSI waits for GPU 0, using its original frozen code/config and fresh initialization because no intermediate checkpoint exists. Both target 50,000 optimizer steps; NeRSI, POCS and DRR completed.
+
+- [study_067_forge_c3_common_grid](study_067_forge_c3_common_grid/README.md): prepared specification — C3 / FORGE 共通 5×5 grid、validation-only S1、全手法 barrier と 3-seed 評価。POCS は 16 反復 + receiver [4,8]、ReGSI は P2 V3（inner mask 0.25、node Fourier 0）を両 dataset に採用済み。
 
 ## Scratch workspaces
 

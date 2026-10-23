@@ -1,0 +1,1895 @@
+{
+  "purpose": "Round-2 evidence and applied N-1 production adoption; estimates are planning proxies, not new measurements.",
+  "sources": {
+    "runs/study_067_forge_c3_common_grid/20261022T192704131837Z_05c92e79ce80_ccnet_memory_probe/memory_probe.json": {
+      "sha256": "8aa20dac43366f8b1142fe1fa9a165be9fbdec50520ec11be47578f2969e2683"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json": {
+      "sha256": "0a04c4e1a41203af6124a79560a3f2d5f6ab7dd34d6e24aa4066a9213f4f406c"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml": {
+      "sha256": "e54d34f0f4f3ba3541443f55c3b59a2be8bffc4bf716152a001c649002b21ede"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183524117130Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json": {
+      "sha256": "22c3de5051d49a0f2422b686ef2142ce6a585420dd7b528c5b90709ed6308c9f"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183524117130Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml": {
+      "sha256": "efbdd1adc9137e9ce9d13dce22a4e46ce8cb1faf6788bfcb7b0c0614d5c8053e"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183529511220Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json": {
+      "sha256": "ee921cd80b7bcff6f2cfb20eb2dc242657dfc1c4d9f8b554175cd8b3047f9b76"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183529511220Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml": {
+      "sha256": "e2c353ef3cebb93868de2458ab7beebc855a2f82040dbee76604511cec1799d5"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183534795056Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json": {
+      "sha256": "0eefef872c0b6371d41a750abebb50bbfd3064631f36377e78ca217a6ff7bbb3"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183534795056Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml": {
+      "sha256": "205061bec34887d55c821726cf4ee9e22e90b417ca0130b2ec02897e2e8437f1"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_forge_nersi_jitter05/method_runs/nersi_profile/manifest.json": {
+      "sha256": "22f8c2f0203e579369ba5f0d4f8fb849af8a063f6a2ad42cbcda1138bcda28fe"
+    },
+    "runs/study_067_forge_c3_common_grid/20261023T003937042544Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/manifest.json": {
+      "sha256": "4923fd1dbed1b7099d57dab656732e6b3098841f84436255ed62c6fb422322aa"
+    },
+    "runs/study_067_forge_c3_common_grid/20261023T003937042544Z_05c92e79ce80_forge/study/d1_reference.json": {
+      "sha256": "15c39a9b08f04ea68b57ba2036c0b18f7bbacdb8a52624528f095dc53e03135f"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183550980564Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b02/manifest.json": {
+      "sha256": "3db0a19265b8d6637e84567dbcd2bebb7704249342eab6b1c4b0a299cef33b2c"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183550980564Z_05c92e79ce80_traces/study/d1_reference.json": {
+      "sha256": "199d0aa33bbbf866318eca226e6d73efb4a914014773349f7240092fd10010d6"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183556619725Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/manifest.json": {
+      "sha256": "a65a38ada10653d2e11fdfcc8adfb9ba6066eb557383e42b58041ebbbb472413"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183556619725Z_05c92e79ce80_forge/study/d1_reference.json": {
+      "sha256": "22c9eecb04f44c29c43abb7706eadfb6bf8ca169c85d4853a96d867577df9299"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183540163875Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/watchdog.json": {
+      "sha256": "f4e01e6e3662e9ee2f400af5181ee90812ca2fabd25ac69d5cf2a7ded60a8b05"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json": {
+      "sha256": "b37c33b37cbd38ab3fc7f156f8a1894effa306e16095b85f8f3a9fdb08340d24"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/request.json": {
+      "sha256": "019349f72a1a0b95a5cd59da4b1e08e19da3cee96cbfc1c895ac6642759128f2"
+    },
+    "studies/study_067_forge_c3_common_grid/grid.yaml": {
+      "sha256": "1a48bb2532c52353b535e828286b769bc49115487b316d5e05374f4034690098"
+    },
+    "studies/study_067_forge_c3_common_grid/dataset_differences.yaml": {
+      "sha256": "b5760ca9e76cf8c2e5e0aae5b25c4dbf3bc83d7396997673db73b5cbadba5be5"
+    },
+    "reports/study_067_design_round2.md": {
+      "sha256": "5483483b6316b3d714816a813c9b96114d0cecfacb18caf442213556e5ba3651"
+    },
+    "studies/study_067_forge_c3_common_grid/c3/config.yaml": {
+      "sha256": "1759592346b056963077d94c9cb9a12d3c46b8a0781f219e6da8a15391141882"
+    },
+    "studies/study_067_forge_c3_common_grid/c3/drr_grid.yaml": {
+      "sha256": "6e465080712272a313adef7802698b0a61436ba7386a060b3231953da4d96336"
+    },
+    "studies/study_067_forge_c3_common_grid/c3/nersi_profile.yaml": {
+      "sha256": "eb7da44217858c180a7f44e7fcea0a288eeb8ceccdabd189a38505cf887a9dc9"
+    },
+    "studies/study_067_forge_c3_common_grid/c3/ccnet5d_grid.yaml": {
+      "sha256": "cb8713085c8ffdca30f3576612195c7d971761aac0db16f45443e75eb66e1f2f"
+    },
+    "studies/study_067_forge_c3_common_grid/c3/regsi_real.yaml": {
+      "sha256": "0289dc66f4afd589d8a6f80c0ec62d6daaa6144767f448b1a9d8a7c68910f19e"
+    },
+    "studies/study_067_forge_c3_common_grid/c3/pocs_grid.yaml": {
+      "sha256": "e291a855d2c26872e9e84a06ee17486274f67e00d9c9fc6b98cb4784590375fc"
+    },
+    "studies/study_067_forge_c3_common_grid/forge/config.yaml": {
+      "sha256": "cbe17d5582b73cf14a78e8c34f47a10aab13cebbd1ff03e39dcf514af42bbd67"
+    },
+    "studies/study_067_forge_c3_common_grid/forge/drr_grid.yaml": {
+      "sha256": "6e465080712272a313adef7802698b0a61436ba7386a060b3231953da4d96336"
+    },
+    "studies/study_067_forge_c3_common_grid/forge/nersi_profile.yaml": {
+      "sha256": "eb9fb9cbee0705df61272588fe53cb2499b7800ce0f40c6d5821abcecb751b0a"
+    },
+    "studies/study_067_forge_c3_common_grid/forge/ccnet5d_grid.yaml": {
+      "sha256": "6d5bf508ed44f93a7ab15d4a36d418e40fb47a4d095714fdf8af74abd6ff9dc3"
+    },
+    "studies/study_067_forge_c3_common_grid/forge/regsi_real.yaml": {
+      "sha256": "b2947880c8bc04ab40b8a84180442cce2ba6d521a404e5bda2429d5bb6f83dfe"
+    },
+    "studies/study_067_forge_c3_common_grid/forge/pocs_grid.yaml": {
+      "sha256": "e291a855d2c26872e9e84a06ee17486274f67e00d9c9fc6b98cb4784590375fc"
+    },
+    "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b02/config.resolved.yaml": {
+      "sha256": "8a05a65581a7153d3dfda6e93a070f45407c79111029c60e192c36adb635f0e4"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183556619725Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/config.resolved.yaml": {
+      "sha256": "9e169af87f1bef323fc24dc7e9d697b48a288537141a61f9e146334af9afaa48"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_c3_nersi_jitter05/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml": {
+      "sha256": "2faf1a557d1a84fd27bf53c46d27e49f46d53b43f69aa1d6ff3f991163b13ad2"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_forge_nersi_jitter05/method_runs/nersi_profile/config.resolved.yaml": {
+      "sha256": "6f11dc867342f42b2de951db9e7a1c16ef1392e6badd5435f5074bac811553fa"
+    }
+  },
+  "g0": {
+    "a01_b02": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T192704131837Z_05c92e79ce80_ccnet_memory_probe/memory_probe.json",
+      "optimizer_updates": 1000,
+      "first_update": 901,
+      "last_update": 1000,
+      "updates": 100,
+      "zero_predictor_loss": 0.46086556168940895,
+      "mean_loss": 0.42336792250031396,
+      "loss_over_L0": 0.9186364911892337,
+      "output_rms_over_target_rms": 0.2840837735160727,
+      "all_finite": true,
+      "status": "passed"
+    },
+    "a05_b02": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T192704131837Z_05c92e79ce80_ccnet_memory_probe/memory_probe.json",
+      "optimizer_updates": 1000,
+      "first_update": 901,
+      "last_update": 1000,
+      "updates": 100,
+      "zero_predictor_loss": 0.46086556169270365,
+      "mean_loss": 0.3882968005344953,
+      "loss_over_L0": 0.8425381126511774,
+      "output_rms_over_target_rms": 0.3945736363693205,
+      "all_finite": true,
+      "status": "passed"
+    }
+  },
+  "n1": {
+    "jitter_canvas": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json",
+      "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+      "coordinate_jitter_cells": 0.5,
+      "loss_support_mask": false,
+      "canvas_time_upsampling": true,
+      "primary_ema": 0.999,
+      "parameter_count": 341485,
+      "mean_trace_snr_db": -0.03686740529105607,
+      "relmse": 1.0454806406323878,
+      "peak_cuda_allocated_bytes": 914378752,
+      "peak_cuda_reserved_bytes": 1046478848
+    },
+    "jitter_support": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T183524117130Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json",
+      "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183524117130Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+      "coordinate_jitter_cells": 0.5,
+      "loss_support_mask": true,
+      "canvas_time_upsampling": true,
+      "primary_ema": 0.999,
+      "parameter_count": 341485,
+      "mean_trace_snr_db": -0.1018418836894867,
+      "relmse": 1.0626222225324449,
+      "peak_cuda_allocated_bytes": 913779712,
+      "peak_cuda_reserved_bytes": 1046478848
+    },
+    "no_jitter_canvas": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T183529511220Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json",
+      "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183529511220Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+      "coordinate_jitter_cells": null,
+      "loss_support_mask": false,
+      "canvas_time_upsampling": true,
+      "primary_ema": 0.999,
+      "parameter_count": 341485,
+      "mean_trace_snr_db": -0.3385986654586646,
+      "relmse": 1.1265109177617663,
+      "peak_cuda_allocated_bytes": 914378752,
+      "peak_cuda_reserved_bytes": 1046478848
+    },
+    "no_jitter_support": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T183534795056Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json",
+      "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183534795056Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+      "coordinate_jitter_cells": null,
+      "loss_support_mask": true,
+      "canvas_time_upsampling": true,
+      "primary_ema": 0.999,
+      "parameter_count": 341485,
+      "mean_trace_snr_db": -0.4997215321045363,
+      "relmse": 1.1663328173904293,
+      "peak_cuda_allocated_bytes": 913779712,
+      "peak_cuda_reserved_bytes": 1046478848
+    }
+  },
+  "d1": {
+    "forge_d7": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261023T003937042544Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/manifest.json",
+      "reference_artifact": "runs/study_067_forge_c3_common_grid/20261023T003937042544Z_05c92e79ce80_forge/study/d1_reference.json",
+      "status": "completed",
+      "test_scoring_calls": 0,
+      "mean_trace_snr_db": 1.0978693555809718,
+      "relmse": 0.8002654654128768,
+      "reference_snr_db": 1.0978693555809718,
+      "difference_db": 0.0
+    },
+    "c3_d7": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T183550980564Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b02/manifest.json",
+      "reference_artifact": "runs/study_067_forge_c3_common_grid/20261022T183550980564Z_05c92e79ce80_traces/study/d1_reference.json",
+      "status": "completed",
+      "test_scoring_calls": 0,
+      "mean_trace_snr_db": 16.087339661975765,
+      "relmse": 0.030726624641058915,
+      "reference_snr_db": 16.087339661975765,
+      "difference_db": 0.0
+    },
+    "forge_d5b": {
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T183556619725Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/manifest.json",
+      "reference_artifact": "runs/study_067_forge_c3_common_grid/20261022T183556619725Z_05c92e79ce80_forge/study/d1_reference.json",
+      "status": "completed",
+      "test_scoring_calls": 0,
+      "mean_trace_snr_db": 1.0894010827668017,
+      "relmse": 0.8007452145393792,
+      "reference_snr_db": 1.0894010827668017,
+      "difference_db": 0.0
+    }
+  },
+  "prepare": {
+    "c3": {
+      "command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python scripts/run_c3_region_experiment.py prepare --study studies/study_067_forge_c3_common_grid/c3 --check-only",
+      "exit_code": 0,
+      "output": {
+        "dataset": "c3",
+        "rehearsal": false,
+        "methods": {
+          "regsi_real": {
+            "s1_importable": 2,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a01_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p2_c3_regsi_v3/method_runs/regsi_real/S1/a01_b01",
+              "a01_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_r1_c3_regsi_v3_a01_b05/method_runs/regsi_real/S1/a01_b05"
+            }
+          },
+          "nersi_profile": {
+            "s1_importable": 1,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a02_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_c3_nersi_jitter05/method_runs/nersi_profile/S1/a02_b04"
+            }
+          },
+          "ccnet5d_grid": {
+            "s1_importable": 0,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {}
+          },
+          "drr_grid": {
+            "s1_importable": 1,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a02_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183550980564Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b02"
+            }
+          },
+          "pocs_grid": {
+            "s1_importable": 25,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a01_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b01",
+              "a01_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b02",
+              "a01_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b03",
+              "a01_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b04",
+              "a01_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b05",
+              "a02_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b01",
+              "a02_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b02",
+              "a02_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b03",
+              "a02_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b04",
+              "a02_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b05",
+              "a03_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b01",
+              "a03_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b02",
+              "a03_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b03",
+              "a03_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b04",
+              "a03_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b05",
+              "a04_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b01",
+              "a04_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b02",
+              "a04_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b03",
+              "a04_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b04",
+              "a04_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b05",
+              "a05_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b01",
+              "a05_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b02",
+              "a05_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b03",
+              "a05_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b04",
+              "a05_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_c3_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b05"
+            }
+          }
+        },
+        "experiment": "temporary check-only preparation (removed)",
+        "targets_read_for_scoring": 0
+      }
+    },
+    "forge": {
+      "command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/python scripts/run_forge_grid_experiment.py prepare --study studies/study_067_forge_c3_common_grid/forge --check-only",
+      "exit_code": 0,
+      "output": {
+        "dataset": "forge",
+        "rehearsal": false,
+        "methods": {
+          "regsi_real": {
+            "s1_importable": 1,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a01_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p2_forge_regsi_v3/method_runs/regsi_real/S1/a01_b01"
+            }
+          },
+          "nersi_profile": {
+            "s1_importable": 1,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a02_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04"
+            }
+          },
+          "ccnet5d_grid": {
+            "s1_importable": 0,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {}
+          },
+          "drr_grid": {
+            "s1_importable": 1,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a02_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261023T003937042544Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02"
+            }
+          },
+          "pocs_grid": {
+            "s1_importable": 25,
+            "s1_total": 25,
+            "evaluation_importable_max": 0,
+            "evaluation_total": 3,
+            "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
+            "evaluation_seeds_by_candidate": {},
+            "s1_sources": {
+              "a01_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b01",
+              "a01_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b02",
+              "a01_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b03",
+              "a01_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b04",
+              "a01_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a01_b05",
+              "a02_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b01",
+              "a02_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b02",
+              "a02_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b03",
+              "a02_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b04",
+              "a02_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a02_b05",
+              "a03_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b01",
+              "a03_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b02",
+              "a03_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b03",
+              "a03_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b04",
+              "a03_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a03_b05",
+              "a04_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b01",
+              "a04_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b02",
+              "a04_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b03",
+              "a04_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b04",
+              "a04_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a04_b05",
+              "a05_b01": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b01",
+              "a05_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b02",
+              "a05_b03": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b03",
+              "a05_b04": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b04",
+              "a05_b05": "/workspace/runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_p1_forge_pocs_k1_iterations32_rx4x8_ov3x6/method_runs/pocs_grid/S1/a05_b05"
+            }
+          }
+        },
+        "experiment": "temporary check-only preparation (removed)",
+        "targets_read_for_scoring": 0
+      }
+    }
+  },
+  "n2": {
+    "artifact": "runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json",
+    "shadow_ema": {
+      "0.999": {
+        "mean_trace_snr_db": -0.03686740529105607,
+        "relmse": 1.0454806406323878
+      },
+      "0.9995": {
+        "mean_trace_snr_db": -0.03076126999008577,
+        "relmse": 1.0444913543959233
+      },
+      "0.9998": {
+        "mean_trace_snr_db": -0.028062200551063603,
+        "relmse": 1.044421865757362
+      }
+    },
+    "delta_db": 0.008805204739992464,
+    "adopted": false,
+    "c3_confirmation_needed": false
+  },
+  "n1_p3_baseline": {
+    "artifact": "runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_forge_nersi_jitter05/method_runs/nersi_profile/manifest.json",
+    "mean_trace_snr_db": -0.6887763364019502
+  },
+  "n1_deltas_db": {
+    "upsampling_vs_artifact_p3": 0.6519089311108942,
+    "support_vs_canvas": -0.06497447839843062,
+    "no_jitter_vs_jitter_under_canvas": -0.30173126016760854
+  },
+  "d1_old_forge_watchdog": {
+    "artifact": "runs/study_067_forge_c3_common_grid/20261022T183540163875Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/watchdog.json",
+    "reason": "progress stalled for three report intervals",
+    "expected_report_seconds": 1800.0
+  },
+  "d2": {
+    "artifact": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json",
+    "measurement": {
+      "status": "completed",
+      "config": {
+        "method_id": "drr_grid",
+        "loss": "masked_trace_relative_mse",
+        "checkpoint_rule": "none",
+        "model_seed": null,
+        "device": "cpu",
+        "geometry_mode": "grid",
+        "algorithm": {
+          "rank": 30,
+          "damping_power": 2,
+          "n_iterations": 2,
+          "frequency_min_hz": 0.0,
+          "frequency_max_hz": null,
+          "spatial_window_shape": [
+            8,
+            16,
+            8,
+            16
+          ],
+          "overlap_policy": "explicit",
+          "spatial_overlap": [
+            0,
+            4,
+            0,
+            4
+          ],
+          "backend": "drr_batched",
+          "boundary_rule": "clip_and_shift"
+        },
+        "execution": {
+          "backend": "batched",
+          "workers": 1,
+          "cpu_threads": 1,
+          "batch_matrix_limit": 2000000
+        },
+        "alignment": {
+          "velocity_m_per_s": 500.0,
+          "max_delay_samples": 1171
+        }
+      },
+      "wall_seconds": 31526.971176141873,
+      "block_count": 9,
+      "nonempty_block_count": 9,
+      "block_wall_seconds_total": 31522.39081704989,
+      "mean_nonempty_block_wall_seconds": 3502.487868561099,
+      "non_block_overhead_seconds": 4.5803590919822454,
+      "process_peak_rss_bytes": 5303988224,
+      "rss_measurement": "Linux ru_maxrss; process lifetime, including input loading",
+      "prediction_shape": [
+        1474,
+        1001
+      ],
+      "extrapolated_60_iteration_full_candidate_seconds": 945676.3048705887,
+      "extrapolated_60_iteration_mean_block_seconds": 105074.63605683297,
+      "extrapolation": "linear iteration scaling; FFT/setup also scaled, conservative estimate",
+      "exceeds_72_hours": true,
+      "validation_only": true,
+      "validation_scoring_calls": 0,
+      "test_scoring_calls": 0,
+      "experiment": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge",
+      "dataset": "forge",
+      "candidate": "a05_b05",
+      "address_space_cap_bytes": 25769803776,
+      "pid": 1687778,
+      "nice": 10
+    },
+    "a05_b04": {
+      "path": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04",
+      "status_at_audit": "pending",
+      "result_present": false
+    },
+    "c3_measurement": {
+      "path": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces",
+      "result_present": false
+    }
+  },
+  "imports": {
+    "forge": {
+      "candidate": "a02_b02",
+      "resolved_config": {
+        "method_id": "drr_grid",
+        "loss": "masked_trace_relative_mse",
+        "checkpoint_rule": "none",
+        "model_seed": null,
+        "device": "cpu",
+        "geometry_mode": "grid",
+        "algorithm": {
+          "rank": 12,
+          "damping_power": 2,
+          "n_iterations": 60,
+          "frequency_min_hz": 0.0,
+          "frequency_max_hz": null,
+          "spatial_window_shape": [
+            4,
+            8,
+            4,
+            8
+          ],
+          "overlap_policy": "explicit",
+          "spatial_overlap": [
+            0,
+            4,
+            0,
+            4
+          ],
+          "backend": "drr_batched",
+          "boundary_rule": "clip_and_shift"
+        },
+        "execution": {
+          "backend": "batched",
+          "workers": 12,
+          "cpu_threads": 1,
+          "batch_matrix_limit": 2000000
+        },
+        "alignment": {
+          "velocity_m_per_s": 500.0,
+          "max_delay_samples": 1171
+        }
+      },
+      "production_input_reference": "runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge",
+      "provenance": {
+        "source_path": "/workspace/runs/study_067_forge_c3_common_grid/20261023T003937042544Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02",
+        "source_config_sha256": "81c2933e4709f0cef5f71c0a4dbc07209ae529c11998bc59fbb63ddecbaf8334",
+        "source_method_config_hash": "dfdc6d3c792653bdca2bda5f3db7a5fdd6f27f62811af64b2dbe654f7b3e5f21",
+        "source_input_hash": "2ad487443904e5007f3a59569a2d14937d1f063de1728101ef88e0b8ed674238",
+        "source_snapshot_sha256": "032ef1a12c37ff2f41470b6b587bed4327a10fcf56548ab14ac2c037c0fdda09",
+        "execution_only_keys": [
+          "device",
+          "execution.cpu_threads",
+          "execution.workers",
+          "execution.batch_matrix_limit",
+          "execution.saved_tensors_on_cpu",
+          "execution.model_memory_options.receptive_field_pruning",
+          "execution.model_memory_options.fused_edge_aggregation",
+          "execution.model_memory_options.activation_checkpointing",
+          "training.execution.cpu_threads",
+          "prediction.query_batch_size",
+          "prediction.profile_batch_size",
+          "execution.cudnn_benchmark",
+          "execution.expected_report_seconds",
+          "execution.watchdog_floor_seconds",
+          "execution.wall_clock_limit_seconds",
+          "training.ema_eval_decays"
+        ]
+      },
+      "d5b_rejected": true,
+      "d5b_config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183556619725Z_05c92e79ce80_forge/method_runs/drr_grid/S1/a02_b02/config.resolved.yaml",
+      "d5b_method_config_hash": "40affbac1640604e18c5a3f03771a320be48a611c337d4367a843ae2c2c07cae"
+    },
+    "c3": {
+      "candidate": "a02_b02",
+      "resolved_config": {
+        "method_id": "drr_grid",
+        "loss": "masked_trace_relative_mse",
+        "checkpoint_rule": "none",
+        "model_seed": null,
+        "device": "cpu",
+        "geometry_mode": "grid",
+        "algorithm": {
+          "rank": 12,
+          "damping_power": 2,
+          "n_iterations": 60,
+          "frequency_min_hz": 0.0,
+          "frequency_max_hz": null,
+          "spatial_window_shape": [
+            4,
+            8,
+            4,
+            8
+          ],
+          "overlap_policy": "explicit",
+          "spatial_overlap": [
+            0,
+            4,
+            0,
+            4
+          ],
+          "backend": "drr_batched",
+          "boundary_rule": "clip_and_shift"
+        },
+        "execution": {
+          "backend": "batched",
+          "workers": 12,
+          "cpu_threads": 1,
+          "batch_matrix_limit": 2000000
+        }
+      },
+      "production_input_reference": "runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces",
+      "provenance": {
+        "source_path": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183550980564Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b02",
+        "source_config_sha256": "13d8612e7c1cf13c89e68619b342562fbfac7cd9f1d2beac7ab7d086d8464872",
+        "source_method_config_hash": "3b17e81510b5dfed31861e32c94960fa7d8350aaeb177905e131d85eab5225c8",
+        "source_input_hash": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+        "source_snapshot_sha256": "ca7377b83b56255fb25ca7362849b73a7d2b36d02728555b2f0e273527635f0f",
+        "execution_only_keys": [
+          "device",
+          "execution.cpu_threads",
+          "execution.workers",
+          "execution.batch_matrix_limit",
+          "execution.saved_tensors_on_cpu",
+          "execution.model_memory_options.receptive_field_pruning",
+          "execution.model_memory_options.fused_edge_aggregation",
+          "execution.model_memory_options.activation_checkpointing",
+          "training.execution.cpu_threads",
+          "prediction.query_batch_size",
+          "prediction.profile_batch_size",
+          "execution.cudnn_benchmark",
+          "execution.expected_report_seconds",
+          "execution.watchdog_floor_seconds",
+          "execution.wall_clock_limit_seconds",
+          "training.ema_eval_decays"
+        ]
+      },
+      "study063_rejected_candidates": [
+        "a01_b01",
+        "a01_b02",
+        "a01_b03",
+        "a01_b04",
+        "a01_b05",
+        "a02_b01",
+        "a02_b02",
+        "a02_b03",
+        "a02_b04",
+        "a02_b05",
+        "a03_b01",
+        "a03_b02",
+        "a03_b03",
+        "a03_b04",
+        "a03_b05",
+        "a04_b01",
+        "a04_b02",
+        "a04_b03",
+        "a04_b04",
+        "a04_b05",
+        "a05_b01",
+        "a05_b02",
+        "a05_b03",
+        "a05_b04",
+        "a05_b05"
+      ],
+      "study063_source": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces",
+      "study063_input_hash": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+      "study063_input_matches_current": true,
+      "study063_a02_b02_config_artifact": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b02/config.resolved.yaml",
+      "study063_a02_b02_method_config_hash": "ded256e35287db4aa6a45de3cd3a35be1f573f5527e631a22b44e7344a518945",
+      "study063_completed_zero_overlap_identity_rejections": [
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a01_b01",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "3370d60d1ff1e74ed7e6e8e8cfd5323bba6f1482c501062738d72df85c41a8de",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a01_b02",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "e0874d03518069bc646fa9dde6c057575ab02d13a2d5764fc8d8ecf61d5905be",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a01_b03",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "40037118a68584dc5314fff323964bd769913510c36737e32c3bb29b9a4b555d",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a01_b04",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "c3d7d185d2f3a7f5c696eaac3bc9f7425de56a1f788ba4775caaa7bd57fcc2cb",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a01_b05",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "c845cd3a41529b3b756d63c18de8a5a0de370f57261d27a003e2fc1c19596873",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b01",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "837196448cd703868c48ff58d5794078b4d306b14f4a95a4c85d6280177c9800",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b02",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "ded256e35287db4aa6a45de3cd3a35be1f573f5527e631a22b44e7344a518945",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b03",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "9400c836faab36e1bae3ca7bef985d7e84f6741a6cf3d5e6e6361140ade335df",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b04",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "d8d9578976fad0e4a7e6d637af83ee4d30a03c9fb182e02eccb2b4540f1e31ef",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a02_b05",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "15de6d8a2017fcbb2786acf04bc191de28a61ba059709d22c99c6ba7833c3f72",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a03_b01",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "e98a1b4f3cb153f51de66150357275d09f3671c49d1b9c4810d0422ce0a2b4a0",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a03_b02",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "daded5502990cce42ade121010d890dee58bd4029add83c977432b5195ce5b24",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a03_b03",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "fa9093f5c76c6bed31323ace66eef5da99e892499806dd537de3039438905cb6",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a03_b04",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "782cd262e48cfc7451b02b0d8348d334a791d325696270c0e63f3c3f5301ae3a",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a03_b05",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "7837fb53173b4be424bb341fe569a92b3d7d41145f1d7c1fdba1490c535fac6e",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a04_b01",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "326d64b83738685ee730c60a190891350d41d67f7244c1dc09f19ad850e5eeea",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a04_b02",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "a6a96d7bcad4a79bda91c7b2389e49bb5546c20d192c71b6370f23339a07908b",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a04_b03",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "88f2f5ffbb33c18e7de2778557b74459e52decefa05c24eb466c2dc6213d30a5",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a04_b04",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "1b443d4c26297d9bd45d4c748b400805cca1206243c65614e4b0994cc9ff5be1",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a04_b05",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "98a08f5e5abecc0fe255e41c07d0eb330227abed3873872db12a42ae34fede2c",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a05_b01",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "04feadc364be719179f419554585ef77d3fc6cfcf6f561db376c1f29f04f78f1",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a05_b02",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "47e944e483d1ab638c084e40fae3442ce49c77054c3f5a6ee70f2a1fd330c69d",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a05_b03",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "6a986cbdf6107bc9c788d4d1d96d305feb13e3d179196facba397cadbdb9d9c7",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a05_b04",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "0995693e91e53a921ec184c58115ef8849fc9bf33cd8e77f063bbfff604db547",
+          "matches_any_production_candidate": false
+        },
+        {
+          "source_path": "runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/method_runs/drr_grid/S1/a05_b05",
+          "completed": true,
+          "spatial_overlap": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "method_config_hash": "c25db395dee1282bd7aad89308ac675f845f327c120cf8a5c878a80c63d1a423",
+          "matches_any_production_candidate": false
+        }
+      ]
+    }
+  },
+  "drr_estimates": {
+    "basis": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json",
+    "formula": "t_block60 = measured_mean_block60 * (M*N*min(M,N))/(1620*768*768) * bins/2049; CPU = overhead + blocks*t_block60; wall = overhead + ceil(blocks/12)*t_block60. Same rank-30 cost for all ranks. S1 list scheduling follows candidate_priority; omit imported a02_b02. Three seeds use the slowest candidate and at most two concurrent seed jobs.",
+    "limitations": "Measured overlap is [0,4,0,4], not adopted [0,8,0,8]. Both heavy FORGE schedules have nine same-shaped blocks. No C3 or other-window completed D-2 measurement; dimensions/bin scaling and ideal worker throughput are unvalidated planning assumptions. Concurrent-candidate contention and input/RSS replication are not measured.",
+    "datasets": {
+      "forge": {
+        "workers": 12,
+        "parallel_candidates": 4,
+        "windows": [
+          {
+            "window_id": "b01",
+            "window": [
+              4,
+              6,
+              4,
+              6
+            ],
+            "overlap": [
+              0,
+              3,
+              0,
+              3
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                2
+              ],
+              [
+                0,
+                3,
+                6,
+                9,
+                12,
+                15,
+                18,
+                21,
+                24,
+                26
+              ],
+              [
+                0,
+                4
+              ],
+              [
+                0,
+                3,
+                6,
+                9,
+                12,
+                15,
+                18,
+                21,
+                24,
+                26
+              ]
+            ],
+            "block_count": 400,
+            "effective_block_shape": [
+              4,
+              6,
+              4,
+              6
+            ],
+            "hankel_shape": [
+              144,
+              36
+            ],
+            "frequency_bins": 2049,
+            "estimated_block60_seconds": 20.522389854850193,
+            "estimated_candidate_cpu_hours": 2.2815378613977946,
+            "estimated_candidate_wall_hours_workers12": 0.195094892821358
+          },
+          {
+            "window_id": "b02",
+            "window": [
+              4,
+              8,
+              4,
+              8
+            ],
+            "overlap": [
+              0,
+              4,
+              0,
+              4
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                2
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ],
+              [
+                0,
+                4
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ]
+            ],
+            "block_count": 196,
+            "effective_block_shape": [
+              4,
+              8,
+              4,
+              8
+            ],
+            "hankel_shape": [
+              225,
+              64
+            ],
+            "frequency_bins": 2049,
+            "estimated_block60_seconds": 101.34513508567994,
+            "estimated_candidate_cpu_hours": 5.518951898857015,
+            "estimated_candidate_wall_hours_workers12": 0.4798465709857059
+          },
+          {
+            "window_id": "b03",
+            "window": [
+              6,
+              8,
+              6,
+              8
+            ],
+            "overlap": [
+              0,
+              4,
+              0,
+              4
+            ],
+            "starts_by_axis": [
+              [
+                0
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ],
+              [
+                0,
+                2
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ]
+            ],
+            "block_count": 98,
+            "effective_block_shape": [
+              6,
+              8,
+              6,
+              8
+            ],
+            "hankel_shape": [
+              400,
+              144
+            ],
+            "frequency_bins": 2049,
+            "estimated_block60_seconds": 912.1062157711195,
+            "estimated_candidate_cpu_hours": 24.830830417961582,
+            "estimated_candidate_wall_hours_workers12": 2.2815378613977937
+          },
+          {
+            "window_id": "b04",
+            "window": [
+              8,
+              12,
+              8,
+              12
+            ],
+            "overlap": [
+              0,
+              6,
+              0,
+              6
+            ],
+            "starts_by_axis": [
+              [
+                0
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ]
+            ],
+            "block_count": 25,
+            "effective_block_shape": [
+              6,
+              12,
+              8,
+              12
+            ],
+            "hankel_shape": [
+              980,
+              432
+            ],
+            "frequency_bins": 2049,
+            "estimated_block60_seconds": 20111.942057753186,
+            "estimated_candidate_cpu_hours": 139.66753661192269,
+            "estimated_candidate_wall_hours_workers12": 16.761224036764315
+          },
+          {
+            "window_id": "b05",
+            "window": [
+              8,
+              16,
+              8,
+              16
+            ],
+            "overlap": [
+              0,
+              8,
+              0,
+              8
+            ],
+            "starts_by_axis": [
+              [
+                0
+              ],
+              [
+                0,
+                8,
+                16
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                8,
+                16
+              ]
+            ],
+            "block_count": 9,
+            "effective_block_shape": [
+              6,
+              16,
+              8,
+              16
+            ],
+            "hankel_shape": [
+              1620,
+              768
+            ],
+            "frequency_bins": 2049,
+            "estimated_block60_seconds": 105074.63605683297,
+            "estimated_candidate_cpu_hours": 262.68786246405244,
+            "estimated_candidate_wall_hours_workers12": 29.18867122664582
+          }
+        ],
+        "s1_to_run": 24,
+        "seed_count": 3,
+        "estimated_s1_cpu_hours": 2169.4146443721006,
+        "estimated_seed_cpu_hours": 788.0635873921574,
+        "estimated_total_cpu_hours": 2957.478231764258,
+        "estimated_s1_wall_hours": 62.711119300174445,
+        "estimated_seed_wall_hours": 58.37734245329164,
+        "estimated_total_wall_hours": 121.08846175346608,
+        "max_candidate_wall_hours": 29.18867122664582
+      },
+      "c3": {
+        "workers": 12,
+        "parallel_candidates": 2,
+        "windows": [
+          {
+            "window_id": "b01",
+            "window": [
+              4,
+              6,
+              4,
+              6
+            ],
+            "overlap": [
+              0,
+              3,
+              0,
+              3
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                4,
+                8,
+                12
+              ],
+              [
+                0,
+                3,
+                6,
+                9,
+                12,
+                15,
+                18,
+                21,
+                24,
+                26
+              ],
+              [
+                0,
+                4
+              ],
+              [
+                0,
+                3,
+                6,
+                9,
+                12,
+                15,
+                18,
+                21,
+                24,
+                26
+              ]
+            ],
+            "block_count": 800,
+            "effective_block_shape": [
+              4,
+              6,
+              4,
+              6
+            ],
+            "hankel_shape": [
+              144,
+              36
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 2.5740625635414833,
+            "estimated_candidate_cpu_hours": 0.5732862249792137,
+            "estimated_candidate_wall_hours_workers12": 0.04917848634701712
+          },
+          {
+            "window_id": "b02",
+            "window": [
+              4,
+              8,
+              4,
+              8
+            ],
+            "overlap": [
+              0,
+              4,
+              0,
+              4
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                4,
+                8,
+                12
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ],
+              [
+                0,
+                4
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ]
+            ],
+            "block_count": 392,
+            "effective_block_shape": [
+              4,
+              8,
+              4,
+              8
+            ],
+            "hankel_shape": [
+              225,
+              64
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 12.71142006687152,
+            "estimated_candidate_cpu_hours": 1.3854047292515606,
+            "estimated_candidate_wall_hours_workers12": 0.11779367258298401
+          },
+          {
+            "window_id": "b03",
+            "window": [
+              6,
+              8,
+              6,
+              8
+            ],
+            "overlap": [
+              0,
+              4,
+              0,
+              4
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                6,
+                10
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ],
+              [
+                0,
+                2
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ]
+            ],
+            "block_count": 294,
+            "effective_block_shape": [
+              6,
+              8,
+              6,
+              8
+            ],
+            "hankel_shape": [
+              400,
+              144
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 114.40278060184369,
+            "estimated_candidate_cpu_hours": 9.344166071120561,
+            "estimated_candidate_wall_hours_workers12": 0.7957360761494652
+          },
+          {
+            "window_id": "b04",
+            "window": [
+              8,
+              12,
+              8,
+              12
+            ],
+            "overlap": [
+              0,
+              6,
+              0,
+              6
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                8
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ]
+            ],
+            "block_count": 50,
+            "effective_block_shape": [
+              8,
+              12,
+              8,
+              12
+            ],
+            "hankel_shape": [
+              1225,
+              576
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 5605.736249490342,
+            "estimated_candidate_cpu_hours": 77.85872023155808,
+            "estimated_candidate_wall_hours_workers12": 7.787017112928804
+          },
+          {
+            "window_id": "b05",
+            "window": [
+              8,
+              16,
+              8,
+              16
+            ],
+            "overlap": [
+              0,
+              8,
+              0,
+              8
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                8
+              ],
+              [
+                0,
+                8,
+                16
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                8,
+                16
+              ]
+            ],
+            "block_count": 18,
+            "effective_block_shape": [
+              8,
+              16,
+              8,
+              16
+            ],
+            "hankel_shape": [
+              2025,
+              1024
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 29287.111834071984,
+            "estimated_candidate_cpu_hours": 146.43683149232993,
+            "estimated_candidate_wall_hours_workers12": 16.271890007565542
+          }
+        ],
+        "s1_to_run": 24,
+        "seed_count": 3,
+        "estimated_s1_cpu_hours": 1176.606639016945,
+        "estimated_seed_cpu_hours": 439.3104944769898,
+        "estimated_total_cpu_hours": 1615.917133493935,
+        "estimated_s1_wall_hours": 63.69184846684629,
+        "estimated_seed_wall_hours": 32.543780015131084,
+        "estimated_total_wall_hours": 96.23562848197737,
+        "max_candidate_wall_hours": 16.271890007565542
+      }
+    }
+  },
+  "cpu_plan": {
+    "forge_drr": 48,
+    "c3_drr": 24,
+    "forge_pocs": 2,
+    "c3_pocs": 2,
+    "gpu_side_reserved_core_budget": 20,
+    "total_core_budget": 96,
+    "policy": "Launch-time operational budget: OMP_NUM_THREADS=OPENBLAS_NUM_THREADS=MKL_NUM_THREADS=1. GPU-side work (including active seed trainers, ReGSI CPU threads and CCNet prefetch) must fit the 20-core reservation; stagger GPU method/seed workers if needed. Existing method configs do not enforce a global CPU cap. No job is launched by this audit."
+  },
+  "validation": {
+    "focused": {
+      "command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/pytest -q tests/integration/test_forge_matched_tuning.py tests/unit/test_environment.py tests/unit/test_forge_trace_scaling.py tests/unit/test_study067_sprint1.py tests/unit/test_experiment_imports.py tests/unit/test_nersi_time_upsampling.py tests/integration/test_forge_nersi_profile.py",
+      "exit_code": 0,
+      "result": "210 passed in 18.37s"
+    },
+    "ruff_check": {
+      "command": "CUDA_VISIBLE_DEVICES='' .venv/bin/ruff check .",
+      "exit_code": 0,
+      "output": "All checks passed!"
+    },
+    "ruff_format_check": {
+      "command": "CUDA_VISIBLE_DEVICES='' .venv/bin/ruff format --check .",
+      "exit_code": 0,
+      "output": "911 files already formatted"
+    },
+    "doctor": {
+      "command": "CUDA_VISIBLE_DEVICES='' .venv/bin/python -m seis_interp.cli doctor",
+      "exit_code": 0,
+      "output": "Python: 3.10.12 (/workspace/.venv/bin/python)\nPyTorch: 2.5.0a0+b465a5843b.nv24.09 | CUDA available=False | devices=0\nPackages:\n  numpy: 1.26.4\n  PyYAML: 6.0.3\n  segyio: 1.9.14\n  pandas: 2.3.3\n  pyarrow: 25.0.1\n  matplotlib: 3.10.9\nCommands:\n  codex: codex-cli 0.163.0\n  claude: not available\n  gh: gh version 2.101.0 (2026-09-15)\nhttps://github.com/cli/cli/releases/tag/v2.101.0\nData root: /workspace/data | exists=True | readable=True",
+      "unavailable_claude_error": "[Errno 8] Exec format error: '~/.local/bin/claude'"
+    },
+    "constraints": {
+      "existing_grid_axis_values_and_ids_unchanged": true,
+      "c1_decision_paragraph_unchanged": true,
+      "shared_grid_pins_match": true,
+      "evidence_source_hashes_verified": true,
+      "authorized_n1_upsampling_applied_in_both_datasets": true,
+      "model_widths_unchanged": true,
+      "jitter_0_5_and_whole_canvas_loss_retained": true,
+      "experiment_launches": 0,
+      "gpu_used": false,
+      "signals_sent": false,
+      "writes_under_runs": false,
+      "commit_created": false,
+      "c1_runs_and_d2_measurement_unmodified": true
+    },
+    "benchmark_expectations": {
+      "test": "tests/unit/test_study067_sprint1.py::test_approved_defaults_seeds_and_k1_option",
+      "datasets": [
+        "c3",
+        "forge"
+      ],
+      "adopted_value": true,
+      "note": "Both parameterized cases already expected benchmark on at task start; tightened the assertion to is True."
+    },
+    "pytest_full": {
+      "command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/pytest -q",
+      "exit_code": 0,
+      "result": "6989 passed, 32 skipped, 1 warning in 512.76s (0:08:32)",
+      "failures": 0,
+      "summary_output": "=============================== warnings summary ===============================\ntests/integration/test_forge_trace_experiment.py::test_historical_mask_identities_preserve_roles_in_a_new_study\n  /workspace/tests/integration/test_forge_trace_experiment.py:177: FutureWarning: Mismatched null-like values None and nan found. In a future version, pandas equality-testing functions (e.g. assert_frame_equal) will consider these not-matching and raise.\n    pd.testing.assert_frame_equal(actual.drop(columns=\"role\"), expected)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nSKIPPED [1] tests/integration/test_c3_replacement_experiment.py:108: method continues in the original experiment\nSKIPPED [6] tests/integration/test_long_run_resume.py:154: CUDA unavailable\nSKIPPED [1] tests/integration/test_relational_trace_graph_runs.py:417: CUDA required for AMP\nSKIPPED [1] tests/unit/test_ccnet5d_patch_gradients.py:129: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_patch_reuse.py:124: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_poc_training_contract.py:536: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_prediction.py:211: BF16 CUDA unavailable\nSKIPPED [4] tests/unit/test_drr_batched.py:15: CUDA unavailable\nSKIPPED [1] tests/unit/test_drr_batched.py:69: CUDA unavailable\nSKIPPED [1] tests/unit/test_masked_gather_inputs.py:210: CUDA is unavailable\nSKIPPED [1] tests/unit/test_nersi_checkpoints.py:266: CUDA is unavailable\nSKIPPED [4] tests/unit/test_pocs_batched.py:14: CUDA unavailable\nSKIPPED [1] tests/unit/test_relational_trace_graph_execution.py:217: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_execution.py:486: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_memory.py:421: bf16 autocast smoke test requires a bf16-capable CUDA device\nSKIPPED [3] tests/unit/test_relational_trace_graph_poc.py:332: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_poc.py:446: CUDA bf16 required\nSKIPPED [2] tests/unit/test_relational_trace_graph_poc.py:493: CUDA required for AMP\n6989 passed, 32 skipped, 1 warning in 512.76s (0:08:32)"
+    },
+    "check_d1": {
+      "command": "CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/launch_study067_pilots.py check-d1",
+      "exit_code": 0,
+      "passed": 3,
+      "difference_db": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "adapter_warmup_fix": {
+      "warm_ccnet_mocked": true,
+      "training_precision": "bf16",
+      "prediction_precision": "bf16",
+      "production_warmup_unchanged": true,
+      "command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/pytest -q tests/integration/test_forge_matched_tuning.py::test_ccnet_cuda_adapter_passes_precision_and_reports_kernel_fallback",
+      "exit_code": 0,
+      "result": "2 passed in 5.17s"
+    },
+    "doctor_json": {
+      "command": "CUDA_VISIBLE_DEVICES='' .venv/bin/python -m seis_interp.cli doctor --json",
+      "exit_code": 0,
+      "claude": {
+        "available": false,
+        "path": "~/.local/bin/claude",
+        "version": "[Errno 8] Exec format error: '~/.local/bin/claude'"
+      }
+    }
+  },
+  "nersi_adoption": {
+    "status": "applied",
+    "coordinate_jitter_cells": 0.5,
+    "loss_support_mask": false,
+    "datasets": {
+      "c3": {
+        "parameter_count": 363269,
+        "candidate_count": 25,
+        "time_sample_count": 384,
+        "canvas_sample_count": 384,
+        "time_upsampling_stages": 0,
+        "resolved_model": {
+          "input_features": 3,
+          "fourier_components": 40,
+          "frequency_base": 1.15,
+          "encoder_width": 40,
+          "latent_channels": 28,
+          "decoder_channels": [
+            29,
+            14,
+            8
+          ],
+          "profile_shape": [
+            384,
+            32
+          ],
+          "upsample_scales": [
+            2,
+            2,
+            2
+          ],
+          "kernel_size": 5,
+          "activation": "gelu",
+          "output_activation": "linear"
+        },
+        "production_input_reference": "runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces",
+        "production_input_fingerprint": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+        "production_method_config_hash": "02e294284aa7de5ca42ecf950b5f99fa44ff469144f05bf166301394d7b69566",
+        "without_upsampling_method_config_hash": "02e294284aa7de5ca42ecf950b5f99fa44ff469144f05bf166301394d7b69566",
+        "upsampling_identity_unchanged": true,
+        "c3_matched_parameter_target": 363269,
+        "c3_matched_parameter_tolerance": 0.05,
+        "relative_difference_from_c3_target": 0.0,
+        "within_c3_parameter_band": true,
+        "production_parameter_policy": "363269 +/-5%",
+        "provenance": {
+          "source_path": "/workspace/runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_c3_nersi_jitter05/method_runs/nersi_profile/S1/a02_b04",
+          "source_config_sha256": "2faf1a557d1a84fd27bf53c46d27e49f46d53b43f69aa1d6ff3f991163b13ad2",
+          "source_method_config_hash": "02e294284aa7de5ca42ecf950b5f99fa44ff469144f05bf166301394d7b69566",
+          "source_input_hash": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+          "source_snapshot_sha256": "7e202a67bcbe3d0467960bbf9069668738148aaa3c9f8fdf0cdba509ee6159d6",
+          "execution_only_keys": [
+            "device",
+            "execution.cpu_threads",
+            "execution.workers",
+            "execution.batch_matrix_limit",
+            "execution.saved_tensors_on_cpu",
+            "execution.model_memory_options.receptive_field_pruning",
+            "execution.model_memory_options.fused_edge_aggregation",
+            "execution.model_memory_options.activation_checkpointing",
+            "training.execution.cpu_threads",
+            "prediction.query_batch_size",
+            "prediction.profile_batch_size",
+            "execution.cudnn_benchmark",
+            "execution.expected_report_seconds",
+            "execution.watchdog_floor_seconds",
+            "execution.wall_clock_limit_seconds",
+            "training.ema_eval_decays"
+          ]
+        },
+        "previous_s1_importable": 1,
+        "current_s1_importable": 1,
+        "s1_count_unchanged": true,
+        "s1_source_unchanged": true
+      },
+      "forge": {
+        "parameter_count": 341485,
+        "candidate_count": 25,
+        "time_sample_count": 1001,
+        "canvas_sample_count": 2172,
+        "time_upsampling_stages": 3,
+        "resolved_model": {
+          "input_features": 3,
+          "fourier_components": 40,
+          "frequency_base": 1.15,
+          "encoder_width": 40,
+          "latent_channels": 28,
+          "decoder_channels": [
+            29,
+            14,
+            8
+          ],
+          "profile_shape": [
+            2176,
+            32
+          ],
+          "upsample_scales": [
+            2,
+            2,
+            2
+          ],
+          "kernel_size": 5,
+          "activation": "gelu",
+          "output_activation": "linear",
+          "time_upsample_channels": [
+            28,
+            28,
+            28
+          ],
+          "time_kernel_size": 3
+        },
+        "production_input_reference": "runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge",
+        "production_input_fingerprint": "8ab7d7c48642a2da526bdc5913d20276fafe36f55125bac506a2225486dfb765",
+        "production_method_config_hash": "3fb35479db5671d9dee285455a547deb335c506553cbc5675f206c381d43d221",
+        "without_upsampling_method_config_hash": "a84c85133151b3de987610a6feb90e2c42d729574bec036b90d3aa7c31765dc8",
+        "upsampling_identity_unchanged": false,
+        "c3_matched_parameter_target": 363269,
+        "c3_matched_parameter_tolerance": 0.05,
+        "relative_difference_from_c3_target": -0.05996658123869636,
+        "within_c3_parameter_band": false,
+        "production_parameter_policy": "preserve_c3_architecture_widths_allow_declared_canvas_time_upsampling",
+        "provenance": {
+          "source_path": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04",
+          "source_config_sha256": "e54d34f0f4f3ba3541443f55c3b59a2be8bffc4bf716152a001c649002b21ede",
+          "source_method_config_hash": "3fb35479db5671d9dee285455a547deb335c506553cbc5675f206c381d43d221",
+          "source_input_hash": "8ab7d7c48642a2da526bdc5913d20276fafe36f55125bac506a2225486dfb765",
+          "source_snapshot_sha256": "330ef56a2ddcfe0b79098cc967853511a5eb08ddb437b6a364dae124c9801732",
+          "execution_only_keys": [
+            "device",
+            "execution.cpu_threads",
+            "execution.workers",
+            "execution.batch_matrix_limit",
+            "execution.saved_tensors_on_cpu",
+            "execution.model_memory_options.receptive_field_pruning",
+            "execution.model_memory_options.fused_edge_aggregation",
+            "execution.model_memory_options.activation_checkpointing",
+            "training.execution.cpu_threads",
+            "prediction.query_batch_size",
+            "prediction.profile_batch_size",
+            "execution.cudnn_benchmark",
+            "execution.expected_report_seconds",
+            "execution.watchdog_floor_seconds",
+            "execution.wall_clock_limit_seconds",
+            "training.ema_eval_decays"
+          ]
+        },
+        "n1_arms": {
+          "jitter_canvas": {
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+            "method_config_hash": "3fb35479db5671d9dee285455a547deb335c506553cbc5675f206c381d43d221",
+            "identity_matches_production": true,
+            "input_fingerprint": "8ab7d7c48642a2da526bdc5913d20276fafe36f55125bac506a2225486dfb765",
+            "input_matches_production": true
+          },
+          "jitter_support": {
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183524117130Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+            "method_config_hash": "7cf5e9173443c71dbbab9d9c99718f5aa8acc7bbd49b18c9fc6d644ee681fe5b",
+            "identity_matches_production": false,
+            "input_fingerprint": "8ab7d7c48642a2da526bdc5913d20276fafe36f55125bac506a2225486dfb765",
+            "input_matches_production": true
+          },
+          "no_jitter_canvas": {
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183529511220Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+            "method_config_hash": "f17c3a9cee646cdfbfb6f632f5891aa876f3c482482efc028adee704e7b9e6d0",
+            "identity_matches_production": false,
+            "input_fingerprint": "8ab7d7c48642a2da526bdc5913d20276fafe36f55125bac506a2225486dfb765",
+            "input_matches_production": true
+          },
+          "no_jitter_support": {
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T183534795056Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/config.resolved.yaml",
+            "method_config_hash": "4a0847753d9ea715c55e6d27c8a8ae986c3d1c6241fe1a50ddff7660984e941f",
+            "identity_matches_production": false,
+            "input_fingerprint": "8ab7d7c48642a2da526bdc5913d20276fafe36f55125bac506a2225486dfb765",
+            "input_matches_production": true
+          }
+        },
+        "p3": {
+          "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_forge_nersi_jitter05/method_runs/nersi_profile/config.resolved.yaml",
+          "method_config_hash": "a84c85133151b3de987610a6feb90e2c42d729574bec036b90d3aa7c31765dc8",
+          "identity_matches_production": false,
+          "input_fingerprint": "8ab7d7c48642a2da526bdc5913d20276fafe36f55125bac506a2225486dfb765",
+          "input_matches_production": true,
+          "rejected_with_explicit_source": true,
+          "still_declared_in_import_from": true
+        },
+        "n1_memory": {
+          "peak_cuda_reserved_bytes": 1046478848,
+          "peak_cuda_reserved_gib": 0.974609375,
+          "peak_cuda_allocated_bytes": 914378752,
+          "peak_cuda_allocated_gib": 0.8515815734863281,
+          "declared_budget_gib": 4,
+          "budget_covers_recorded_peak": true
+        },
+        "previous_s1_importable": 1,
+        "current_s1_importable": 1,
+        "s1_count_unchanged": true,
+        "s1_source_unchanged": false
+      }
+    }
+  }
+}

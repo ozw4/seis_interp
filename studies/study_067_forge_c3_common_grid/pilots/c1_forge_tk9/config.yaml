@@ -1,0 +1,127 @@
+study_id: study_067_forge_c3_common_grid
+candidate_id: medium_source_b06_u3400.0_receiver_b13_u1900.0
+axis_order:
+- source_grid_line
+- source_grid_point
+- receiver_grid_line
+- receiver_grid_point
+spatial_shape:
+- 6
+- 32
+- 8
+- 32
+eligible_trace_count: 49151
+natural_missing_cell_count: 1
+time_sample_count: 1001
+sample_interval_us: 4000
+mask_id: m1_random70_fair_v1
+mask_family: random_trace
+missing_fraction: 0.7
+mask_seed: 600701
+test_trace_count: 34406
+observed_trace_count: 14745
+model_seed: 7301
+preprocessing:
+  dtype: float32
+  amplitude_scaling: trace_oracle
+  agc: false
+  trace_rms: true
+  bandpass: null
+  mute: null
+  spatial_interpolation: false
+  alignment:
+    velocity_m_per_s: 500.0
+evaluation:
+  primary: masked_trace_relative_mse
+  primary_domain: clean_target
+  secondary_domain: all_eligible
+  recompute_rtol: 1.0e-10
+  recompute_atol: 1.0e-12
+  test_rms_usage: oracle_normalization_and_restoration_only
+visualization:
+  source_cell: 112
+  receiver_cell: 144
+  time_range_s:
+  - 0.0
+  - 4.0
+  clip_observed_percentile: 99.0
+device: cuda:0
+mask_study_id: study_052_forge_m1_mvp
+time_sampling:
+  native_sample_count: 4001
+  native_sample_interval_us: 1000
+  decimation_factor: 4
+matched_training:
+  max_steps: 50000
+  learning_rate: 0.001
+  loss_traces_per_update: 64
+  parameter_count_policy: preserve_c3_architecture_widths_allow_declared_canvas_time_upsampling
+validation_holdout:
+  fraction: 0.1
+  mask_id: m1_random70_validation_v1
+  mask_seed: 600702
+dataset_id: forge_2017
+validation_study_id: study_060_forge_fair_grid
+methods:
+- ccnet5d_grid
+selection:
+  metric: masked_trace_relative_mse
+  tie_break: configuration_id
+  checkpoint: fixed_final_ema
+  ema_decay: 0.999
+training_loss: masked_trace_mse
+boundary_handling:
+  ccnet_source_lines: append_unknown_lines_to_fit_fixed_patch_without_remapping_cells
+  drr: zero_overlap_unknown_padding_else_clip_and_shift_positive_interior_hann
+  natural_missing: excluded_from_training_labels_and_scoring
+cuda_execution:
+  admission_margin_gib: 2
+  context_allowance_gib: 2
+  excluded_devices_while_pids_alive:
+    cuda:0:
+    - pid: 3958956
+      process_start_time: 1111834778
+    - pid: 381291
+      process_start_time: 1113638455
+  device_total_memory_gib:
+    cuda:0: 93.08
+  minimum_free_memory_gib:
+    ccnet5d_grid:
+      a01_b01: 17
+      a01_b02: 17
+      a01_b03: 17
+      a01_b04: 17
+      a01_b05: 17
+      a02_b01: 17
+      a02_b02: 17
+      a02_b03: 17
+      a02_b04: 17
+      a02_b05: 17
+      a03_b01: 17
+      a03_b02: 17
+      a03_b03: 17
+      a03_b04: 17
+      a03_b05: 17
+      a04_b01: 30
+      a04_b02: 30
+      a04_b03: 30
+      a04_b04: 30
+      a04_b05: 30
+      a05_b01: 64
+      a05_b02: 64
+      a05_b03: 64
+      a05_b04: 64
+      a05_b05: 64
+  global_admission: false
+  devices:
+  - cuda:0
+  startup_timeout_seconds: 60
+method_execution: {}
+trace_split:
+  search_seed: 600702
+  evaluation_seeds:
+  - 7321
+  - 7322
+  - 7323
+reference_experiment: runs/study_066_forge_c3_reference/20261020T225334465289Z_05c92e79ce80
+import_from: []

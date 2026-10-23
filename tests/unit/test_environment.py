@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import builtins
+import errno
 import json
+import subprocess
 from typing import Any
 
 import pytest
@@ -50,6 +52,28 @@ def test_doctor_json_exits_successfully(capsys) -> None:
 
     assert exit_code == 0
     assert '"python"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OSError(errno.ENOEXEC, "Exec format error", "/broken/claude"),
+        subprocess.TimeoutExpired(["/broken/claude", "--version"], 15),
+    ],
+)
+def test_command_version_reports_unavailable_tool_errors(monkeypatch, error) -> None:
+    monkeypatch.setattr(doctor_command.shutil, "which", lambda command: "/broken/claude")
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(doctor_command.subprocess, "run", fail)
+
+    assert doctor_command._command_version("claude") == {
+        "available": False,
+        "path": "/broken/claude",
+        "version": str(error),
+    }
 
 
 @pytest.mark.parametrize(

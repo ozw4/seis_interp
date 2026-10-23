@@ -26,13 +26,16 @@ def _command_version(command: str) -> dict[str, str | bool | None]:
     if executable is None:
         return {"available": False, "path": None, "version": None}
 
-    completed = subprocess.run(
-        [executable, "--version"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
+    try:
+        completed = subprocess.run(
+            [executable, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"available": False, "path": executable, "version": str(error)}
     output = (completed.stdout or completed.stderr).strip()
     return {
         "available": completed.returncode == 0,

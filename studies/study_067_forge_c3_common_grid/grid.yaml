@@ -1,0 +1,256 @@
+methods:
+  regsi_real:
+    axis_a:
+    - id: '1'
+      set:
+        model.temporal_dilations:
+        - 1
+        - 2
+    - id: '2'
+      set:
+        model.temporal_dilations:
+        - 2
+        - 4
+    - id: '3'
+      set:
+        model.temporal_dilations:
+        - 3
+        - 6
+    - id: '4'
+      set:
+        model.temporal_dilations:
+        - 4
+        - 8
+    - id: '6'
+      set:
+        model.temporal_dilations:
+        - 6
+        - 12
+    axis_b:
+    - id: '2'
+      set:
+        graph.neighbors_per_relation: 2
+    - id: '3'
+      set:
+        graph.neighbors_per_relation: 3
+    - id: '4'
+      set:
+        graph.neighbors_per_relation: 4
+    - id: '5'
+      set:
+        graph.neighbors_per_relation: 5
+    - id: '6'
+      set:
+        graph.neighbors_per_relation: 6
+  nersi_profile:
+    axis_a:
+    - id: '0'
+      set:
+        training.nuclear_norm_weight: 0.0
+    - id: '0.001'
+      set:
+        training.nuclear_norm_weight: 0.001
+    - id: '0.01'
+      set:
+        training.nuclear_norm_weight: 0.01
+    - id: '0.03'
+      set:
+        training.nuclear_norm_weight: 0.03
+    - id: '0.1'
+      set:
+        training.nuclear_norm_weight: 0.1
+    axis_b:
+    - id: '1.05'
+      set:
+        model.frequency_base: 1.05
+    - id: '1.075'
+      set:
+        model.frequency_base: 1.075
+    - id: '1.1'
+      set:
+        model.frequency_base: 1.1
+    - id: '1.15'
+      set:
+        model.frequency_base: 1.15
+    - id: '1.25'
+      set:
+        model.frequency_base: 1.25
+  ccnet5d_grid:
+    axis_a:
+    - id: '[4, 8, 4, 8]'
+      set:
+        patches.shape.1: 4
+        patches.shape.2: 8
+        patches.shape.3: 4
+        patches.shape.4: 8
+    - id: '[4, 12, 4, 12]'
+      set:
+        patches.shape.1: 4
+        patches.shape.2: 12
+        patches.shape.3: 4
+        patches.shape.4: 12
+    - id: '[6, 12, 6, 12]'
+      set:
+        patches.shape.1: 6
+        patches.shape.2: 12
+        patches.shape.3: 6
+        patches.shape.4: 12
+    - id: '[8, 12, 8, 12]'
+      set:
+        patches.shape.1: 8
+        patches.shape.2: 12
+        patches.shape.3: 8
+        patches.shape.4: 12
+    - id: '[8, 16, 8, 16]'
+      set:
+        patches.shape.1: 8
+        patches.shape.2: 16
+        patches.shape.3: 8
+        patches.shape.4: 16
+    axis_b:
+    - id: '1'
+      set:
+        model.time_dilation: 1
+    - id: '2'
+      set:
+        model.time_dilation: 2
+    - id: '3'
+      set:
+        model.time_dilation: 3
+    - id: '4'
+      set:
+        model.time_dilation: 4
+    - id: '6'
+      set:
+        model.time_dilation: 6
+  drr_grid:
+    axis_a:
+    - id: '6'
+      set:
+        algorithm.rank: 6
+    - id: '12'
+      set:
+        algorithm.rank: 12
+    - id: '18'
+      set:
+        algorithm.rank: 18
+    - id: '24'
+      set:
+        algorithm.rank: 24
+    - id: '30'
+      set:
+        algorithm.rank: 30
+    axis_b:
+    - id: '[4, 6, 4, 6]'
+      set:
+        algorithm.spatial_window_shape:
+        - 4
+        - 6
+        - 4
+        - 6
+        algorithm.spatial_overlap:
+        - 0
+        - 3
+        - 0
+        - 3
+    - id: '[4, 8, 4, 8]'
+      set:
+        algorithm.spatial_window_shape:
+        - 4
+        - 8
+        - 4
+        - 8
+        algorithm.spatial_overlap:
+        - 0
+        - 4
+        - 0
+        - 4
+    - id: '[6, 8, 6, 8]'
+      set:
+        algorithm.spatial_window_shape:
+        - 6
+        - 8
+        - 6
+        - 8
+        algorithm.spatial_overlap:
+        - 0
+        - 4
+        - 0
+        - 4
+    - id: '[8, 12, 8, 12]'
+      set:
+        algorithm.spatial_window_shape:
+        - 8
+        - 12
+        - 8
+        - 12
+        algorithm.spatial_overlap:
+        - 0
+        - 6
+        - 0
+        - 6
+    - id: '[8, 16, 8, 16]'
+      set:
+        algorithm.spatial_window_shape:
+        - 8
+        - 16
+        - 8
+        - 16
+        algorithm.spatial_overlap:
+        - 0
+        - 8
+        - 0
+        - 8
+  pocs_grid:
+    axis_a:
+    - id: '64'
+      set:
+        algorithm.window_shape.0: 64
+        algorithm.overlap.0: 32
+    - id: '96'
+      set:
+        algorithm.window_shape.0: 96
+        algorithm.overlap.0: 48
+    - id: '128'
+      set:
+        algorithm.window_shape.0: 128
+        algorithm.overlap.0: 64
+    - id: '192'
+      set:
+        algorithm.window_shape.0: 192
+        algorithm.overlap.0: 96
+    - id: '256'
+      set:
+        algorithm.window_shape.0: 256
+        algorithm.overlap.0: 128
+    axis_b:
+    - id: '[2, 8]'
+      set:
+        algorithm.window_shape.1: 2
+        algorithm.window_shape.2: 8
+        algorithm.overlap.1: 1
+        algorithm.overlap.2: 4
+    - id: '[2, 16]'
+      set:
+        algorithm.window_shape.1: 2
+        algorithm.window_shape.2: 16
+        algorithm.overlap.1: 1
+        algorithm.overlap.2: 8
+    - id: '[4, 8]'
+      set:
+        algorithm.window_shape.1: 4
+        algorithm.window_shape.2: 8
+        algorithm.overlap.1: 2
+        algorithm.overlap.2: 4
+    - id: '[4, 16]'
+      set:
+        algorithm.window_shape.1: 4
+        algorithm.window_shape.2: 16
+        algorithm.overlap.1: 2
+        algorithm.overlap.2: 8
+    - id: '[6, 16]'
+      set:
+        algorithm.window_shape.1: 6
+        algorithm.window_shape.2: 16
+        algorithm.overlap.1: 3
+        algorithm.overlap.2: 8

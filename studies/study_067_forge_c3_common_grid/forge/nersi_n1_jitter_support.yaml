@@ -1,0 +1,48 @@
+checkpoint_rule: fixed_final_ema
+device: auto
+execution:
+  saved_tensors_on_cpu: false
+geometry_mode: real
+loss: masked_trace_mse
+method_id: nersi_profile
+model:
+  activation: gelu
+  decoder_channels:
+  - 29
+  - 14
+  - 8
+  encoder_width: 40
+  fourier_components: 40
+  frequency_base: 1.15
+  input_features: 3
+  kernel_size: 5
+  latent_channels: 28
+  output_activation: linear
+  profile_shape:
+  - 2176
+  - 32
+  upsample_scales:
+  - 2
+  - 2
+  - 2
+model_seed: 7301
+prediction:
+  profile_batch_size: 64
+training:
+  coordinate_jitter_cells: 0.5
+  ema_decay: 0.999
+  ema_eval_decays:
+  - 0.999
+  - 0.9995
+  - 0.9998
+  learning_rate: 0.001
+  learning_rate_schedule: constant
+  max_steps: 50000
+  mixed_precision: 'off'
+  nuclear_norm_weight: 0.0
+  optimizer: adamw
+  report_interval: 100
+  supervised_traces_per_update: 64
+  weight_decay: 0.0
+  loss_support_mask: true
+canvas_time_upsampling: true
