@@ -14,9 +14,9 @@ N-1 / N-2：**両 dataset の本番 YAML に upsampling を適用済み（FORGE 
 
 D-1：**両 dataset に window 由来 Hann overlap を採用（screening 由来、事後的、開示）**。[再現 artifact](round2_outcomes.json) の FORGE D7 / C3 D7 / FORGE D5b はそれぞれ 1.097869356 / 16.087339662 / 1.089401083 dB、全て差0.0 dBで check-d1 PASS。[T2 閾値](../../reports/study_067_design_round2.md) FORGE ≥ 0.656、C3 ≥ 15.125 dB を満たす。旧 watchdog で停止した最初の FORGE D7 は証拠から除く。D7 の両 `a02_b02` だけを一致確認後に import 登録し、D5b と study_063 の DRR は identity 不一致で再利用しない。
 
-D-2：[測定 artifact](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json) は2反復 / worker 1、wall 31526.971 s、9 blocks、平均 3502.488 s/block、peak RSS 4.940 GiB。**測定 overlap は `[0,4,0,4]`** で、採用値 `[0,8,0,8]` の実測ではない。60反復外挿は 29.187 h/block / 262.688 CPU-h/candidate。[a05_b04](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/request.json) は pending。C3 の完了測定もない。
+D-2：FORGE の [b05](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json) / [b04](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/result.json) はともに完了（rank 30、2反復、worker 1）。b05 は wall 31526.9712 s、9 blocks、3502.4879 s/block、peak RSS 4.9397 GiB、60反復外挿29.1874 h/block。b04 は wall 10971.3912 s、16 blocks、685.2647 s/block、peak RSS 3.7954 GiB、60反復外挿5.7105 h/block。b04 は従来の5.5867 h/block 比 +2.2176%。**測定 overlap は両方 `[0,4,0,4]`** で、採用 b04 `[0,6,0,6]` / 25 blocks と b05 `[0,8,0,8]` の実測ではない。採用 b04 の代理推定は142.7655 CPU-h / 17.1336 h wall（12 workers）。依頼時の前提とは異なり、C3 の [b04](../../runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b04/result.json) / [b05](../../runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b05/result.json) も completed で存在し、60反復外挿は1.5066 / 8.2045 h/block。同じ overlap の代理測定として記録する。
 
-[計画推定 artifact](round2_outcomes.json) は FORGE / C3 の DRR S1 残り + seed を 2957.5 / 1615.9 CPU-h、workers 12・S1 同時候補4 / 2で wall 121.1 / 96.2 h と見積もる。最大候補 wall は 29.19 / 16.27 h で72 h規則の開始前報告は不要。異なる overlap の代理測定・行列寸法と FFT bin 比による未検証の外挿であり、競合と RSS 複製の保証ではない。CPU 配分は DRR 48 + 24、POCS 2 + 2、GPU 側予約20 = 96 cores 以下とし、起動時に BLAS 各1 thread と GPU 側の同時起動調整を必要条件にする。詳細は [decisions](decisions.md)。
+[計画推定 artifact](round2_outcomes.json) は FORGE / C3 の DRR S1 残り + seed を2973.0 / 1613.7 CPU-h、workers 12・S1 同時候補4 / 2で wall 121.8 / 95.8 h と見積もる。FORGE の更新幅は +15.4896 CPU-h / +0.7448 h wall で、並列計画は維持する。最大候補 wall は29.1887 / 16.4097 hで72 h規則の開始前報告は不要。各 dataset の重い2窓は対応する実測 per-block 時間、他窓は同 dataset の b05 からの行列寸法比を使う。採用 overlap への代理適用と worker 並列性は未検証であり、競合と RSS 複製の保証ではない。CPU 配分は DRR 48 + 24、POCS 2 + 2、GPU 側予約20 = 96 cores 以下とし、起動時に BLAS 各1 thread と GPU 側の同時起動調整を必要条件にする。詳細は [decisions](decisions.md)。
 
 探索の正本は一つの [grid.yaml](grid.yaml)。dataset 別の正本は [C3 config](c3/config.yaml) / [inputs](c3/inputs.yaml)、[FORGE config](forge/config.yaml) / [inputs](forge/inputs.yaml) と各 method YAML。固定値の例外と理由は [dataset_differences.yaml](dataset_differences.yaml)、採用理由と未決事項は [decisions.md](decisions.md) に記録する。prepare は共通 grid の SHA256 と固定値の例外を検証する。CCNet の grid は空間幅だけを上書きし、時間方向は各 dataset の full trace を保持する。
 
@@ -26,20 +26,20 @@ D-2：[測定 artifact](../../runs/study_067_forge_c3_common_grid/20261022T18360
 
 FORGE S1 は study_066 の reference input と observed / validation / test cell ID を照合する。評価 seed でも outer namespace は `study_052_forge_m1_mvp`、validation namespace は `study_060_forge_fair_grid` を維持し、それぞれの既存 SHA256 generator に評価 seed を渡す。natural-missing cell は geometry、観測、ラベル、採点から除外する。4 ms anti-alias decimation、trace_oracle の正規化・復元境界、および 500 m/s 整列は reference の sealed physical waveform / RMS / alignment を検証して再利用する。RMS scalar 以外の test amplitude は S1 で読み出さない。
 
-再利用元は config の `import_from` に列挙した study_063 / study_064 の C3 run（DRR は対象外）、C3 POCS forge-matched 16 / 32 反復 run、study_066 の FORGE hand-made grid / single-config run、および study_067 の P1b rx4x8 / P2 ReGSI 全 variant / P3 C3 NeRSI / N-1 FORGE NeRSI 採用 arm / R-1 C3 / P-1 K1 / D-1 D7 pilot。R-1 は現行 V3 と一致し、K1 は採用した固定値と一致する完了 run を再利用する。C-1 の4つの prepare 済み実験も宣言し、完了後に採用構造と一致する arm だけを再利用する。FORGE CCNet の `20261021T231630621271Z_05c92e79ce80_ccnet_bf16_spatial_inference_restart` は checkpoint と prediction がなく、`a01_b02` も fresh training が必要である。完了した prediction のない run は再利用に数えない。
+再利用元は config の `import_from` に列挙した study_063 / study_064 の C3 run（DRR は対象外）、C3 POCS forge-matched 16 / 32 反復 run、study_066 の FORGE hand-made grid / single-config run、および study_067 の P1b rx4x8 / P2 ReGSI 全 variant / P3 C3 NeRSI / N-1 FORGE NeRSI 採用 arm / R-1 C3 / P-1 K1 / D-1 D7 pilot。R-1 は現行 V3 と一致し、K1 は採用した固定値と一致する完了 run を再利用する。C-1 の完了4実験のうち、採用構造に一致する両 tk3 だけを再利用し、両 tk9 は identity で拒否する。FORGE CCNet の `20261021T231630621271Z_05c92e79ce80_ccnet_bf16_spatial_inference_restart` は checkpoint と prediction がなく、`a01_b02` も fresh training が必要である。完了した prediction のない run は再利用に数えない。
 
-CPU `prepare --check-only` の import coverage（DRR overlap / N-1 upsampling 適用後、各欄は **imported / to-run**）。実行コマンドと元出力は [coverage artifact](round2_outcomes.json) に保存した。
+CPU `prepare --check-only` の import coverage（DRR overlap / N-1 upsampling 適用、C-1 完了後、各欄は **imported / to-run**）。実行コマンドと元出力は [coverage artifact](round2_outcomes.json) に保存した。
 
 | 手法 | C3 S1 imported / to-run | FORGE S1 imported / to-run | C3 評価 seed 最大 imported / to-run | FORGE 評価 seed 最大 imported / to-run |
 |---|---:|---:|---:|---:|
 | ReGSI | 2 / 23 | 1 / 24 | 0 / 3 | 0 / 3 |
-| CCNet | 0 / 25 | 0 / 25 | 0 / 3 | 0 / 3 |
+| CCNet | 1 / 24 | 1 / 24 | 0 / 3 | 0 / 3 |
 | NeRSI | 1 / 24 | 1 / 24 | 0 / 3 | 0 / 3 |
 | POCS | 25 / 0 | 25 / 0 | 0 / 3 | 0 / 3 |
 | DRR | 1 / 24 | 1 / 24 | 0 / 3 | 0 / 3 |
-| 合計 | 29 / 96 | 28 / 97 | 0 / 15 | 0 / 15 |
+| 合計 | 30 / 95 | 29 / 96 | 0 / 15 | 0 / 15 |
 
-POCS は両 dataset とも全候補が K1 に一致する。DRR は D7 の採用 overlap と一致する cell だけを import し、study_063 の旧 overlap からは import しない。未完了 C-1 は数えない。NeRSI は C3 の P3 と FORGE の N-1 採用 arm（ともに `a02_b04`）を各1件 import する。FORGE P3 は `import_from` に残したまま、upsampling の有効性が異なるため identity で拒否する。評価 seed は S1 winner に依存する。件数と source path は上記 coverage artifact を参照。
+POCS は両 dataset とも全候補が K1 に一致する。DRR は D7 の採用 overlap と一致する cell だけを import し、study_063 の旧 overlap からは import しない。CCNet は C-1 tk3 の C3 `a05_b02` / FORGE `a03_b02` を各1件 import する。両 tk9 は入力 fingerprint が一致しても model identity で拒否し、`import_from` は変更していない。NeRSI は C3 の P3 と FORGE の N-1 採用 arm（ともに `a02_b04`）を各1件 import する。FORGE P3 は `import_from` に残したまま、upsampling の有効性が異なるため identity で拒否する。評価 seed は S1 winner に依存する。件数と source path は上記 coverage artifact を参照。
 
 import は宣言した最小限の execution-only key を除く resolved config、保存済みの全 partition ID、観測波形、geometry、時間軸、実際に使用する RMS scalar の一致を要求する。BF16、training batch、patch/core shape、有効な jitter は除外しない。NeRSI の jitter null は absent と同一視し、canvas から再導出する `model.profile_shape[0]` は identity から除く。FORGE の実行時 profile 時間長は 2176（canvas 2172 を time-only 段込みの64倍数へ切上げ）。profile 時間長の正規化とは別に、有効な `canvas_time_upsampling` は identity に残るため、upsampling のない P3 は import できない。prediction の hash を検証し、現在の scoring code で再採点する。manifest には source path、config / input hash、`source/` snapshot hash を記録する。古い NeRSI は jitter が一致しないため再利用しない。seed の再利用は S1 winner と一致する場合に限る。
 
@@ -77,11 +77,16 @@ probe は現行 resolved config / S1 観測入力を使う。`--mode memory` は
 
 patch 間で cache を解放して空きを再計測し、`max(0, free − reserve_gib × 2**30) / total` を allocator fraction に設定する。reserve 後の空きが閾値未満なら `skipped / insufficient_free_memory`、cap 下の CUDA OOM は `exceeds_cap` として次へ進む。cap 下の OOM は必要 peak の下限であり、成功した実測値として予算に使わない。C-0 の fresh 更新と予測の実測に `max(現行値, ceil(最大 reserved GiB) + 2)` を適用し、予算 17 / 17 / 17 / 30 / 64 GiB を維持した。
 
-## C-1（実行中・T1 判定待ち）
+## C-1（完了・T1 不成立、tk3 維持）
 
-C3 `a05_b02`（FP32）と FORGE `a03_b02`（bf16）で tk3 / tk9 の計4実験を準備した。**T1：FORGE ΔSNR ≥ +0.2 dB かつ C3 ΔSNR ≥ −0.2 dB なら tk9 を採用**する。比較は各 cell の tk9 − tk3 の validation mean trace SNR。現在は tk3 を保持する。全 arm は採用時の S1 と設定・保存入力の identity が一致することを確認済み。
+C3 `a05_b02`（FP32）と FORGE `a03_b02`（bf16）の tk3 / tk9 計4実験は完了。**T1：FORGE ΔSNR ≥ +0.2 dB かつ C3 ΔSNR ≥ −0.2 dB** を登録どおり適用した。Δ は tk9 − tk3、S1 validation mean trace SNR、FORGE は `clean_target`、primary EMA は0.999。
 
-準備先、identity hash、起動コマンドは [C-1 準備記録](pilots/c1_preparation.md)。launcher の `c1` は dataset 別 UUID で4実験を detached 起動し、各 `c1.log` と PID を出力する。必要空きメモリは2 arm 分の margin 込みで C3 68 GiB、FORGE 38 GiB。今回の作業では起動しない。
+| dataset / cell | tk3 SNR (dB) | tk9 SNR (dB) | ΔSNR (dB) | tk3 relMSE | tk9 relMSE | tk3 / tk9 runtime (h) |
+|---|---:|---:|---:|---:|---:|---:|
+| C3 `a05_b02` | 18.8033 | 18.7228 | -0.0805 | 0.0167 | 0.0170 | 10.3941 / 16.5190 |
+| FORGE `a03_b02` clean_target | 1.5923 | 1.6616 | +0.0693 | 0.7376 | 0.7277 | 13.7093 / 15.9392 |
+
+FORGE が +0.2 dB に届かず **T1 不成立、tk3 を維持**する。両 production CCNet YAML は time kernel 3 / hidden 53 / intermediate 63 のまま byte 不変。manifest の値はユーザー提示の6桁丸めと一致する。各 arm 単独の identity check で両 tk3 の S1 import と両 tk9 の拒否を確認した。全 manifest の path / SHA256、full-precision 値、差分、runtime、診断専用 shadow EMA 0.999 / 0.9995 / 0.9998 は [c1 artifact](round2_outcomes.json)、shadow の表は [decisions](decisions.md) に保存した。準備先と identity hash は [C-1 記録](pilots/c1_preparation.md)。
 
 ## 第2弾 pilot の切替
 

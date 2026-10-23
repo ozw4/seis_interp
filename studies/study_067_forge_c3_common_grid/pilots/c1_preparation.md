@@ -1,6 +1,6 @@
-# C-1 準備済み実験（2026-10-22）
+# C-1 実験と identity（2026-10-23）
 
-CPU の公式 `prepare` で以下を凍結した。全実験は `prepared`、未起動。候補 ID は共通 grid のものを保持する。T1 とメモリの判断は [decisions.md](../decisions.md) を参照。
+CPU の公式 `prepare` で以下を凍結し、4実験とも完了。候補 ID は共通 grid のものを保持する。T1 不成立により両 dataset で tk3 を維持する。完了 manifest の SHA256、指標、runtime、shadow EMA と import 検証は [c1 artifact](../round2_outcomes.json)、判定は [decisions.md](../decisions.md) を参照。この記録作業では実験を起動しない。
 
 | arm | cell | parameters | prepared directory（`runs/study_067_forge_c3_common_grid/` 配下） |
 |---|---|---:|---|
@@ -18,14 +18,14 @@ C3 は FP32・32 GiB/arm、FORGE は bf16・17 GiB/arm。mask 0.25、fresh 更�
 | c3 | `1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51` |
 | forge | `2ad487443904e5007f3a59569a2d14937d1f063de1728101ef88e0b8ed674238` |
 
-| arm | S1 と一致した method config hash |
+| arm | 対応構造の S1 と一致した method config hash |
 |---|---|
 | c1_c3_tk3 | `6a55abbe6eb630d8127f3defa311cb0aa134255afe5495002af37e45596c53da` |
 | c1_c3_tk9 | `21bce2dc295d42648304c89156a69bdb8c5ee17bdccd6a5ecaba5390232cbee4` |
 | c1_forge_tk3 | `ffb7f05a8659bb2b0f2d4556107cec6ffb68598acaf1a360bb13c814dcd30a5b` |
 | c1_forge_tk9 | `c1e52408cd3ad8dc0f8a0ffc4389fbe91fb6dbb237157d902661c1207995926f` |
 
-両 arm を `import_from` に宣言済み。完了 manifest と prediction が作られ、採用した構造の identity と一致した場合に限り再利用する。prepare だけでは coverage に数えない。
+両 arm を `import_from` に宣言したまま、各 source 単独の `find_prediction_import` を CPU で検証した。完了 tk3 は C3 `a05_b02` / FORGE `a03_b02` の S1 として再利用できる。両 tk9 は input fingerprint が一致しても time kernel / hidden / intermediate の identity 不一致で拒否される。本番 CCNet YAML と `import_from` は変更していない。
 
 起動用コマンド（この作業では未実行）。`GPU_UUID_C3` / `GPU_UUID_FORGE` へ完全な physical GPU UUID を設定して使う。末尾に `--dry-run` を加えると process 起動・GPU 照会・ログ作成を行わず4コマンドを表示する。
 

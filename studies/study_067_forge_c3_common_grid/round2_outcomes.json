@@ -1,5 +1,5 @@
 {
-  "purpose": "Round-2 evidence and applied N-1 production adoption; estimates are planning proxies, not new measurements.",
+  "purpose": "Round-2 evidence, completed C-1/T1 decision, D-2 measurements and import coverage; adopted-overlap estimates remain planning proxies.",
   "sources": {
     "runs/study_067_forge_c3_common_grid/20261022T192704131837Z_05c92e79ce80_ccnet_memory_probe/memory_probe.json": {
       "sha256": "8aa20dac43366f8b1142fe1fa9a165be9fbdec50520ec11be47578f2969e2683"
@@ -114,6 +114,39 @@
     },
     "runs/study_067_forge_c3_common_grid/20261022T035444744870Z_05c92e79ce80_p3_forge_nersi_jitter05/method_runs/nersi_profile/config.resolved.yaml": {
       "sha256": "6f11dc867342f42b2de951db9e7a1c16ef1392e6badd5435f5074bac811553fa"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/manifest.json": {
+      "sha256": "267e921fe662c74b308ad9e45030a9b2499e17b58d87462b8abdb4969064d39a"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/config.resolved.yaml": {
+      "sha256": "5ce7ab875086e1b94d0409131567abf3d156550370c2f89386f8197c67fb25b5"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202537703605Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/manifest.json": {
+      "sha256": "a696de0abb1701b59383c6a7ccaff908a069588e890e7064d9c414329820edb7"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202537703605Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/config.resolved.yaml": {
+      "sha256": "7b35b58bac3ac6c2bb3ed20feccf7d7763d7ac90aef61848489c56ca2e028cb5"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/manifest.json": {
+      "sha256": "41691ced7b870e258dd644e5a97a2d9ec019edc4bc36f3d2fdd2e879272d8281"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/config.resolved.yaml": {
+      "sha256": "28c2b9d5ee74e26b8d6483270f2a03b7487575983633fe1a545ddaef10067683"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202604622878Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/manifest.json": {
+      "sha256": "f1e56243b0b9663f256c2a3e9f34360df503ca129458e73737a64ed5755a029b"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T202604622878Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/config.resolved.yaml": {
+      "sha256": "aa1a556f1073e1ae22b7585636eefc528a54cde089b7158b200f0db8e5e7e53e"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/result.json": {
+      "sha256": "764c169bc7951f5e64e48e1ffc3e54a7f10e7fbd206b5d9400aa1a43280d3633"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b04/result.json": {
+      "sha256": "99933e439d86ed57ffd3268a782777d4b45b7f4b7377c2dfa818c0df0ed85886"
+    },
+    "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b05/result.json": {
+      "sha256": "2e6f20b049de8bb62958a458149e0bec47c35c175880795c84add05d3144a0ad"
     }
   },
   "g0": {
@@ -262,13 +295,15 @@
             }
           },
           "ccnet5d_grid": {
-            "s1_importable": 0,
+            "s1_importable": 1,
             "s1_total": 25,
             "evaluation_importable_max": 0,
             "evaluation_total": 3,
             "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
             "evaluation_seeds_by_candidate": {},
-            "s1_sources": {}
+            "s1_sources": {
+              "a05_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02"
+            }
           },
           "drr_grid": {
             "s1_importable": 1,
@@ -351,13 +386,15 @@
             }
           },
           "ccnet5d_grid": {
-            "s1_importable": 0,
+            "s1_importable": 1,
             "s1_total": 25,
             "evaluation_importable_max": 0,
             "evaluation_total": 3,
             "evaluation_condition": "depends on the S1 winner; see evaluation_seeds_by_candidate",
             "evaluation_seeds_by_candidate": {},
-            "s1_sources": {}
+            "s1_sources": {
+              "a03_b02": "/workspace/runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02"
+            }
           },
           "drr_grid": {
             "s1_importable": 1,
@@ -517,12 +554,247 @@
     },
     "a05_b04": {
       "path": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04",
-      "status_at_audit": "pending",
-      "result_present": false
+      "artifact": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/result.json",
+      "status_at_audit": "completed",
+      "result_present": true,
+      "measurement": {
+        "status": "completed",
+        "config": {
+          "method_id": "drr_grid",
+          "loss": "masked_trace_relative_mse",
+          "checkpoint_rule": "none",
+          "model_seed": null,
+          "device": "cpu",
+          "geometry_mode": "grid",
+          "algorithm": {
+            "rank": 30,
+            "damping_power": 2,
+            "n_iterations": 2,
+            "frequency_min_hz": 0.0,
+            "frequency_max_hz": null,
+            "spatial_window_shape": [
+              8,
+              12,
+              8,
+              12
+            ],
+            "overlap_policy": "explicit",
+            "spatial_overlap": [
+              0,
+              4,
+              0,
+              4
+            ],
+            "backend": "drr_batched",
+            "boundary_rule": "clip_and_shift"
+          },
+          "execution": {
+            "backend": "batched",
+            "workers": 1,
+            "cpu_threads": 1,
+            "batch_matrix_limit": 2000000
+          },
+          "alignment": {
+            "velocity_m_per_s": 500.0,
+            "max_delay_samples": 1171
+          }
+        },
+        "wall_seconds": 10971.391229977831,
+        "block_count": 16,
+        "nonempty_block_count": 16,
+        "block_wall_seconds_total": 10964.234570179135,
+        "mean_nonempty_block_wall_seconds": 685.2646606361959,
+        "non_block_overhead_seconds": 7.156659798696637,
+        "process_peak_rss_bytes": 4075323392,
+        "rss_measurement": "Linux ru_maxrss; process lifetime, including input loading",
+        "prediction_shape": [
+          1474,
+          1001
+        ],
+        "extrapolated_60_iteration_full_candidate_seconds": 328934.19376517273,
+        "extrapolated_60_iteration_mean_block_seconds": 20557.939819085877,
+        "extrapolation": "linear iteration scaling; FFT/setup also scaled, conservative estimate",
+        "exceeds_72_hours": true,
+        "validation_only": true,
+        "validation_scoring_calls": 0,
+        "test_scoring_calls": 0,
+        "experiment": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge",
+        "dataset": "forge",
+        "candidate": "a05_b04",
+        "address_space_cap_bytes": 25769803776,
+        "pid": 2475913,
+        "nice": 10
+      },
+      "planning_comparison": {
+        "adopted_overlap": [
+          0,
+          6,
+          0,
+          6
+        ],
+        "adopted_block_count": 25,
+        "previous_estimated_block60_seconds": 20111.942057753186,
+        "previous_estimated_block60_hours": 5.586650571598107,
+        "measured_extrapolated_block60_seconds": 20557.939819085877,
+        "measured_extrapolated_block60_hours": 5.710538838634966,
+        "change_percent": 2.2175768011461594,
+        "measurement_overlap": [
+          0,
+          4,
+          0,
+          4
+        ],
+        "measurement_block_count": 16,
+        "proxy_for_adopted_overlap": true
+      }
     },
     "c3_measurement": {
-      "path": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces",
-      "result_present": false
+      "path": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements",
+      "result_present": true,
+      "status_at_audit": "both heavy-window results completed",
+      "note": "The request expected no C3 result; both completed result.json files are present at this audit.",
+      "measurements": {
+        "a05_b04": {
+          "path": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b04",
+          "artifact": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b04/result.json",
+          "status_at_audit": "completed",
+          "result_present": true,
+          "measurement": {
+            "status": "completed",
+            "config": {
+              "method_id": "drr_grid",
+              "loss": "masked_trace_relative_mse",
+              "checkpoint_rule": "none",
+              "model_seed": null,
+              "device": "cpu",
+              "geometry_mode": "grid",
+              "algorithm": {
+                "rank": 30,
+                "damping_power": 2,
+                "n_iterations": 2,
+                "frequency_min_hz": 0.0,
+                "frequency_max_hz": null,
+                "spatial_window_shape": [
+                  8,
+                  12,
+                  8,
+                  12
+                ],
+                "overlap_policy": "explicit",
+                "spatial_overlap": [
+                  0,
+                  4,
+                  0,
+                  4
+                ],
+                "backend": "drr_batched",
+                "boundary_rule": "clip_and_shift"
+              },
+              "execution": {
+                "backend": "batched",
+                "workers": 1,
+                "cpu_threads": 1,
+                "batch_matrix_limit": 2000000
+              }
+            },
+            "wall_seconds": 5788.901735879481,
+            "block_count": 32,
+            "nonempty_block_count": 32,
+            "block_wall_seconds_total": 5785.267537463456,
+            "mean_nonempty_block_wall_seconds": 180.789610545733,
+            "non_block_overhead_seconds": 3.6341984160244465,
+            "process_peak_rss_bytes": 1947897856,
+            "rss_measurement": "Linux ru_maxrss; process lifetime, including input loading",
+            "prediction_shape": [
+              2621,
+              384
+            ],
+            "extrapolated_60_iteration_full_candidate_seconds": 173561.66032231972,
+            "extrapolated_60_iteration_mean_block_seconds": 5423.68831637199,
+            "extrapolation": "linear iteration scaling; FFT/setup also scaled, conservative estimate",
+            "exceeds_72_hours": false,
+            "validation_only": true,
+            "validation_scoring_calls": 0,
+            "test_scoring_calls": 0,
+            "experiment": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces",
+            "dataset": "c3",
+            "candidate": "a05_b04",
+            "address_space_cap_bytes": 25769803776,
+            "pid": 2742907,
+            "nice": 10
+          }
+        },
+        "a05_b05": {
+          "path": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b05",
+          "artifact": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b05/result.json",
+          "status_at_audit": "completed",
+          "result_present": true,
+          "measurement": {
+            "status": "completed",
+            "config": {
+              "method_id": "drr_grid",
+              "loss": "masked_trace_relative_mse",
+              "checkpoint_rule": "none",
+              "model_seed": null,
+              "device": "cpu",
+              "geometry_mode": "grid",
+              "algorithm": {
+                "rank": 30,
+                "damping_power": 2,
+                "n_iterations": 2,
+                "frequency_min_hz": 0.0,
+                "frequency_max_hz": null,
+                "spatial_window_shape": [
+                  8,
+                  16,
+                  8,
+                  16
+                ],
+                "overlap_policy": "explicit",
+                "spatial_overlap": [
+                  0,
+                  4,
+                  0,
+                  4
+                ],
+                "backend": "drr_batched",
+                "boundary_rule": "clip_and_shift"
+              },
+              "execution": {
+                "backend": "batched",
+                "workers": 1,
+                "cpu_threads": 1,
+                "batch_matrix_limit": 2000000
+              }
+            },
+            "wall_seconds": 17724.15145590715,
+            "block_count": 18,
+            "nonempty_block_count": 18,
+            "block_wall_seconds_total": 17721.692811543122,
+            "mean_nonempty_block_wall_seconds": 984.5384895301735,
+            "non_block_overhead_seconds": 2.458644364029169,
+            "process_peak_rss_bytes": 2152599552,
+            "rss_measurement": "Linux ru_maxrss; process lifetime, including input loading",
+            "prediction_shape": [
+              2621,
+              384
+            ],
+            "extrapolated_60_iteration_full_candidate_seconds": 531653.2429906577,
+            "extrapolated_60_iteration_mean_block_seconds": 29536.154685905203,
+            "extrapolation": "linear iteration scaling; FFT/setup also scaled, conservative estimate",
+            "exceeds_72_hours": true,
+            "validation_only": true,
+            "validation_scoring_calls": 0,
+            "test_scoring_calls": 0,
+            "experiment": "/workspace/runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces",
+            "dataset": "c3",
+            "candidate": "a05_b05",
+            "address_space_cap_bytes": 25769803776,
+            "pid": 2601890,
+            "nice": 10
+          }
+        }
+      }
     }
   },
   "imports": {
@@ -999,9 +1271,18 @@
     }
   },
   "drr_estimates": {
-    "basis": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json",
-    "formula": "t_block60 = measured_mean_block60 * (M*N*min(M,N))/(1620*768*768) * bins/2049; CPU = overhead + blocks*t_block60; wall = overhead + ceil(blocks/12)*t_block60. Same rank-30 cost for all ranks. S1 list scheduling follows candidate_priority; omit imported a02_b02. Three seeds use the slowest candidate and at most two concurrent seed jobs.",
-    "limitations": "Measured overlap is [0,4,0,4], not adopted [0,8,0,8]. Both heavy FORGE schedules have nine same-shaped blocks. No C3 or other-window completed D-2 measurement; dimensions/bin scaling and ideal worker throughput are unvalidated planning assumptions. Concurrent-candidate contention and input/RSS replication are not measured.",
+    "basis": {
+      "forge": [
+        "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/result.json",
+        "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json"
+      ],
+      "c3": [
+        "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b04/result.json",
+        "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b05/result.json"
+      ]
+    },
+    "formula": "Use each dataset own measured b04/b05 mean_block60 and non_block_overhead_seconds for the corresponding heavy window. For b01-b03, t_block60 = dataset_measured_b05_mean_block60 * (M*N*min(M,N))/(dataset_b05_M*dataset_b05_N*min(dataset_b05_M,dataset_b05_N)); the within-dataset FFT bin count is unchanged. CPU = overhead + adopted_blocks*t_block60; wall = overhead + ceil(adopted_blocks/12)*t_block60. Same rank-30 cost for all ranks. S1 list scheduling follows candidate_priority; omit imported a02_b02. Three seeds use the slowest candidate and at most two concurrent seed jobs.",
+    "limitations": "All four measurements use overlap [0,4,0,4], rather than adopted b04 [0,6,0,6] / b05 [0,8,0,8]. b04 measured/adopted block counts: FORGE 16/25, C3 32/50; b05: FORGE 9/9, C3 18/18. Heavy-window per-block timings are proxies for the adopted schedule; 60-iteration scaling includes FFT/setup. Other-window Hankel scaling, ideal worker throughput, concurrent-candidate contention and input/RSS replication remain unvalidated.",
     "datasets": {
       "forge": {
         "workers": 12,
@@ -1069,7 +1350,8 @@
             "frequency_bins": 2049,
             "estimated_block60_seconds": 20.522389854850193,
             "estimated_candidate_cpu_hours": 2.2815378613977946,
-            "estimated_candidate_wall_hours_workers12": 0.195094892821358
+            "estimated_candidate_wall_hours_workers12": 0.195094892821358,
+            "timing_basis": "forge measured b05; Hankel dimension scaling"
           },
           {
             "window_id": "b02",
@@ -1127,7 +1409,8 @@
             "frequency_bins": 2049,
             "estimated_block60_seconds": 101.34513508567994,
             "estimated_candidate_cpu_hours": 5.518951898857015,
-            "estimated_candidate_wall_hours_workers12": 0.4798465709857059
+            "estimated_candidate_wall_hours_workers12": 0.4798465709857059,
+            "timing_basis": "forge measured b05; Hankel dimension scaling"
           },
           {
             "window_id": "b03",
@@ -1184,8 +1467,454 @@
             "frequency_bins": 2049,
             "estimated_block60_seconds": 912.1062157711195,
             "estimated_candidate_cpu_hours": 24.830830417961582,
-            "estimated_candidate_wall_hours_workers12": 2.2815378613977937
+            "estimated_candidate_wall_hours_workers12": 2.2815378613977937,
+            "timing_basis": "forge measured b05; Hankel dimension scaling"
           },
+          {
+            "window_id": "b04",
+            "window": [
+              8,
+              12,
+              8,
+              12
+            ],
+            "overlap": [
+              0,
+              6,
+              0,
+              6
+            ],
+            "starts_by_axis": [
+              [
+                0
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ]
+            ],
+            "block_count": 25,
+            "effective_block_shape": [
+              6,
+              12,
+              8,
+              12
+            ],
+            "hankel_shape": [
+              980,
+              432
+            ],
+            "frequency_bins": 2049,
+            "estimated_block60_seconds": 20557.939819085877,
+            "estimated_candidate_cpu_hours": 142.76545892692934,
+            "estimated_candidate_wall_hours_workers12": 17.13360447696009,
+            "timing_basis": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/result.json",
+            "timing_is_overlap_proxy": true
+          },
+          {
+            "window_id": "b05",
+            "window": [
+              8,
+              16,
+              8,
+              16
+            ],
+            "overlap": [
+              0,
+              8,
+              0,
+              8
+            ],
+            "starts_by_axis": [
+              [
+                0
+              ],
+              [
+                0,
+                8,
+                16
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                8,
+                16
+              ]
+            ],
+            "block_count": 9,
+            "effective_block_shape": [
+              6,
+              16,
+              8,
+              16
+            ],
+            "hankel_shape": [
+              1620,
+              768
+            ],
+            "frequency_bins": 2049,
+            "estimated_block60_seconds": 105074.63605683297,
+            "estimated_candidate_cpu_hours": 262.68786246405244,
+            "estimated_candidate_wall_hours_workers12": 29.18867122664582,
+            "timing_basis": "runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json",
+            "timing_is_overlap_proxy": true
+          }
+        ],
+        "s1_to_run": 24,
+        "seed_count": 3,
+        "estimated_s1_cpu_hours": 2184.9042559471336,
+        "estimated_seed_cpu_hours": 788.0635873921574,
+        "estimated_total_cpu_hours": 2972.967843339291,
+        "estimated_s1_wall_hours": 63.455880180566,
+        "estimated_seed_wall_hours": 58.37734245329164,
+        "estimated_total_wall_hours": 121.83322263385764,
+        "max_candidate_wall_hours": 29.18867122664582,
+        "candidate_wall_exceeds_72_hours": false,
+        "estimated_total_cpu_hours_change": 15.489611575032995,
+        "estimated_total_wall_hours_change": 0.7447608803915671
+      },
+      "c3": {
+        "workers": 12,
+        "parallel_candidates": 2,
+        "windows": [
+          {
+            "window_id": "b01",
+            "window": [
+              4,
+              6,
+              4,
+              6
+            ],
+            "overlap": [
+              0,
+              3,
+              0,
+              3
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                4,
+                8,
+                12
+              ],
+              [
+                0,
+                3,
+                6,
+                9,
+                12,
+                15,
+                18,
+                21,
+                24,
+                26
+              ],
+              [
+                0,
+                4
+              ],
+              [
+                0,
+                3,
+                6,
+                9,
+                12,
+                15,
+                18,
+                21,
+                24,
+                26
+              ]
+            ],
+            "block_count": 800,
+            "effective_block_shape": [
+              4,
+              6,
+              4,
+              6
+            ],
+            "hankel_shape": [
+              144,
+              36
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 2.595951095440887,
+            "estimated_candidate_cpu_hours": 0.5775609779768719,
+            "estimated_candidate_wall_hours_workers12": 0.04899649104404684,
+            "timing_basis": "c3 measured b05; Hankel dimension scaling"
+          },
+          {
+            "window_id": "b02",
+            "window": [
+              4,
+              8,
+              4,
+              8
+            ],
+            "overlap": [
+              0,
+              4,
+              0,
+              4
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                4,
+                8,
+                12
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ],
+              [
+                0,
+                4
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ]
+            ],
+            "block_count": 392,
+            "effective_block_shape": [
+              4,
+              8,
+              4,
+              8
+            ],
+            "hankel_shape": [
+              225,
+              64
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 12.819511582424134,
+            "estimated_candidate_cpu_hours": 1.3965853290761918,
+            "estimated_candidate_wall_hours_workers12": 0.11819514627334043,
+            "timing_basis": "c3 measured b05; Hankel dimension scaling"
+          },
+          {
+            "window_id": "b03",
+            "window": [
+              6,
+              8,
+              6,
+              8
+            ],
+            "overlap": [
+              0,
+              4,
+              0,
+              4
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                6,
+                10
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ],
+              [
+                0,
+                2
+              ],
+              [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24
+              ]
+            ],
+            "block_count": 294,
+            "effective_block_shape": [
+              6,
+              8,
+              6,
+              8
+            ],
+            "hankel_shape": [
+              400,
+              144
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 115.3756042418172,
+            "estimated_candidate_cpu_hours": 9.423023969849524,
+            "estimated_candidate_wall_hours_workers12": 0.8019024306692942,
+            "timing_basis": "c3 measured b05; Hankel dimension scaling"
+          },
+          {
+            "window_id": "b04",
+            "window": [
+              8,
+              12,
+              8,
+              12
+            ],
+            "overlap": [
+              0,
+              6,
+              0,
+              6
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                8
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                6,
+                12,
+                18,
+                20
+              ]
+            ],
+            "block_count": 50,
+            "effective_block_shape": [
+              8,
+              12,
+              8,
+              12
+            ],
+            "hankel_shape": [
+              1225,
+              576
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 5423.68831637199,
+            "estimated_candidate_cpu_hours": 75.33001389361543,
+            "estimated_candidate_wall_hours_workers12": 7.533909938965549,
+            "timing_basis": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b04/result.json",
+            "timing_is_overlap_proxy": true
+          },
+          {
+            "window_id": "b05",
+            "window": [
+              8,
+              16,
+              8,
+              16
+            ],
+            "overlap": [
+              0,
+              8,
+              0,
+              8
+            ],
+            "starts_by_axis": [
+              [
+                0,
+                8
+              ],
+              [
+                0,
+                8,
+                16
+              ],
+              [
+                0
+              ],
+              [
+                0,
+                8,
+                16
+              ]
+            ],
+            "block_count": 18,
+            "effective_block_shape": [
+              8,
+              16,
+              8,
+              16
+            ],
+            "hankel_shape": [
+              2025,
+              1024
+            ],
+            "frequency_bins": 257,
+            "estimated_block60_seconds": 29536.154685905203,
+            "estimated_candidate_cpu_hours": 147.6814563862938,
+            "estimated_candidate_wall_hours_workers12": 16.409657782270678,
+            "timing_basis": "runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b05/result.json",
+            "timing_is_overlap_proxy": true
+          }
+        ],
+        "s1_to_run": 24,
+        "seed_count": 3,
+        "estimated_s1_cpu_hours": 1170.646617454983,
+        "estimated_seed_cpu_hours": 443.0443691588814,
+        "estimated_total_cpu_hours": 1613.6909866138644,
+        "estimated_s1_wall_hours": 62.954955320403556,
+        "estimated_seed_wall_hours": 32.819315564541355,
+        "estimated_total_wall_hours": 95.77427088494491,
+        "max_candidate_wall_hours": 16.409657782270678,
+        "candidate_wall_exceeds_72_hours": false,
+        "estimated_total_cpu_hours_change": -2.2261468800704733,
+        "estimated_total_wall_hours_change": -0.4613575970324604
+      }
+    },
+    "previous_planning_estimates": {
+      "forge": {
+        "workers": 12,
+        "parallel_candidates": 4,
+        "s1_to_run": 24,
+        "seed_count": 3,
+        "estimated_s1_cpu_hours": 2169.4146443721006,
+        "estimated_seed_cpu_hours": 788.0635873921574,
+        "estimated_total_cpu_hours": 2957.478231764258,
+        "estimated_s1_wall_hours": 62.711119300174445,
+        "estimated_seed_wall_hours": 58.37734245329164,
+        "estimated_total_wall_hours": 121.08846175346608,
+        "max_candidate_wall_hours": 29.18867122664582,
+        "heavy_windows": [
           {
             "window_id": "b04",
             "window": [
@@ -1286,206 +2015,21 @@
             "estimated_candidate_cpu_hours": 262.68786246405244,
             "estimated_candidate_wall_hours_workers12": 29.18867122664582
           }
-        ],
-        "s1_to_run": 24,
-        "seed_count": 3,
-        "estimated_s1_cpu_hours": 2169.4146443721006,
-        "estimated_seed_cpu_hours": 788.0635873921574,
-        "estimated_total_cpu_hours": 2957.478231764258,
-        "estimated_s1_wall_hours": 62.711119300174445,
-        "estimated_seed_wall_hours": 58.37734245329164,
-        "estimated_total_wall_hours": 121.08846175346608,
-        "max_candidate_wall_hours": 29.18867122664582
+        ]
       },
       "c3": {
         "workers": 12,
         "parallel_candidates": 2,
-        "windows": [
-          {
-            "window_id": "b01",
-            "window": [
-              4,
-              6,
-              4,
-              6
-            ],
-            "overlap": [
-              0,
-              3,
-              0,
-              3
-            ],
-            "starts_by_axis": [
-              [
-                0,
-                4,
-                8,
-                12
-              ],
-              [
-                0,
-                3,
-                6,
-                9,
-                12,
-                15,
-                18,
-                21,
-                24,
-                26
-              ],
-              [
-                0,
-                4
-              ],
-              [
-                0,
-                3,
-                6,
-                9,
-                12,
-                15,
-                18,
-                21,
-                24,
-                26
-              ]
-            ],
-            "block_count": 800,
-            "effective_block_shape": [
-              4,
-              6,
-              4,
-              6
-            ],
-            "hankel_shape": [
-              144,
-              36
-            ],
-            "frequency_bins": 257,
-            "estimated_block60_seconds": 2.5740625635414833,
-            "estimated_candidate_cpu_hours": 0.5732862249792137,
-            "estimated_candidate_wall_hours_workers12": 0.04917848634701712
-          },
-          {
-            "window_id": "b02",
-            "window": [
-              4,
-              8,
-              4,
-              8
-            ],
-            "overlap": [
-              0,
-              4,
-              0,
-              4
-            ],
-            "starts_by_axis": [
-              [
-                0,
-                4,
-                8,
-                12
-              ],
-              [
-                0,
-                4,
-                8,
-                12,
-                16,
-                20,
-                24
-              ],
-              [
-                0,
-                4
-              ],
-              [
-                0,
-                4,
-                8,
-                12,
-                16,
-                20,
-                24
-              ]
-            ],
-            "block_count": 392,
-            "effective_block_shape": [
-              4,
-              8,
-              4,
-              8
-            ],
-            "hankel_shape": [
-              225,
-              64
-            ],
-            "frequency_bins": 257,
-            "estimated_block60_seconds": 12.71142006687152,
-            "estimated_candidate_cpu_hours": 1.3854047292515606,
-            "estimated_candidate_wall_hours_workers12": 0.11779367258298401
-          },
-          {
-            "window_id": "b03",
-            "window": [
-              6,
-              8,
-              6,
-              8
-            ],
-            "overlap": [
-              0,
-              4,
-              0,
-              4
-            ],
-            "starts_by_axis": [
-              [
-                0,
-                6,
-                10
-              ],
-              [
-                0,
-                4,
-                8,
-                12,
-                16,
-                20,
-                24
-              ],
-              [
-                0,
-                2
-              ],
-              [
-                0,
-                4,
-                8,
-                12,
-                16,
-                20,
-                24
-              ]
-            ],
-            "block_count": 294,
-            "effective_block_shape": [
-              6,
-              8,
-              6,
-              8
-            ],
-            "hankel_shape": [
-              400,
-              144
-            ],
-            "frequency_bins": 257,
-            "estimated_block60_seconds": 114.40278060184369,
-            "estimated_candidate_cpu_hours": 9.344166071120561,
-            "estimated_candidate_wall_hours_workers12": 0.7957360761494652
-          },
+        "s1_to_run": 24,
+        "seed_count": 3,
+        "estimated_s1_cpu_hours": 1176.606639016945,
+        "estimated_seed_cpu_hours": 439.3104944769898,
+        "estimated_total_cpu_hours": 1615.917133493935,
+        "estimated_s1_wall_hours": 63.69184846684629,
+        "estimated_seed_wall_hours": 32.543780015131084,
+        "estimated_total_wall_hours": 96.23562848197737,
+        "max_candidate_wall_hours": 16.271890007565542,
+        "heavy_windows": [
           {
             "window_id": "b04",
             "window": [
@@ -1588,16 +2132,7 @@
             "estimated_candidate_cpu_hours": 146.43683149232993,
             "estimated_candidate_wall_hours_workers12": 16.271890007565542
           }
-        ],
-        "s1_to_run": 24,
-        "seed_count": 3,
-        "estimated_s1_cpu_hours": 1176.606639016945,
-        "estimated_seed_cpu_hours": 439.3104944769898,
-        "estimated_total_cpu_hours": 1615.917133493935,
-        "estimated_s1_wall_hours": 63.69184846684629,
-        "estimated_seed_wall_hours": 32.543780015131084,
-        "estimated_total_wall_hours": 96.23562848197737,
-        "max_candidate_wall_hours": 16.271890007565542
+        ]
       }
     }
   },
@@ -1634,7 +2169,6 @@
     },
     "constraints": {
       "existing_grid_axis_values_and_ids_unchanged": true,
-      "c1_decision_paragraph_unchanged": true,
       "shared_grid_pins_match": true,
       "evidence_source_hashes_verified": true,
       "authorized_n1_upsampling_applied_in_both_datasets": true,
@@ -1645,7 +2179,11 @@
       "signals_sent": false,
       "writes_under_runs": false,
       "commit_created": false,
-      "c1_runs_and_d2_measurement_unmodified": true
+      "c1_runs_and_d2_measurement_unmodified": true,
+      "registered_t1_rule_unchanged": true,
+      "production_ccnet_configs_unchanged": true,
+      "c1_tk3_imports_verified_and_tk9_identity_rejected": true,
+      "import_from_unchanged": true
     },
     "benchmark_expectations": {
       "test": "tests/unit/test_study067_sprint1.py::test_approved_defaults_seeds_and_k1_option",
@@ -1659,9 +2197,9 @@
     "pytest_full": {
       "command": "CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 .venv/bin/pytest -q",
       "exit_code": 0,
-      "result": "6989 passed, 32 skipped, 1 warning in 512.76s (0:08:32)",
+      "result": "6989 passed, 32 skipped, 1 warning in 507.01s (0:08:27)",
       "failures": 0,
-      "summary_output": "=============================== warnings summary ===============================\ntests/integration/test_forge_trace_experiment.py::test_historical_mask_identities_preserve_roles_in_a_new_study\n  /workspace/tests/integration/test_forge_trace_experiment.py:177: FutureWarning: Mismatched null-like values None and nan found. In a future version, pandas equality-testing functions (e.g. assert_frame_equal) will consider these not-matching and raise.\n    pd.testing.assert_frame_equal(actual.drop(columns=\"role\"), expected)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nSKIPPED [1] tests/integration/test_c3_replacement_experiment.py:108: method continues in the original experiment\nSKIPPED [6] tests/integration/test_long_run_resume.py:154: CUDA unavailable\nSKIPPED [1] tests/integration/test_relational_trace_graph_runs.py:417: CUDA required for AMP\nSKIPPED [1] tests/unit/test_ccnet5d_patch_gradients.py:129: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_patch_reuse.py:124: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_poc_training_contract.py:536: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_prediction.py:211: BF16 CUDA unavailable\nSKIPPED [4] tests/unit/test_drr_batched.py:15: CUDA unavailable\nSKIPPED [1] tests/unit/test_drr_batched.py:69: CUDA unavailable\nSKIPPED [1] tests/unit/test_masked_gather_inputs.py:210: CUDA is unavailable\nSKIPPED [1] tests/unit/test_nersi_checkpoints.py:266: CUDA is unavailable\nSKIPPED [4] tests/unit/test_pocs_batched.py:14: CUDA unavailable\nSKIPPED [1] tests/unit/test_relational_trace_graph_execution.py:217: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_execution.py:486: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_memory.py:421: bf16 autocast smoke test requires a bf16-capable CUDA device\nSKIPPED [3] tests/unit/test_relational_trace_graph_poc.py:332: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_poc.py:446: CUDA bf16 required\nSKIPPED [2] tests/unit/test_relational_trace_graph_poc.py:493: CUDA required for AMP\n6989 passed, 32 skipped, 1 warning in 512.76s (0:08:32)"
+      "summary_output": "=============================== warnings summary ===============================\ntests/integration/test_forge_trace_experiment.py::test_historical_mask_identities_preserve_roles_in_a_new_study\n  /workspace/tests/integration/test_forge_trace_experiment.py:177: FutureWarning: Mismatched null-like values None and nan found. In a future version, pandas equality-testing functions (e.g. assert_frame_equal) will consider these not-matching and raise.\n    pd.testing.assert_frame_equal(actual.drop(columns=\"role\"), expected)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nSKIPPED [1] tests/integration/test_c3_replacement_experiment.py:108: method continues in the original experiment\nSKIPPED [6] tests/integration/test_long_run_resume.py:154: CUDA unavailable\nSKIPPED [1] tests/integration/test_relational_trace_graph_runs.py:417: CUDA required for AMP\nSKIPPED [1] tests/unit/test_ccnet5d_patch_gradients.py:129: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_patch_reuse.py:124: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_poc_training_contract.py:536: CUDA required\nSKIPPED [1] tests/unit/test_ccnet5d_prediction.py:211: BF16 CUDA unavailable\nSKIPPED [4] tests/unit/test_drr_batched.py:15: CUDA unavailable\nSKIPPED [1] tests/unit/test_drr_batched.py:69: CUDA unavailable\nSKIPPED [1] tests/unit/test_masked_gather_inputs.py:210: CUDA is unavailable\nSKIPPED [1] tests/unit/test_nersi_checkpoints.py:266: CUDA is unavailable\nSKIPPED [4] tests/unit/test_pocs_batched.py:14: CUDA unavailable\nSKIPPED [1] tests/unit/test_relational_trace_graph_execution.py:217: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_execution.py:486: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_memory.py:421: bf16 autocast smoke test requires a bf16-capable CUDA device\nSKIPPED [3] tests/unit/test_relational_trace_graph_poc.py:332: CUDA required\nSKIPPED [1] tests/unit/test_relational_trace_graph_poc.py:446: CUDA bf16 required\nSKIPPED [2] tests/unit/test_relational_trace_graph_poc.py:493: CUDA required for AMP\n6989 passed, 32 skipped, 1 warning in 507.01s (0:08:27)"
     },
     "check_d1": {
       "command": "CUDA_VISIBLE_DEVICES='' .venv/bin/python scripts/launch_study067_pilots.py check-d1",
@@ -1690,6 +2228,14 @@
         "path": "~/.local/bin/claude",
         "version": "[Errno 8] Exec format error: '~/.local/bin/claude'"
       }
+    },
+    "c1_identity_audit": {
+      "exit_code": 0,
+      "check": "Official production preparation in temporary directories, then find_prediction_import for each C-1 declared source individually; compare method_config_hash and saved_input_fingerprint.",
+      "result": "2 tk3 arms importable; 2 completed tk9 arms rejected by model identity; all 4 input fingerprints match.",
+      "production_configs_and_import_from_byte_unchanged": true,
+      "artifact_values_deltas_and_prepare_sources_verified": true,
+      "source_sha256_count": 49
     }
   },
   "nersi_adoption": {
@@ -1891,5 +2437,294 @@
         "s1_source_unchanged": false
       }
     }
+  },
+  "c1": {
+    "rule": {
+      "metric": "S1 validation mean_trace_snr_db; FORGE clean_target",
+      "delta": "tk9 - tk3",
+      "forge_min_delta_db": 0.2,
+      "c3_min_delta_db": -0.2,
+      "primary_ema": 0.999,
+      "shadow_ema_diagnostic_only": true
+    },
+    "datasets": {
+      "c3": {
+        "candidate": "a05_b02",
+        "production_method_config_hash": "6a55abbe6eb630d8127f3defa311cb0aa134255afe5495002af37e45596c53da",
+        "production_input_fingerprint": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+        "arms": {
+          "tk3": {
+            "artifact": "runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/manifest.json",
+            "manifest_sha256": "267e921fe662c74b308ad9e45030a9b2499e17b58d87462b8abdb4969064d39a",
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/config.resolved.yaml",
+            "status": "completed",
+            "primary_ema": 0.999,
+            "mean_trace_snr_db": 18.80329085901829,
+            "relmse": 0.016665039523136364,
+            "parameter_count": 363292,
+            "runtime_seconds": 37418.79280078411,
+            "runtime_hours": 10.39410911132892,
+            "shadow_ema": {
+              "0.999": {
+                "mean_trace_snr_db": 18.80329085901829,
+                "relmse": 0.016665039523136364
+              },
+              "0.9995": {
+                "mean_trace_snr_db": 18.81220003069848,
+                "relmse": 0.016644955554285423
+              },
+              "0.9998": {
+                "mean_trace_snr_db": 18.829884904239513,
+                "relmse": 0.016634788361541378
+              }
+            },
+            "test_scoring_calls": 0,
+            "identity": {
+              "source_method_config_hash": "6a55abbe6eb630d8127f3defa311cb0aa134255afe5495002af37e45596c53da",
+              "source_input_fingerprint": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+              "input_matches_production": true,
+              "config_matches_production": true,
+              "importable": true,
+              "check": "find_prediction_import with only this declared source",
+              "differing_model_settings": {},
+              "provenance": {
+                "source_path": "/workspace/runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02",
+                "source_config_sha256": "5ce7ab875086e1b94d0409131567abf3d156550370c2f89386f8197c67fb25b5",
+                "source_method_config_hash": "6a55abbe6eb630d8127f3defa311cb0aa134255afe5495002af37e45596c53da",
+                "source_input_hash": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+                "source_snapshot_sha256": "07fa901786f331b4c4fbc6fc77abe24ae59c7bc5edd57a171fdc20c83caac47d",
+                "execution_only_keys": [
+                  "device",
+                  "execution.cpu_threads",
+                  "execution.workers",
+                  "execution.batch_matrix_limit",
+                  "execution.saved_tensors_on_cpu",
+                  "execution.model_memory_options.receptive_field_pruning",
+                  "execution.model_memory_options.fused_edge_aggregation",
+                  "execution.model_memory_options.activation_checkpointing",
+                  "training.execution.cpu_threads",
+                  "prediction.query_batch_size",
+                  "prediction.profile_batch_size",
+                  "execution.cudnn_benchmark",
+                  "execution.expected_report_seconds",
+                  "execution.watchdog_floor_seconds",
+                  "execution.wall_clock_limit_seconds",
+                  "training.ema_eval_decays"
+                ]
+              },
+              "rejection_reason": null
+            }
+          },
+          "tk9": {
+            "artifact": "runs/study_067_forge_c3_common_grid/20261022T202537703605Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/manifest.json",
+            "manifest_sha256": "a696de0abb1701b59383c6a7ccaff908a069588e890e7064d9c414329820edb7",
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T202537703605Z_05c92e79ce80_traces/method_runs/ccnet5d_grid/S1/a05_b02/config.resolved.yaml",
+            "status": "completed",
+            "primary_ema": 0.999,
+            "mean_trace_snr_db": 18.722769173460073,
+            "relmse": 0.017033480164036614,
+            "parameter_count": 363227,
+            "runtime_seconds": 59468.26802591793,
+            "runtime_hours": 16.51896334053276,
+            "shadow_ema": {
+              "0.999": {
+                "mean_trace_snr_db": 18.722769173460073,
+                "relmse": 0.017033480164036614
+              },
+              "0.9995": {
+                "mean_trace_snr_db": 18.737018617809092,
+                "relmse": 0.016992465744685797
+              },
+              "0.9998": {
+                "mean_trace_snr_db": 18.748559326221443,
+                "relmse": 0.016984787494473793
+              }
+            },
+            "test_scoring_calls": 0,
+            "identity": {
+              "source_method_config_hash": "21bce2dc295d42648304c89156a69bdb8c5ee17bdccd6a5ecaba5390232cbee4",
+              "source_input_fingerprint": "1ce5bd665bfd4d113c3fe2d8fa71766aef154d81359ccd99fafd33eaa46eef51",
+              "input_matches_production": true,
+              "config_matches_production": false,
+              "importable": false,
+              "check": "find_prediction_import with only this declared source",
+              "differing_model_settings": {
+                "model.hidden_channels": {
+                  "production": 53,
+                  "source": 36
+                },
+                "model.intermediate_channels": {
+                  "production": 63,
+                  "source": 37
+                },
+                "model.time_kernel_size": {
+                  "production": 3,
+                  "source": 9
+                }
+              },
+              "provenance": null,
+              "rejection_reason": "method config identity mismatch"
+            }
+          }
+        },
+        "delta_db": -0.08052168555821737,
+        "delta_relmse": 0.00036844064090025067,
+        "required_delta_db": -0.2,
+        "passes": true,
+        "production_config": {
+          "artifact": "studies/study_067_forge_c3_common_grid/c3/ccnet5d_grid.yaml",
+          "sha256": "cb8713085c8ffdca30f3576612195c7d971761aac0db16f45443e75eb66e1f2f",
+          "model": {
+            "hidden_channels": 53,
+            "intermediate_channels": 63,
+            "kernel_size": 3,
+            "time_kernel_size": 3,
+            "time_dilation": 1,
+            "output_activation": "linear"
+          },
+          "unchanged": true
+        }
+      },
+      "forge": {
+        "candidate": "a03_b02",
+        "production_method_config_hash": "ffb7f05a8659bb2b0f2d4556107cec6ffb68598acaf1a360bb13c814dcd30a5b",
+        "production_input_fingerprint": "2ad487443904e5007f3a59569a2d14937d1f063de1728101ef88e0b8ed674238",
+        "arms": {
+          "tk3": {
+            "artifact": "runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/manifest.json",
+            "manifest_sha256": "41691ced7b870e258dd644e5a97a2d9ec019edc4bc36f3d2fdd2e879272d8281",
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/config.resolved.yaml",
+            "status": "completed",
+            "primary_ema": 0.999,
+            "mean_trace_snr_db": 1.5923312964870562,
+            "relmse": 0.7376287674577089,
+            "parameter_count": 363292,
+            "runtime_seconds": 49353.48754129559,
+            "runtime_hours": 13.70930209480433,
+            "shadow_ema": {
+              "0.999": {
+                "mean_trace_snr_db": 1.5923312964870562,
+                "relmse": 0.7376287674577089
+              },
+              "0.9995": {
+                "mean_trace_snr_db": 1.5967789774379013,
+                "relmse": 0.7369498672556178
+              },
+              "0.9998": {
+                "mean_trace_snr_db": 1.6047532975153513,
+                "relmse": 0.7356094772757555
+              }
+            },
+            "test_scoring_calls": 0,
+            "identity": {
+              "source_method_config_hash": "ffb7f05a8659bb2b0f2d4556107cec6ffb68598acaf1a360bb13c814dcd30a5b",
+              "source_input_fingerprint": "2ad487443904e5007f3a59569a2d14937d1f063de1728101ef88e0b8ed674238",
+              "input_matches_production": true,
+              "config_matches_production": true,
+              "importable": true,
+              "check": "find_prediction_import with only this declared source",
+              "differing_model_settings": {},
+              "provenance": {
+                "source_path": "/workspace/runs/study_067_forge_c3_common_grid/20261022T202533191991Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02",
+                "source_config_sha256": "28c2b9d5ee74e26b8d6483270f2a03b7487575983633fe1a545ddaef10067683",
+                "source_method_config_hash": "ffb7f05a8659bb2b0f2d4556107cec6ffb68598acaf1a360bb13c814dcd30a5b",
+                "source_input_hash": "2ad487443904e5007f3a59569a2d14937d1f063de1728101ef88e0b8ed674238",
+                "source_snapshot_sha256": "c2cea42b550e4b799a4b172328e5fb9d29686a27d3fb511bcadcfd41428d9859",
+                "execution_only_keys": [
+                  "device",
+                  "execution.cpu_threads",
+                  "execution.workers",
+                  "execution.batch_matrix_limit",
+                  "execution.saved_tensors_on_cpu",
+                  "execution.model_memory_options.receptive_field_pruning",
+                  "execution.model_memory_options.fused_edge_aggregation",
+                  "execution.model_memory_options.activation_checkpointing",
+                  "training.execution.cpu_threads",
+                  "prediction.query_batch_size",
+                  "prediction.profile_batch_size",
+                  "execution.cudnn_benchmark",
+                  "execution.expected_report_seconds",
+                  "execution.watchdog_floor_seconds",
+                  "execution.wall_clock_limit_seconds",
+                  "training.ema_eval_decays"
+                ]
+              },
+              "rejection_reason": null
+            }
+          },
+          "tk9": {
+            "artifact": "runs/study_067_forge_c3_common_grid/20261022T202604622878Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/manifest.json",
+            "manifest_sha256": "f1e56243b0b9663f256c2a3e9f34360df503ca129458e73737a64ed5755a029b",
+            "config_artifact": "runs/study_067_forge_c3_common_grid/20261022T202604622878Z_05c92e79ce80_forge/method_runs/ccnet5d_grid/S1/a03_b02/config.resolved.yaml",
+            "status": "completed",
+            "primary_ema": 0.999,
+            "mean_trace_snr_db": 1.6616273193728772,
+            "relmse": 0.7277407760982293,
+            "parameter_count": 363227,
+            "runtime_seconds": 57380.941373946145,
+            "runtime_hours": 15.939150381651707,
+            "shadow_ema": {
+              "0.999": {
+                "mean_trace_snr_db": 1.6616273193728772,
+                "relmse": 0.7277407760982293
+              },
+              "0.9995": {
+                "mean_trace_snr_db": 1.6662731818436767,
+                "relmse": 0.727039419684098
+              },
+              "0.9998": {
+                "mean_trace_snr_db": 1.6769776152357851,
+                "relmse": 0.7251633063209222
+              }
+            },
+            "test_scoring_calls": 0,
+            "identity": {
+              "source_method_config_hash": "c1e52408cd3ad8dc0f8a0ffc4389fbe91fb6dbb237157d902661c1207995926f",
+              "source_input_fingerprint": "2ad487443904e5007f3a59569a2d14937d1f063de1728101ef88e0b8ed674238",
+              "input_matches_production": true,
+              "config_matches_production": false,
+              "importable": false,
+              "check": "find_prediction_import with only this declared source",
+              "differing_model_settings": {
+                "model.hidden_channels": {
+                  "production": 53,
+                  "source": 36
+                },
+                "model.intermediate_channels": {
+                  "production": 63,
+                  "source": 37
+                },
+                "model.time_kernel_size": {
+                  "production": 3,
+                  "source": 9
+                }
+              },
+              "provenance": null,
+              "rejection_reason": "method config identity mismatch"
+            }
+          }
+        },
+        "delta_db": 0.06929602288582104,
+        "delta_relmse": -0.009887991359479598,
+        "required_delta_db": 0.2,
+        "passes": false,
+        "production_config": {
+          "artifact": "studies/study_067_forge_c3_common_grid/forge/ccnet5d_grid.yaml",
+          "sha256": "6d5bf508ed44f93a7ab15d4a36d418e40fb47a4d095714fdf8af74abd6ff9dc3",
+          "model": {
+            "hidden_channels": 53,
+            "intermediate_channels": 63,
+            "kernel_size": 3,
+            "time_kernel_size": 3,
+            "time_dilation": 1,
+            "output_activation": "linear"
+          },
+          "unchanged": true
+        }
+      }
+    },
+    "t1_met": false,
+    "decision": "retain tk3 in both production CCNet configs (hidden 53 / intermediate 63); reject tk9 by identity",
+    "import_from_unchanged": true
   }
 }

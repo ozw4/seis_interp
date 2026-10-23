@@ -67,7 +67,7 @@ DRR は実効 overlap 0 のとき `drr_nonoverlapping` / `unknown_padding` を�
 
 D-2 の「CPU で数十分」は楽観的であり、計画値として使わない。FORGE [8,16,8,16] の60反復は候補あたり数十時間、worker 1 の1–2反復の D-2 自体も数時間以上になり得る。D-2 で時間と RSS を実測し、window ごとの worker 数、同時候補数、全60反復と S1 / seed の見積りを決める。72 h / cell または GPU critical path 超過は開始前に報告する。
 
-## 第2弾の確定結果と C-1 準備（2026-10-22）
+## 第2弾の確定結果（2026-10-23）
 
 R-1：C3 ReGSI V3 `a01_b05` は validation mean trace SNR **19.9140 dB**、relMSE **0.012633**。事前閾値 19.8120 dB 以上を満たすため **V3 を維持**する。証拠は `runs/study_067_forge_c3_common_grid/20261022T162308560491Z_05c92e79ce80_r1_c3_regsi_v3_a01_b05`。
 
@@ -117,7 +117,7 @@ N-1：FORGE `a02_b04` の time-only s=3、jitter × loss 範囲の全 arm が完
 
 N-2：採用 N-1 arm の [同じ manifest](../../runs/study_067_forge_c3_common_grid/20261022T183518698062Z_05c92e79ce80_forge/method_runs/nersi_profile/S1/a02_b04/manifest.json) の shadow EMA 0.9998 は -0.028062201 dB / relMSE 1.044421866、primary EMA 0.999 は -0.036867405 dB / relMSE 1.045480641。Δ +0.008805205 dB < +0.15 dB で必要条件を満たさず **不採用**。C3 の確認 run は不要。[登録規則](../../reports/study_067_design_round2.md) に従って FORGE NeRSI の床救済はここで終了し、FORGE の床 0.4 dB 未達が予想されることを報告し、追加調整しない。
 
-ユーザーが N-1 規則 (i) と Q2 の救済策の本番適用を承認したため、両 dataset の `nersi_profile.yaml` に `canvas_time_upsampling: true` を適用した。jitter 0.5、全 canvas loss（`loss_support_mask` は absent）、primary EMA 0.999 を保持する。先の本番適用を保留する判断は superseded。C3 は `canvas_time_stages(384) == 0`、time-only 段を追加せず、入力時間長を使う import identity は flag を正規化して除く。C3 NeRSI は従来の P3 `a02_b04` の1件を維持する。FORGE は `canvas_time_stages(2172) == 3` で flag が identity に残り、採用 N-1 arm の `a02_b04` だけが現行 resolved config と input fingerprint に一致する。upsampling のない FORGE P3 は input が一致しても identity が異なり、`import_from` に残した状態で拒否される。CPU prepare coverage は C3 / FORGE の順に ReGSI 2 / 1、CCNet 0 / 0、NeRSI 1 / 1、POCS 25 / 25、DRR 1 / 1（各25候補）。全手法の評価 seed import は0 / 3。source path、identity、input fingerprint は [適用後の artifact](round2_outcomes.json) に記録する。
+ユーザーが N-1 規則 (i) と Q2 の救済策の本番適用を承認したため、両 dataset の `nersi_profile.yaml` に `canvas_time_upsampling: true` を適用した。jitter 0.5、全 canvas loss（`loss_support_mask` は absent）、primary EMA 0.999 を保持する。先の本番適用を保留する判断は superseded。C3 は `canvas_time_stages(384) == 0`、time-only 段を追加せず、入力時間長を使う import identity は flag を正規化して除く。C3 NeRSI は従来の P3 `a02_b04` の1件を維持する。FORGE は `canvas_time_stages(2172) == 3` で flag が identity に残り、採用 N-1 arm の `a02_b04` だけが現行 resolved config と input fingerprint に一致する。upsampling のない FORGE P3 は input が一致しても identity が異なり、`import_from` に残した状態で拒否される。C-1 完了後の CPU prepare coverage は C3 / FORGE の順に ReGSI 2 / 1、CCNet 1 / 1、NeRSI 1 / 1、POCS 25 / 25、DRR 1 / 1（各25候補）。全手法の評価 seed import は0 / 3。source path、identity、input fingerprint は [適用後の artifact](round2_outcomes.json) に記録する。
 
 採用設定の NeRSI parameter 数は C3 363,269、FORGE 341,485（全25候補で一定）。FORGE は C3 target 363,269 比 −5.9967% で ±5% band（整数では345,106–381,432）を下回る。FORGE の契約は同じ architecture 幅と宣言済み canvas 適応を許す policy であり、この例外を報告して幅や tolerance は変えない。N-1 全4 arm の recorded peak CUDA reserved は全て 1,046,478,848 bytes（0.9746 GiB）、最大 allocated は 914,378,752 bytes（0.8516 GiB）。宣言済み `nersi_profile: 4` GiB はこの実測 peak をカバーする。新たな GPU 測定や実験は行わない。
 
@@ -137,28 +137,57 @@ D7 の両 run は rank 12 × `[4,8,4,8]`、60反復、overlap `[0,4,0,4]` の `a
 
 D-2：[a05_b05/result.json](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b05/result.json) の実測は rank 30 × `[8,16,8,16]`、**overlap `[0,4,0,4]`**、2反復、1 worker。提示された `[0,8,0,8]` とは異なるため、採用 overlap の測定結果とは扱わない。wall 31526.971176 s（8.757492 h）、9 blocks、平均 3502.487869 s/block、process peak RSS 5303988224 bytes（4.939724 GiB、入力ロードを含む lifetime peak）。60反復の線形外挿は 105074.636057 s/block（29.187399 h）、全候補の serial CPU 時間 262.687862 CPU-h。FFT/setup も反復比で拡大する保守的な外挿である。
 
-`a05_b04`（window `[8,12,8,12]`）は **pending**：[request.json](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/request.json) / [blocks.jsonl](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/blocks.jsonl)。監査時点で result.json はない。C3 D-2 にも完了測定はなく、下記は実測保証ではなく計画用の外挿。
+FORGE `a05_b04` の [result.json](../../runs/study_067_forge_c3_common_grid/20261022T183601578711Z_05c92e79ce80_forge/d2_measurements/a05_b04/result.json) も **完了**。rank 30 × `[8,12,8,12]`、測定 overlap `[0,4,0,4]`、2反復、1 worker、16 blocks。wall 10971.3912 s（3.0476 h）、block 合計 10964.2346 s、平均 685.2647 s/block、non-block overhead 7.1567 s。process peak RSS は4075323392 bytes（3.7954 GiB、入力ロードを含む lifetime peak）。60反復の線形外挿は20557.9398 s/block（5.7105 h）、測定した16 blocks の serial CPU 時間は91.3706 CPU-h。validation / test 採点はともに0回。
+
+従来の b04 計画値は、採用 overlap `[0,6,0,6]`、25 blocks、5.5867 h/block。測定由来の5.7105 h/block は **+2.2176%** で、採用25 blocks へ代理適用すると142.7655 CPU-h/candidate、12 workers の3巡で17.1336 h/candidate（従来139.6675 CPU-h / 16.7612 h）。16 blocks の測定を採用25 blocks の実測とは扱わない。FORGE 全体の見積りは下表へ更新し、増分は15.4896 CPU-h / 0.7448 h wall と小さいため並列計画は維持する。
+
+依頼時の「C3 に result がない」という前提とは異なり、監査時点では C3 D-2 の両 result.json が **completed** で存在する。[b04](../../runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b04/result.json) / [b05](../../runs/study_067_forge_c3_common_grid/20261022T183612495378Z_05c92e79ce80_traces/d2_measurements/a05_b05/result.json) を記録し、C3 自身の測定値を下記の外挿へ使う。ともに rank 30、2反復、1 worker、測定 overlap `[0,4,0,4]`、validation / test 採点0回。
+
+| C3 cell | blocks | wall (s) | 平均 s/block | peak RSS (GiB) | 60反復 h/block |
+|---|---:|---:|---:|---:|---:|
+| `a05_b04` | 32 | 5788.9017 | 180.7896 | 1.8141 | 1.5066 |
+| `a05_b05` | 18 | 17724.1515 | 984.5385 | 2.0048 | 8.2045 |
+
+C3 b04 の採用 overlap は `[0,6,0,6]` / 50 blocks、b05 は `[0,8,0,8]` / 18 blocks。いずれも採用 overlap の実測ではなく、per-block 時間の代理値である。C3 計画の合計は1615.9171 → 1613.6910 CPU-h、96.2356 → 95.7743 h wall となる。
 
 [block 数と推定式の artifact](round2_outcomes.json) により、採用 overlap の最大 window は FORGE 9 blocks、C3 18 blocks。FORGE は測定時と block 数・shape が同じなので時間の代理値として使う。FORGE は `workers: 12` / `parallel_candidates: 4`、C3 は `workers: 12` / `parallel_candidates: 2` とする。C3 の18 blocks は12 workersを使うので、worker 数を減らす理由はない。両 dataset で b05 → b04 → 残りの window、各 window は rank 30 から開始する `candidate_priority` を指定し、候補選択順序は保持する。
 
-FORGE の重い候補は12 workersで約 29.19 h（1巡）、C3 の最大候補は約 16.27 h（2巡）。[設計の72 h規則](../../reports/study_067_design_round2.md) は採用 worker 数での候補 wall に適用し、worker 1 の artifact の `exceeds_72_hours: true`（serial 時間）と区別する。現計画では72 h未満かつ設計の FORGE GPU critical path 内に収まる見積りなので、開始前報告の発動条件には該当しない。
+FORGE の重い候補は12 workersで約29.1887 h（1巡）、C3 の最大候補は約16.4097 h（2巡）。[設計の72 h規則](../../reports/study_067_design_round2.md) は採用 worker 数での候補 wall に適用し、worker 1 の artifact の `exceeds_72_hours: true`（serial 時間）と区別する。FORGE b04 の測定16 blocks の serial 外挿も91.3706 hで72 hを超えるが、採用25 blocks / 12 workers の候補 wall は17.1336 h。現計画では72 h未満かつ設計の FORGE GPU critical path 内に収まる見積りなので、開始前報告の発動条件には該当しない。
 
 | dataset | workers × S1 同時候補 | S1 残り CPU-h | seed CPU-h | 合計 CPU-h | S1 + seed wall (h) |
 |---|---:|---:|---:|---:|---:|
-| FORGE | 12 × 4 | 2169.4 | 788.1 | 2957.5 | 62.7 + 58.4 = 121.1 |
-| C3 | 12 × 2 | 1176.6 | 439.3 | 1615.9 | 63.7 + 32.5 = 96.2 |
+| FORGE | 12 × 4 | 2184.9 | 788.1 | 2973.0 | 63.5 + 58.4 ≈ 121.8 |
+| C3 | 12 × 2 | 1170.6 | 443.0 | 1613.7 | 63.0 + 32.8 = 95.8 |
 
-推定は [artifact の式と窓別表](round2_outcomes.json) に従い、SVD 行列の `M*N*min(M,N)` と FFT bin 数でスケールする。SVD は rank 切詰め前に全分解するので全 rank に重い測定のコストを使う。S1 は D7 import を除外し priority 順に list scheduling、seed は未確定 winner の代わりに最大候補、seed 同時数は runner の上限を使う。他 window / C3 のスケーリング、worker 理想並列性、候補間競合と入力複製 RSS は未検証であり、D-2 の実測と混同しない。
+推定は [artifact の式と窓別表](round2_outcomes.json) に従う。各 dataset の b04 / b05 は対応する実測 per-block 時間と overhead を使い、b01–b03 は同じ dataset の b05 から SVD 行列の `M*N*min(M,N)` 比でスケールする（同じ dataset 内の FFT bin 数は一定）。SVD は rank 切詰め前に全分解するので全 rank に重い測定のコストを使う。S1 は D7 import を除外し priority 順に list scheduling、seed は未確定 winner の代わりに最大候補、seed 同時数は runner の上限を使う。採用 overlap への代理適用、他 window のスケーリング、worker 理想並列性、候補間競合と入力複製 RSS は未検証であり、D-2 の実測と混同しない。
 
 CPU 計画は FORGE DRR 48 + C3 DRR 24 + POCS 両 dataset 2 + 2 + GPU 側（seed / ReGSI CPU threads / CCNet 先読み込み）の予約20 = **96 cores 以下**（[CPU 配分 artifact](round2_outcomes.json)）。起動時は OMP / OpenBLAS / MKL を各1 thread とし、GPU 側は予約内へ収まるよう method / seed の同時起動を調整する運用条件。現在の config に全体 CPU cap の強制機能はない。今回、起動は行わない。
 
 `execution.workers` と `execution.batch_matrix_limit` は import identity から除外する。`test_overlapping_grid_execution_settings_preserve_bits_and_import_identity` は正の overlap を持つ小 volume で worker 数・周波数分割・block batching を変え、出力の bitwise 一致と両 key の identity 除外を確認する。overlap / boundary / rank / 反復数は引き続き identity に含む。CPU prepare coverage は [README](README.md) と [出力 artifact](round2_outcomes.json) を参照。
 
-C-1：CPU の公式 prepare で4実験を準備し、起動しない。設定の正本は `pilots/c1_{c3,forge}_tk{3,9}/`。tk3 は hidden 53 / intermediate 63（363,292 params）、tk9 は hidden 36 / intermediate 37（363,227 params）で同じパラメータ予算。C3 は `a05_b02` / FP32、FORGE は `a03_b02` / bf16。mask 0.25、fresh patch / gradient、cuDNN benchmark on、主 EMA 0.999 と shadow 0.999 / 0.9995 / 0.9998 を共通にする。
+C-1：4実験すべて完了し、**T1 不成立、両 dataset で tk3 を維持**する。設定の正本は `pilots/c1_{c3,forge}_tk{3,9}/`。tk3 は hidden 53 / intermediate 63（363,292 params）、tk9 は hidden 36 / intermediate 37（363,227 params）で同じパラメータ予算。C3 は `a05_b02` / FP32、FORGE は `a03_b02` / bf16。mask 0.25、fresh patch / gradient、cuDNN benchmark on、主 EMA 0.999 と shadow 0.999 / 0.9995 / 0.9998 を共通にする。
 
-**T1**（設計書から転記）：FORGE で ΔSNR ≥ +0.2 dB、かつ C3 で ΔSNR ≥ −0.2 dB なら tk9 を採用する。Δ はそれぞれ上記の同一 cell の tk9 − tk3、指標は S1 validation mean trace SNR（FORGE は clean_target）。relMSE も併記する。満たさなければ tk3 を維持し、両 dataset の CCNet S1 より前に確定する。現在は tk3 を保持する。
+**T1**（設計書から転記）：FORGE で ΔSNR ≥ +0.2 dB、かつ C3 で ΔSNR ≥ −0.2 dB なら tk9 を採用する。Δ はそれぞれ上記の同一 cell の tk9 − tk3、指標は S1 validation mean trace SNR（FORGE は clean_target）。relMSE も併記する。満たさなければ tk3 を維持し、両 dataset の CCNet S1 より前に確定する。
 
-pilot は local grid の25候補と元の candidate ID を保持し、`pilot` コマンドで指定 cell だけを validation 採点する。tk3 は現行 S1、tk9 は採用時の S1 に対する resolved config / 保存入力 fingerprint の一致を CPU で検証済み。[準備先と identity hash](pilots/c1_preparation.md) を記録した。完了・prediction の要件を満たす arm だけを import できる。prepare 済みだけでは coverage に数えない。
+以下は完了 manifest の primary EMA 0.999。表示は丸め値で、full precision、全 manifest の SHA256、runtime 秒、shadow 指標、identity 監査は [c1 artifact](round2_outcomes.json) に保存した。各 manifest の `test_scoring_calls` は0。
+
+| dataset / cell | tk3 SNR (dB) | tk9 SNR (dB) | ΔSNR (dB) | tk3 relMSE | tk9 relMSE | tk3 / tk9 runtime (h) | T1 条件 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| C3 `a05_b02` | 18.8033 | 18.7228 | -0.0805 | 0.0167 | 0.0170 | 10.3941 / 16.5190 | ≥ −0.2、達成 |
+| FORGE `a03_b02` clean_target | 1.5923 | 1.6616 | +0.0693 | 0.7376 | 0.7277 | 13.7093 / 15.9392 | < +0.2、未達 |
+
+Δ の artifact 値は C3 −0.08052168555821737、FORGE +0.06929602288582104 dB で、ユーザー提示の6桁丸めと一致する。FORGE が必要条件を満たさないため tk9 は不採用。両 `ccnet5d_grid.yaml` は **time kernel 3 / hidden 53 / intermediate 63 のまま byte 不変**であり、SHA256 は下記登録表と一致する。
+
+shadow EMA は診断専用で、T1 / production EMA の判断には使わない。各欄は validation SNR (dB) / relMSE、FORGE は clean_target。0.999 は主予測と一致する。
+
+| arm | EMA 0.999 | EMA 0.9995 | EMA 0.9998 |
+|---|---:|---:|---:|
+| C3 tk3 | 18.8033 / 0.0167 | 18.8122 / 0.0166 | 18.8299 / 0.0166 |
+| C3 tk9 | 18.7228 / 0.0170 | 18.7370 / 0.0170 | 18.7486 / 0.0170 |
+| FORGE tk3 | 1.5923 / 0.7376 | 1.5968 / 0.7369 | 1.6048 / 0.7356 |
+| FORGE tk9 | 1.6616 / 0.7277 | 1.6663 / 0.7270 | 1.6770 / 0.7252 |
+
+pilot は local grid の25候補と元の candidate ID を保持する。[準備先と identity hash](pilots/c1_preparation.md) の両 arm を `import_from` に残し、CPU の公式 prepare を一時領域へ行って、現行 S1 の resolved config と保存入力 fingerprint に対して各 source 単独の `find_prediction_import` を検証した。**tk3 は C3 `a05_b02` / FORGE `a03_b02` として import 可能**。両 tk9 は入力 fingerprint が一致しても model の time kernel / hidden / intermediate が異なり、identity で拒否される。`import_from` は編集していない。run / prediction / manifest は読み取り専用であり、この記録作業では実験を起動しない。
 
 C-1 の UUID 指定とメモリ事前確認は N-1 と同じ launcher 方式を使う（pilot の global admission は off）。各 arm の宣言は C3 32 GiB、FORGE 17 GiB、追加 margin 各2 GiB。各 dataset の2 arm を同じ GPU に起動するため必要な空きは C3 68 GiB、FORGE 38 GiB。同一 UUID なら合計106 GiBを確認する。launcher は physical UUID と live pinned legacy worker を照合し、実験別 `c1.log`、detached PID を出力する。既存 process へ signal は送らない。
 
