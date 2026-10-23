@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from seis_interp.data.forge_mvp_artifacts import write_json
+from seis_interp.training.phase_progress import ProgressHeartbeat
 
 
 def write_run_manifest(path, record):
@@ -259,7 +260,8 @@ def gpu_utilization(device):
 class ProgressWatchdog:
     """Bound a resumable run using a generous floor and a high interval quantile.
 
-    Every report contributes, including checkpoint and prediction phase reports.
+    Work-driven heartbeats reset liveness without sampling report cadence. The
+    first ordinary report after heartbeats also skips its mixed-phase interval.
     Methods without step progress and exact resume use an optional wall limit only.
     """
 
@@ -285,6 +287,7 @@ class ProgressWatchdog:
         self.exit_process = exit_process
         self.last = self.started = time.monotonic()
         self.intervals = deque(maxlen=256)
+        self.phase_progress = False
         self.stopped = threading.Event()
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self._watch, daemon=True)
@@ -305,7 +308,10 @@ class ProgressWatchdog:
     def report(self, message=""):
         with self.lock:
             now = time.monotonic()
-            self.intervals.append(max(now - self.last, 0.0))
+            heartbeat = isinstance(message, ProgressHeartbeat)
+            if not heartbeat and not self.phase_progress:
+                self.intervals.append(max(now - self.last, 0.0))
+            self.phase_progress = heartbeat
             self.last = now
 
     def _watch(self):

@@ -35,7 +35,7 @@ def moveout_delay_samples(
 
 
 def align_moveout(
-    values: np.ndarray, delay_samples: np.ndarray, max_delay: int | None = None
+    values: np.ndarray, delay_samples: np.ndarray, max_delay: int | None = None, *, progress=None
 ) -> np.ndarray:
     """Shift trace ``i`` later by ``max_delay - delay[i]`` onto a canvas of length T + max.
 
@@ -46,8 +46,12 @@ def align_moveout(
     canvas = np.zeros((values.shape[0] + maximum, *values.shape[1:]), values.dtype)
     flat_values = values.reshape(values.shape[0], -1)
     flat_canvas = canvas.reshape(canvas.shape[0], -1)
+    completed = 0
     for shift, cells in _shift_groups(delays, maximum):
         flat_canvas[shift : shift + values.shape[0], cells] = flat_values[:, cells]
+        completed += len(cells)
+        if progress is not None:
+            progress(f"aligning {completed}/{len(delays)} cells")
     return canvas
 
 
@@ -56,6 +60,8 @@ def unalign_moveout(
     delay_samples: np.ndarray,
     time_sample_count: int,
     max_delay: int | None = None,
+    *,
+    progress=None,
 ) -> np.ndarray:
     """Invert :func:`align_moveout`, returning the original ``time_sample_count`` samples."""
     canvas, delays, maximum = _validated(canvas, delay_samples, max_delay)
@@ -64,8 +70,12 @@ def unalign_moveout(
     values = np.empty((time_sample_count, *canvas.shape[1:]), canvas.dtype)
     flat_canvas = canvas.reshape(canvas.shape[0], -1)
     flat_values = values.reshape(time_sample_count, -1)
+    completed = 0
     for shift, cells in _shift_groups(delays, maximum):
         flat_values[:, cells] = flat_canvas[shift : shift + time_sample_count, cells]
+        completed += len(cells)
+        if progress is not None:
+            progress(f"restoring alignment {completed}/{len(delays)} cells")
     return values
 
 

@@ -19,7 +19,7 @@ def validate_predictions(prediction, prediction_cells, mask, samples):
     return pd.Index(ids).get_indexer(expected)
 
 
-def evaluate_traces(prediction, target, index):
+def evaluate_traces(prediction, target, index, *, progress=None):
     """Original float32 amplitudes; retain every test row and QC membership."""
     if (
         prediction.shape != target.shape
@@ -61,6 +61,8 @@ def evaluate_traces(prediction, target, index):
                     torch.from_numpy(target[start : start + len(y)][selected]),
                 )
                 canonical_sums[name] += float(value) * int(selected.sum())
+        if progress is not None:
+            progress(f"scoring {min(start + 128, len(target))}/{len(target)} cells")
     per_trace = pd.concat(rows, ignore_index=True)
     metrics = summarize_metrics(per_trace)
     for name, summary in metrics.items():

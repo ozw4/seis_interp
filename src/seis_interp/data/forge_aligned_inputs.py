@@ -98,7 +98,7 @@ def moveout_canvas(inputs: ForgeModelInputs, alignment: dict) -> MoveoutCanvas:
 
 
 def align_model_inputs(
-    inputs: ForgeModelInputs, alignment: dict
+    inputs: ForgeModelInputs, alignment: dict, *, progress=None
 ) -> tuple[ForgeModelInputs, MoveoutCanvas]:
     """Place model-space observed traces on the canvas; test cells stay unread."""
     canvas = moveout_canvas(inputs, alignment)
@@ -106,6 +106,7 @@ def align_model_inputs(
         np.asarray(inputs.observed_values).T,
         canvas.delays_for(inputs.observed_cells),
         max_delay=canvas.max_delay_samples,
+        progress=progress,
     ).T
     interval = inputs.time_s[1] - inputs.time_s[0]
     aligned = replace(
@@ -117,7 +118,7 @@ def align_model_inputs(
 
 
 def unalign_predictions(
-    prediction: np.ndarray, cells: np.ndarray, canvas: MoveoutCanvas
+    prediction: np.ndarray, cells: np.ndarray, canvas: MoveoutCanvas, *, progress=None
 ) -> np.ndarray:
     """Return rows ``[cell, canvas time]`` to their original ``time_sample_count`` samples."""
     if prediction.shape != (len(cells), canvas.length):
@@ -127,5 +128,6 @@ def unalign_predictions(
         canvas.delays_for(cells),
         canvas.time_sample_count,
         max_delay=canvas.max_delay_samples,
+        progress=progress,
     )
     return np.ascontiguousarray(values.T)

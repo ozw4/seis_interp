@@ -305,12 +305,13 @@ def test_sleep_fault_leaves_watchdog_exit75_then_resumes_checkpoint(tmp_path, mo
     method = "nersi_profile"
     grid = yaml.safe_load((study / "grid.yaml").read_text())
     candidate = c3_search_candidates(configs[method], grid["methods"][method])[0]
+    # Allow cold CPU startup, and keep the injected stall longer than its calibrated p95.
     write_plan(
         study,
         contract,
         {
             "resume_interval_updates": 2,
-            "watchdog": {"floor_seconds": 0.05, "expected_report_seconds": 0.01},
+            "watchdog": {"floor_seconds": 5, "expected_report_seconds": 0.01},
             "faults": [
                 {
                     "point": "report",
@@ -318,7 +319,7 @@ def test_sleep_fault_leaves_watchdog_exit75_then_resumes_checkpoint(tmp_path, mo
                     "run": candidate["id"],
                     "step": 2,
                     "action": "sleep",
-                    "seconds": 3,
+                    "seconds": 60,
                 }
             ],
         },
@@ -332,19 +333,26 @@ from pathlib import Path
 from seis_interp.training import run_recovery
 from seis_interp.pipelines.run_c3_region_experiment import execute_c3_region_run
 run_recovery.time.sleep = lambda _: None if _ < 3 else __import__('threading').Event().wait(_)
+if len(sys.argv) > 4:
+    original_watchdog = run_recovery.run_watchdog
+    def production_watchdog(output, config, **options):
+        execution = config.get('execution', {}) | {
+            'watchdog_floor_seconds': 1800, 'expected_report_seconds': 1800}
+        return original_watchdog(output, config | {'execution': execution}, **options)
+    run_recovery.run_watchdog = production_watchdog
 execute_c3_region_run(
     Path(sys.argv[1]), Path(sys.argv[2]),
     json.loads(Path(sys.argv[3]).read_text()), 21, 'S1')
 """
     command = [sys.executable, "-c", code, str(tmp_path), str(experiment), str(candidate_path)]
-    first = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    first = subprocess.run(command, capture_output=True, text=True, timeout=90)
     assert first.returncode == 75, first.stderr
     output = experiment / "method_runs/nersi_profile/S1/a01_b01"
     dog = json.loads((output / "watchdog.json").read_text())
     assert dog["exit_code"] == 75
     # Use production-scale timing after proving the deliberately short test watchdog.
-    # The consumed fault never sleeps again. Same CPU fixture finishes before the 1s polling tick.
-    second = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    # The consumed fault never sleeps again; resume must not race a tiny startup limit.
+    second = subprocess.run([*command, "resume"], capture_output=True, text=True, timeout=90)
     assert second.returncode == 0, second.stderr
     assert (output / "attempts/1/watchdog.json").exists()
     assert json.loads((output / "manifest.json").read_text())["attempt"] == 1

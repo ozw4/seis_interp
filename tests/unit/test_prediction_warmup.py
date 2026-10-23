@@ -13,6 +13,7 @@ from seis_interp.data.c3_poc_trace_graph import (
 from seis_interp.data.c3_volume_adapter import ObservedC3Volume
 from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.relational_trace_graph_poc_config import validate_relational_trace_graph_poc_config
+from seis_interp.training import phase_progress
 from seis_interp.training import prediction_warmup as warmup
 from seis_interp.training.ccnet5d_prediction import predict_ccnet5d_volume
 from seis_interp.training.exact_resume import restore_rng, rng_state
@@ -54,6 +55,9 @@ def test_ccnet_warms_all_halos_without_changing_rng_or_releasing_cache(monkeypat
         raise AssertionError("cache must remain allocated through training")
 
     monkeypatch.setattr(torch.cuda, "empty_cache", unexpected_cache_release)
+    ticks = iter(range(0, 10000, 31))
+    monkeypatch.setattr(phase_progress.time, "monotonic", lambda: next(ticks))
+    reports = []
     warmup.warm_ccnet(
         model,
         (11, 17, 1, 1, 1),
@@ -61,7 +65,9 @@ def test_ccnet_warms_all_halos_without_changing_rng_or_releasing_cache(monkeypat
             "device": "cuda:0",
             "prediction": {"core_shape": [11, 2, 1, 1, 1]},
         },
+        reporter=reports.append,
     )
+    assert reports and all("prediction warm-up" in message for message in reports)
     expected = [
         (1, 1, *(s.stop - s.start for s in tile.input_slices))
         for tile in warmup.iter_ccnet5d_tiles((11, 17, 1, 1, 1), (11, 2, 1, 1, 1), halo_radius=6)
@@ -170,6 +176,9 @@ def test_graph_warms_the_largest_prediction_plan_once_with_zero_amplitudes(tmp_p
 
     monkeypatch.setattr(warmup.FixedTraceGraphSubgraphBuilder, "build", record_plan)
     monkeypatch.setattr(warmup, "assemble_masked_trace_graph_inputs", cpu_inputs)
+    ticks = iter(range(0, 10000, 31))
+    monkeypatch.setattr(phase_progress.time, "monotonic", lambda: next(ticks))
+    reports = []
     warmup.warm_graph(
         model,
         domain,
@@ -179,7 +188,26 @@ def test_graph_warms_the_largest_prediction_plan_once_with_zero_amplitudes(tmp_p
         2,
         "cuda:0",
         None,
+        reporter=reports.append,
     )
+    assert reports and all("prediction warm-up" in message for message in reports)
     assert len(model.calls) == 1 and len(plans) > 1
     assert model.calls[0].waveforms.shape[0] == max(len(plan.trace_ids) for plan in plans)
     assert torch.count_nonzero(model.calls[0].waveforms) == 0
+
+
+def test_coordinate_warmup_reports_completed_work_without_changing_rng(monkeypatch):
+    model = Recorder()
+    before = rng_state()
+    zeros = torch.zeros
+    monkeypatch.setattr(torch, "zeros", lambda *a, **kw: zeros(*a, **(kw | {"device": "cpu"})))
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda _: None)
+    ticks = iter(range(0, 10000, 31))
+    monkeypatch.setattr(phase_progress.time, "monotonic", lambda: next(ticks))
+    reports = []
+    warmup.warm_coordinates(model, (4, 3), "cuda:0", reporter=reports.append)
+    assert reports == ["prediction warm-up complete (coordinates)"]
+    after = rng_state()
+    assert before["python"] == after["python"]
+    assert all(np.array_equal(a, b) for a, b in zip(before["numpy"], after["numpy"], strict=True))
+    assert torch.equal(before["torch"], after["torch"])

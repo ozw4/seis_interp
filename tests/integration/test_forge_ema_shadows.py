@@ -71,6 +71,72 @@ def _without_timings(history):
     return [{k: v for k, v in row.items() if not k.endswith("seconds")} for row in history]
 
 
+@pytest.mark.parametrize(
+    "method,shared",
+    [("ccnet5d_grid", False), ("nersi_real", False), ("regsi_real", False), ("regsi_real", True)],
+)
+def test_prediction_heartbeats_preserve_primary_shadows_rng_and_order(
+    preparation, monkeypatch, method, shared
+):
+    from seis_interp.training import phase_progress
+    from seis_interp.training.exact_resume import rng_state
+
+    _, prepared = preparation
+    inputs, config = _config(prepared, method, ema_decay=0.8, ema_eval_decays=DECAYS)
+    if shared:
+        config["training"]["execution"] = {"shared_prediction": True}
+    now = 0.0
+    monkeypatch.setattr(phase_progress.time, "monotonic", lambda: now)
+    calls = []
+    advance = False
+    original = forge_mvp_methods.initialize_model
+
+    def initialize(config):
+        model = original(config)
+
+        def advanced(_, args):
+            nonlocal now
+            if advance:
+                now += 31
+            value = args[0]
+            if isinstance(value, torch.Tensor):
+                calls.append((value.shape, value.detach().numpy().tobytes()))
+            else:
+                calls.append(
+                    tuple(
+                        getattr(value, field).numpy().tobytes()
+                        for field in ("waveforms", "node_features", "edge_index", "query_indices")
+                    )
+                )
+
+        model.register_forward_pre_hook(advanced)
+        return model
+
+    monkeypatch.setattr(forge_mvp_methods, "initialize_model", initialize)
+    baseline = _run(inputs, config)
+    before = rng_state()
+    baseline_calls = calls.copy()
+    calls.clear()
+    advance = True
+    reports = []
+    result = run_method(inputs, config, reporter=reports.append)
+    assert result.prediction.tobytes() == baseline.prediction.tobytes()
+    assert result.cell_ids.tobytes() == baseline.cell_ids.tobytes()
+    for key, values in baseline.shadow_predictions.items():
+        assert result.shadow_predictions[key].tobytes() == values.tobytes()
+    assert _without_timings(result.history) == _without_timings(baseline.history)
+    after = rng_state()
+    assert before["python"] == after["python"]
+    assert all(np.array_equal(a, b) for a, b in zip(before["numpy"], after["numpy"], strict=True))
+    assert torch.equal(before["torch"], after["torch"])
+    heartbeats = [
+        message for message in reports if isinstance(message, phase_progress.ProgressHeartbeat)
+    ]
+    for label in ("primary", "ema 0.5", "ema 0.95"):
+        assert any(f"({label})" in message for message in heartbeats), heartbeats
+    assert calls == baseline_calls
+
+
 @pytest.mark.parametrize("method", NEURAL)
 def test_shadows_equal_separately_trained_ema_and_keep_the_primary(preparation, method):
     _, prepared = preparation

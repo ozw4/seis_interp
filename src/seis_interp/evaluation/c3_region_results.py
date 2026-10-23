@@ -8,8 +8,8 @@ from seis_interp.evaluation.seed_completion import seed_completion
 from seis_interp.evaluation.trace_snr import trace_snr_db
 
 
-def score_c3_region(prediction, target, rows):
-    metrics, traces = evaluate_traces(prediction, target, rows)
+def score_c3_region(prediction, target, rows, *, progress=None):
+    metrics, traces = evaluate_traces(prediction, target, rows, progress=progress)
     verify_saved_metrics(metrics, traces)
     summary = metrics["all_eligible"]
     snr = trace_snr_db(target, prediction)

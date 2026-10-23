@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
+from math import prod
 from numbers import Real
 
 import numpy as np
@@ -17,6 +18,7 @@ from seis_interp.training.amplitude_scaling import (
     restore_physical_amplitude,
 )
 from seis_interp.training.mixed_precision import mixed_precision_dtype
+from seis_interp.training.phase_progress import PhaseProgress
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,8 @@ def predict_ccnet5d_volume(
     core_shape: tuple[int, ...],
     device: torch.device | str,
     mixed_precision: str = "off",
+    reporter=None,
+    phase="primary",
 ) -> CCNet5DVolumePrediction:
     """Predict real, halo-expanded slices using only observed amplitudes.
 
@@ -79,6 +83,10 @@ def predict_ccnet5d_volume(
     tile_count = 0
     maximum_input_shape = (0,) * 5
     original_mode = model.training
+    progress = PhaseProgress(reporter)
+    total_tiles = prod(
+        (size + width - 1) // width for size, width in zip(values.shape, core, strict=True)
+    )
     model.eval()
     try:
         with torch.no_grad():
@@ -97,6 +105,7 @@ def predict_ccnet5d_volume(
                 predicted[tile.core_slices] = physical
                 sample_coverage[tile.core_slices] += 1
                 tile_count += 1
+                progress(f"predicting {tile_count}/{total_tiles} tiles ({phase})")
                 maximum_input_shape = tuple(
                     max(previous, actual)
                     for previous, actual in zip(maximum_input_shape, block.shape, strict=True)

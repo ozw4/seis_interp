@@ -44,6 +44,7 @@ from seis_interp.training.nersi_profile_regularization import (
     validate_nuclear_norm_weight,
 )
 from seis_interp.training.neural_diagnostics import NeuralTrainingDiagnostics
+from seis_interp.training.phase_progress import PhaseProgress, ProgressWriter
 from seis_interp.training.prediction_warmup import warm_ccnet, warm_coordinates, warm_graph
 from seis_interp.training.relational_trace_graph_poc_trainer import (
     build_training_neighbor_table,
@@ -244,6 +245,7 @@ def run_method(
     if recovery is not None:
         options["recovery"] = recovery
     model_inputs = inputs.model_space()
+    progress = PhaseProgress(reporter)
     canvas = None
     if config.get("alignment") is None:
         resolved = config
@@ -251,7 +253,7 @@ def run_method(
             resolved = canvas_method_config(config, len(model_inputs.time_s))
         result = _run_method(model_inputs, resolved, reporter, **options)
     else:
-        aligned, canvas = align_model_inputs(model_inputs, config["alignment"])
+        aligned, canvas = align_model_inputs(model_inputs, config["alignment"], progress=progress)
         if config["method_id"] == "nersi_profile" and config["training"].get("loss_support_mask"):
             options["loss_support"] = (
                 canvas.max_delay_samples - canvas.delays_for(aligned.observed_cells),
@@ -261,11 +263,13 @@ def run_method(
             aligned, canvas_method_config(config, canvas.length), reporter, **options
         )
         result.diagnostics["alignment_canvas_sample_count"] = canvas.length
-    result.prediction = _physical_prediction(result.prediction, result.cell_ids, canvas, inputs)
+    result.prediction = _physical_prediction(
+        result.prediction, result.cell_ids, canvas, inputs, progress=progress
+    )
     decays = ema_eval_decays(config.get("training", {}))
     if decays:
         shadows = {
-            key: _physical_prediction(value, result.cell_ids, canvas, inputs)
+            key: _physical_prediction(value, result.cell_ids, canvas, inputs, progress=progress)
             for key, value in result.shadow_predictions.items()
         }
         shadows[shadow_key(config["training"]["ema_decay"])] = result.prediction
@@ -278,12 +282,14 @@ def run_method(
     return result
 
 
-def _physical_prediction(prediction, cell_ids, canvas, inputs):
+def _physical_prediction(prediction, cell_ids, canvas, inputs, *, progress=None):
     """Exact inverse moveout shift, then the preparation's restoration RMS."""
     if canvas is not None:
-        prediction = unalign_predictions(prediction, cell_ids, canvas)
+        prediction = unalign_predictions(prediction, cell_ids, canvas, progress=progress)
     if inputs.test_rms is not None:
         prediction = (prediction.astype(np.float64) * inputs.test_rms[:, None]).astype(np.float32)
+    if progress is not None:
+        progress(f"restored amplitudes {len(cell_ids)} cells")
     return prediction
 
 
@@ -354,9 +360,11 @@ def _run_method(
     if checkpoint_path is not None:
 
         def save_training_checkpoint():
-            torch.save(
-                _method_checkpoint(model, inputs, config, initialization_hash), checkpoint_path
-            )
+            with open(checkpoint_path, "wb") as stream:
+                torch.save(
+                    _method_checkpoint(model, inputs, config, initialization_hash),
+                    ProgressWriter(stream, PhaseProgress(reporter), "saving training checkpoint"),
+                )
 
         fit_options["before_prediction"] = save_training_checkpoint
     prediction, history, shadows, records, states = fit(
@@ -442,7 +450,7 @@ def _shadow_predictions(model, decays, primary, load, predict):
         for decay in decays:
             if decay != primary:
                 load(decay)
-                shadows[shadow_key(decay)] = predict()
+                shadows[shadow_key(decay)] = predict(f"ema {shadow_key(decay)}")
                 states[shadow_key(decay)] = _cpu_state(model.state_dict())
         model.load_state_dict(primary_state)
     return shadows, {"runtime_shadow_prediction_seconds": perf_counter() - started}, states
@@ -495,7 +503,7 @@ def _fit_ccnet(
         inner_mask_seed=mask_seed,
         supervision_seed=supervision_seed,
     )
-    warm_ccnet(model, volume.values.shape, config)
+    warm_ccnet(model, volume.values.shape, config, reporter=reporter)
     warm_memory = _reserved_memory(device, "after_warmup")
     result = train_ccnet5d_observed_steps(
         model,
@@ -541,7 +549,7 @@ def _fit_ccnet(
             state[name] = value.detach().cpu().clone()
         return state
 
-    def predict():
+    def predict(phase="primary"):
         core_shape = tuple(config["prediction"]["core_shape"])
         if config.get("execution", {}).get("full_trace_prediction", False):
             core_shape = (volume.values.shape[0], *core_shape[1:])
@@ -552,6 +560,8 @@ def _fit_ccnet(
             core_shape=core_shape,
             device=device,
             mixed_precision=config["prediction"].get("mixed_precision", "off"),
+            reporter=reporter,
+            phase=phase,
         ).values
         return values.reshape(len(inputs.time_s), -1)[:, inputs.test_cells].T.copy()
 
@@ -612,6 +622,7 @@ def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates, *, rec
         config["prediction"]["query_batch_size"],
         device,
         table,
+        reporter=reporter,
     )
     warm_memory = _reserved_memory(device, "after_warmup")
     result = train_relational_trace_graph_poc(
@@ -655,15 +666,21 @@ def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates, *, rec
         "device": device,
     }
 
-    def predict():
+    def predict(phase="primary"):
         return predict_relational_trace_graph(
-            model, domain, training.preprocessing, **options
+            model, domain, training.preprocessing, reporter=reporter, phase=phase, **options
         ).prediction
 
     with torch_cpu_threads(execution.cpu_threads):
         if execution.shared_prediction:
             prediction, shadows, timing, final_states = _shared_regsi_predictions(
-                model, domain, training, options | {"neighbor_table": table}, decays, primary, extra
+                model,
+                domain,
+                training,
+                options | {"neighbor_table": table, "reporter": reporter},
+                decays,
+                primary,
+                extra,
             )
             records["runtime_prediction_seconds"] = timing.pop("runtime_primary_seconds")
         else:
@@ -710,7 +727,12 @@ def _shared_regsi_predictions(model, domain, training, options, decays, primary,
     others = [decay for decay in decays if decay != primary] if len(decays) > 1 else []
     states = [model.state_dict()] + [extra[decay].state_dict() for decay in others]
     predicted = predict_relational_trace_graph_states(
-        model, states, domain, training.preprocessing, **options
+        model,
+        states,
+        domain,
+        training.preprocessing,
+        phases=["primary", *(f"ema {shadow_key(d)}" for d in others)],
+        **options,
     )
     total = perf_counter() - started
     shadow_seconds = sum(item.diagnostics["timings"]["forward_seconds"] for item in predicted[1:])
@@ -776,7 +798,9 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates, *, rec
     history = []
     window_first = tr["max_steps"] - min(LOSS_WINDOW_UPDATES, tr["max_steps"])
     window_losses = []
-    warm_coordinates(model, (config["prediction"]["batch_size"], coordinates.shape[1]), device)
+    warm_coordinates(
+        model, (config["prediction"]["batch_size"], coordinates.shape[1]), device, reporter=reporter
+    )
     warm_memory = _reserved_memory(device, "after_warmup")
     objects = {"ema": ema} | {str(key): value for key, value in extra.items()}
     state = {} if recovery is None else recovery.load(model, optimizer)
@@ -834,7 +858,8 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates, *, rec
         model.load_state_dict(ema.state_dict())
     model.eval()
 
-    def predict():
+    def predict(phase="primary"):
+        progress = PhaseProgress(reporter)
         output = np.empty((len(inputs.test_cells), len(inputs.time_s)), dtype=np.float32)
         with torch.inference_mode():
             batch = config["prediction"]["batch_size"]
@@ -842,6 +867,9 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates, *, rec
                 rows = [positions[int(i)] for i in inputs.test_cells[start : start + batch]]
                 values = model(coordinates[rows].to(device)).cpu().numpy().astype(np.float64)
                 output[start : start + batch] = values * inputs.global_rms
+                progress(
+                    f"predicting {min(start + batch, len(output))}/{len(output)} cells ({phase})"
+                )
         return output
 
     started = perf_counter()
@@ -926,7 +954,9 @@ def _fit_nersi_profile(
 
     history, window_losses, decoded = [], [], 0
     window_first = tr["max_steps"] - min(LOSS_WINDOW_UPDATES, tr["max_steps"])
-    warm_coordinates(model, (config["prediction"]["profile_batch_size"], 3), device)
+    warm_coordinates(
+        model, (config["prediction"]["profile_batch_size"], 3), device, reporter=reporter
+    )
     warm_memory = _reserved_memory(device, "after_warmup")
     objects = {"ema": ema, "sampler": sampler, "jitter": jitter, "diagnostics": diagnostics} | {
         str(key): value for key, value in extra.items()
@@ -1008,7 +1038,8 @@ def _fit_nersi_profile(
     test_profiles, test_columns = layout.locate(inputs.test_cells)
     unique, inverse = np.unique(test_profiles, return_inverse=True)
 
-    def predict():
+    def predict(phase="primary"):
+        progress = PhaseProgress(reporter)
         output = np.empty((len(inputs.test_cells), time_count), dtype=np.float32)
         batch = config["prediction"]["profile_batch_size"]
         with torch.inference_mode():
@@ -1017,6 +1048,9 @@ def _fit_nersi_profile(
                 values = values.cpu().numpy().astype(np.float64)
                 rows = np.flatnonzero((inverse >= start) & (inverse < start + batch))
                 output[rows] = values[inverse[rows] - start, test_columns[rows]] * inputs.global_rms
+                progress(
+                    f"predicting {min(start + batch, len(unique))}/{len(unique)} profiles ({phase})"
+                )
         return output
 
     started = perf_counter()

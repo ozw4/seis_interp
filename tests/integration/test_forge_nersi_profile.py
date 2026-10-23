@@ -798,6 +798,51 @@ def test_c3_canvas_rule_and_support_option_keep_predictions_bitwise(runs):
         assert torch.equal(value, actual.checkpoint["model_state_dict"][name])
 
 
+def test_profile_prediction_heartbeats_preserve_primary_shadows_and_rng(runs, monkeypatch):
+    from seis_interp.training import phase_progress
+    from seis_interp.training.exact_resume import rng_state
+
+    inputs, config = load_model_inputs(runs.derived["validation"], "nersi_profile")
+    config["training"]["ema_eval_decays"] = DECAYS
+    now = 0.0
+    monkeypatch.setattr(phase_progress.time, "monotonic", lambda: now)
+    original = forge_mvp_methods.initialize_model
+    calls = []
+    emitting = False
+
+    def initialize(config):
+        model = original(config)
+
+        def advance(_, args):
+            nonlocal now
+            if emitting:
+                now += 31
+            calls.append(args[0].detach().numpy().tobytes())
+
+        model.register_forward_pre_hook(advance)
+        return model
+
+    monkeypatch.setattr(forge_mvp_methods, "initialize_model", initialize)
+    baseline = run_method(inputs, config, reporter=lambda _: None)
+    before = rng_state()
+    baseline_calls = calls.copy()
+    calls.clear()
+    emitting = True
+    reports = []
+    actual = run_method(inputs, config, reporter=reports.append)
+    assert actual.prediction.tobytes() == baseline.prediction.tobytes()
+    assert calls == baseline_calls
+    for decay, expected in baseline.shadow_predictions.items():
+        assert actual.shadow_predictions[decay].tobytes() == expected.tobytes()
+    after = rng_state()
+    assert before["python"] == after["python"]
+    assert all(np.array_equal(a, b) for a, b in zip(before["numpy"], after["numpy"], strict=True))
+    assert torch.equal(before["torch"], after["torch"])
+    heartbeats = [m for m in reports if isinstance(m, phase_progress.ProgressHeartbeat)]
+    for label in ("primary", "ema 0.5", "ema 0.95"):
+        assert any(f"({label})" in message for message in heartbeats)
+
+
 def test_profile_ema0999_is_bitwise_with_shadows_and_aligned_loss_support_is_exact(
     runs, monkeypatch
 ):

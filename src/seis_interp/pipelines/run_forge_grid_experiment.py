@@ -44,6 +44,7 @@ from seis_interp.training.exact_resume import atomic_torch_save
 from seis_interp.training.forge_c3_methods import run_forge_c3_method
 from seis_interp.training.forge_mvp_methods import ForgeMethodResult
 from seis_interp.training.gpu_admission import candidate_admission, memory_fitting_candidates
+from seis_interp.training.phase_progress import PhaseProgress, ProgressWriter
 from seis_interp.training.rehearsal import Rehearsal
 from seis_interp.training.run_recovery import (
     S1BarrierError,
@@ -251,17 +252,30 @@ def execute_forge_grid_run(repo, experiment, candidate, seed, stage, *, predicti
                 [mask.role.eq("train"), mask.role.isin(domains)], ["observed", "test"], "excluded"
             )
             validate_predictions(result.prediction, result.cell_ids, mask, len(inputs.time_s))
-            np.save(output / "prediction.npy", result.prediction, allow_pickle=False)
-            np.save(output / "cell_ids.npy", result.cell_ids, allow_pickle=False)
+            progress = PhaseProgress(report)
+            for filename, values in (
+                ("prediction.npy", result.prediction),
+                ("cell_ids.npy", result.cell_ids),
+            ):
+                with (output / filename).open("wb") as stream:
+                    np.save(
+                        ProgressWriter(stream, progress, f"saving {filename}"),
+                        values,
+                        allow_pickle=False,
+                    )
             if result.checkpoint is not None:
-                torch.save(result.checkpoint, output / "final.pt")
+                with (output / "final.pt").open("wb") as stream:
+                    torch.save(
+                        result.checkpoint,
+                        ProgressWriter(stream, progress, "saving final checkpoint"),
+                    )
             pd.DataFrame(result.history).to_csv(output / "history.csv", index=False)
             record["diagnostics"] = result.diagnostics
             if saved_result is None:
                 record["prediction_finalized_at"] = utc_now()
             write_run_manifest(output / "manifest.json", record)
             if stage == "evaluation" and prediction_only:
-                atomic_torch_save(result, output / "prediction_result.pt")
+                atomic_torch_save(result, output / "prediction_result.pt", reporter=report)
                 record["status"] = "awaiting_barrier"
                 return record
             if stage == "evaluation" and not forge_s1_barrier_ready(experiment):
@@ -273,13 +287,15 @@ def execute_forge_grid_run(repo, experiment, candidate, seed, stage, *, predicti
                 indices = positions.get_indexer(rows.cell_id)
                 if np.any(indices < 0):
                     raise ValueError("prediction does not cover current scoring domain")
-                metrics, traces = score_forge_grid(result.prediction[indices], target, rows)
+                metrics, traces = score_forge_grid(
+                    result.prediction[indices], target, rows, progress=progress
+                )
                 traces.to_parquet(output / f"{domain}_per_trace.parquet", index=False)
                 require_finite_metrics(metrics)
                 record["metrics"][domain] = metrics
                 if result.shadow_predictions:
                     record.setdefault("ema_shadow_metrics", {})[domain] = {
-                        decay: score_forge_grid(values[indices], target, rows)[0]
+                        decay: score_forge_grid(values[indices], target, rows, progress=progress)[0]
                         for decay, values in result.shadow_predictions.items()
                     }
                     require_finite_metrics(record["ema_shadow_metrics"][domain])

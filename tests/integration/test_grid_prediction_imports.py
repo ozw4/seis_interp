@@ -67,9 +67,9 @@ def test_c3_candidate_and_seed_import_skip_training_and_rescore(
     reads = []
     score = c3_pipeline.score_c3_region
 
-    def rescore(*args):
+    def rescore(*args, **kwargs):
         reads.append(True)
-        return score(*args)
+        return score(*args, **kwargs)
 
     monkeypatch.setattr(c3_pipeline, "score_c3_region", rescore)
     record = c3_pipeline.execute_c3_region_run(tmp_path, target, candidate, seed, stage)

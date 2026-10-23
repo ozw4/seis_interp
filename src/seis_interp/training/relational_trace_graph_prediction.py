@@ -26,6 +26,7 @@ from seis_interp.processing.trace_graph_subgraphs import (
     FixedTraceGraphSubgraphBuilder,
     build_trace_graph_subgraph,
 )
+from seis_interp.training.phase_progress import PhaseProgress
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,8 @@ def predict_relational_trace_graph(
     device: torch.device | str = "cpu",
     measure_resources: bool = True,
     neighbor_table: TraceGraphNeighborTable | None = None,
+    reporter=None,
+    phase="primary",
 ) -> TraceGraphPrediction:
     """Predict selected or arbitrary queries without reading their waveforms.
 
@@ -84,6 +87,8 @@ def predict_relational_trace_graph(
         device=device,
         measure_resources=measure_resources,
         neighbor_table=neighbor_table,
+        reporter=reporter,
+        phases=[phase],
     )[0]
 
 
@@ -126,11 +131,15 @@ def _predict(
     device: torch.device | str = "cpu",
     measure_resources: bool = True,
     neighbor_table: TraceGraphNeighborTable | None = None,
+    reporter=None,
+    phases=None,
 ) -> list[TraceGraphPrediction]:
     if not models or any(
         not isinstance(model, RelationalTraceGraphInterpolator) for model in models
     ):
         raise TypeError("model must be a RelationalTraceGraphInterpolator")
+    progress = PhaseProgress(reporter)
+    phases = phases if phases is not None else ["primary"] * len(models)
     model = models[0]
     if not isinstance(graph_settings, TraceGraphSettings):
         raise TypeError("graph_settings must be TraceGraphSettings")
@@ -234,6 +243,10 @@ def _predict(
                     )
                 else:
                     plan = builder.build(geometry, query_ids[start:stop], rounds=rounds)
+                progress(
+                    f"building prediction graph {start}/{len(query_ids)} cells "
+                    f"({', '.join(phases)})"
+                )
                 if measure_resources:
                     timings["graph_build_seconds"] += perf_counter() - started
                 if source is not None:
@@ -270,6 +283,7 @@ def _predict(
                         raise ValueError("model predictions must be finite")
                     outputs[index].prediction[start:stop] = values
                     outputs[index].context[start:stop] = flags.cpu().numpy()
+                    progress(f"predicting {stop}/{len(query_ids)} cells ({phases[index]})")
                     for name, total in outputs[index].totals.items():
                         total += batch_diagnostics[name].cpu().numpy()
                 diagnostics["query_batch_count"] += 1

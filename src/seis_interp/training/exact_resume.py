@@ -11,14 +11,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from seis_interp.training.phase_progress import PhaseProgress, ProgressWriter
 
-def atomic_torch_save(payload, path):
+
+def atomic_torch_save(payload, path, *, reporter=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:
-            torch.save(payload, stream)
+            torch.save(
+                payload, ProgressWriter(stream, PhaseProgress(reporter), "saving checkpoint")
+            )
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
@@ -146,6 +150,7 @@ class ExactResume:
                 "training": state | {"step": step},
             },
             self.path,
+            reporter=self.reporter,
         )
         self.saved_at = time.monotonic()
         if self.checkpoint is not None:
