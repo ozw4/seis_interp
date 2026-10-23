@@ -1,0 +1,22 @@
+study_id: study_063_c3_trace_grid
+method_id: pocs_grid
+c3_parent_experiment: runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces
+forge_grid_experiment: runs/study_066_forge_c3_reference/20261021T123742832160Z_05c92e79ce80_pocs_iterations16_grid
+stage: S1
+configurations: 25
+additional_seed_evaluation: false
+trace_seed: 620702
+time_window_samples: [64, 96, 128, 192, 256]
+spatial_window_sl_shot: [[2, 8], [2, 16], [4, 8], [4, 16], [6, 16]]
+fixed_remaining_spatial_window: [8, 16]
+overlap_fraction: 0.5
+n_iterations: 32
+threshold_start: 1.0
+threshold_end: 0.01
+device: cpu
+backend: batched
+cpu_threads: 1
+selection_metric: masked_trace_relative_mse
+tie_break: configuration_id
+test_used_for_selection: false
+inherit_c3_input_partition_and_preprocessing: true

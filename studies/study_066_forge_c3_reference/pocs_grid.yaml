@@ -1,0 +1,24 @@
+method_id: pocs_grid
+loss: masked_trace_relative_mse
+checkpoint_rule: none
+model_seed: null
+device: cpu
+geometry_mode: grid
+algorithm:
+  n_iterations: 100
+  threshold_start: 1.0
+  threshold_end: 0.01
+  window_shape:
+  - 64
+  - 4
+  - 16
+  - 8
+  - 16
+  overlap:
+  - 32
+  - 2
+  - 8
+  - 4
+  - 8
+execution:
+  backend: batched

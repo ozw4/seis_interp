@@ -1,0 +1,39 @@
+method_id: nersi_profile
+geometry_mode: real
+device: cuda:0
+loss: masked_trace_relative_mse
+checkpoint_rule: fixed_final_ema
+model_seed: 7301
+model:
+  input_features: 3
+  fourier_components: 40
+  frequency_base: 1.01
+  encoder_width: 40
+  latent_channels: 28
+  decoder_channels:
+  - 29
+  - 14
+  - 8
+  profile_shape:
+  - 384
+  - 32
+  upsample_scales:
+  - 2
+  - 2
+  - 2
+  kernel_size: 5
+  activation: gelu
+  output_activation: linear
+training:
+  optimizer: adamw
+  learning_rate: 0.0001
+  max_steps: 50000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: 'off'
+  ema_decay: 0.999
+  supervised_traces_per_update: 64
+  nuclear_norm_weight: 0.0
+prediction:
+  profile_batch_size: 64

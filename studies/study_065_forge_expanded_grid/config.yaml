@@ -1,0 +1,287 @@
+study_id: study_065_forge_expanded_grid
+candidate_id: m1_grid_source6x56_receiver16x48
+axis_order:
+- source_grid_line
+- source_grid_point
+- receiver_grid_line
+- receiver_grid_point
+spatial_shape: &id001
+- 6
+- 56
+- 16
+- 48
+eligible_trace_count: 248125
+natural_missing_cell_count: 9923
+time_sample_count: 1001
+sample_interval_us: 4000
+mask_id: forge_expanded_random70_c3_best_v1
+mask_family: random_trace
+missing_fraction: 0.7
+mask_seed: 600701
+test_trace_count: 173688
+observed_trace_count: 74437
+model_seed: 7301
+preprocessing:
+  dtype: float32
+  amplitude_scaling: trace_oracle
+  agc: false
+  trace_rms: true
+  bandpass: null
+  mute: null
+  spatial_interpolation: false
+  alignment:
+    velocity_m_per_s: 500.0
+evaluation:
+  primary: masked_trace_relative_mse
+  primary_domain: clean_target
+  secondary_domain: all_eligible
+  recompute_rtol: 1.0e-10
+  recompute_atol: 1.0e-12
+  test_rms_usage: oracle_normalization_and_restoration_only
+visualization:
+  source_cell: 112
+  receiver_cell: 144
+  time_range_s:
+  - 0.0
+  - 4.0
+  clip_observed_percentile: 99.0
+device: cuda:1
+mask_study_id: study_065_forge_expanded_grid
+time_sampling:
+  native_sample_count: 4001
+  native_sample_interval_us: 1000
+  decimation_factor: 4
+matched_training:
+  max_steps: 50000
+  learning_rate: 0.001
+  loss_traces_per_update: 64
+  parameter_count_policy: preserve_c3_architecture_widths_allow_output_shape_dependent_count
+validation_holdout:
+  fraction: 0.1
+  mask_id: forge_expanded_random70_c3_best_validation_v1
+  mask_seed: 600702
+dataset_id: forge_2017
+status: stopped
+execution_ready: true
+methods:
+- regsi_real
+- ccnet5d_grid
+- nersi_profile
+- pocs_grid
+- drr_grid
+region:
+  candidate_id: m1_grid_source6x56_receiver16x48
+  parent_candidate_id: medium_source_b06_u3400.0_receiver_b13_u1900.0
+  axis_order:
+  - source_grid_line
+  - source_grid_point
+  - receiver_grid_line
+  - receiver_grid_point
+  spatial_shape: *id001
+  eligible_trace_count: 248125
+  grid_cell_count: 258048
+  natural_missing_cell_count: 9923
+  grid_fill_fraction: 0.9615459139384921
+  collision_fraction: 0.0
+  structural_empty_cells: 9744
+  qc_or_unrecorded_empty_cells: 179
+  natural_missing_policy: unobserved_cells_excluded_from_ground_truth_labels_and_scoring
+  grid_mapping_status: validated_one_to_one
+  all_parent_stations_included: true
+  all_parent_eligible_traces_included: true
+  parent_actual_xy_preserved: true
+  parent_grid_xy_preserved: true
+  area_definition: rotated_grid_cell_envelope_per_role
+  maximum_area_factor_per_role: 3.0
+  actual_station_bounds_m:
+    source:
+      x_min_m: 333963.8
+      x_max_m: 337081.4
+      y_min_m: 4260848.8
+      y_max_m: 4263427.9
+    receiver:
+      x_min_m: 334022.4
+      x_max_m: 337058.3
+      y_min_m: 4261016.9
+      y_max_m: 4263418.8
+  maximum_actual_extent_edge_difference_m: 168.1000000005588
+  actual_extent_edge_difference_limit_m: 200.0
+  parent_joint_actual_bbox_area_km2: 4.0518008099996585
+  joint_actual_bbox_area_km2: 8.040602160001832
+  joint_actual_bbox_area_factor: 1.9844514913363942
+  source:
+    role: source
+    line_ids:
+    - 507
+    - 508
+    - 509
+    - 510
+    - 511
+    - 512
+    physical_line_order:
+    - 512
+    - 511
+    - 510
+    - 509
+    - 508
+    - 507
+    shape:
+    - 6
+    - 56
+    station_count: 336
+    cell_count: 336
+    fill_fraction: 1.0
+    collision_fraction: 0.0
+    max_cell_count: 1
+    distance_median_m: 48.62418072296167
+    distance_p95_m: 95.61386842598884
+    distance_max_m: 115.78704733189323
+    normalized_p95: 0.3286060117082127
+    edge_clamped_count: 0
+    direction:
+    - 0.9635321443258886
+    - -0.2675926135952842
+    normal:
+    - 0.2675926135952842
+    - 0.9635321443258886
+    first_u_m: 1459.3000000000002
+    first_v_m: 2108.114201785869
+    along_lower_m: 1434.3000000000002
+    along_upper_m: 4234.3
+    along_spacing_m: 50.0
+    across_spacing_m: 352.89935478865124
+    line_spacing_min_m: 264.2040304593829
+    line_spacing_max_m: 418.2598510496332
+    angle_degrees: -15.521063416722843
+    area_km2: 5.928709160449341
+    origin_xy_m:
+    - 332000.0
+    - 4260000.0
+    candidate_id: source_6x56_parent_extension
+    block_index: 6
+    scan_center_m: 3400.0
+    stage: coarse
+    shift_from_parent:
+    - 0
+    - -24
+    parent_station_count: 192
+    area_factor: 1.75
+    parent_all_stations_included: true
+    parent_grid_xy_preserved: true
+  receiver:
+    role: receiver
+    line_ids:
+    - 125
+    - 129
+    - 133
+    - 137
+    - 141
+    - 145
+    - 149
+    - 153
+    - 157
+    - 161
+    - 165
+    - 169
+    - 173
+    - 177
+    - 181
+    - 185
+    physical_line_order:
+    - 185
+    - 181
+    - 177
+    - 173
+    - 169
+    - 165
+    - 161
+    - 157
+    - 153
+    - 149
+    - 145
+    - 141
+    - 137
+    - 133
+    - 129
+    - 125
+    shape:
+    - 16
+    - 48
+    station_count: 739
+    cell_count: 768
+    fill_fraction: 0.9622395833333334
+    collision_fraction: 0.0
+    max_cell_count: 1
+    distance_median_m: 0.6413971221489386
+    distance_p95_m: 1.287328157684684
+    distance_max_m: 24.5347425193104
+    normalized_p95: 0.02320942404017585
+    edge_clamped_count: 0
+    direction:
+    - 0.017961173984156076
+    - 0.9998386851033075
+    normal:
+    - -0.9998386851033075
+    - 0.017961173984156076
+    first_u_m: 1106.3
+    first_v_m: -4998.072458414553
+    along_lower_m: 1081.3
+    along_upper_m: 3481.3
+    along_spacing_m: 50.0
+    across_spacing_m: 200.0
+    line_spacing_min_m: 199.94049590674058
+    line_spacing_max_m: 200.03329530568953
+    angle_degrees: 88.97084519567888
+    area_km2: 7.68
+    origin_xy_m:
+    - 332000.0
+    - 4260000.0
+    candidate_id: receiver_16x48_parent_extension
+    block_index: 13
+    scan_center_m: 1900.0
+    stage: fine
+    shift_from_parent:
+    - -1
+    - 0
+    parent_station_count: 256
+    area_factor: 3.0
+    parent_all_stations_included: true
+    parent_grid_xy_preserved: true
+workflow:
+  configurations_per_method: 1
+  total_runs: 5
+  hyperparameters: fixed_c3_s1_winner
+  additional_search: false
+  additional_evaluation_runs_per_method: 0
+  separate_final_refit: false
+selection:
+  checkpoint: fixed_final_ema
+  ema_decay: 0.999
+  test_scoring_calls_per_method: 1
+  model_seed: 7301
+training_loss: masked_trace_mse
+boundary_handling:
+  ccnet_source_lines: append_unknown_lines_to_fit_fixed_patch_without_remapping_cells
+  drr: c3_nonoverlapping_unknown_padding
+  natural_missing: excluded_from_training_labels_and_scoring
+cuda_execution:
+  minimum_free_memory_gib:
+    regsi_real: 48
+    ccnet5d_grid: 64
+    nersi_profile: 8
+c3_reference_settings:
+  regsi_real:
+    selection: runs/study_064_c3_reference_grid/20261012T235609226847Z_05c92e79ce80_traces/workers/regsi_real_selection.json
+    configuration_id: a01_b05
+  ccnet5d_grid:
+    selection: runs/study_064_c3_reference_grid/20261012T235609226847Z_05c92e79ce80_traces/workers/ccnet5d_grid_selection.json
+    configuration_id: a05_b02
+  nersi_profile:
+    selection: runs/study_064_c3_reference_grid/20261012T235609226847Z_05c92e79ce80_traces/workers/nersi_profile_selection.json
+    configuration_id: a02_b04
+  pocs_grid:
+    selection: runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/workers/pocs_grid_selection.json
+    configuration_id: a01_b03
+  drr_grid:
+    selection: runs/study_063_c3_trace_grid/20261011T145500928121Z_05c92e79ce80_traces/workers/drr_grid_selection.json
+    configuration_id: a02_b02
