@@ -47,6 +47,9 @@ _MODEL_OPTIONS = {
     "spectral_input_block",
     "attention_pooling",
     "relation_gate_pooling",
+    "receptive_field_pruning",
+    "fused_edge_aggregation",
+    "activation_checkpointing",
 }
 
 

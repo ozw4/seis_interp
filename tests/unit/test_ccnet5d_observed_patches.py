@@ -182,3 +182,31 @@ def test_placement_and_inner_mask_streams_have_independent_random_consumption():
         np.testing.assert_array_equal(
             baseline.sample().pseudo_target_mask, changed_placement.sample().pseudo_target_mask
         )
+
+
+def test_spawned_placement_mask_and_supervision_streams_replay_and_are_distinct():
+    volume = _observed_volume()
+
+    def source():
+        placement, mask, supervision = np.random.SeedSequence(7301).spawn(3)
+        return CCNet5DObservedPatchSource(
+            volume,
+            amplitude_scale=1.0,
+            patch_shape=volume.values.shape,
+            inner_mask_fraction=0.25,
+            placement_seed=placement,
+            inner_mask_seed=mask,
+            supervision_seed=supervision,
+        )
+
+    first, replay = source(), source()
+    for _ in range(5):
+        for a, b in zip(first.sample_batch(3), replay.sample_batch(3), strict=True):
+            np.testing.assert_array_equal(a, b)
+    streams = [first._placement_generator, first._mask_generator, first._supervision_generator]
+    assert len({str(stream.bit_generator.state) for stream in streams}) == 3
+    available = int(volume.observed_trace_mask.sum())
+    assert (
+        first.effective_inner_fractions
+        == [round(available * 0.25) / available] * first.patches_drawn
+    )

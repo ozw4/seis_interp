@@ -16,7 +16,10 @@ from seis_interp.training.forge_mvp_methods import run_method
 from tests.fixtures.forge_mvp import tiny_forge_study
 
 
-def test_ccnet_tuning_preserves_inputs_and_records_reproducible_checkpoint(tmp_path, monkeypatch):
+@pytest.mark.parametrize("record_kernels", [False, True])
+def test_ccnet_tuning_preserves_inputs_and_records_reproducible_checkpoint(
+    tmp_path, monkeypatch, record_kernels
+):
     study, contract, _, configs, *_ = tiny_forge_study(tmp_path)
     contract["preprocessing"].update(amplitude_scaling="trace_oracle", trace_rms=True)
     (study / "config.yaml").write_text(yaml.safe_dump(contract))
@@ -61,6 +64,17 @@ def test_ccnet_tuning_preserves_inputs_and_records_reproducible_checkpoint(tmp_p
             )
         )
     )
+    kernels = ["sm80_xmma_fprop_tf32", "sm80_xmma_dgrad_tf32", "sm80_xmma_wgrad_tf32"]
+    if record_kernels:
+
+        def recorded(inputs, config, reporter):
+            result = run_method(inputs, config, reporter)
+            result.diagnostics.update(
+                conv_kernels_first_update=kernels, time_conv_tensor_cores=True
+            )
+            return result
+
+        monkeypatch.setattr("seis_interp.pipelines.tune_forge_ccnet.run_method", recorded)
     output = tune_forge_ccnet(tmp_path, source, search)
     record = json.loads((output / "manifest.json").read_text())
     verify_hashes(source, hashes)
@@ -86,6 +100,13 @@ def test_ccnet_tuning_preserves_inputs_and_records_reproducible_checkpoint(tmp_p
     history = pd.read_parquet(output / "candidate/training_log.parquet")
     assert history.step.iloc[-1] == 3
     assert history.supervised_trace_presentations.iloc[-1] == 6
+    summary = json.loads((output / "candidate/run_manifest.json").read_text())
+    csv = pd.read_csv(output / "search_results.csv")
+    assert set(csv.columns) == set(summary) - {"conv_kernels_first_update"}
+    if record_kernels:
+        assert summary["conv_kernels_first_update"] == kernels
+        assert summary["time_conv_tensor_cores"] is True
+        assert bool(csv.loc[0, "time_conv_tensor_cores"]) is True
 
 
 @pytest.mark.parametrize(

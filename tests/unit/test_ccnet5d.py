@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from itertools import product
 
 import pytest
@@ -7,6 +8,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+import seis_interp.models.ccnet5d as ccnet5d_module
 from seis_interp.models.ccnet5d import CC3D2D, CCNet5D, ccnet5d_method_variant
 
 
@@ -359,3 +361,222 @@ def test_ccnet5d_time_receptive_field_is_bounded_by_the_time_halo() -> None:
 def test_ccnet5d_rejects_invalid_time_axis_values(changed: dict[str, object], match: str) -> None:
     with pytest.raises(ValueError, match=match):
         CCNet5D(hidden_channels=2, intermediate_channels=2, kernel_size=3, **changed)
+
+
+@pytest.fixture(scope="module")
+def single_thread_convolutions():
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    yield
+    torch.set_num_threads(previous)
+
+
+def _assert_polyphase_matches_reference(model: CCNet5D, values: torch.Tensor) -> None:
+    actual_values = values.detach().requires_grad_()
+    reference_values = values.detach().clone().requires_grad_()
+    actual = model(actual_values)
+    expected = model.network(reference_values)
+    assert actual.is_contiguous()
+    torch.testing.assert_close(actual, expected, rtol=1e-12, atol=1e-12)
+    probe = torch.randn(
+        actual.shape, dtype=torch.float64, generator=torch.Generator().manual_seed(41)
+    )
+    actual_gradients = torch.autograd.grad(actual, (actual_values, *model.parameters()), probe)
+    expected_gradients = torch.autograd.grad(
+        expected, (reference_values, *model.parameters()), probe
+    )
+    for actual_gradient, expected_gradient in zip(
+        actual_gradients, expected_gradients, strict=True
+    ):
+        torch.testing.assert_close(actual_gradient, expected_gradient, rtol=1e-12, atol=1e-12)
+
+
+POLYPHASE_CASES = [
+    (time, dilation, index)
+    for index, (time, dilation) in enumerate(
+        [(time, dilation) for dilation in (1, 2, 3, 4, 6) for time in (1, 2, 3, 5, 8, 9, 17, 43)]
+        + [(4, 6), (6, 6)]
+    )
+]
+
+
+@pytest.mark.usefixtures("single_thread_convolutions")
+@pytest.mark.parametrize(("time", "dilation", "case_index"), POLYPHASE_CASES)
+def test_polyphase_forward_and_all_gradients_match_reference(
+    time: int, dilation: int, case_index: int
+) -> None:
+    generator = torch.Generator().manual_seed(104 + case_index)
+    model = CCNet5D(
+        hidden_channels=3,
+        intermediate_channels=4,
+        kernel_size=(3, 5)[case_index % 2],
+        time_kernel_size=(3, 9)[case_index // 2 % 2],
+        time_dilation=dilation,
+        output_activation=("linear", "relu")[case_index // 4 % 2],
+    ).double()
+    with torch.no_grad():
+        for name, parameter in model.named_parameters():
+            if name.endswith("bias"):
+                parameter.copy_(
+                    0.3
+                    + 0.4 * torch.randn(parameter.shape, dtype=torch.float64, generator=generator)
+                )
+    spatial = ((1, 2, 3, 1), (2, 1, 1, 3), (1, 1, 2, 3))[case_index % 3]
+    batch = (1, 3)[case_index % 2]
+    values = torch.randn(batch, 1, time, *spatial, dtype=torch.float64, generator=generator)
+    if case_index % 3 == 0:
+        values = values.transpose(-1, -2)
+    _assert_polyphase_matches_reference(model, values)
+
+
+@pytest.mark.usefixtures("single_thread_convolutions")
+@pytest.mark.parametrize("dilation", [1, 4])
+@pytest.mark.parametrize("receiver_layout", ["flat", "source_batch"])
+def test_polyphase_batch_and_sample_element_splits_are_exact(
+    monkeypatch, dilation: int, receiver_layout: str
+) -> None:
+    model = CCNet5D(
+        hidden_channels=3,
+        intermediate_channels=4,
+        kernel_size=3,
+        time_kernel_size=9,
+        time_dilation=dilation,
+    ).double()
+    generator = torch.Generator().manual_seed(72)
+    values = torch.randn(3, 1, 9, 2, 1, 2, 3, dtype=torch.float64, generator=generator)
+    monkeypatch.setattr(ccnet5d_module, "_TIME_CONV_BATCH_CHUNK", 5)
+    folded_time = 9 if dilation == 1 else 28
+    element_limit = 121 if receiver_layout == "flat" else 24 * folded_time * 3 // 2
+    monkeypatch.setattr(ccnet5d_module, "_CONV_SAMPLE_ELEMENT_LIMIT", element_limit)
+    convolution_shapes = []
+    original = F.conv3d
+
+    def record_convolution(inputs, weight, *args, **kwargs):
+        if "padding" in kwargs:
+            convolution_shapes.append((inputs.shape, weight.shape))
+        return original(inputs, weight, *args, **kwargs)
+
+    monkeypatch.setattr(F, "conv3d", record_convolution)
+    _assert_polyphase_matches_reference(model, values)
+    # The optimized convolutions pass padding by keyword, while the reference
+    # uses positional arguments. The expanded receiver kernel ends in one.
+    time_shapes = [shape for shape, weight in convolution_shapes if weight[-3] == 9]
+    assert any(shape[0] == 5 for shape in time_shapes)
+    assert all(shape[0] <= 5 for shape in time_shapes)
+    receiver_shapes = [shape for shape, weight in convolution_shapes if weight[-1] == 1]
+    assert len(receiver_shapes) > len(model.network)
+    assert all(math.prod(shape[1:]) < element_limit for shape in receiver_shapes)
+    if receiver_layout == "source_batch":
+        assert any(shape[0] == 5 for shape in receiver_shapes)
+        assert all(shape[-1] == folded_time for shape in receiver_shapes)
+
+
+@pytest.mark.usefixtures("single_thread_convolutions")
+def test_polyphase_gaps_and_short_phase_padding_are_zero_after_each_hidden_module(monkeypatch):
+    model = CCNet5D(
+        hidden_channels=3,
+        intermediate_channels=4,
+        kernel_size=3,
+        time_kernel_size=9,
+        time_dilation=4,
+    ).double()
+    with torch.no_grad():
+        for parameter in model.parameters():
+            if parameter.ndim == 1:
+                parameter.fill_(0.3)
+    original = ccnet5d_module._zero_time_phase_padding
+    checked_modules = []
+
+    def verify_padding(values, **kwargs):
+        original(values, **kwargs)
+        phases = values.unflatten(3, (4, values.shape[3] // 4))
+        assert torch.count_nonzero(phases[:, :, :, :, 3:]) == 0
+        assert torch.count_nonzero(phases[:, :, :, 1:, 2]) == 0
+        checked_modules.append(values.shape[-1])
+
+    monkeypatch.setattr(ccnet5d_module, "_zero_time_phase_padding", verify_padding)
+    _assert_polyphase_matches_reference(model, torch.randn(1, 1, 9, 1, 2, 2, 1).double())
+    assert checked_modules == [3, 3, 3]
+
+
+def test_polyphase_preserves_state_keys_shapes_order_and_constructor_config() -> None:
+    model = CCNet5D(
+        hidden_channels=3,
+        intermediate_channels=4,
+        kernel_size=3,
+        time_kernel_size=9,
+        time_dilation=4,
+        output_activation="relu",
+    )
+    expected = []
+    for index, (incoming, outgoing) in enumerate([(1, 3), (3, 3), (3, 3), (3, 1)]):
+        expected.extend(
+            [
+                (f"network.{index}.conv3d.weight", (4, incoming, 9, 3, 3)),
+                (f"network.{index}.conv3d.bias", (4,)),
+                (f"network.{index}.conv2d.weight", (outgoing, 4, 3, 3)),
+                (f"network.{index}.conv2d.bias", (outgoing,)),
+            ]
+        )
+    assert [(name, tuple(value.shape)) for name, value in model.state_dict().items()] == expected
+    assert not list(model.buffers())
+    assert model.constructor_config() == {
+        "hidden_channels": 3,
+        "intermediate_channels": 4,
+        "kernel_size": 3,
+        "output_activation": "relu",
+        "time_kernel_size": 9,
+        "time_dilation": 4,
+    }
+
+
+@pytest.mark.parametrize(
+    ("shape", "message"),
+    [
+        ((1, 1, 2, 1, 1, 1), "values must have shape (B, C, T, Sx, Sy, Rx, Ry)"),
+        ((1, 2, 2, 1, 1, 1, 1), "values must have 1 input channels"),
+    ],
+)
+def test_polyphase_preserves_input_validation_messages(shape, message):
+    model = CCNet5D(hidden_channels=1, intermediate_channels=1, kernel_size=3)
+    with pytest.raises(ValueError) as error:
+        model(torch.zeros(shape))
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize("dilation", [1, 4])
+def test_polyphase_preserves_empty_time_exception(dilation):
+    model = CCNet5D(
+        hidden_channels=1,
+        intermediate_channels=1,
+        kernel_size=3,
+        time_kernel_size=9,
+        time_dilation=dilation,
+    )
+    values = torch.zeros(1, 1, 0, 1, 1, 1, 1)
+    with pytest.raises(RuntimeError) as reference_error:
+        model.network(values)
+    with pytest.raises(RuntimeError) as actual_error:
+        model(values)
+    assert str(actual_error.value) == str(reference_error.value)
+
+
+@pytest.mark.parametrize("axis", [0, 3, 4, 5, 6])
+def test_polyphase_preserves_other_empty_dimension_results(axis):
+    model = CCNet5D(
+        hidden_channels=1,
+        intermediate_channels=1,
+        kernel_size=3,
+        time_dilation=4,
+    )
+    shape = [1, 1, 3, 2, 2, 2, 2]
+    shape[axis] = 0
+    values = torch.zeros(shape)
+    if axis == 0:
+        torch.testing.assert_close(model(values), model.network(values), rtol=0, atol=0)
+    else:
+        with pytest.raises(RuntimeError) as reference_error:
+            model.network(values)
+        with pytest.raises(RuntimeError) as actual_error:
+            model(values)
+        assert str(actual_error.value) == str(reference_error.value)

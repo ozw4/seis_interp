@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import torch
 from torch import nn
+from torch.nn import functional as F
+
+_TIME_CONV_BATCH_CHUNK = 64
+_CONV_SAMPLE_ELEMENT_LIMIT = 2**31 - 1
 
 
 def _validate_positive_integer(name: str, value: int) -> None:
@@ -104,6 +108,168 @@ class CC3D2D(nn.Module):
         )
 
 
+def _fold_time_phases(values: torch.Tensor, dilation: int, gap: int) -> torch.Tensor:
+    """Place independent time phases in one axis with zero gaps between them."""
+    batch, channels, time, source_x, source_y, receiver_x, receiver_y = values.shape
+    if dilation == 1:
+        return values.permute(0, 5, 6, 2, 3, 4, 1).contiguous()
+    phase_time = (time + dilation - 1) // dilation
+    padded = F.pad(values, (0, 0) * 4 + (0, phase_time * dilation - time))
+    phases = padded.reshape(
+        batch, channels, phase_time, dilation, source_x, source_y, receiver_x, receiver_y
+    ).permute(0, 6, 7, 3, 2, 4, 5, 1)
+    folded = values.new_zeros(
+        batch, receiver_x, receiver_y, dilation, phase_time + gap, source_x, source_y, channels
+    )
+    folded[:, :, :, :, :phase_time] = phases
+    return folded.flatten(3, 4)
+
+
+def _zero_time_phase_padding(
+    values: torch.Tensor, *, time: int, dilation: int, phase_time: int
+) -> None:
+    """Remove bias-generated values at gaps and the padded end of short phases."""
+    batch, receiver_x, receiver_y, folded_time, source_x, source_y, channels = values.shape
+    phases = values.view(
+        batch,
+        receiver_x,
+        receiver_y,
+        dilation,
+        folded_time // dilation,
+        source_x,
+        source_y,
+        channels,
+    )
+    phases[:, :, :, :, phase_time:].zero_()
+    remainder = time % dilation
+    if remainder:
+        phases[:, :, :, remainder:, phase_time - 1].zero_()
+
+
+def _time_convolution(values: torch.Tensor, convolution: nn.Conv3d) -> torch.Tensor:
+    """Convolve independent receiver columns in batches suitable for cuDNN."""
+    weight = convolution.weight.contiguous(memory_format=torch.channels_last_3d)
+    padding = tuple(size // 2 for size in convolution.kernel_size)
+    outputs = [
+        F.conv3d(
+            values[start : start + _TIME_CONV_BATCH_CHUNK],
+            weight,
+            convolution.bias,
+            padding=padding,
+        )
+        for start in range(0, values.shape[0], _TIME_CONV_BATCH_CHUNK)
+    ]
+    return outputs[0] if len(outputs) == 1 else torch.cat(outputs, dim=0)
+
+
+def _receiver_convolution(values: torch.Tensor, convolution: nn.Conv2d) -> torch.Tensor:
+    """Apply the receiver kernel without exceeding cuDNN's per-sample limit."""
+    sample_columns = max(convolution.in_channels, convolution.out_channels) * (
+        values.shape[2] * values.shape[3]
+    )
+    chunk_width = (_CONV_SAMPLE_ELEMENT_LIMIT - 1) // sample_columns
+    if chunk_width < 1:
+        raise RuntimeError("CCNet-5D receiver convolution exceeds the per-sample element limit")
+    weight = convolution.weight.unsqueeze(-1).contiguous(memory_format=torch.channels_last_3d)
+    padding = (*convolution.padding, 0)
+    if values.shape[-1] <= chunk_width:
+        return F.conv3d(values, weight, convolution.bias, padding=padding)
+    outputs = [
+        F.conv3d(
+            values[..., start : start + chunk_width], weight, convolution.bias, padding=padding
+        )
+        for start in range(0, values.shape[-1], chunk_width)
+    ]
+    return torch.cat(outputs, dim=-1)
+
+
+def _receiver_convolution_by_source(
+    features: torch.Tensor,
+    module: CC3D2D,
+    *,
+    batch: int,
+    receiver_x: int,
+    receiver_y: int,
+    time: int,
+    source_x: int,
+    source_y: int,
+) -> torch.Tensor:
+    """Batch independent source cells while keeping each cell's entire time axis."""
+    columns = (
+        features.view(batch, receiver_x, receiver_y, time, source_x, source_y, -1)
+        .permute(0, 4, 5, 1, 2, 3, 6)
+        .contiguous()
+        .flatten(0, 2)
+        .permute(0, 4, 1, 2, 3)
+    )
+    outputs = [
+        _receiver_convolution(columns[start : start + _TIME_CONV_BATCH_CHUNK], module.conv2d)
+        for start in range(0, columns.shape[0], _TIME_CONV_BATCH_CHUNK)
+    ]
+    output = outputs[0] if len(outputs) == 1 else torch.cat(outputs)
+    del columns, outputs
+    return (
+        output.permute(0, 2, 3, 4, 1)
+        .contiguous()
+        .view(batch, source_x, source_y, receiver_x, receiver_y, time, module.conv2d.out_channels)
+        .permute(0, 3, 4, 5, 1, 2, 6)
+        .contiguous()
+    )
+
+
+def _cross_convolution(values: torch.Tensor, module: CC3D2D) -> torch.Tensor:
+    """Keep (B, Rx, Ry, D, Sx, Sy, C) contiguous between both convolutions."""
+    batch, receiver_x, receiver_y, time, source_x, source_y, channels = values.shape
+    inputs = values.view(batch * receiver_x * receiver_y, time, source_x, source_y, channels)
+    features = _time_convolution(inputs.permute(0, 4, 1, 2, 3), module.conv3d)
+    features = torch.relu(features.permute(0, 2, 3, 4, 1).contiguous())
+    receiver_sample = max(module.conv2d.in_channels, module.conv2d.out_channels) * (
+        receiver_x * receiver_y * time
+    )
+    if receiver_sample < _CONV_SAMPLE_ELEMENT_LIMIT <= receiver_sample * source_x * source_y:
+        return _receiver_convolution_by_source(
+            features,
+            module,
+            batch=batch,
+            receiver_x=receiver_x,
+            receiver_y=receiver_y,
+            time=time,
+            source_x=source_x,
+            source_y=source_y,
+        )
+    receiver_inputs = features.view(
+        batch, receiver_x, receiver_y, time * source_x * source_y, module.conv3d.out_channels
+    ).permute(0, 4, 1, 2, 3)
+    output = _receiver_convolution(receiver_inputs, module.conv2d)
+    return (
+        output.permute(0, 2, 3, 4, 1)
+        .contiguous()
+        .view(batch, receiver_x, receiver_y, time, source_x, source_y, module.conv2d.out_channels)
+    )
+
+
+def _unfold_time_phases(values: torch.Tensor, *, time: int, dilation: int) -> torch.Tensor:
+    """Interleave the real time samples and return the public contiguous layout."""
+    batch, receiver_x, receiver_y, folded_time, source_x, source_y, channels = values.shape
+    if dilation == 1:
+        return values.permute(0, 6, 3, 4, 5, 1, 2).contiguous()
+    phase_time = (time + dilation - 1) // dilation
+    phases = values.view(
+        batch,
+        receiver_x,
+        receiver_y,
+        dilation,
+        folded_time // dilation,
+        source_x,
+        source_y,
+        channels,
+    )[:, :, :, :, :phase_time]
+    output = phases.permute(0, 7, 4, 3, 5, 6, 1, 2).reshape(
+        batch, channels, phase_time * dilation, source_x, source_y, receiver_x, receiver_y
+    )
+    return output[:, :, :time].contiguous()
+
+
 def ccnet5d_method_variant(output_activation: str) -> str:
     """Identify the supervised signed-output or paper-ReLU audit variant."""
     _validate_output_activation(output_activation)
@@ -173,7 +339,25 @@ class CCNet5D(nn.Module):
         )
 
     def forward(self, values: torch.Tensor) -> torch.Tensor:
-        return self.network(values)
+        if values.ndim != 7:
+            raise ValueError("values must have shape (B, C, T, Sx, Sy, Rx, Ry)")
+        if values.shape[1] != 1:
+            raise ValueError("values must have 1 input channels")
+        time = values.shape[2]
+        if 0 in values.shape:
+            # Retain the reference's empty-batch result and empty-axis errors.
+            return self.network(values)
+        phase_time = (time + self.time_dilation - 1) // self.time_dilation
+        features = _fold_time_phases(values, self.time_dilation, self.time_kernel_size // 2)
+        for index, module in enumerate(self.network):
+            features = _cross_convolution(features, module)
+            if self.time_dilation > 1 and index < len(self.network) - 1:
+                _zero_time_phase_padding(
+                    features, time=time, dilation=self.time_dilation, phase_time=phase_time
+                )
+            if module.output_activation == "relu":
+                features = torch.relu(features)
+        return _unfold_time_phases(features, time=time, dilation=self.time_dilation)
 
     @property
     def time_halo_radius(self) -> int:

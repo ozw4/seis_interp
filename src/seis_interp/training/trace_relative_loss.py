@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 
 POC_TRACE_LOSSES = ("masked_trace_mse", "masked_trace_relative_mse")
+NONFINITE_TRACES_MESSAGE = "selected prediction and target traces must be finite"
 
 
 def masked_trace_loss(
@@ -14,15 +15,28 @@ def masked_trace_loss(
     *,
     loss_name: str,
     accumulation_dtype: torch.dtype = torch.float64,
+    check_finite: bool = True,
 ) -> torch.Tensor:
-    """Apply one of the two complete-trace PoC objectives."""
+    """Apply one of the two complete-trace PoC objectives.
+
+    ``check_finite=False`` skips the finite-value check of the selected traces,
+    which synchronizes with the device; the caller then owns that check.
+    """
     if loss_name == "masked_trace_mse":
         return masked_trace_mse(
-            prediction, target, trace_mask, accumulation_dtype=accumulation_dtype
+            prediction,
+            target,
+            trace_mask,
+            accumulation_dtype=accumulation_dtype,
+            check_finite=check_finite,
         )
     if loss_name == "masked_trace_relative_mse":
         return masked_trace_relative_mse(
-            prediction, target, trace_mask, accumulation_dtype=accumulation_dtype
+            prediction,
+            target,
+            trace_mask,
+            accumulation_dtype=accumulation_dtype,
+            check_finite=check_finite,
         )
     raise ValueError(f"loss_name must be one of {POC_TRACE_LOSSES!r}")
 
@@ -33,10 +47,13 @@ def masked_trace_mse(
     trace_mask: torch.Tensor | None = None,
     *,
     accumulation_dtype: torch.dtype = torch.float64,
+    check_finite: bool = True,
 ) -> torch.Tensor:
     """Return time-then-trace MSE, accumulating in float64 unless requested otherwise."""
     _validate_accumulation_dtype(accumulation_dtype)
-    prediction_rows, target_rows = _validated_selected_rows(prediction, target, trace_mask)
+    prediction_rows, target_rows = _validated_selected_rows(
+        prediction, target, trace_mask, check_finite=check_finite
+    )
     if prediction.dtype != target.dtype:
         raise TypeError("prediction and target must share a dtype")
     return (
@@ -52,10 +69,13 @@ def masked_trace_relative_mse(
     trace_mask: torch.Tensor | None = None,
     *,
     accumulation_dtype: torch.dtype = torch.float64,
+    check_finite: bool = True,
 ) -> torch.Tensor:
     """Return relative MSE over selected complete traces with time last."""
     _validate_accumulation_dtype(accumulation_dtype)
-    prediction_rows, target_rows = _validated_selected_rows(prediction, target, trace_mask)
+    prediction_rows, target_rows = _validated_selected_rows(
+        prediction, target, trace_mask, check_finite=check_finite
+    )
 
     teacher = target_rows.detach().to(accumulation_dtype)
     peak = teacher.abs().amax(dim=1, keepdim=True)
@@ -75,13 +95,16 @@ def _validated_selected_rows(
     prediction: torch.Tensor,
     target: torch.Tensor,
     trace_mask: torch.Tensor | None,
+    *,
+    check_finite: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     _validate_trace_pair(prediction, target)
     prediction_rows, target_rows = _selected_trace_rows(prediction, target, trace_mask)
-    if not bool(torch.isfinite(prediction_rows).all()) or not bool(
-        torch.isfinite(target_rows).all()
+    if check_finite and (
+        not bool(torch.isfinite(prediction_rows).all())
+        or not bool(torch.isfinite(target_rows).all())
     ):
-        raise ValueError("selected prediction and target traces must be finite")
+        raise ValueError(NONFINITE_TRACES_MESSAGE)
     return prediction_rows, target_rows
 
 

@@ -87,6 +87,28 @@ def test_comparison_rejects_inconsistent_sampling_or_normalization(fault):
         validate_mvp_configs(configs, contract)
 
 
+def test_comparison_accepts_bf16_only_for_ccnet():
+    contract, configs = _study_configs()
+    configs["ccnet5d_grid"]["training"]["mixed_precision"] = "bf16"
+    validate_mvp_configs(configs, contract)
+
+
+@pytest.mark.parametrize(
+    "method,precision",
+    [
+        ("ccnet5d_grid", "fp16"),
+        ("nersi_real", "bf16"),
+        ("regsi_real", "bf16"),
+        ("regsi_grid", "bf16"),
+    ],
+)
+def test_comparison_rejects_unsupported_precision_with_existing_error(method, precision):
+    contract, configs = _study_configs()
+    configs[method]["training"]["mixed_precision"] = precision
+    with pytest.raises(ValueError, match="^unsupported fixed training schedule$"):
+        validate_mvp_configs(configs, contract)
+
+
 MATCHED_STUDY = "study_058_forge_2ms_random80_align500_matched20k"
 
 

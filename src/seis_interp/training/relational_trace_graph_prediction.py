@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from numbers import Integral
 from time import perf_counter
@@ -17,6 +19,7 @@ from seis_interp.data.trace_graph_domain import TraceGraphDomain
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
 from seis_interp.processing.trace_graph_diagnostics import trace_graph_resource_measurements
 from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, compute_trace_graph_geometry
+from seis_interp.processing.trace_graph_neighbor_table import TraceGraphNeighborTable
 from seis_interp.processing.trace_graph_preprocessing import TraceGraphPreprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
 from seis_interp.processing.trace_graph_subgraphs import (
@@ -51,6 +54,7 @@ def predict_relational_trace_graph(
     observed_waveforms: np.ndarray | None = None,
     device: torch.device | str = "cpu",
     measure_resources: bool = True,
+    neighbor_table: TraceGraphNeighborTable | None = None,
 ) -> TraceGraphPrediction:
     """Predict selected or arbitrary queries without reading their waveforms.
 
@@ -63,9 +67,71 @@ def predict_relational_trace_graph(
     The observed domain and search settings stay fixed across batches. Graph
     counts describe processed batch instances; gate sums and query counts can
     be accumulated across arbitrary query splits without counting support.
+    An optional ``neighbor_table`` (for example the training table over the
+    observed traces) serves support searches; predictions are unchanged.
+    """
+    return _predict(
+        [model],
+        domain,
+        preprocessing,
+        graph_settings=graph_settings,
+        query_trace_ids=query_trace_ids,
+        query_source_xy_m=query_source_xy_m,
+        query_receiver_xy_m=query_receiver_xy_m,
+        query_batch_size=query_batch_size,
+        amplitudes=amplitudes,
+        observed_waveforms=observed_waveforms,
+        device=device,
+        measure_resources=measure_resources,
+        neighbor_table=neighbor_table,
+    )[0]
+
+
+def predict_relational_trace_graph_states(
+    model: RelationalTraceGraphInterpolator,
+    states: Sequence[Mapping[str, torch.Tensor]],
+    domain: TraceGraphDomain,
+    preprocessing: TraceGraphPreprocessing,
+    **options,
+) -> list[TraceGraphPrediction]:
+    """One prediction per state dict, from graphs and inputs built once per batch.
+
+    Each result equals ``predict_relational_trace_graph`` of ``model`` with that
+    state loaded; ``model`` itself keeps its weights. ``options`` are the keyword
+    arguments of ``predict_relational_trace_graph``. Timings other than the
+    forward pass describe the shared preparation.
     """
     if not isinstance(model, RelationalTraceGraphInterpolator):
         raise TypeError("model must be a RelationalTraceGraphInterpolator")
+    models = []
+    for state in states:
+        copy = deepcopy(model)
+        copy.load_state_dict(state)
+        models.append(copy)
+    return _predict(models, domain, preprocessing, **options)
+
+
+def _predict(
+    models: list[RelationalTraceGraphInterpolator],
+    domain: TraceGraphDomain,
+    preprocessing: TraceGraphPreprocessing,
+    *,
+    graph_settings: TraceGraphSettings,
+    query_trace_ids: np.ndarray | None = None,
+    query_source_xy_m: np.ndarray | None = None,
+    query_receiver_xy_m: np.ndarray | None = None,
+    query_batch_size: int = 64,
+    amplitudes: np.ndarray | None = None,
+    observed_waveforms: np.ndarray | None = None,
+    device: torch.device | str = "cpu",
+    measure_resources: bool = True,
+    neighbor_table: TraceGraphNeighborTable | None = None,
+) -> list[TraceGraphPrediction]:
+    if not models or any(
+        not isinstance(model, RelationalTraceGraphInterpolator) for model in models
+    ):
+        raise TypeError("model must be a RelationalTraceGraphInterpolator")
+    model = models[0]
     if not isinstance(graph_settings, TraceGraphSettings):
         raise TypeError("graph_settings must be TraceGraphSettings")
     graph_settings.validate_model_config(model.constructor_config())
@@ -110,11 +176,14 @@ def predict_relational_trace_graph(
         domain.receiver_xy_m,
         azimuth_min_offset_m=preprocessing.azimuth_min_offset_m,
     )
+    if neighbor_table is not None and graph_settings.neighbor_search != "exact_index":
+        raise ValueError("neighbor_table requires neighbor_search=exact_index")
     builder = (
         FixedTraceGraphSubgraphBuilder(
             candidate_geometry,
             domain.trace_ids,
             domain.observed_mask,
+            neighbor_table=neighbor_table,
             **graph_settings.subgraph_kwargs(),
         )
         if graph_settings.neighbor_search == "exact_index"
@@ -122,16 +191,13 @@ def predict_relational_trace_graph(
     )
     if measure_resources:
         timings["graph_build_seconds"] += perf_counter() - geometry_started
-    prediction = np.empty((len(query_ids), len(domain.time_s)), dtype=np.float32)
-    context = np.empty(len(query_ids), dtype=bool)
     rounds = model.message_passing_rounds
     relation_count = 4 if model.method_variant == "relational" else 1
-    totals = {
-        "gate_sum": np.zeros((rounds, relation_count), dtype=np.float64),
-        "available_query_count": np.zeros((rounds, relation_count), dtype=np.int64),
-        "context_query_count": np.zeros(rounds, dtype=np.int64),
-        "no_context_query_count": np.zeros(rounds, dtype=np.int64),
-    }
+    outputs = [
+        _PredictionOutput.empty(len(query_ids), len(domain.time_s), rounds, relation_count)
+        for _ in models
+    ]
+    forward_seconds = [0.0 for _ in models]
     diagnostics = {
         "query_count": len(query_ids),
         "query_batch_count": 0,
@@ -142,9 +208,10 @@ def predict_relational_trace_graph(
         "max_support_node_count": 0,
         "gate_relation_names": list(RELATION_NAMES) if relation_count == 4 else ["untyped"],
     }
-    was_training = model.training
-    model.to(device)
-    model.eval()
+    was_training = [member.training for member in models]
+    for member in models:
+        member.to(device)
+        member.eval()
     try:
         with torch.inference_mode():
             for start in range(0, len(query_ids), query_batch_size):
@@ -189,19 +256,22 @@ def predict_relational_trace_graph(
                 if measure_resources:
                     _synchronize(requested_device)
                     timings["input_assembly_seconds"] += perf_counter() - started
-                batch_diagnostics = {}
-                started = perf_counter() if measure_resources else None
-                normalized, flags = model(inputs, diagnostics=batch_diagnostics)
-                if measure_resources:
-                    _synchronize(requested_device)
-                    timings["forward_seconds"] += perf_counter() - started
-                values = normalized.cpu().numpy().astype(np.float64) * preprocessing.amplitude_scale
-                if not np.all(np.isfinite(values)):
-                    raise ValueError("model predictions must be finite")
-                prediction[start:stop] = values
-                context[start:stop] = flags.cpu().numpy()
-                for name, total in totals.items():
-                    total += batch_diagnostics[name].cpu().numpy()
+                for index, member in enumerate(models):
+                    batch_diagnostics = {}
+                    started = perf_counter() if measure_resources else None
+                    normalized, flags = member(inputs, diagnostics=batch_diagnostics)
+                    if measure_resources:
+                        _synchronize(requested_device)
+                        forward_seconds[index] += perf_counter() - started
+                    values = (
+                        normalized.cpu().numpy().astype(np.float64) * preprocessing.amplitude_scale
+                    )
+                    if not np.all(np.isfinite(values)):
+                        raise ValueError("model predictions must be finite")
+                    outputs[index].prediction[start:stop] = values
+                    outputs[index].context[start:stop] = flags.cpu().numpy()
+                    for name, total in outputs[index].totals.items():
+                        total += batch_diagnostics[name].cpu().numpy()
                 diagnostics["query_batch_count"] += 1
                 for name in ("support_node_count", "typed_edge_count", "unique_pair_count"):
                     diagnostics[f"processed_{name}"] += plan.diagnostics[name]
@@ -212,22 +282,56 @@ def predict_relational_trace_graph(
                     diagnostics["max_support_node_count"], plan.diagnostics["support_node_count"]
                 )
     finally:
-        model.train(was_training)
-    diagnostics.update({name: values.tolist() for name, values in totals.items()})
-    if measure_resources:
-        if source is None:
-            timings["observed_read_seconds"] = None
-        diagnostics["timings"] = timings
-        diagnostics["resources"] = trace_graph_resource_measurements(requested_device)
-    diagnostics["gate_interpretation"] = "model_weights_not_causal_importance"
-    return TraceGraphPrediction(
-        query_trace_ids=query_ids,
-        source_xy_m=source_xy,
-        receiver_xy_m=receiver_xy,
-        prediction=prediction,
-        has_observed_context=context,
-        diagnostics=diagnostics,
-    )
+        for member, mode in zip(models, was_training, strict=True):
+            member.train(mode)
+    if measure_resources and source is None:
+        timings["observed_read_seconds"] = None
+    resources = trace_graph_resource_measurements(requested_device) if measure_resources else None
+    results = []
+    for output, seconds in zip(outputs, forward_seconds, strict=True):
+        record = {
+            **diagnostics,
+            **{name: values.tolist() for name, values in output.totals.items()},
+        }
+        if measure_resources:
+            record["timings"] = {**timings, "forward_seconds": seconds}
+            record["resources"] = resources
+        record["gate_interpretation"] = "model_weights_not_causal_importance"
+        results.append(
+            TraceGraphPrediction(
+                query_trace_ids=query_ids,
+                source_xy_m=source_xy,
+                receiver_xy_m=receiver_xy,
+                prediction=output.prediction,
+                has_observed_context=output.context,
+                diagnostics=record,
+            )
+        )
+    return results
+
+
+@dataclass(frozen=True)
+class _PredictionOutput:
+    """Accumulators of one weight set across query batches."""
+
+    prediction: np.ndarray
+    context: np.ndarray
+    totals: dict[str, np.ndarray]
+
+    @classmethod
+    def empty(
+        cls, query_count: int, time_count: int, rounds: int, relation_count: int
+    ) -> _PredictionOutput:
+        return cls(
+            np.empty((query_count, time_count), dtype=np.float32),
+            np.empty(query_count, dtype=bool),
+            {
+                "gate_sum": np.zeros((rounds, relation_count), dtype=np.float64),
+                "available_query_count": np.zeros((rounds, relation_count), dtype=np.int64),
+                "context_query_count": np.zeros(rounds, dtype=np.int64),
+                "no_context_query_count": np.zeros(rounds, dtype=np.int64),
+            },
+        )
 
 
 def _query_geometry(

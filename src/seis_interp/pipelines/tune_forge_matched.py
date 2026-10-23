@@ -18,7 +18,11 @@ saves every EMA average after those updates as ``update_<n>/ema_<decay>.pt``.
 target or computing a metric. A study whose contract declares a
 ``validation_holdout`` selects on that holdout only: on its final-test
 preparation the tuner runs ``purpose: final_evaluation`` with ``evaluate: false``
-and nothing else.
+and nothing else. A ``reference_only: true`` selection search skips only the
+parameter-count band (updates, learning rate and loss traces stay matched); its
+manifest records the flag, and fair-grid stages never generate one.
+A ReGSI candidate may set ``training.execution`` (``trace_graph_execution``), which
+changes only how the fit runs; invalid switches are rejected before any training.
 """
 
 import gc
@@ -33,6 +37,7 @@ import pandas as pd
 import torch
 import yaml
 
+from seis_interp.data.c3_fair_grid_truth import read_c3_scored_targets
 from seis_interp.data.forge_aligned_inputs import align_model_inputs, unalign_predictions
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import (
@@ -49,13 +54,15 @@ from seis_interp.evaluation.forge_mvp_metrics import (
     verify_saved_metrics,
 )
 from seis_interp.forge_mvp_config import (
-    NEURAL_METHODS,
+    TUNABLE_NEURAL_METHODS,
     validate_matched_training,
     validate_parameter_counts,
 )
+from seis_interp.processing.c3_fair_grid_contract import C3_DATASET_ID
 from seis_interp.processing.drr_batched import interpolate_drr_volume_batched
 from seis_interp.processing.forge_time_sampling import native_time_contract, resample_forge_traces
 from seis_interp.processing.pocs_batched import interpolate_pocs_volume_batched
+from seis_interp.run_records import runtime_resource_metadata
 from seis_interp.training.forge_mvp_methods import (
     ForgeMethodResult,
     ema_eval_decays,
@@ -64,12 +71,14 @@ from seis_interp.training.forge_mvp_methods import (
     run_method,
     shadow_key,
 )
+from seis_interp.training.trace_graph_execution import validate_trace_graph_execution
 
 TUNABLE_SECTIONS = {
     "pocs_grid": ("algorithm",),
     "drr_grid": ("algorithm",),
     "ccnet5d_grid": ("model", "training", "patches", "prediction"),
     "nersi_real": ("model", "training", "prediction"),
+    "nersi_profile": ("model", "training", "prediction"),
     "regsi_real": ("model", "training", "graph", "geometry_features", "prediction"),
     "regsi_grid": ("model", "training", "graph", "geometry_features", "prediction"),
 }
@@ -78,8 +87,19 @@ OPTIONAL_KEYS = {
     ("ccnet5d_grid", "training"): {"ema_decay", "ema_eval_decays", "ema_snapshot_updates"},
     ("nersi_real", "model"): {"coordinate_transform", "polar_offset"},
     ("nersi_real", "training"): {"ema_eval_decays", "ema_snapshot_updates"},
-    ("regsi_real", "training"): {"ema_eval_decays", "ema_snapshot_updates"},
-    ("regsi_grid", "training"): {"ema_eval_decays", "ema_snapshot_updates"},
+    ("nersi_profile", "model"): {
+        "time_upsample_channels",
+        "time_kernel_size",
+        "latent_spatial_rank",
+    },
+    ("nersi_profile", "training"): {
+        "ema_eval_decays",
+        "ema_snapshot_updates",
+        "nuclear_norm_weight",
+        "coordinate_jitter_cells",
+    },
+    ("regsi_real", "training"): {"ema_eval_decays", "ema_snapshot_updates", "execution"},
+    ("regsi_grid", "training"): {"ema_eval_decays", "ema_snapshot_updates", "execution"},
 }
 SELECTION_DOMAINS = ("validation_holdout", "final_test")
 PURPOSES = ("selection", "final_evaluation")
@@ -96,6 +116,7 @@ FIXED_KEYS = {
     },
     "model": {
         "time_sample_count",
+        "profile_shape",
         "input_features",
         "activation",
         "output_activation",
@@ -105,9 +126,15 @@ FIXED_KEYS = {
 }
 
 
-def tune_forge_matched(repo: Path, preparation: Path, search_config: Path):
-    """Evaluate every listed candidate; record the best without replacing the study configs."""
-    search = yaml.safe_load(search_config.read_text())
+def tune_forge_matched(
+    repo: Path, preparation: Path, search_config: Path, *, device: str | None = None
+):
+    """Evaluate every listed candidate; record the best without replacing the study configs.
+
+    ``device`` overrides where the search executes. The search yaml is recorded byte for
+    byte, so the run keeps its planned identity; the override is written to the manifest.
+    """
+    search = override_search_device(yaml.safe_load(search_config.read_text()), device)
     method = search["method_id"]
     seal = json.loads((preparation / "preparation_manifest.json").read_text())
     scoring = search_scoring(seal, search)
@@ -148,6 +175,7 @@ def tune_forge_matched(repo: Path, preparation: Path, search_config: Path):
         implementation_hashes=source_hashes,
         **scoring,
         target_relative_mse=search.get("target_relative_mse"),
+        **({"device_override": device} if device is not None else {}),
     )
     write_json(output / "manifest.json", record)
     try:
@@ -179,6 +207,17 @@ def tune_forge_matched(repo: Path, preparation: Path, search_config: Path):
     return output
 
 
+def override_search_device(search: dict, device: str | None) -> dict:
+    """The search with its execution device replaced by another device of the same kind."""
+    if device is None:
+        return search
+    planned = search["device"]
+    same_kind = device == "cpu" if planned == "cpu" else device.startswith("cuda:")
+    if not same_kind or (device != "cpu" and not device[5:].isdigit()):
+        raise ValueError(f"device override {device!r} must be the same kind as {planned!r}")
+    return {**search, "device": device}
+
+
 def search_scoring(seal: dict, search: dict) -> dict:
     """Scored domain from the preparation seal and the search's declared purpose."""
     domain = seal.get("selection_domain", "final_test")
@@ -194,11 +233,15 @@ def search_scoring(seal: dict, search: dict) -> dict:
         raise ValueError("an evaluated search declares target_relative_mse")
     if not evaluate and search.get("stop_when_target_met", False):
         raise ValueError("stop_when_target_met requires evaluate: true")
+    reference = search.get("reference_only", False)
+    if not isinstance(reference, bool) or (reference and purpose != "selection"):
+        raise ValueError("reference_only must be a boolean of a selection search")
     return {
         "selection_domain": domain,
         "purpose": purpose,
         "evaluate": evaluate,
         "independent_test_estimate": purpose == "final_evaluation",
+        **({"reference_only": True} if reference else {}),
     }
 
 
@@ -217,12 +260,20 @@ def require_holdout_selection(contract: dict, scoring: dict) -> None:
 
 
 def matched_candidate_config(
-    base_config, candidate, device, budget, canvas_length, observed_trace_count
+    base_config,
+    candidate,
+    device,
+    budget,
+    canvas_length,
+    observed_trace_count,
+    *,
+    parameter_band=True,
 ):
     """Apply method-internal overrides and reject anything the matched comparison fixes.
 
     A neural candidate may replace ``model_seed``; it seeds initialization and
-    every training stream exactly as the study seed does.
+    every training stream exactly as the study seed does. ``parameter_band=False``
+    (reference-only searches) still counts the parameters but accepts any count.
     """
     method = base_config["method_id"]
     sections = TUNABLE_SECTIONS[method]
@@ -231,7 +282,11 @@ def matched_candidate_config(
     config = deepcopy(base_config)
     if "model_seed" in candidate:
         seed = candidate["model_seed"]
-        if method not in NEURAL_METHODS or isinstance(seed, bool) or not isinstance(seed, int):
+        if (
+            method not in TUNABLE_NEURAL_METHODS
+            or isinstance(seed, bool)
+            or not isinstance(seed, int)
+        ):
             raise ValueError(f"{method}: model_seed must be an integer of a neural method")
         config["model_seed"] = seed
     for section in sections:
@@ -249,7 +304,7 @@ def matched_candidate_config(
         and config["patches"]["shape"][0] != (base_config["patches"]["shape"][0])
     ):
         raise ValueError("CCNet5D patches must span complete traces")
-    if method in NEURAL_METHODS:
+    if method in TUNABLE_NEURAL_METHODS:
         config["checkpoint_rule"] = (
             "fixed_final_ema" if config["training"].get("ema_decay") else "fixed_final"
         )
@@ -258,8 +313,16 @@ def matched_candidate_config(
         if budget is not None:
             validate_matched_training({method: config}, budget, observed_trace_count)
             parameter_count = model_parameter_count(config, canvas_length)
-            validate_parameter_counts({method: parameter_count}, budget)
+            if parameter_band:
+                validate_parameter_counts({method: parameter_count}, budget)
     config["device"] = device
+    if method.startswith("regsi"):
+        # training.execution changes only how the fit runs; reject invalid switches here.
+        validate_trace_graph_execution(
+            config["training"].get("execution"),
+            neighbor_search=config["graph"]["neighbor_search"],
+            device=device,
+        )
     config["changes_from_source"] = [
         "Tune method-internal parameters on the sealed preparation and evaluation domain."
     ]
@@ -269,32 +332,36 @@ def matched_candidate_config(
 
 
 def _classical_batched(inputs, config, search) -> ForgeMethodResult:
-    """Batched POCS/DRR on the same model-space canvas as ``run_method``."""
+    """Batched POCS/DRR on the same model-space canvas and global-RMS units as ``run_method``.
+
+    The model-space global RMS is 1.0 for trace-scaled preparations and the observed
+    global RMS of a global-RMS (C3) preparation, as in ``run_method``.
+    """
     model_inputs = inputs.model_space()
     canvas = None
     if config.get("alignment") is not None:
         model_inputs, canvas = align_model_inputs(model_inputs, config["alignment"])
     volume = model_inputs.volume()
+    observed = (volume.values.astype(np.float64) / model_inputs.global_rms).astype(np.float32)
     kwargs = dict(config["algorithm"], device=search["device"])
     if config["method_id"] == "drr_grid":
         kwargs["workers"] = search.get("workers", 1)
         result = interpolate_drr_volume_batched(
-            volume.values, volume.observed_trace_mask, model_inputs.time_s, **kwargs
+            observed, volume.observed_trace_mask, model_inputs.time_s, **kwargs
         )
         uncovered = result.uncovered_trace_count
     else:
-        result = interpolate_pocs_volume_batched(
-            volume.values, volume.observed_trace_mask, **kwargs
-        )
+        result = interpolate_pocs_volume_batched(observed, volume.observed_trace_mask, **kwargs)
         uncovered = result.uncovered_sample_count
     if uncovered:
         raise ValueError("prediction has uncovered samples")
     np.testing.assert_array_equal(
         result.values[:, volume.observed_trace_mask],
-        volume.values[:, volume.observed_trace_mask],
+        observed[:, volume.observed_trace_mask],
     )
     time_count = len(model_inputs.time_s)
     prediction = result.values.reshape(time_count, -1)[:, inputs.test_cells].T
+    prediction = (prediction.astype(np.float64) * model_inputs.global_rms).astype(np.float32)
     if canvas is not None:
         prediction = unalign_predictions(
             np.ascontiguousarray(prediction), inputs.test_cells, canvas
@@ -330,7 +397,13 @@ def _evaluate_candidates(repo, preparation, inputs, base_config, contract, canva
     for candidate in search["candidates"]:
         name = candidate["name"]
         config, parameter_count = matched_candidate_config(
-            base_config, candidate, search["device"], budget, canvas, len(inputs.observed_cells)
+            base_config,
+            candidate,
+            search["device"],
+            budget,
+            canvas,
+            len(inputs.observed_cells),
+            parameter_band=not search.get("reference_only", False),
         )
         path = output / name
         path.mkdir(exist_ok=False)
@@ -399,6 +472,7 @@ def _evaluate_candidates(repo, preparation, inputs, base_config, contract, canva
             **({"final_batch_training_loss": result.history[-1]["loss"]} if result.history else {}),
         )
         run.update(result.diagnostics)
+        conv_kernels = run.pop("conv_kernels_first_update", None)
         if parameter_count and run["parameter_count"] != parameter_count:
             raise ValueError("trained parameter count differs from the validated count")
         primary = config.get("training", {}).get("ema_decay")
@@ -416,6 +490,9 @@ def _evaluate_candidates(repo, preparation, inputs, base_config, contract, canva
                 row.update(_score(values, target, index, directories))
             rows.append({**row, **run})
         manifest = {**next(row for row in rows if row["primary_checkpoint"])}
+        manifest["numerics"] = runtime_resource_metadata(torch.device(search["device"]))
+        if conv_kernels is not None:
+            manifest["conv_kernels_first_update"] = conv_kernels
         if shadows:
             manifest["ema_shadows"] = {row["ema_decay"]: _scores_only(row) for row in rows}
         write_json(path / "run_manifest.json", manifest)
@@ -436,6 +513,8 @@ def _evaluate_candidates(repo, preparation, inputs, base_config, contract, canva
 
 def _read_targets(repo, preparation, contract, mask):
     """Read the scored split once: the validation holdout or the final test set."""
+    if contract.get("dataset_id") == C3_DATASET_ID:
+        return read_c3_scored_targets(repo, preparation, mask)
     raw = json.loads((preparation / "input/raw_input_hashes.json").read_text())
     verify_hashes(repo / raw["dataset_root"], raw["hashes"])
     rows = pd.read_parquet(preparation / "input/m1_trace_manifest.parquet")

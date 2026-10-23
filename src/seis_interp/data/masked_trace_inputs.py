@@ -33,11 +33,25 @@ class MaskedTraceGraphInputs:
     common_edge_distances: torch.Tensor | None = None
     relation_names: tuple[str, ...] = RELATION_NAMES
 
-    def to(self, device: torch.device | str) -> MaskedTraceGraphInputs:
+    def to(
+        self, device: torch.device | str, *, non_blocking: bool = False
+    ) -> MaskedTraceGraphInputs:
         """Move this batch's tensors together without changing their dtypes."""
         return MaskedTraceGraphInputs(
             **{
-                field.name: getattr(self, field.name).to(device)
+                field.name: getattr(self, field.name).to(device, non_blocking=non_blocking)
+                for field in fields(self)
+                if isinstance(getattr(self, field.name), torch.Tensor)
+            },
+            dependency_rounds=self.dependency_rounds,
+            relation_names=self.relation_names,
+        )
+
+    def pin_memory(self) -> MaskedTraceGraphInputs:
+        """Copy CPU tensors to page-locked memory for asynchronous device transfers."""
+        return MaskedTraceGraphInputs(
+            **{
+                field.name: getattr(self, field.name).pin_memory()
                 for field in fields(self)
                 if isinstance(getattr(self, field.name), torch.Tensor)
             },

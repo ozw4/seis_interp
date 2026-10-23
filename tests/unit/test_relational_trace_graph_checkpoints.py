@@ -103,6 +103,30 @@ def test_round_trip_reproduces_nonzero_physical_predictions(
     assert loaded.selection_metrics == {"snr_db": None, "snr_status": "perfect_prediction"}
 
 
+def test_memory_switches_round_trip_and_predict_like_the_default_model(tmp_path):
+    model, domain, preprocessing, amplitudes = _fixture("learned_gate")
+    switches = {
+        "receptive_field_pruning": True,
+        "fused_edge_aggregation": True,
+        "activation_checkpointing": True,
+    }
+    switched = RelationalTraceGraphInterpolator(**model.constructor_config(), **switches)
+    switched.load_state_dict(model.state_dict())
+    path = tmp_path / "model.pt"
+    _save(path, switched, preprocessing)
+    loaded = load_relational_trace_graph_checkpoint(path)
+    assert loaded.model.constructor_config() == {**model.constructor_config(), **switches}
+    arguments = {"graph_settings": loaded.graph_settings, "amplitudes": amplitudes}
+    original = predict_relational_trace_graph(model, domain, preprocessing, **arguments)
+    restored = predict_relational_trace_graph(
+        loaded.model, domain, loaded.preprocessing, **arguments
+    )
+    np.testing.assert_allclose(restored.prediction, original.prediction, rtol=1e-5, atol=1e-6)
+    np.testing.assert_array_equal(restored.has_observed_context, original.has_observed_context)
+    for name in ("available_query_count", "context_query_count", "no_context_query_count"):
+        assert restored.diagnostics[name] == original.diagnostics[name]
+
+
 def test_saved_best_state_is_cpu_snapshot_and_saving_preserves_rng(tmp_path):
     model, _, preprocessing, _ = _fixture()
     states = {name: value.clone() for name, value in model.state_dict().items()}

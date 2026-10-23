@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from numbers import Real
 
@@ -15,6 +16,7 @@ from seis_interp.training.amplitude_scaling import (
     normalize_by_global_rms,
     restore_physical_amplitude,
 )
+from seis_interp.training.mixed_precision import mixed_precision_dtype
 
 
 @dataclass(frozen=True)
@@ -34,12 +36,19 @@ def predict_ccnet5d_volume(
     amplitude_rms: float,
     core_shape: tuple[int, ...],
     device: torch.device | str,
+    mixed_precision: str = "off",
 ) -> CCNet5DVolumePrediction:
     """Predict real, halo-expanded slices using only observed amplitudes.
 
     No external padding, blending, empty-tile skipping, or scale fitting is
     performed. Each Conv handles the true volume boundary at every layer.
+    The default preserves fp32/TF32 prediction. Explicit ``bf16`` autocasts
+    CUDA forwards and converts their outputs to float32 before restoration.
     """
+    if mixed_precision not in ("off", "bf16"):
+        raise ValueError("CCNet-5D prediction.mixed_precision must be off or bf16")
+    device_value = torch.device(device)
+    autocast_dtype = mixed_precision_dtype(mixed_precision, device_value)
     values = observed_volume.values
     if values.ndim != 5 or not values.size or values.dtype not in (np.float32, np.float64):
         raise ValueError(
@@ -58,6 +67,10 @@ def predict_ccnet5d_volume(
     ):
         raise ValueError("amplitude_rms must be positive and finite")
     core = validate_ccnet5d_shape(core_shape, "core_shape")
+    halo_radius = model.halo_radius
+    if core[0] >= values.shape[0]:
+        # Whole-time tiles have no temporal boundary; only spatial support is needed.
+        halo_radius = len(model.network) * (model.kernel_size // 2)
     # np.where, not multiplication: target placeholders may contain NaN.
     source = normalize_by_global_rms(np.where(mask[None, ...], values, 0), amplitude_rms)
     predicted = np.empty_like(values)
@@ -69,10 +82,17 @@ def predict_ccnet5d_volume(
     model.eval()
     try:
         with torch.no_grad():
-            for tile in iter_ccnet5d_tiles(values.shape, core, halo_radius=model.halo_radius):
+            for tile in iter_ccnet5d_tiles(values.shape, core, halo_radius=halo_radius):
                 block = np.ascontiguousarray(source[tile.input_slices])
                 inputs = torch.as_tensor(block, dtype=parameter.dtype, device=device)[None, None]
-                output = model(inputs)[0, 0][tile.local_core_slices]
+                with (
+                    torch.autocast(device_type=device_value.type, dtype=autocast_dtype)
+                    if autocast_dtype is not None
+                    else nullcontext()
+                ):
+                    output = model(inputs)[0, 0][tile.local_core_slices]
+                if output.dtype == torch.bfloat16:
+                    output = output.float()
                 physical = restore_physical_amplitude(output.cpu().numpy(), amplitude_rms)
                 predicted[tile.core_slices] = physical
                 sample_coverage[tile.core_slices] += 1

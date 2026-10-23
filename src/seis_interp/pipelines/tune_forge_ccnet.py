@@ -191,7 +191,11 @@ def _evaluate_candidates(repo, preparation, inputs, base_config, search, output)
             final_batch_training_loss=result.history[-1]["loss"],
             **result.diagnostics,
         )
-        write_json(path / "run_manifest.json", row)
+        conv_kernels = row.pop("conv_kernels_first_update", None)
+        manifest = dict(row)
+        if conv_kernels is not None:
+            manifest["conv_kernels_first_update"] = conv_kernels
+        write_json(path / "run_manifest.json", manifest)
         summaries.append(row)
         pd.DataFrame(summaries).to_csv(output / "search_results.csv", index=False)
         print(json.dumps(row), flush=True)

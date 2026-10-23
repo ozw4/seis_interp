@@ -129,6 +129,16 @@ source/receiver差4成分（既存の位置尺度で正規化）と、全round�
 振幅を保存する厳密なdelayとは異なる。`observed_trace_rms`と併用でき、
 非ゼロ設定だけが4係数とconstructor設定をcheckpointへ追加する。
 
+`model.receptive_field_pruning`・`model.fused_edge_aggregation`・`model.activation_checkpointing`
+（既定`false`、relational modelのみ）は学習memoryを減らす実行設定である。parameter・初期化・RNGを変えず、
+実数演算では既定経路と同じ予測・診断・勾配を返す。pruningは`edge_index`からqueryへ逆向きに依存集合を求め、
+各roundで後続roundまたはdecoderが読むnodeだけを更新し、relation messageもそのdestinationだけに作る。
+fused aggregationはedge messageをchunkで集約してbackwardで再計算し、`[E,C,F]`を保存しない。
+edge lagとは併用できない。checkpointingはencoderと各roundの時間残差だけを
+`torch.utils.checkpoint`（`use_reentrant=False`）でbackward時に再計算する。
+加算順が変わるためFP32では丸め差が生じる。`true`の設定だけがconstructor設定とcheckpointへ記録される。
+`training.mixed_precision: bf16`と併用でき、checkpoint内の再計算にも同じautocastが適用される。
+
 `relation_fusion="mean"`は利用可能なrelationだけの等重み、`"learned_gate"`は潜在特徴・relation message・
 embedding・coverageによる学習重みである。gate最終層はzero initなので等重みから始まる。
 空relationの重みは0、全relation空のqueryは予測0・context=Falseを返す。
@@ -355,6 +365,33 @@ Kは`graph.neighbors_per_relation`の可視候補数、Fは各destination・各r
 各hopで一様・非復元抽出してから次frontierを展開し、coverageはdegree/Fにする。
 edge専用RNGはepisode/query RNGと独立で、stepごとに再抽出する。
 省略時と凍結予測はsamplingせずfull Kを使い、予測はFP32のままである。
+
+任意の`training.execution`は実行方法だけの切替（すべて既定`false`）で、PoC CLIとFORGE/C3の
+ReGSIが受け付ける。FORGE/C3では準備前の方法config（`regsi_*.yaml`）に書くか、matched tuningの
+候補（fair-gridでは計画される候補）の`training`上書きとして与え、どちらも学習前に検証する。
+計画済みfair-grid runのyamlに後から加えるとyamlが変わり、別のrunになる。
+どの切替も既定経路とbit単位で同じbatch・loss・parameter・EMA・予測を返す。
+`neighbor_table`は`graph.neighbor_search: exact_index`が必須で（他の探索との組合せは設定検証で拒否する）、
+学習開始時に各観測traceのrelation別top-(k+16)候補を距離→ID順・radius以内で一度だけ求め、
+各updateでは可視候補の先頭k個を使う。可視候補が切り詰められている可能性がある行だけ厳密探索に戻り、
+planはvectorized組み立てで既定と同じになる。`prefetch`は次のbatchを1つのworker processで作り、
+page-locked memoryから非同期転送する（batch順・RNG列は不変）。`deferred_checks`はCPUで検証済みのbatchを
+device上で再検証せず、`bincount`・`nonzero`を同期なしの同値演算に置き換え、pruningの依存集合を転送前に
+CPUで求め、loss・勾配norm・有限性の読み出しを`report_interval`ごとにまとめる。非有限値は同じerror文のまま、次のreport時点で失敗する。
+`cpu_threads`（正整数）はCUDA deviceの学習・予測中のtorch CPU thread数で、終了後に元へ戻す。
+device上の計算は変えない。CPU deviceでは設定検証で拒否する。このcontainerのPyTorch
+（2.5.0a0+nv24.09、MKLとGNU OpenMP）では実行中の`torch.set_num_threads`がMKLの動的thread調整を切り、
+その後のCPU超越関数（cos・sin・exp・tanh）が間欠的にSIGSEGVで落ちるためである（CPU deviceの
+ReGSI学習では`cpu_threads`が8で2/6、12で5/6のrunが落ち、未設定では0/6）。CPU deviceのthread数は
+起動時の`OMP_NUM_THREADS`で決める。`foreach_ema`はEMA更新を
+`torch._foreach_lerp_`でまとめる。`shared_prediction`は予測batchのgraphと入力を一度だけ作って全EMA shadowを
+同じbatchで予測し、`neighbor_table`があればsupport探索に学習時のtableを再利用する。
+fused aggregationのCUDA backwardはatomic加算を使うため、この設定だけはCUDAで実行間のbit再現がない。
+CPU deviceで2 thread以上を使う学習は、切替をすべて切った既定経路でも実行ごとにbit再現しない。
+索引gather（`values[sender]`など）のCPU backwardが勾配を並列のatomic加算で集約し、加算順がthreadの
+実行順で変わるためである（小さなgraphでは直列に実行されるので再現する）。CPUで切替をbit比較するときは
+`torch.use_deterministic_algorithms(True)`の下か1 thread（起動時の`OMP_NUM_THREADS=1`）で行う。どちらでも各切替は
+既定経路とbit単位で一致する（実C3 validation準備、k=2、6 update、64 threadと1 threadで確認）。
 
 数値は設定形式の例であり、精度や実行予算の推奨値ではない。
 Global RMSはO全体から一度だけ計算し、座標原点はD全体のmidpoint bounding box中心に固定する。

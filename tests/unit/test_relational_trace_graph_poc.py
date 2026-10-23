@@ -415,6 +415,49 @@ def test_optional_input_blocks_complete_cpu_optimizer_steps(tmp_path, encoding):
     assert all(torch.isfinite(parameter).all() for parameter in model.parameters())
 
 
+_MEMORY_SWITCHES = {
+    "receptive_field_pruning": True,
+    "fused_edge_aggregation": True,
+    "activation_checkpointing": True,
+}
+
+
+def test_memory_switches_reach_the_model_and_keep_cpu_training(tmp_path):
+    baseline, training, graph, options = _precision_training_case(tmp_path / "training")
+    _, config, _ = prepare_poc_trace_graph_inputs(tmp_path / "config")
+    config["model"].update(_MEMORY_SWITCHES)
+    validated = validate_relational_trace_graph_poc_config(config).model
+    assert {name: validated[name] for name in _MEMORY_SWITCHES} == _MEMORY_SWITCHES
+    model = RelationalTraceGraphInterpolator(**baseline.constructor_config(), **_MEMORY_SWITCHES)
+    model.load_state_dict(baseline.state_dict())
+    results = [
+        trainer.train_relational_trace_graph_poc(
+            candidate, training, graph_settings=graph, **options
+        )
+        for candidate in (baseline, model)
+    ]
+    for reference, switched in zip(results[0].history, results[1].history, strict=True):
+        assert switched["subgraph_edge_count"] == reference["subgraph_edge_count"]
+        assert switched["loss"] == pytest.approx(reference["loss"], rel=1e-5, abs=1e-8)
+    for key, value in baseline.state_dict().items():
+        torch.testing.assert_close(model.state_dict()[key], value, rtol=1e-4, atol=1e-6)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not torch.cuda.is_bf16_supported(),
+    reason="CUDA bf16 required",
+)
+def test_cuda_bf16_training_with_memory_switches_is_finite(tmp_path):
+    baseline, training, graph, options = _precision_training_case(tmp_path)
+    model = RelationalTraceGraphInterpolator(**baseline.constructor_config(), **_MEMORY_SWITCHES)
+    result = trainer.train_relational_trace_graph_poc(
+        model, training, graph_settings=graph, mixed_precision="bf16", device="cuda", **options
+    )
+    assert result.steps_completed == 2
+    assert all(np.isfinite(row["loss"]) for row in result.history)
+    assert all(torch.isfinite(parameter).all() for parameter in model.parameters())
+
+
 @pytest.mark.parametrize("mode", ["fp16", "bf16"])
 def test_cpu_rejects_amp_before_training(tmp_path, mode):
     model, training, graph, options = _precision_training_case(tmp_path)

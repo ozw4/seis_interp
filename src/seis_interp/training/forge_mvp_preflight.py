@@ -25,6 +25,8 @@ def check_method_shapes(inputs, config):
     method = config["method_id"]
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
     if method in ("pocs_grid", "drr_grid", "ccnet5d_grid"):
         inputs = inputs.model_space()
         if config.get("alignment") is not None:
@@ -112,6 +114,7 @@ def check_method_shapes(inputs, config):
         weight_decay=tr["weight_decay"],
         ema_decay=tr.get("ema_decay"),
         supervised_traces_per_update=tr.get("supervised_traces_per_update"),
+        mixed_precision=tr["mixed_precision"],
     )
     tile = next(
         iter(

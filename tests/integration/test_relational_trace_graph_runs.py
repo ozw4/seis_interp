@@ -489,3 +489,40 @@ def test_sampled_training_keeps_full_candidate_k_for_frozen_prediction(tmp_path,
     assert checkpoint["edge_sampling"] == sampling
     details = json.loads((output / "metadata.json").read_text())["method_details"]
     assert details["edge_sampling"] == sampling
+
+
+def test_exact_execution_switches_reproduce_the_run(tmp_path):
+    _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
+    config["training"].update(max_steps=4, ema_decay=0.9)
+    _, baseline = _run(tmp_path, paths, deepcopy(config), name="default")
+    config["training"]["execution"] = {
+        "neighbor_table": True,
+        "prefetch": True,
+        "deferred_checks": True,
+        "foreach_ema": True,
+        "shared_prediction": True,
+    }
+    _, output = _run(tmp_path, paths, config, name="execution")
+    np.testing.assert_array_equal(
+        np.load(output / "prediction.npy"), np.load(baseline / "prediction.npy")
+    )
+    for artifact in ("final.pt", "artifacts/ema.pt"):
+        state = torch.load(output / artifact, weights_only=True)["model_state_dict"]
+        expected = torch.load(baseline / artifact, weights_only=True)["model_state_dict"]
+        assert list(state) == list(expected)
+        assert all(torch.equal(state[key], value) for key, value in expected.items())
+    resolved = yaml.safe_load((output / "config.resolved.yaml").read_text())
+    assert resolved["training"]["execution"] == config["training"]["execution"]
+
+
+def test_cpu_threads_on_a_cpu_device_fail_before_input_read(tmp_path, monkeypatch):
+    _, config, paths = prepare_poc_trace_graph_inputs(tmp_path / "data")
+    config["training"]["execution"] = {"cpu_threads": 2}
+    monkeypatch.setattr(
+        pipeline,
+        "load_c3_random80_poc_inputs",
+        lambda **k: pytest.fail("must validate the execution switches first"),
+    )
+    with pytest.raises(ValueError, match="cpu_threads is not supported on a CPU device"):
+        _run(tmp_path, paths, config)
+    assert not (tmp_path / "run").exists()

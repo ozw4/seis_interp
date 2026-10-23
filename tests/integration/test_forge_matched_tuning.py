@@ -1,8 +1,10 @@
 import json
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import Mock
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 import yaml
@@ -17,6 +19,8 @@ from seis_interp.pipelines.tune_forge_matched import (
     tune_forge_matched,
 )
 from seis_interp.processing.forge_mvp_contract import METHODS
+from seis_interp.training.ccnet5d_observed_training import CCNet5DObservedTrainingResult
+from seis_interp.training.ccnet5d_prediction import CCNet5DVolumePrediction
 from seis_interp.training.forge_mvp_methods import run_method
 from seis_interp.training.forge_mvp_preflight import check_method_shapes
 from tests.fixtures.forge_mvp import tiny_forge_study
@@ -88,11 +92,15 @@ def test_preparation_shares_one_geometry_only_canvas_and_matched_counts(aligned)
     assert gates["matched_parameter_counts"] == seal["parameter_counts"]
 
 
-def test_every_method_predicts_original_samples_from_the_aligned_canvas(aligned):
+def test_every_method_predicts_original_samples_from_the_aligned_canvas(aligned, monkeypatch):
     _, preparation, _ = aligned
+    monkeypatch.setattr(torch.backends.cuda.matmul, "allow_tf32", False)
+    monkeypatch.setattr(torch.backends.cudnn, "allow_tf32", False)
     for method in METHODS:
         inputs, config = load_model_inputs(preparation, method)
         result = run_method(inputs, config, reporter=lambda message: None)
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+        assert torch.backends.cudnn.allow_tf32 is True
         assert result.prediction.shape == (len(inputs.test_cells), len(inputs.time_s))
         assert result.prediction.dtype == np.float32
         assert np.isfinite(result.prediction).all()
@@ -101,8 +109,12 @@ def test_every_method_predicts_original_samples_from_the_aligned_canvas(aligned)
             assert result.diagnostics["alignment_canvas_sample_count"] == (
                 len(inputs.time_s) + config["alignment"]["max_delay_samples"]
             )
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
         report = check_method_shapes(inputs, config)
         assert report["scope"]
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+        assert torch.backends.cudnn.allow_tf32 is True
 
 
 def test_alignment_changes_the_classical_prediction_but_not_its_samples(aligned):
@@ -146,6 +158,99 @@ def test_matched_search_records_candidates_that_reproduce_run_method(aligned):
     np.testing.assert_array_equal(np.load(output / "narrow/prediction.npy"), expected.prediction)
     summary = json.loads((output / "narrow/run_manifest.json").read_text())
     assert summary["parameter_count"] > 0
+    assert set(summary["numerics"]) == {
+        "process_max_rss_kib",
+        "cudnn_benchmark",
+        "cudnn_deterministic",
+    }
+    columns = set(pd.read_csv(output / "search_results.csv").columns)
+    assert columns == set(summary) - {"numerics"}
+
+
+def test_ccnet_kernel_names_stay_in_manifest_and_boolean_reaches_csv(aligned, monkeypatch):
+    root, preparation, _ = aligned
+    kernels = ["sm80_xmma_fprop_tf32", "sm80_xmma_dgrad_tf32", "sm80_xmma_wgrad_tf32"]
+
+    def recorded(inputs, config, reporter):
+        result = run_method(inputs, config, reporter)
+        result.diagnostics.update(conv_kernels_first_update=kernels, time_conv_tensor_cores=True)
+        return result
+
+    monkeypatch.setattr("seis_interp.pipelines.tune_forge_matched.run_method", recorded)
+    search = root / "ccnet_search.yaml"
+    search.write_text(
+        yaml.safe_dump(
+            {
+                "method_id": "ccnet5d_grid",
+                "device": "cpu",
+                "target_relative_mse": 100.0,
+                "candidates": [{"name": "kernels"}],
+            }
+        )
+    )
+    output = tune_forge_matched(root, preparation, search)
+    summary = json.loads((output / "kernels/run_manifest.json").read_text())
+    assert summary["conv_kernels_first_update"] == kernels
+    assert summary["time_conv_tensor_cores"] is True
+    csv = pd.read_csv(output / "search_results.csv")
+    assert bool(csv.loc[0, "time_conv_tensor_cores"]) is True
+    assert set(csv.columns) == set(summary) - {"numerics", "conv_kernels_first_update"}
+
+
+@pytest.mark.parametrize("tensor_cores", [True, False])
+def test_ccnet_cuda_adapter_passes_precision_and_reports_kernel_fallback(
+    aligned, monkeypatch, tensor_cores
+):
+    _, preparation, _ = aligned
+    inputs, config = load_model_inputs(preparation, "ccnet5d_grid")
+    config["device"] = "cuda:0"
+    config["training"]["mixed_precision"] = "bf16"
+    config["prediction"]["mixed_precision"] = "bf16"
+    kernels = ("time_fprop_bf16", "time_dgrad_bf16", "time_wgrad_bf16")
+    calls = []
+
+    def train(model, source, **kwargs):
+        calls.append(kwargs)
+        return CCNet5DObservedTrainingResult(
+            steps_completed=1,
+            supervised_trace_presentations=2,
+            final_loss=0.5,
+            history=({"step": 1, "loss": 0.5, "learning_rate": 0.001},),
+            conv_kernels_first_update=kernels,
+            time_conv_tensor_cores=tensor_cores,
+        )
+
+    def predict(model, volume, **kwargs):
+        return CCNet5DVolumePrediction(
+            values=np.zeros_like(volume.values),
+            coverage_counts=np.ones(volume.values.shape[1:], dtype=np.uint16),
+            observed_model_rmse_before_reinsertion=0.0,
+            observed_model_max_abs_error_before_reinsertion=0.0,
+            tile_count=1,
+            maximum_input_shape=volume.values.shape,
+        )
+
+    monkeypatch.setattr(
+        "seis_interp.training.forge_mvp_methods.train_ccnet5d_observed_steps", train
+    )
+    monkeypatch.setattr("seis_interp.training.forge_mvp_methods.predict_ccnet5d_volume", predict)
+    warmup = Mock()
+    monkeypatch.setattr("seis_interp.training.forge_mvp_methods.warm_ccnet", warmup)
+    monkeypatch.setattr("seis_interp.training.forge_mvp_methods._training_end", lambda device: 0.0)
+    messages = []
+    result = run_method(inputs, config, reporter=messages.append)
+    warmup.assert_called_once()
+    assert warmup.call_args.args[1][0] == result.diagnostics["alignment_canvas_sample_count"]
+    assert warmup.call_args.args[2]["training"]["mixed_precision"] == "bf16"
+    assert warmup.call_args.args[2]["prediction"]["mixed_precision"] == "bf16"
+    assert len(calls) == 1
+    assert calls[0]["mixed_precision"] == "bf16"
+    assert calls[0]["profile_first_update"] is True
+    assert result.diagnostics["conv_kernels_first_update"] == list(kernels)
+    assert result.diagnostics["time_conv_tensor_cores"] is tensor_cores
+    assert len(messages) == (0 if tensor_cores else 1)
+    if not tensor_cores:
+        assert messages[0].startswith("WARNING: CCNet5D time convolutions")
 
 
 @pytest.mark.parametrize(
@@ -183,6 +288,43 @@ def test_matched_search_rejects_changes_fixed_by_the_comparison(aligned, method,
     assert base == original
 
 
+@pytest.mark.parametrize("method", ["regsi_real", "regsi_grid"])
+def test_regsi_candidates_set_execution_switches_validated_before_training(aligned, method):
+    _, preparation, _ = aligned
+    _, base = load_model_inputs(preparation, method)
+    assert "execution" not in base["training"]
+    assert base["graph"]["neighbor_search"] == "exact_index"
+    seal = json.loads((preparation / "preparation_manifest.json").read_text())
+    counts = (BUDGET, seal["canvas_sample_count"], seal["observed_trace_count"])
+    switches = {
+        "neighbor_table": True,
+        "prefetch": True,
+        "deferred_checks": True,
+        "foreach_ema": True,
+        "shared_prediction": True,
+    }
+    candidate = {"name": "fast", "training": {"execution": switches}}
+    config, _ = matched_candidate_config(base, candidate, "cpu", *counts)
+    assert config["training"]["execution"] == switches
+    threads = {"name": "threads", "training": {"execution": {"cpu_threads": 2}}}
+    config, _ = matched_candidate_config(base, threads, "cuda:0", *counts)
+    assert config["training"]["execution"] == {"cpu_threads": 2}
+    for invalid, device, message in (
+        ({"training": {"execution": {"prefetch": "yes"}}}, "cpu", "prefetch must be boolean"),
+        (threads, "cpu", "cpu_threads is not supported on a CPU device"),
+        (
+            {
+                "graph": {"neighbor_search": "brute_force"},
+                "training": {"execution": {"neighbor_table": True}},
+            },
+            "cpu",
+            "requires graph.neighbor_search=exact_index",
+        ),
+    ):
+        with pytest.raises(ValueError, match=message):
+            matched_candidate_config(base, {"name": "bad", **invalid}, device, *counts)
+
+
 @pytest.mark.parametrize(
     "method,execution",
     [
@@ -213,3 +355,18 @@ def test_invalid_classical_execution_is_rejected(execution):
     config = {"method_id": "drr_grid", "device": "cpu", "execution": execution}
     with pytest.raises(ValueError):
         validate_classical_execution(config)
+
+
+def test_device_override_keeps_the_search_and_only_changes_the_device():
+    from seis_interp.pipelines.tune_forge_matched import override_search_device
+
+    search = {"method_id": "ccnet5d_grid", "device": "cuda:0", "candidates": []}
+    assert override_search_device(search, None) is search
+    moved = override_search_device(search, "cuda:1")
+    assert moved == {**search, "device": "cuda:1"} and search["device"] == "cuda:0"
+    for bad in ("cpu", "cuda", "gpu:1"):
+        with pytest.raises(ValueError, match="same kind"):
+            override_search_device(search, bad)
+    assert override_search_device({"device": "cpu"}, "cpu") == {"device": "cpu"}
+    with pytest.raises(ValueError, match="same kind"):
+        override_search_device({"device": "cpu"}, "cuda:0")

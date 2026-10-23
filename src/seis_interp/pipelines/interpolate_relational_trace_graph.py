@@ -37,9 +37,16 @@ from seis_interp.training.randomness import seed_global_model_initialization
 from seis_interp.training.relational_trace_graph_checkpoints import (
     save_relational_trace_graph_poc_checkpoint,
 )
-from seis_interp.training.relational_trace_graph_poc_trainer import train_relational_trace_graph_poc
+from seis_interp.training.relational_trace_graph_poc_trainer import (
+    build_training_neighbor_table,
+    train_relational_trace_graph_poc,
+)
 from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
 from seis_interp.training.trace_graph_ema import TraceGraphEMA
+from seis_interp.training.trace_graph_execution import (
+    torch_cpu_threads,
+    validate_trace_graph_execution,
+)
 from seis_interp.training.trace_graph_training_profile import (
     optimizer_updates_per_second,
     summarize_trace_graph_training,
@@ -76,6 +83,7 @@ def interpolate_relational_trace_graph_run(
     options.pop("device", None)
     config["training"]["device"] = str(device)
     config["training"]["mixed_precision"] = options["mixed_precision"]
+    execution = validate_trace_graph_execution(options.get("execution"), device=device)
     started_at = run_records.utc_timestamp()
     git_metadata = run_records.current_git_metadata()
     if progress_reporter:
@@ -108,6 +116,12 @@ def interpolate_relational_trace_graph_run(
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
         torch.cuda.synchronize(device)
+    # One neighbor table serves training and, with shared_prediction, prediction supports.
+    table = (
+        build_training_neighbor_table(training, settings.graph)
+        if execution.neighbor_table
+        else None
+    )
     train_started = time.perf_counter()
     trained = train_relational_trace_graph_poc(
         model,
@@ -117,6 +131,7 @@ def interpolate_relational_trace_graph_run(
         reporter=progress_reporter,
         random_seed=episode_seed,
         **({"ema": ema} if ema is not None else {}),
+        **({"neighbor_table": table} if table is not None else {}),
         **options,
     )
     if device.type == "cuda":
@@ -271,15 +286,21 @@ def interpolate_relational_trace_graph_run(
         if progress_reporter:
             progress_reporter("Predicting every target with all observed context.")
         prediction_started = time.perf_counter()
-        predicted = predict_relational_trace_graph(
-            model,
-            build_c3_poc_trace_graph_domain(inputs),
-            training.preprocessing,
-            graph_settings=settings.graph,
-            query_batch_size=settings.prediction_query_batch_size,
-            observed_waveforms=training.observed_amplitudes,
-            device=device,
-        )
+        with torch_cpu_threads(execution.cpu_threads):
+            predicted = predict_relational_trace_graph(
+                model,
+                build_c3_poc_trace_graph_domain(inputs),
+                training.preprocessing,
+                graph_settings=settings.graph,
+                query_batch_size=settings.prediction_query_batch_size,
+                observed_waveforms=training.observed_amplitudes,
+                device=device,
+                **(
+                    {"neighbor_table": table}
+                    if table is not None and execution.shared_prediction
+                    else {}
+                ),
+            )
         dense, coverage = scatter_c3_trace_graph_prediction(
             inputs, predicted.query_trace_ids, predicted.prediction
         )

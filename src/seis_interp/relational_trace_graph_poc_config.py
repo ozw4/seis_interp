@@ -13,6 +13,7 @@ from seis_interp.relational_trace_graph_config import (
 )
 from seis_interp.training.mixed_precision import validate_mixed_precision
 from seis_interp.training.trace_graph_ema import validate_trace_graph_ema_decay
+from seis_interp.training.trace_graph_execution import validate_trace_graph_execution
 from seis_interp.training.trace_graph_optimization import validate_trace_graph_schedule
 from seis_interp.training.trace_graph_sampling import validate_trace_graph_edge_sampling
 from seis_interp.training.trace_relative_loss import POC_TRACE_LOSSES
@@ -77,6 +78,7 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
         "cudnn_benchmark",
         "learning_rate_schedule",
         "ema_decay",
+        "execution",
     }
     present_optional = (
         optional_training_keys.intersection(raw_training)
@@ -113,6 +115,13 @@ def validate_relational_trace_graph_poc_config(config: Mapping) -> RelationalTra
         raise ConfigurationError(str(error)) from error
     if "cudnn_benchmark" in training and not isinstance(training["cudnn_benchmark"], bool):
         raise ConfigurationError("training.cudnn_benchmark must be boolean")
+    if "execution" in training:
+        try:
+            validate_trace_graph_execution(
+                training["execution"], neighbor_search=graph.neighbor_search
+            )
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
     if "ema_decay" in training:
         try:
             training["ema_decay"] = validate_trace_graph_ema_decay(training["ema_decay"])

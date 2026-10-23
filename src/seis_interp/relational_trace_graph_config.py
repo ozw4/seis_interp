@@ -14,6 +14,8 @@ from seis_interp.processing.trace_graph_settings import TraceGraphSettings
 
 METHOD = "relational_trace_graph"
 TRAINING_REGIME = "masked_train_partition"
+# Exact execution switches of the relational model (default false); see the model docs.
+MEMORY_OPTIONS = ("receptive_field_pruning", "fused_edge_aggregation", "activation_checkpointing")
 
 
 def validate_relational_trace_graph_training_config(
@@ -201,6 +203,7 @@ def validate_trace_graph_model_config(config: Mapping[str, object]) -> dict[str,
                 "spectral_input_block",
                 "attention_pooling",
                 "relation_gate_pooling",
+                *MEMORY_OPTIONS,
             },
         )
     )
@@ -264,6 +267,15 @@ def validate_trace_graph_model_config(config: Mapping[str, object]) -> dict[str,
     ):
         raise ConfigurationError(
             "model.spectral_input_block requires relational global RMS and no edge time shift"
+        )
+    for name in MEMORY_OPTIONS:
+        if not isinstance(model.get(name, False), bool):
+            raise ConfigurationError(f"model.{name} must be boolean")
+        if model.get(name, False) and variant != "relational":
+            raise ConfigurationError(f"model.{name} requires method_variant=relational")
+    if model.get("fused_edge_aggregation", False) and model.get("max_edge_time_shift_samples", 0):
+        raise ConfigurationError(
+            "model.fused_edge_aggregation requires model.max_edge_time_shift_samples=0"
         )
     return model
 

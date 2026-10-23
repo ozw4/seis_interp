@@ -291,3 +291,49 @@ def test_pooling_rejects_unused_options(options):
         validate_relational_trace_graph_training_config(config)
     with pytest.raises(ValueError):
         RelationalTraceGraphInterpolator(**options)
+
+
+_MEMORY_OPTIONS = ("receptive_field_pruning", "fused_edge_aggregation", "activation_checkpointing")
+
+
+@pytest.mark.parametrize("name", _MEMORY_OPTIONS)
+def test_memory_switches_are_opt_in_model_settings(name):
+    from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
+
+    config = trace_graph_training_config()
+    original_model, original_graph, original_training = (
+        validate_relational_trace_graph_training_config(config)
+    )
+    assert name not in original_model
+    config["model"][name] = True
+    model, graph, training = validate_relational_trace_graph_training_config(config)
+    assert model == {**original_model, name: True}
+    assert graph == original_graph and training == original_training
+    assert RelationalTraceGraphInterpolator(**model).constructor_config()[name] is True
+
+
+@pytest.mark.parametrize("name", _MEMORY_OPTIONS)
+@pytest.mark.parametrize("value", [None, 1, "true"])
+def test_memory_switches_reject_non_boolean_values(name, value):
+    config = trace_graph_training_config()
+    config["model"][name] = value
+    with pytest.raises(ConfigurationError, match=f"model.{name} must be boolean"):
+        validate_relational_trace_graph_training_config(config)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {
+            "method_variant": "plain_gcn_row_normalized",
+            "relation_fusion": "mean",
+            "activation_checkpointing": True,
+        },
+        {"fused_edge_aggregation": True, "max_edge_time_shift_samples": 4},
+    ],
+)
+def test_memory_switches_reject_unsupported_models(changes):
+    config = trace_graph_training_config()
+    config["model"].update(changes)
+    with pytest.raises(ConfigurationError, match="model.(activation_checkpointing|fused_edge)"):
+        validate_relational_trace_graph_training_config(config)

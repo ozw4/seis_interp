@@ -1,6 +1,7 @@
 """Post-update parameter averaging for final trace-graph inference."""
 
 import math
+from collections.abc import Sequence
 from numbers import Real
 
 import torch
@@ -39,17 +40,27 @@ class TraceGraphEMA:
 
     @torch.no_grad()
     def update(self, model: torch.nn.Module) -> None:
-        state = model.state_dict()
+        self._update_from_state(model.state_dict(), model, foreach=False)
+
+    def _update_from_state(
+        self, state: dict[str, torch.Tensor], model: torch.nn.Module, *, foreach: bool
+    ) -> None:
         if not self.updates:
             self._state = {key: value.detach().clone() for key, value in state.items()}
         else:
             parameter_names = dict(model.named_parameters())
+            if foreach:
+                keys = [key for key in state if key in parameter_names]
+                # One fused call per average; the same elementwise lerp as below.
+                torch._foreach_lerp_(
+                    [self._state[key] for key in keys], [state[key] for key in keys], 1 - self.decay
+                )
             for key, value in state.items():
-                if key in parameter_names:
-                    self._state[key].lerp_(value, 1 - self.decay)
-                else:
+                if key not in parameter_names:
                     # Fixed Fourier frequencies must remain bit-exact for strict loading.
                     self._state[key].copy_(value)
+                elif not foreach:
+                    self._state[key].lerp_(value, 1 - self.decay)
         self.updates += 1
         if self.updates in self._snapshot_updates:
             self.snapshots[self.updates] = self.state_dict()
@@ -59,3 +70,21 @@ class TraceGraphEMA:
         if not self.updates:
             raise ValueError("EMA has no successful optimizer updates")
         return {key: value.detach().cpu().clone() for key, value in self._state.items()}
+
+
+@torch.no_grad()
+def update_trace_graph_averages(
+    averages: Sequence[TraceGraphEMA], model: torch.nn.Module, *, foreach: bool = False
+) -> None:
+    """Advance every average after one optimizer update, in order.
+
+    ``foreach=True`` reads the model state once and moves each average with one
+    ``torch._foreach_lerp_`` call; the arithmetic is the same elementwise lerp.
+    """
+    if not foreach:
+        for average in averages:
+            average.update(model)
+        return
+    state = model.state_dict()
+    for average in averages:
+        average._update_from_state(state, model, foreach=True)

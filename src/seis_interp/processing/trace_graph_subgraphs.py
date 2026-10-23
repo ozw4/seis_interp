@@ -9,6 +9,12 @@ import numpy as np
 
 from seis_interp.processing.trace_graph_edge_sampling import sample_trace_graph_relation_fanout
 from seis_interp.processing.trace_graph_geometry import RELATION_NAMES, TraceGraphGeometry
+from seis_interp.processing.trace_graph_neighbor_table import (
+    TraceGraphNeighborTable,
+    TraceIdLookup,
+    same_geometry_rows,
+    select_geometry_rows,
+)
 from seis_interp.processing.trace_graph_neighbors import (
     FixedTraceGraphNeighborIndex,
     TraceGraphNeighbors,
@@ -146,6 +152,12 @@ class FixedTraceGraphSubgraphBuilder:
     for this builder's lifetime. Initial query searches are never cached.
     Optional fanout samples these full candidates afresh during each build,
     before expanding the next frontier; sampled subsets never enter the cache.
+
+    An optional ``neighbor_table`` (built over a set that contains every eligible
+    candidate, with the same search settings and geometry) replaces the
+    per-destination searches by table lookups with an exact fallback, and builds
+    plans of queries that are rows of this index with vectorized assembly. Plans
+    are identical to those without the table.
     """
 
     def __init__(
@@ -153,12 +165,15 @@ class FixedTraceGraphSubgraphBuilder:
         candidate_geometry: TraceGraphGeometry,
         candidate_trace_ids: np.ndarray,
         observed_mask: np.ndarray,
+        *,
+        neighbor_table: TraceGraphNeighborTable | None = None,
         **search_settings,
     ) -> None:
         self._index = FixedTraceGraphNeighborIndex(
             candidate_geometry, candidate_trace_ids, observed_mask, **search_settings
         )
         self._initialize_episode_cache()
+        self._bind_neighbor_table(neighbor_table)
 
     @classmethod
     def from_spatial_index(
@@ -167,6 +182,7 @@ class FixedTraceGraphSubgraphBuilder:
         observed_mask: np.ndarray,
         *,
         allowed_mask: np.ndarray | None = None,
+        neighbor_table: TraceGraphNeighborTable | None = None,
     ) -> FixedTraceGraphSubgraphBuilder:
         """Share geometry/search axes, with fresh episode visibility and edge cache."""
         builder = cls.__new__(cls)
@@ -174,7 +190,18 @@ class FixedTraceGraphSubgraphBuilder:
             spatial_index, observed_mask, allowed_mask=allowed_mask
         )
         builder._initialize_episode_cache()
+        builder._bind_neighbor_table(neighbor_table)
         return builder
+
+    def _bind_neighbor_table(self, table: TraceGraphNeighborTable | None) -> None:
+        if table is not None and not isinstance(table, TraceGraphNeighborTable):
+            raise ValueError("neighbor_table must be a TraceGraphNeighborTable")
+        self._table_view = (
+            None
+            if table is None
+            else table.view(self._index.spatial_index, self._index.eligible_mask)
+        )
+        self._row_lookup = None if table is None else TraceIdLookup(self._index.trace_ids)
 
     def _initialize_episode_cache(self):
         self._candidate_rows = {
@@ -231,6 +258,17 @@ class FixedTraceGraphSubgraphBuilder:
             settings["neighbors_per_relation"] = int(fanout_per_relation)
         elif rng is not None:
             raise ValueError("rng requires fanout_per_relation")
+        if self._table_view is not None:
+            plan = self._build_from_table(
+                query_geometry,
+                query_trace_ids,
+                rounds=rounds,
+                search_settings=settings,
+                fanout_per_relation=fanout_per_relation,
+                rng=rng,
+            )
+            if plan is not None:
+                return plan
         initial_edges = self._index.select(query_geometry, query_trace_ids)
         return _build_dependency_plan(
             query_geometry,
@@ -244,6 +282,115 @@ class FixedTraceGraphSubgraphBuilder:
             search_settings=settings,
             fanout_per_relation=fanout_per_relation,
             rng=rng,
+        )
+
+    def _build_from_table(
+        self,
+        query_geometry,
+        query_trace_ids,
+        *,
+        rounds,
+        search_settings,
+        fanout_per_relation,
+        rng,
+    ):
+        """Vectorized ``_build_dependency_plan`` for unique queries that are index rows.
+
+        Returns None for any other queries; the general path then builds (or
+        rejects) them exactly as without a table.
+        """
+        ids = np.asarray(query_trace_ids)
+        if (
+            ids.ndim != 1
+            or (ids.size and ids.dtype.kind not in "iu")
+            or len(np.unique(ids)) != len(ids)
+        ):
+            return None
+        query_ids = ids.astype(np.int64)
+        query_rows = self._row_lookup.rows(query_ids)
+        if np.any(query_rows < 0) or not same_geometry_rows(
+            query_geometry, self._index.geometry, query_rows
+        ):
+            return None
+        eligible = self._index.eligible_mask
+        if np.any(eligible[query_rows]):
+            raise ValueError("query IDs must not be eligible observed senders")
+        trace_ids = self._index.trace_ids
+        depth = np.full(len(trace_ids), -1, dtype=np.int64)
+        depth[query_rows] = 0
+        frontier = query_rows
+        edge_blocks = []
+        for level in range(rounds):
+            if not len(frontier):
+                break
+            edges = self._table_neighbors(frontier)
+            if fanout_per_relation is not None:
+                edges = sample_trace_graph_relation_fanout(
+                    edges, fanout_per_relation=fanout_per_relation, rng=rng
+                )
+            edge_blocks.append(edges)
+            # Ascending sender IDs, as the general breadth-first expansion visits them.
+            senders = self._row_lookup.rows(np.unique(edges.sender_ids))
+            frontier = senders[depth[senders] < 0]
+            depth[frontier] = level + 1
+        node_rows = np.flatnonzero(depth >= 0)
+        node_rows = node_rows[np.argsort(trace_ids[node_rows], kind="stable")]
+        node_ids = trace_ids[node_rows]
+        query_indices = np.searchsorted(node_ids, query_ids)
+        observed = np.ones(len(node_ids), dtype=bool)
+        observed[query_indices] = False
+        geometry = TraceGraphGeometry(
+            **{
+                field.name: _rows_with_queries(
+                    getattr(self._index.geometry, field.name),
+                    node_rows,
+                    getattr(query_geometry, field.name),
+                    query_indices,
+                )
+                for field in fields(TraceGraphGeometry)
+            }
+        )
+        edge_index, edge_type, edge_distances = _local_edges(edge_blocks, node_ids)
+        if not np.all(observed[edge_index[0]]) or not np.all(eligible[node_rows[edge_index[0]]]):
+            raise ValueError("all graph senders must belong to the original observed domain")
+        return _complete_plan(
+            node_ids,
+            query_ids,
+            query_indices,
+            observed,
+            geometry,
+            edge_index,
+            edge_type,
+            edge_distances,
+            depth[node_rows],
+            search_settings,
+            rounds,
+        )
+
+    def _table_neighbors(self, destination_rows):
+        """Exact incoming edges of index rows, in destination order, from the table."""
+        senders, position, edge_type, distances, exact = self._table_view.select(destination_rows)
+        trace_ids = self._index.trace_ids
+        if len(exact):
+            rows = destination_rows[exact]
+            searched = self._index.select(
+                select_geometry_rows(self._index.geometry, rows), trace_ids[rows]
+            )
+            order = np.argsort(trace_ids[rows], kind="stable")
+            searched_position = exact[order][
+                np.searchsorted(trace_ids[rows][order], searched.destination_ids)
+            ]
+            position = np.concatenate((position, searched_position))
+            order = np.argsort(position, kind="stable")
+            position = position[order]
+            senders = np.concatenate((senders, searched.sender_ids))[order]
+            edge_type = np.concatenate((edge_type, searched.edge_type))[order]
+            distances = np.concatenate((distances, searched.distances))[order]
+        return TraceGraphNeighbors(
+            sender_ids=senders,
+            destination_ids=trace_ids[destination_rows][position],
+            edge_type=edge_type,
+            distances=distances,
         )
 
     def _cached_observed_neighbors(self, geometry, trace_ids):
@@ -349,12 +496,41 @@ def _build_dependency_plan(
         row is None or not eligible[row] for row in sender_rows
     ):
         raise ValueError("all graph senders must belong to the original observed domain")
+    depths = np.array([depth_by_id[int(i)] for i in node_ids], dtype=np.int64)
+    return _complete_plan(
+        node_ids,
+        query_ids,
+        query_indices,
+        observed,
+        geometry,
+        edge_index,
+        edge_type,
+        edge_distances,
+        depths,
+        search_settings,
+        rounds,
+    )
+
+
+def _complete_plan(
+    node_ids,
+    query_ids,
+    query_indices,
+    observed,
+    geometry,
+    edge_index,
+    edge_type,
+    edge_distances,
+    depths,
+    search_settings,
+    rounds,
+):
+    """Coverage, diagnostics and optional common distances of an assembled closure."""
     degree = np.zeros((len(node_ids), 4), dtype=np.int64)
     minimum = np.full((len(node_ids), 4), np.inf, dtype=np.float64)
     np.add.at(degree, (edge_index[1], edge_type), 1)
     np.minimum.at(minimum, (edge_index[1], edge_type), edge_distances)
     minimum[degree == 0] = 0.0
-    depths = np.array([depth_by_id[int(i)] for i in node_ids], dtype=np.int64)
     diagnostics = {
         "query_count": len(query_ids),
         "support_node_count": int(np.count_nonzero(observed)),
@@ -398,6 +574,14 @@ def _build_dependency_plan(
         else RELATION_NAMES,
         common_edge_distances=common_distances,
     )
+
+
+def _rows_with_queries(candidate_array, node_rows, query_array, query_indices):
+    """One geometry field: candidate rows for every node, query rows at the queries."""
+    array = np.empty((len(node_rows), *query_array.shape[1:]), dtype=query_array.dtype)
+    array[...] = candidate_array[node_rows]
+    array[query_indices] = query_array
+    return array
 
 
 def _select_geometry(geometry: TraceGraphGeometry, rows: list[int]) -> TraceGraphGeometry:

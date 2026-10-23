@@ -38,8 +38,9 @@ class CCNet5DObservedPatchSource:
         amplitude_scale: float,
         patch_shape: tuple[int, ...],
         inner_mask_fraction: float,
-        placement_seed: int,
-        inner_mask_seed: int,
+        placement_seed: int | np.random.SeedSequence,
+        inner_mask_seed: int | np.random.SeedSequence,
+        supervision_seed: int | np.random.SeedSequence | None = None,
     ) -> None:
         volume, observed_mask = _validated_observed_volume(observed_volume)
         self.patch_shape = validate_ccnet5d_shape(patch_shape, "patch_shape")
@@ -53,10 +54,18 @@ class CCNet5DObservedPatchSource:
         self.amplitude_scale = _positive_finite_scale(amplitude_scale)
         self._placement_generator = _random_generator(placement_seed, "placement_seed")
         self._mask_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
-        self._supervision_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
+        if supervision_seed is None:
+            mask_sequence = (
+                inner_mask_seed
+                if isinstance(inner_mask_seed, np.random.SeedSequence)
+                else np.random.SeedSequence(inner_mask_seed)
+            )
+            supervision_seed = mask_sequence.spawn(1)[0]
+        self._supervision_generator = _random_generator(supervision_seed, "supervision_seed")
         self._observed_mask = np.array(observed_mask, dtype=np.bool_, copy=True, order="C")
         self.patches_drawn = 0
         self.visible_observed_cells_drawn = 0
+        self.effective_inner_fractions = []
 
         observed_values = np.where(self._observed_mask[None, ...], volume, 0)
         self._normalized_observed = np.ascontiguousarray(
@@ -76,6 +85,29 @@ class CCNet5DObservedPatchSource:
     def volume_shape(self) -> tuple[int, ...]:
         """Return the time-first source shape without exposing source amplitudes."""
         return self._normalized_observed.shape
+
+    def state_dict(self):
+        """The three independent streams and draw counters, without volume storage."""
+        from copy import deepcopy
+
+        return deepcopy(
+            {
+                "placement": self._placement_generator.bit_generator.state,
+                "mask": self._mask_generator.bit_generator.state,
+                "supervision": self._supervision_generator.bit_generator.state,
+                "patches_drawn": self.patches_drawn,
+                "visible_observed_cells_drawn": self.visible_observed_cells_drawn,
+                "effective_inner_fractions": self.effective_inner_fractions,
+            }
+        )
+
+    def load_state_dict(self, state):
+        self._placement_generator.bit_generator.state = state["placement"]
+        self._mask_generator.bit_generator.state = state["mask"]
+        self._supervision_generator.bit_generator.state = state["supervision"]
+        self.patches_drawn = state["patches_drawn"]
+        self.visible_observed_cells_drawn = state["visible_observed_cells_drawn"]
+        self.effective_inner_fractions = state["effective_inner_fractions"]
 
     def sample(self) -> CCNet5DObservedPatch:
         """Draw placement and a whole-trace pseudo-mask from independent streams."""
@@ -97,6 +129,7 @@ class CCNet5DObservedPatchSource:
         visible = available & ~hidden
         self.patches_drawn += 1
         self.visible_observed_cells_drawn += int(visible.sum())
+        self.effective_inner_fractions.append(int(hidden.sum()) / int(available.sum()))
 
         normalized = self._normalized_observed[patch_slices]
         model_input = np.where(visible[None, ...], normalized, 0)
@@ -115,7 +148,7 @@ class CCNet5DObservedPatchSource:
         Keep every patch's original inner mask. Uniformly select loss entries
         among all hidden entries in the stacked batch; unused hidden entries
         remain hidden. Repeated physical traces in different patches count as
-        separate presentations. Selection uses its own inner-mask-seeded stream.
+        separate presentations. Selection uses its own independent stream.
         """
         if (
             isinstance(supervised_traces, bool)
@@ -141,6 +174,33 @@ class CCNet5DObservedPatchSource:
             np.stack([p.pseudo_target for p in patches]),
             hidden,
         )
+
+    def sample_reused_batches(self, supervised_traces: int):
+        """Shuffle all pseudo-targets once and emit disjoint full groups on shared inputs.
+
+        The last incomplete group is discarded. When a patch cannot supply one
+        group, draw additional patches as for ``sample_batch``. All pseudo-targets
+        stay hidden in the shared input throughout the optimizer updates.
+        """
+        if (
+            isinstance(supervised_traces, bool)
+            or not isinstance(supervised_traces, Integral)
+            or supervised_traces < 1
+        ):
+            raise ValueError("supervised_traces must be a positive integer")
+        patches, count = [], 0
+        while count < supervised_traces:
+            patch = self.sample()
+            patches.append(patch)
+            count += int(patch.pseudo_target_mask.sum())
+        hidden = np.stack([patch.pseudo_target_mask for patch in patches])
+        order = self._supervision_generator.permutation(np.flatnonzero(hidden))
+        inputs = np.stack([patch.model_input for patch in patches])
+        targets = np.stack([patch.pseudo_target for patch in patches])
+        for start in range(0, len(order) - supervised_traces + 1, supervised_traces):
+            selected = np.zeros_like(hidden)
+            selected.reshape(-1)[order[start : start + supervised_traces]] = True
+            yield inputs, targets, selected
 
 
 def placement_pseudo_target_counts(
@@ -268,7 +328,9 @@ def _positive_finite_scale(value: object) -> float:
     return scale
 
 
-def _random_generator(random_seed: int, name: str) -> np.random.Generator:
+def _random_generator(random_seed, name: str) -> np.random.Generator:
+    if isinstance(random_seed, np.random.SeedSequence):
+        return np.random.default_rng(random_seed)
     if isinstance(random_seed, bool) or not isinstance(random_seed, Integral) or random_seed < 0:
         raise ValueError(f"{name} must be a non-negative integer")
     return np.random.default_rng(int(random_seed))

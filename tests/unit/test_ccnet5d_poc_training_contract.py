@@ -432,3 +432,168 @@ def test_checkpoint_requires_explicit_nonnegative_seed_integers(tmp_path, key, v
     torch.save(payload, path)
     with pytest.raises(ValueError, match=key):
         load_ccnet5d_poc_checkpoint(path)
+
+
+def _training_source() -> CCNet5DObservedPatchSource:
+    volume = _observed_volume()
+    return CCNet5DObservedPatchSource(
+        volume,
+        amplitude_scale=2.0,
+        patch_shape=volume.values.shape,
+        inner_mask_fraction=0.5,
+        placement_seed=7,
+        inner_mask_seed=401,
+    )
+
+
+def test_first_update_profile_is_noop_on_cpu_with_identical_rng_losses_and_ema(monkeypatch):
+    def unexpected_profile(*args, **kwargs):
+        pytest.fail("CPU training must not start a CUDA profiler or autocast")
+
+    monkeypatch.setattr(torch.profiler, "profile", unexpected_profile)
+    monkeypatch.setattr(torch, "autocast", unexpected_profile)
+    runs = []
+    for enabled in (False, True):
+        model = _model().double()
+        source = _training_source()
+        result = observed_training.train_ccnet5d_observed_steps(
+            model,
+            source,
+            device="cpu",
+            optimizer_updates=3,
+            learning_rate=0.001,
+            report_every_steps=1,
+            profile_first_update=enabled,
+            ema_decay=0.9,
+            ema_eval_decays=(0.9, 0.99),
+            ema_snapshot_updates=(1, 3),
+        )
+        assert result.conv_kernels_first_update == ()
+        assert result.time_conv_tensor_cores is None
+        runs.append(
+            (result, list(model.parameters()), torch.get_rng_state(), source.sample_batch(5))
+        )
+    first, second = runs
+    assert first[0].history == second[0].history
+    assert first[0].final_loss == second[0].final_loss
+    torch.testing.assert_close(first[2], second[2], rtol=0, atol=0)
+    for a, b in zip(first[1], second[1], strict=True):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)
+    for decay in (0.9, 0.99):
+        for a, b in zip(
+            first[0].shadow_parameters[decay], second[0].shadow_parameters[decay], strict=True
+        ):
+            torch.testing.assert_close(a, b, rtol=0, atol=0)
+        for step in (1, 3):
+            for a, b in zip(
+                first[0].shadow_snapshots[step][decay],
+                second[0].shadow_snapshots[step][decay],
+                strict=True,
+            ):
+                torch.testing.assert_close(a, b, rtol=0, atol=0)
+    for a, b in zip(first[3], second[3], strict=True):
+        np.testing.assert_array_equal(a, b)
+
+
+def test_observed_training_rejects_bf16_on_cpu():
+    with pytest.raises(
+        ValueError, match="training.mixed_precision requires an available CUDA device"
+    ):
+        observed_training.train_ccnet5d_observed_steps(
+            _model(),
+            _training_source(),
+            device="cpu",
+            optimizer_updates=2,
+            learning_rate=0.001,
+            report_every_steps=1,
+            mixed_precision="bf16",
+        )
+
+
+def test_nonfinite_loss_raises_before_backward_or_optimizer_update(monkeypatch):
+    model = _model()
+    next(model.parameters()).register_hook(lambda grad: pytest.fail("must not backpropagate"))
+    monkeypatch.setattr(
+        observed_training,
+        "masked_trace_loss",
+        lambda prediction, target, **kwargs: prediction.sum().double() * float("nan"),
+    )
+    monkeypatch.setattr(
+        torch.optim.Adam, "step", lambda *args, **kwargs: pytest.fail("must not update parameters")
+    )
+    with pytest.raises(RuntimeError, match="non-finite CCNet-5D training loss at step 1"):
+        observed_training.train_ccnet5d_observed_steps(
+            model,
+            _training_source(),
+            device="cpu",
+            optimizer_updates=2,
+            learning_rate=0.001,
+            report_every_steps=1,
+            profile_first_update=True,
+        )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+def test_bf16_observed_training_preserves_fp32_parameters_ema_and_float64_loss(monkeypatch):
+    if not torch.cuda.is_bf16_supported():
+        pytest.skip("bf16 CUDA support required")
+    torch.cuda.set_per_process_memory_fraction(0.35)
+    model = CCNet5D(hidden_channels=2, intermediate_channels=2, kernel_size=3, time_dilation=2)
+    forward_dtypes = []
+    model.register_forward_hook(lambda module, inputs, output: forward_dtypes.append(output.dtype))
+    original_loss = observed_training.masked_trace_loss
+    loss_dtypes = []
+
+    def recorded_loss(prediction, target, **kwargs):
+        assert not torch.is_autocast_enabled()
+        assert prediction.dtype == target.dtype == torch.float32
+        loss = original_loss(prediction, target, **kwargs)
+        loss_dtypes.append(loss.dtype)
+        return loss
+
+    monkeypatch.setattr(observed_training, "masked_trace_loss", recorded_loss)
+    original_step = torch.optim.Adam.step
+
+    def recorded_step(optimizer, *args, **kwargs):
+        result = original_step(optimizer, *args, **kwargs)
+        assert all(
+            value.dtype == torch.float32
+            for state in optimizer.state.values()
+            for value in state.values()
+            if isinstance(value, torch.Tensor) and value.is_floating_point()
+        )
+        return result
+
+    monkeypatch.setattr(torch.optim.Adam, "step", recorded_step)
+    original_profile = torch.profiler.profile
+    profile_calls = []
+
+    def recorded_profile(*args, **kwargs):
+        profile_calls.append(kwargs)
+        return original_profile(*args, **kwargs)
+
+    monkeypatch.setattr(torch.profiler, "profile", recorded_profile)
+    result = observed_training.train_ccnet5d_observed_steps(
+        model,
+        _training_source(),
+        device="cuda",
+        optimizer_updates=3,
+        learning_rate=0.001,
+        report_every_steps=1,
+        loss_name="masked_trace_mse",
+        mixed_precision="bf16",
+        profile_first_update=True,
+        ema_decay=0.9,
+        ema_eval_decays=(0.99,),
+        ema_snapshot_updates=(3,),
+    )
+    assert forward_dtypes == [torch.bfloat16] * 3
+    assert loss_dtypes == [torch.float64] * 3
+    assert all(parameter.dtype == torch.float32 for parameter in model.parameters())
+    assert all(parameter.dtype == torch.float32 for parameter in result.shadow_parameters[0.99])
+    assert all(parameter.dtype == torch.float32 for parameter in result.shadow_snapshots[3][0.99])
+    assert np.isfinite(result.final_loss)
+    assert len(profile_calls) == 1
+    assert torch.profiler.ProfilerActivity.CUDA in profile_calls[0]["activities"]
+    assert result.conv_kernels_first_update
+    assert isinstance(result.time_conv_tensor_cores, bool)

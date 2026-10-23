@@ -43,6 +43,13 @@ class PocTraceGraphEpisodeGenerator:
         self._rng = np.random.default_rng(int(random_seed))
         self._episode_id = 0
 
+    def state_dict(self):
+        return {"rng": self._rng.bit_generator.state, "episode_id": self._episode_id}
+
+    def load_state_dict(self, state):
+        self._rng.bit_generator.state = state["rng"]
+        self._episode_id = state["episode_id"]
+
     def next_episode(self) -> TraceGraphEpisode:
         """Keep this visibility fixed while visiting all hidden query batches."""
         hidden = np.sort(self._rng.choice(self._trace_ids, size=self._hidden_count, replace=False))
