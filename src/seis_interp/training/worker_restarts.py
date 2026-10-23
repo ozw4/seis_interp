@@ -5,7 +5,11 @@ import json
 import os
 
 from seis_interp.training.run_recovery import failure_kind
-from seis_interp.training.worker_processes import process_is_alive, write_worker_state
+from seis_interp.training.worker_processes import (
+    WorkerLockBusy,
+    process_is_alive,
+    write_worker_state,
+)
 
 
 def refuse_live_workers(directory, names):
@@ -51,7 +55,11 @@ def start_dead_workers(directory, names, start):
             processes[name] = observed
             continue
         # Reuse the bounded restart path, including its worker lock check.
-        process = restart_exited_worker(directory, name, start)
+        try:
+            process = restart_exited_worker(directory, name, start)
+        except WorkerLockBusy:
+            # The supervisor will poll this identity and retry within its lock grace.
+            process = None
         processes[name] = process if process is not None else observed
     return processes
 
@@ -59,25 +67,31 @@ def start_dead_workers(directory, names, start):
 def restart_exited_worker(directory, method, start):
     path = directory / f"{method}.json"
     state = json.loads(path.read_text()) if path.exists() else {}
-    if process_is_alive(state.get("pid", -1), state.get("process_start_time")):
+    if not _worker_can_restart(state) or process_is_alive(
+        state.get("pid", -1), state.get("process_start_time")
+    ):
         return None
     with path.with_suffix(".lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return None
+        except BlockingIOError as error:
+            raise WorkerLockBusy(path.with_suffix(".lock"), state) from error
         if not _mark_worker_restart(directory, method, path, state):
             return None
     return start(method)
 
 
-def _mark_worker_restart(directory, method, path, state):
+def _worker_can_restart(state):
     if state.get("status") == "completed":
         return False
-    if (
-        state.get("status") == "failed"
-        and failure_kind(RuntimeError(state.get("failure_reason", ""))) != "infrastructure"
-    ):
+    return (
+        state.get("status") != "failed"
+        or failure_kind(RuntimeError(state.get("failure_reason", ""))) == "infrastructure"
+    )
+
+
+def _mark_worker_restart(directory, method, path, state):
+    if not _worker_can_restart(state):
         return False
     counter = directory / f"{method}_retries.json"
     previous = json.loads(counter.read_text()) if counter.exists() else {}

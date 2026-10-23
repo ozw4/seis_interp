@@ -11,6 +11,8 @@ import pytest
 import yaml
 
 from seis_interp.training import gpu_admission as admission
+from seis_interp.training.worker_processes import process_is_alive, process_start_time
+from tests.fixtures.worker_locks import orphaned_lock_holder
 
 
 def test_regrowth_is_reserved_once_even_after_current_reserved_drops_below_peak():
@@ -106,6 +108,24 @@ def test_stale_slot_is_removed_without_signalling_any_process(tmp_path):
     path.write_text(json.dumps({"pid": 999999999}))
     assert admission.live_admission_slots(tmp_path) == []
     assert not path.exists()
+
+
+def test_fork_child_cannot_retain_startup_lock_or_dead_parents_slot(tmp_path):
+    with (
+        orphaned_lock_holder(tmp_path, "admitted", admission=True) as holder,
+        (tmp_path / "admission.lock").open("a") as lock,
+    ):
+        # Closing the child's inherited descriptor must not unlock its live parent.
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        slots = admission.live_admission_slots(tmp_path)
+        assert len(slots) == 1 and slots[0]["pid"] == holder.process.pid
+        holder.exit_path.touch()
+        assert holder.process.wait(timeout=5) == 137
+        assert process_is_alive(holder.child_pid, process_start_time(holder.child_pid))
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert admission.live_admission_slots(tmp_path) == []
+        assert not list(tmp_path.glob("slot_*.json"))
 
 
 @pytest.mark.parametrize("start_offset,state", [(0, "Z"), (1, "R")])

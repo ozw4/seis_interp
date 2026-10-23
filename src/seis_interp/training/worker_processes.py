@@ -9,6 +9,87 @@ from pathlib import Path
 
 from seis_interp.data.forge_mvp_artifacts import write_json
 
+WORKER_LOCK_GRACE_SECONDS = 120.0
+
+
+class WorkerLockBusy(BlockingIOError):
+    """A dead worker's lock is still held, possibly by an orphaned fork."""
+
+    def __init__(self, path, state):
+        super().__init__(f"dead worker lock is busy: {path}")
+        self.path = path
+        self.state = state
+
+
+def lock_holder_pids(path):
+    """Best-effort holders from Linux fdinfo; ignore other opens of this inode."""
+    try:
+        target = path.stat()
+    except OSError:
+        return []
+    holders = set()
+    try:
+        processes = list(Path("/proc").iterdir())
+    except OSError:
+        return []
+    for process in processes:
+        if not process.name.isdigit():
+            continue
+        try:
+            for descriptor in (process / "fd").iterdir():
+                try:
+                    stat = descriptor.stat()
+                    if (stat.st_dev, stat.st_ino) != (target.st_dev, target.st_ino):
+                        continue
+                    info = (process / "fdinfo" / descriptor.name).read_text()
+                    if any("FLOCK" in line and "WRITE" in line for line in info.splitlines()):
+                        holders.add(int(process.name))
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    return sorted(holders)
+
+
+def restart_worker_processes(processes, outcomes, restart, pending):
+    """Retry busy dead-worker locks on later polls without spending restart credits."""
+    for method, code in outcomes.items():
+        if code is None:
+            continue
+        try:
+            replacement = restart(method)
+        except WorkerLockBusy as error:
+            identity = (error.state.get("pid"), error.state.get("process_start_time"))
+            previous_identity, since = pending.setdefault(method, (identity, time.monotonic()))
+            if identity != previous_identity:
+                since = time.monotonic()
+                pending[method] = identity, since
+            if time.monotonic() - since < WORKER_LOCK_GRACE_SECONDS:
+                outcomes[method] = None
+                continue
+            reason = (
+                f"worker exited with code {code}; restart lock grace expired "
+                f"after {WORKER_LOCK_GRACE_SECONDS:g}s: "
+                f"{error.path}; holder PIDs from /proc: {lock_holder_pids(error.path)}"
+            )
+            state = error.state | {"status": "failed", "failure_reason": reason, "exit_code": code}
+            _write_worker_exit(error.path.with_suffix(".json"), state)
+            outcomes[method] = code or 1
+            continue
+        pending.pop(method, None)
+        if replacement is not None:
+            processes[method] = replacement
+            outcomes[method] = None
+
+
+def _write_worker_exit(path, state):
+    temporary = path.with_suffix(f".supervisor.{uuid.uuid4().hex}.tmp")
+    try:
+        write_json(temporary, state)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
 
 def source_root():
     import seis_interp
@@ -82,27 +163,18 @@ def record_worker_exits(directory, processes, outcomes):
                 failure_reason=reason,
                 exit_code=code,
             )
-            temporary = path.with_suffix(f".supervisor.{uuid.uuid4().hex}.tmp")
-            try:
-                write_json(temporary, state)
-                temporary.replace(path)
-            finally:
-                temporary.unlink(missing_ok=True)
+            _write_worker_exit(path, state)
             failed = True
     return failed
 
 
 def wait_for_workers(processes, poll=1.0, *, directory=None, restart=None):
     """Reap every exited worker; return on the first failure without signalling."""
+    pending = {}
     while True:
         outcomes = {method: process.poll() for method, process in processes.items()}
         if restart is not None:
-            for method, code in outcomes.items():
-                if code is not None:
-                    replacement = restart(method)
-                    if replacement is not None:
-                        processes[method] = replacement
-                        outcomes[method] = None
+            restart_worker_processes(processes, outcomes, restart, pending)
         failed = directory is not None and record_worker_exits(directory, processes, outcomes)
         if failed or any(code is not None and code != 0 for code in outcomes.values()):
             return outcomes, False

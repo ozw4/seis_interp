@@ -65,6 +65,7 @@ from seis_interp.training.worker_processes import (
     record_worker_exits,
     report_admission,
     report_admission_wait,
+    restart_worker_processes,
     source_root,
     wait_for_workers,
     worker_failure,
@@ -622,21 +623,20 @@ def _execute_c3_search_outcome(execute, candidate, search_seed, experiment, meth
 
 def _wait_c3_replacement_workers(experiment, processes, sources, *, restart=None):
     """Bridge the original barrier and wait for both new and continuing methods."""
+    pending = {}
     while True:
         publish_c3_replacement_readiness(experiment)
         outcomes = {method: process.poll() for method, process in processes.items()}
         if restart is not None:
-            for method, code in outcomes.items():
-                if code is not None:
-                    replacement = restart(method)
-                    if replacement is not None:
-                        processes[method] = replacement
-                        outcomes[method] = None
+            restart_worker_processes(processes, outcomes, restart, pending)
         failed = record_worker_exits(experiment / "workers", processes, outcomes)
         if failed or any(code is not None and code != 0 for code in outcomes.values()):
             return outcomes, False
         completed = True
         for method, source in sources.items():
+            if method in pending:
+                completed = False
+                continue
             path = source / "workers" / f"{method}.json"
             if not path.exists():
                 completed = False

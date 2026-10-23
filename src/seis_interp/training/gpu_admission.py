@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import uuid
+import weakref
 from collections import deque
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,6 +19,19 @@ import torch
 from seis_interp.data.forge_mvp_artifacts import write_json
 from seis_interp.training.run_recovery import ResourceWait, failure_kind, requires_process_restart
 from seis_interp.training.worker_processes import process_is_alive, process_start_time
+
+_startup_locks = weakref.WeakSet()
+
+
+def _close_inherited_startup_locks():
+    # A forked loader has no monitor thread to enforce the startup timeout.
+    # Close only its descriptor: LOCK_UN would also unlock the parent's flock.
+    for lock in _startup_locks:
+        lock.close()
+    _startup_locks.clear()
+
+
+os.register_at_fork(after_in_child=_close_inherited_startup_locks)
 
 
 def admission_devices(config, resources):
@@ -241,6 +255,7 @@ def gpu_admission_slot(
     validate_admission_capacity(required, totals, "GPU admission", context_allowance_gib)
     directory.mkdir(parents=True, exist_ok=True)
     lock = (directory / "admission.lock").open("a")
+    _startup_locks.add(lock)
     held = False
     slot_path = (
         Path(reservation)
@@ -436,6 +451,7 @@ def memory_fitting_candidates(
             "remaining": [item["id"] for item in remaining],
         }
         with (directory / "admission.lock").open("a") as lock:
+            _startup_locks.add(lock)
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:

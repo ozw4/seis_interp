@@ -15,7 +15,7 @@ from seis_interp.data import experiment_import_coverage as coverage
 from seis_interp.evaluation.c3_region_results import summarize_c3_region_seeds
 from seis_interp.evaluation.forge_grid_results import summarize_forge_grid_seeds
 from seis_interp.training import exact_resume, gpu_admission, run_recovery
-from seis_interp.training.worker_processes import process_start_time
+from seis_interp.training.worker_processes import WorkerLockBusy, process_start_time
 from seis_interp.training.worker_restarts import restart_exited_worker
 
 
@@ -186,9 +186,8 @@ def test_live_worker_restart_preserves_state_and_credits(tmp_path):
     path.write_text(json.dumps({"status": "running"}))
     with (tmp_path / "m.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        assert (
-            restart_exited_worker(tmp_path, "m", lambda _: pytest.fail("locked duplicate")) is None
-        )
+        with pytest.raises(WorkerLockBusy):
+            restart_exited_worker(tmp_path, "m", lambda _: pytest.fail("locked duplicate"))
     assert not (tmp_path / "m_retries.json").exists()
 
 
