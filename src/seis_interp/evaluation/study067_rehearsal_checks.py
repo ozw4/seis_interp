@@ -454,16 +454,16 @@ def _check_determinism_twins(experiments, twins, determinism_twins):
         *determinism_twins,
     )
     for primary in experiments:
-        dataset = _json(primary / "experiment.json")["dataset_id"]
+        forge = _json(primary / "experiment.json").get("dataset_id") == "forge_2017"
         pair = [
             twin
             for twin in determinism_twins
-            if _json(twin / "experiment.json")["dataset_id"] == dataset
+            if (_json(twin / "experiment.json").get("dataset_id") == "forge_2017") == forge
         ]
         _require(
             len(pair) == 2, "determinism twins must include two per dataset", *determinism_twins
         )
-        candidate = "a05_b05" if dataset == "forge_2017" else "a05_b02"
+        candidate = "a05_b05" if forge else "a05_b02"
         outputs = []
         for twin in pair:
             plan = Rehearsal(twin).plan
@@ -672,10 +672,10 @@ def _check_specific_faults(experiments, samples):
                 )
                 _require(
                     old["peak_cuda_reserved_bytes"] > 0
-                    and np.isclose(
-                        final["peak_cuda_reserved_bytes"], old["peak_cuda_reserved_bytes"], rtol=0.1
-                    ),
-                    "retry peak differs by more than 10%",
+                    and 0
+                    < final["peak_cuda_reserved_bytes"]
+                    <= 1.10 * old["peak_cuda_reserved_bytes"],
+                    "retry peak is nonpositive or exceeds original by more than 10%",
                     output,
                 )
             if fault["action"] == "sticky_cuda":

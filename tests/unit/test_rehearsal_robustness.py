@@ -21,7 +21,9 @@ def test_two_19gib_reservations_do_not_deadlock_when_free_drops_40_to_37(tmp_pat
         "devices": ["cuda:1"],
         "minimum_free_memory_gib": {"regsi_real": 19, "ccnet5d_grid": 19},
     }
-    monkeypatch.setattr(admission.torch.cuda, "mem_get_info", lambda _: (free, 48 * 2**30))
+    monkeypatch.setattr(
+        admission, "gpu_memory_info", lambda devices: {d: (free, 48 * 2**30) for d in devices}
+    )
     monkeypatch.setattr(admission.torch.cuda, "memory_reserved", lambda _: 0)
     monkeypatch.setattr(admission.torch.cuda, "max_memory_reserved", lambda _: 0)
     selected = []
@@ -50,11 +52,6 @@ def test_two_19gib_reservations_do_not_deadlock_when_free_drops_40_to_37(tmp_pat
             19 * 2**30,
         )
         is None
-    )
-    monkeypatch.setattr(
-        admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=48 * 2**30),
     )
     monkeypatch.setattr(admission.torch.cuda, "set_device", lambda _: None)
     monkeypatch.setattr(admission.torch.cuda, "set_per_process_memory_fraction", lambda *_: None)
@@ -194,17 +191,14 @@ def test_only_dead_mode_preserves_live_and_completed_workers_and_restarts_retry_
 def fake_cuda(monkeypatch):
     free = {"cuda:0": 10 * 2**30, "cuda:1": 49 * 2**30}
     monkeypatch.setattr(
-        admission.torch.cuda, "mem_get_info", lambda device: (free[device], 93 * 2**30)
-    )
-    monkeypatch.setattr(
-        admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=93 * 2**30),
+        admission, "gpu_memory_info", lambda devices: {d: (free[d], 93 * 2**30) for d in devices}
     )
     for name in ("set_device", "set_per_process_memory_fraction", "reset_peak_memory_stats"):
         monkeypatch.setattr(admission.torch.cuda, name, lambda *args: None)
     monkeypatch.setattr(admission.torch.cuda, "memory_reserved", lambda _: 0)
     monkeypatch.setattr(admission.torch.cuda, "max_memory_reserved", lambda _: 0)
+    monkeypatch.setattr(admission.torch.cuda, "is_initialized", lambda: True)
+    monkeypatch.setattr(admission.torch.cuda, "current_device", lambda: 1)
     return free
 
 
@@ -266,7 +260,7 @@ def test_retry_keeps_large_reservation_during_backoff_and_cleans_on_success(
         sleeps.append(seconds)
 
     monkeypatch.setattr(run_recovery.time, "sleep", sleep)
-    monkeypatch.setattr(run_recovery.torch.cuda, "is_initialized", lambda: False)
+    monkeypatch.setattr(run_recovery.torch.cuda, "empty_cache", lambda: None)
     calls = []
 
     @run_recovery.retry_run
@@ -417,7 +411,7 @@ def test_retry_exhaustion_releases_retained_reservation(tmp_path, monkeypatch, f
     )
     path = Path(item["admission_reservation"])
     monkeypatch.setattr(run_recovery.time, "sleep", lambda _: None)
-    monkeypatch.setattr(run_recovery.torch.cuda, "is_initialized", lambda: False)
+    monkeypatch.setattr(run_recovery.torch.cuda, "empty_cache", lambda: None)
 
     @run_recovery.retry_run
     def execute(repo, experiment, candidate, seed, stage):

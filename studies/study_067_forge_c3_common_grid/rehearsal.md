@@ -360,6 +360,10 @@ values and prediction contents are never displayed. Target-read counts are
 reported per method/seed, including two reads after a post-scoring crash.
 The OOM cleanup criterion compares the retried attempt's final thread count with
 the failed attempt's **starting** count (the pre-OOM baseline), and requires the
-same worker PID and retry peak within 10% of the original peak.
+same worker PID and a positive retry peak no greater than 1.10 times the original
+peak. This is a leak/cleanup gate: a lower peak passes. In v1, C3 CCNet
+`S1/a05_b02` peaked at 17.39 GiB before the injected OOM and 15.36 GiB on its
+same-PID retry from step 200 (11.7% lower). With `cudnn_benchmark: true`, that
+retry reuses autotuned algorithms and can skip their original workspace peak.
 `--plan-only STUDY` is the CPU dry-run check and explicitly does not evaluate GPU
 acceptance. A rehearsal passing on synthetic CPU fixtures is not a GPU PASS.

@@ -365,9 +365,10 @@ def _fault_action(fault, result):
     if action == "sleep":
         time.sleep(fault["seconds"])
     if action == "sticky_cuda":
-        values = torch.zeros(1, device="cuda")
-        values[torch.tensor([2], device="cuda")] = 1
-        torch.cuda.synchronize()
+        device = torch.device("cuda", torch.cuda.current_device())
+        values = torch.zeros(1, device=device)
+        values[torch.tensor([2], device=device)] = 1
+        torch.cuda.synchronize(device)
 
 
 def state_sha256(value):

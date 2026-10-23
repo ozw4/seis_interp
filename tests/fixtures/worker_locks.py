@@ -14,7 +14,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from types import SimpleNamespace
 from seis_interp.training.worker_processes import (
     process_is_alive, process_start_time, write_worker_state,
 )
@@ -24,9 +23,9 @@ directory = Path(directory)
 parent = os.getpid()
 start_time = process_start_time(parent)
 if admission == 'True':
-    from seis_interp.training.gpu_admission import gpu_admission_slot, torch
-    torch.cuda.get_device_properties = lambda _: SimpleNamespace(total_memory=120 * 2**30)
-    torch.cuda.mem_get_info = lambda _: (100 * 2**30, 120 * 2**30)
+    from seis_interp.training import gpu_admission
+    gpu_admission_slot, torch = gpu_admission.gpu_admission_slot, gpu_admission.torch
+    gpu_admission.gpu_memory_info = lambda devices: {d: (100 * 2**30, 120 * 2**30) for d in devices}
     torch.cuda.set_device = lambda _: None
     torch.cuda.set_per_process_memory_fraction = lambda *args: None
     torch.cuda.reset_peak_memory_stats = lambda _: None

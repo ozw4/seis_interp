@@ -1,14 +1,21 @@
 """GPU warm-up planning tested with CPU tensors and forwards only."""
 
+import random
+
 import numpy as np
+import pytest
 import torch
 
 from seis_interp.data.c3_poc_trace_graph import (
     build_c3_poc_trace_graph_domain,
     build_c3_poc_trace_graph_training_data,
 )
+from seis_interp.data.c3_volume_adapter import ObservedC3Volume
+from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.relational_trace_graph_poc_config import validate_relational_trace_graph_poc_config
 from seis_interp.training import prediction_warmup as warmup
+from seis_interp.training.ccnet5d_prediction import predict_ccnet5d_volume
+from seis_interp.training.exact_resume import restore_rng, rng_state
 from tests.fixtures.c3_poc_trace_graph import prepare_poc_trace_graph_inputs
 
 
@@ -20,6 +27,7 @@ class Recorder(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
+        self.weight = torch.nn.Parameter(torch.ones(1))
         self.calls = []
 
     def to(self, *args, **kwargs):
@@ -27,13 +35,16 @@ class Recorder(torch.nn.Module):
 
     def forward(self, value):
         self.calls.append(value)
+        random.random()
+        np.random.random()
         torch.rand(1)
         return value
 
 
-def test_ccnet_warms_one_maximal_halo_without_changing_rng_or_releasing_cache(monkeypatch):
+def test_ccnet_warms_all_halos_without_changing_rng_or_releasing_cache(monkeypatch):
     model = Recorder()
     before = torch.get_rng_state().clone()
+    python_before, numpy_before = random.getstate(), np.random.get_state()
     zeros = torch.zeros
     monkeypatch.setattr(
         torch, "zeros", lambda *args, **kwargs: zeros(*args, **(kwargs | {"device": "cpu"}))
@@ -45,16 +56,95 @@ def test_ccnet_warms_one_maximal_halo_without_changing_rng_or_releasing_cache(mo
     monkeypatch.setattr(torch.cuda, "empty_cache", unexpected_cache_release)
     warmup.warm_ccnet(
         model,
-        (11, 17, 17, 17, 17),
+        (11, 17, 1, 1, 1),
         {
             "device": "cuda:0",
-            "prediction": {"core_shape": [11, 2, 2, 2, 2]},
+            "prediction": {"core_shape": [11, 2, 1, 1, 1]},
         },
     )
-    assert len(model.calls) == 1
-    assert model.calls[0].shape == (1, 1, 11, 14, 14, 14, 14)
-    assert torch.count_nonzero(model.calls[0]) == 0
+    expected = [
+        (1, 1, *(s.stop - s.start for s in tile.input_slices))
+        for tile in warmup.iter_ccnet5d_tiles((11, 17, 1, 1, 1), (11, 2, 1, 1, 1), halo_radius=6)
+    ]
+    assert [tuple(value.shape) for value in model.calls] == expected
+    assert max(expected, key=np.prod) == (1, 1, 11, 14, 1, 1, 1)
+    assert all(torch.count_nonzero(value) == 0 for value in model.calls)
     assert model.training and torch.equal(before, torch.get_rng_state())
+    assert python_before == random.getstate()
+    assert all(
+        np.array_equal(a, b) for a, b in zip(numpy_before, np.random.get_state(), strict=True)
+    )
+
+
+@pytest.mark.parametrize("full_trace", [False, True])
+def test_ccnet_warmup_preserves_training_and_prediction_bitwise(monkeypatch, full_trace):
+    shape = (13, 1, 11, 1, 1)
+    core = (3, 1, 3, 1, 1)
+    model = CCNet5D(hidden_channels=2, intermediate_channels=2, kernel_size=3)
+    weights = {name: value.clone() for name, value in model.state_dict().items()}
+    volume = ObservedC3Volume(
+        values=np.ones(shape, dtype=np.float32),
+        time_s=np.arange(shape[0]) * 0.004,
+        array_rows=np.arange(np.prod(shape[1:])).reshape(shape[1:]),
+        observed_trace_mask=np.ones(shape[1:], dtype=bool),
+        evaluation_target_trace_mask=np.zeros(shape[1:], dtype=bool),
+    )
+    volume.observed_trace_mask.flat[::2] = False
+    zeros = torch.zeros
+    monkeypatch.setattr(torch, "zeros", lambda *a, **kw: zeros(*a, **(kw | {"device": "cpu"})))
+    monkeypatch.setattr(model, "to", lambda _: model)
+    initial_rng = rng_state()
+    results = []
+    for warmed in (False, True):
+        model.load_state_dict(weights)
+        restore_rng(initial_rng)
+        seen = []
+        handle = model.register_forward_pre_hook(
+            lambda _, args, seen=seen: seen.append(args[0].shape)
+        )
+        if warmed:
+            warmup.warm_ccnet(
+                model,
+                shape,
+                {
+                    "device": "cuda:1",
+                    "prediction": {"core_shape": core},
+                    "execution": {"full_trace_prediction": full_trace},
+                },
+            )
+        warm_shapes = seen.copy()
+        seen.clear()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+        losses = []
+        for _ in range(2):
+            optimizer.zero_grad()
+            loss = model(torch.rand(1, 1, 5, 2, 3, 1, 4)).square().mean()
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+        seen.clear()
+        prediction = predict_ccnet5d_volume(
+            model,
+            volume,
+            amplitude_rms=1,
+            core_shape=(shape[0], *core[1:]) if full_trace else core,
+            device="cpu",
+        )
+        handle.remove()
+        if warmed:
+            assert warm_shapes == seen
+            assert len(set(warm_shapes)) > 1
+        results.append(
+            (
+                losses,
+                prediction.values.tobytes(),
+                [p.detach().clone() for p in model.parameters()],
+                torch.get_rng_state(),
+            )
+        )
+    assert results[0][:2] == results[1][:2]
+    assert all(torch.equal(a, b) for a, b in zip(results[0][2], results[1][2], strict=True))
+    assert torch.equal(results[0][3], results[1][3])
 
 
 def test_graph_warms_the_largest_prediction_plan_once_with_zero_amplitudes(tmp_path, monkeypatch):

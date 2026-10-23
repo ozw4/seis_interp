@@ -4,7 +4,6 @@ import fcntl
 import json
 import math
 import os
-import subprocess
 import tempfile
 import threading
 import time
@@ -17,6 +16,7 @@ from pathlib import Path
 import torch
 
 from seis_interp.data.forge_mvp_artifacts import write_json
+from seis_interp.training.gpu_memory import gpu_memory_info
 from seis_interp.training.run_recovery import ResourceWait, failure_kind, requires_process_restart
 from seis_interp.training.worker_processes import process_is_alive, process_start_time
 
@@ -97,21 +97,9 @@ def prepare_admission_capacity(resources, candidates):
     if declared is not None:
         totals = {device: math.floor(value * 2**30) for device, value in declared.items()}
     else:
-        totals = {}
-        visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-        for device in resources["devices"]:
-            index = int(device.split(":")[1])
-            selector = visible.split(",")[index] if visible else str(index)
-            value = subprocess.check_output(
-                [
-                    "nvidia-smi",
-                    f"--id={selector}",
-                    "--query-gpu=memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
-                text=True,
-            ).strip()
-            totals[device] = int(value) * 2**20
+        totals = {
+            device: memory[1] for device, memory in gpu_memory_info(resources["devices"]).items()
+        }
     for item, devices, required in requests:
         allowed = {device: totals[device] for device in devices}
         validate_admission_capacity(
@@ -219,6 +207,13 @@ def excluded_admission_devices(exclusions):
     }
 
 
+def _current_device_reservation(device):
+    """Queueing or migrating must not initialize an unselected CUDA device."""
+    if torch.cuda.is_initialized() and torch.cuda.current_device() == int(device.split(":")[1]):
+        return int(torch.cuda.memory_reserved(device)), int(torch.cuda.max_memory_reserved(device))
+    return 0, 0
+
+
 @contextmanager
 def gpu_admission_slot(
     directory,
@@ -251,7 +246,7 @@ def gpu_admission_slot(
     ):
         raise ValueError("admission memory and intervals must be positive")
     required = int(minimum_free_memory_gib * 2**30)
-    totals = {device: torch.cuda.get_device_properties(device).total_memory for device in devices}
+    totals = {device: memory[1] for device, memory in gpu_memory_info(devices).items()}
     validate_admission_capacity(required, totals, "GPU admission", context_allowance_gib)
     directory.mkdir(parents=True, exist_ok=True)
     lock = (directory / "admission.lock").open("a")
@@ -279,7 +274,7 @@ def gpu_admission_slot(
                 continue
             excluded = excluded_admission_devices(excluded_devices_while_pids_alive or {})
             eligible = [device for device in devices if device not in excluded]
-            free = {device: torch.cuda.mem_get_info(device)[0] for device in eligible}
+            free = {device: memory[0] for device, memory in gpu_memory_info(eligible).items()}
             slots = live_admission_slots(directory)
             own = next(
                 (
@@ -381,12 +376,10 @@ def gpu_admission_slot(
                 # The retry is published before its caller releases cached memory.
                 # Keep the instantaneous evidence separate from the zero regrowth estimate.
                 retry_device = retry_reservation["device"]
-                retry_reservation["current_reserved_now_bytes"] = int(
-                    torch.cuda.memory_reserved(retry_device)
-                )
-                retry_reservation["peak_reserved_bytes"] = int(
-                    torch.cuda.max_memory_reserved(retry_device)
-                )
+                (
+                    retry_reservation["current_reserved_now_bytes"],
+                    retry_reservation["peak_reserved_bytes"],
+                ) = _current_device_reservation(retry_device)
                 write_admission_slot(slot_path, retry_reservation)
             else:
                 slot_path.unlink(missing_ok=True)
@@ -471,7 +464,9 @@ def memory_fitting_candidates(
                     devices = [
                         d for d in admission_devices(item["config"], resources) if d not in excluded
                     ]
-                    free = {device: torch.cuda.mem_get_info(device)[0] for device in devices}
+                    free = {
+                        device: memory[0] for device, memory in gpu_memory_info(devices).items()
+                    }
                     required = admission_required_bytes(item["config"], resources, item["id"])
                     details["required_bytes"][item["id"]] = required
                     details["free_memory_bytes"].update(free)
@@ -480,6 +475,7 @@ def memory_fitting_candidates(
                         chosen = item
                         identity = uuid.uuid4().hex
                         reservation = directory / f"slot_{os.getpid()}_{identity}.json"
+                        reserved, peak = _current_device_reservation(device)
                         write_admission_slot(
                             reservation,
                             {
@@ -488,10 +484,8 @@ def memory_fitting_candidates(
                                 "device": device,
                                 "required_bytes": required,
                                 "current_reserved_bytes": 0,
-                                "current_reserved_now_bytes": int(
-                                    torch.cuda.memory_reserved(device)
-                                ),
-                                "peak_reserved_bytes": int(torch.cuda.max_memory_reserved(device)),
+                                "current_reserved_now_bytes": reserved,
+                                "peak_reserved_bytes": peak,
                                 "reservation": identity,
                                 "reserved_at_ns": time.monotonic_ns(),
                             },

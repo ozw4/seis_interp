@@ -337,10 +337,21 @@ def test_sticky_cuda_action_is_device_assert_then_synchronize_without_a_real_gpu
         def __setitem__(self, index, value):
             calls.append((index, value))
 
-    monkeypatch.setattr(torch, "zeros", lambda count, device: FakeCUDA())
-    monkeypatch.setattr(torch, "tensor", lambda values, device: values)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 1)
 
-    def synchronize():
+    def zeros(count, device):
+        assert device == torch.device("cuda:1")
+        return FakeCUDA()
+
+    def tensor(values, device):
+        assert device == torch.device("cuda:1")
+        return values
+
+    monkeypatch.setattr(torch, "zeros", zeros)
+    monkeypatch.setattr(torch, "tensor", tensor)
+
+    def synchronize(device):
+        assert device == torch.device("cuda:1")
         raise RuntimeError("CUDA error: device-side assert triggered")
 
     monkeypatch.setattr(torch.cuda, "synchronize", synchronize)

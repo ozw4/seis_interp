@@ -54,7 +54,9 @@ def test_next_candidate_is_the_highest_priority_that_fits_memory(tmp_path, monke
         "minimum_free_memory_gib": {"regsi_real": {"large": 12, "medium": 6, "small": 2}},
     }
     free = 7 * 2**30
-    monkeypatch.setattr(gpu_admission.torch.cuda, "mem_get_info", lambda _: (free, 20 * 2**30))
+    monkeypatch.setattr(
+        gpu_admission, "gpu_memory_info", lambda devices: {d: (free, 20 * 2**30) for d in devices}
+    )
     ordered = gpu_admission.memory_fitting_candidates(tmp_path, candidates, resources)
     assert next(ordered)["id"] == "medium"
     gpu_admission.Path(next((tmp_path / "runs/.gpu_admission").glob("slot_*.json"))).unlink()

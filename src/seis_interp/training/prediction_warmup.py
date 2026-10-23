@@ -41,19 +41,20 @@ def warm_ccnet(model, shape, config):
     radius = model.halo_radius
     if core[0] >= shape[0]:
         radius = len(model.network) * (model.kernel_size // 2)
-    maximum = max(
-        (
-            tuple(s.stop - s.start for s in tile.input_slices)
-            for tile in iter_ccnet5d_tiles(shape, core, halo_radius=radius)
-        ),
-        key=lambda value: np.prod(value),
-    )
     amp = config["prediction"].get("mixed_precision", "off") == "bf16"
-    with (
-        prediction_mode(model, device),
-        torch.autocast("cuda", dtype=torch.bfloat16) if amp else nullcontext(),
-    ):
-        model(torch.zeros((1, 1, *maximum), device=device))
+    parameter = next(model.parameters())
+    with prediction_mode(model, device):
+        # Different boundary shapes can select different cuDNN workspaces. Replay
+        # the inference loop, including the preceding input/output lifetimes;
+        # one maximal forward does not cover its allocator footprint.
+        for tile in iter_ccnet5d_tiles(shape, core, halo_radius=radius):
+            block_shape = tuple(s.stop - s.start for s in tile.input_slices)
+            inputs = torch.zeros((1, 1, *block_shape), dtype=parameter.dtype, device=device)
+            with torch.autocast("cuda", dtype=torch.bfloat16) if amp else nullcontext():
+                output = model(inputs)[0, 0][tile.local_core_slices]
+            if output.dtype == torch.bfloat16:
+                output = output.float()
+            output.cpu().numpy()
 
 
 def warm_graph(model, domain, preprocessing, settings, query_ids, batch_size, device, table):

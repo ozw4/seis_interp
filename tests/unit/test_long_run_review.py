@@ -202,7 +202,9 @@ def test_memory_choice_reserves_before_another_worker_selects(tmp_path, monkeypa
         "minimum_free_memory_gib": {"m": {"large": 12, "small": 4}},
     }
     monkeypatch.setattr(
-        gpu_admission.torch.cuda, "mem_get_info", lambda _: (20 * 2**30, 24 * 2**30)
+        gpu_admission,
+        "gpu_memory_info",
+        lambda devices: {d: (20 * 2**30, 24 * 2**30) for d in devices},
     )
     first = next(gpu_admission.memory_fitting_candidates(tmp_path, candidates, resources))
     second = next(gpu_admission.memory_fitting_candidates(tmp_path, candidates, resources))
@@ -337,14 +339,11 @@ def test_admission_consumes_choice_reservation_without_double_counting(tmp_path,
     }
     candidate = {"id": "a", "config": {"device": "cuda:0", "method_id": "m"}}
     monkeypatch.setattr(
-        gpu_admission.torch.cuda, "mem_get_info", lambda _: (12 * 2**30, 24 * 2**30)
+        gpu_admission,
+        "gpu_memory_info",
+        lambda devices: {d: (12 * 2**30, 24 * 2**30) for d in devices},
     )
     selected = next(gpu_admission.memory_fitting_candidates(tmp_path, [candidate], resources))
-    monkeypatch.setattr(
-        gpu_admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=24 * 2**30),
-    )
     monkeypatch.setattr(gpu_admission.torch.cuda, "set_device", lambda _: None)
     monkeypatch.setattr(
         gpu_admission.torch.cuda, "set_per_process_memory_fraction", lambda *args: None

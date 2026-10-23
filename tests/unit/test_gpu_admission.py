@@ -5,7 +5,6 @@ import time
 from collections import deque
 from contextlib import contextmanager
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -60,15 +59,14 @@ def test_startup_lock_timeout_keeps_pending_reservation_and_cleans_up(tmp_path, 
     fractions = []
     monkeypatch.setattr(
         admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=120 * 2**30),
-    )
-    monkeypatch.setattr(
-        admission.torch.cuda,
         "set_per_process_memory_fraction",
         lambda fraction, device: fractions.append((fraction, device)),
     )
-    monkeypatch.setattr(admission.torch.cuda, "mem_get_info", lambda _: (100 * 2**30, 120 * 2**30))
+    monkeypatch.setattr(
+        admission,
+        "gpu_memory_info",
+        lambda devices: {d: (100 * 2**30, 120 * 2**30) for d in devices},
+    )
     monkeypatch.setattr(admission.torch.cuda, "set_device", lambda _: None)
     monkeypatch.setattr(admission.torch.cuda, "reset_peak_memory_stats", lambda _: None)
     monkeypatch.setattr(admission.torch.cuda, "max_memory_reserved", lambda _: 2**30)
@@ -144,11 +142,8 @@ def test_impossible_budget_fails_before_admission_directory_or_memory_wait(
     tmp_path, monkeypatch, required, allowance
 ):
     monkeypatch.setattr(
-        admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=93 * 2**30),
+        admission, "gpu_memory_info", lambda devices: {d: (0, 93 * 2**30) for d in devices}
     )
-    monkeypatch.setattr(admission.torch.cuda, "mem_get_info", lambda _: pytest.fail("wait entered"))
     with (
         pytest.raises(ValueError, match="exceeds largest allowed device"),
         admission.gpu_admission_slot(
@@ -184,15 +179,14 @@ def test_prepare_capacity_uses_allowed_devices_and_explicit_margin_without_cuda(
         admission.prepare_admission_capacity(resources, [item])
 
 
-def test_prepare_capacity_can_query_nvidia_smi_without_cuda(monkeypatch):
-    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+def test_prepare_capacity_can_query_memory_without_cuda(monkeypatch):
     calls = []
 
-    def totals(command, **kwargs):
-        calls.append(command)
-        return "10240\n"
+    def totals(devices):
+        calls.append(devices)
+        return {device: (0, 10 * 2**30) for device in devices}
 
-    monkeypatch.setattr(admission.subprocess, "check_output", totals)
+    monkeypatch.setattr(admission, "gpu_memory_info", totals)
     item = {"id": "a01_b01", "config": {"device": "auto", "method_id": "ccnet5d_grid"}}
     resources = {
         "global_admission": True,
@@ -201,7 +195,7 @@ def test_prepare_capacity_can_query_nvidia_smi_without_cuda(monkeypatch):
     }
     with pytest.raises(ValueError, match="exceeds largest"):
         admission.prepare_admission_capacity(resources, [item])
-    assert calls[0][0] == "nvidia-smi"
+    assert calls == [["cuda:0"]]
 
 
 @pytest.mark.parametrize("allowance", [None, 4])
@@ -224,11 +218,8 @@ def test_prepare_rejects_near_total_budget_with_context_allowance(allowance):
 def test_monitor_publishes_current_reserved_after_cache_shrinks(tmp_path, monkeypatch):
     reserved = [10 * 2**30]
     monkeypatch.setattr(
-        admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=20 * 2**30),
+        admission, "gpu_memory_info", lambda devices: {d: (18 * 2**30, 20 * 2**30) for d in devices}
     )
-    monkeypatch.setattr(admission.torch.cuda, "mem_get_info", lambda _: (18 * 2**30, 20 * 2**30))
     monkeypatch.setattr(admission.torch.cuda, "set_device", lambda _: None)
     monkeypatch.setattr(admission.torch.cuda, "set_per_process_memory_fraction", lambda *_: None)
     monkeypatch.setattr(admission.torch.cuda, "reset_peak_memory_stats", lambda _: None)
@@ -254,11 +245,8 @@ def test_monitor_publishes_current_reserved_after_cache_shrinks(tmp_path, monkey
 def test_monitor_reserves_regrowth_before_cache_release_is_reported(tmp_path, monkeypatch):
     reserved = [4 * 2**30]
     monkeypatch.setattr(
-        admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=20 * 2**30),
+        admission, "gpu_memory_info", lambda devices: {d: (18 * 2**30, 20 * 2**30) for d in devices}
     )
-    monkeypatch.setattr(admission.torch.cuda, "mem_get_info", lambda _: (18 * 2**30, 20 * 2**30))
     monkeypatch.setattr(admission.torch.cuda, "set_device", lambda _: None)
     monkeypatch.setattr(admission.torch.cuda, "set_per_process_memory_fraction", lambda *_: None)
     monkeypatch.setattr(admission.torch.cuda, "reset_peak_memory_stats", lambda _: None)
@@ -304,14 +292,9 @@ def test_admission_waits_until_all_pinned_processes_exit_without_querying_exclud
         worker_processes, "process_stat", lambda pid: ("S", 10) if pid in live else None
     )
     monkeypatch.setattr(
-        admission.torch.cuda,
-        "get_device_properties",
-        lambda _: SimpleNamespace(total_memory=20 * 2**30),
-    )
-    monkeypatch.setattr(
-        admission.torch.cuda,
-        "mem_get_info",
-        lambda _: (18 * 2**30, 20 * 2**30) if not live else pytest.fail("excluded GPU queried"),
+        admission,
+        "gpu_memory_info",
+        lambda devices: {d: (18 * 2**30, 20 * 2**30) for d in devices},
     )
     monkeypatch.setattr(admission.torch.cuda, "set_device", lambda _: None)
     monkeypatch.setattr(admission.torch.cuda, "set_per_process_memory_fraction", lambda *_: None)
@@ -375,3 +358,112 @@ def test_common_grid_configs_pin_legacy_worker_identities_and_context_allowance(
         {"pid": 3958956, "process_start_time": 1111834778},
         {"pid": 381291, "process_start_time": 1113638455},
     ]
+
+
+def test_queue_startup_monitor_and_retry_touch_only_selected_cuda_device(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    initialized, calls = [], []
+
+    def selected(device, *args):
+        assert device == "cuda:1", f"non-selected device touched: {device}"
+        calls.append(device)
+        return 2**30
+
+    def set_device(device):
+        selected(device)
+        initialized.append(True)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("admission queried CUDA memory/properties before selection")
+
+    monkeypatch.setattr(
+        admission.torch,
+        "cuda",
+        SimpleNamespace(
+            is_initialized=lambda: bool(initialized),
+            current_device=lambda: 1,
+            mem_get_info=unexpected,
+            get_device_properties=unexpected,
+            set_device=set_device,
+            reset_peak_memory_stats=selected,
+            set_per_process_memory_fraction=lambda fraction, device: selected(device),
+            memory_reserved=selected,
+            max_memory_reserved=selected,
+        ),
+    )
+    monkeypatch.setattr(
+        admission,
+        "gpu_memory_info",
+        lambda devices: {d: ((8 if d == "cuda:0" else 100) * 2**30, 120 * 2**30) for d in devices},
+    )
+    resources = {
+        "global_admission": True,
+        "devices": ["cuda:0", "cuda:1"],
+        "minimum_free_memory_gib": {"m": 10},
+    }
+    candidate = {"id": "a", "config": {"method_id": "m", "device": "auto"}}
+    item = next(admission.memory_fitting_candidates(tmp_path, [candidate], resources))
+    assert not calls
+    reservation = Path(item["admission_reservation"])
+    for retry in (False, True):
+        try:
+            with admission.gpu_admission_slot(
+                reservation.parent,
+                resources["devices"],
+                10,
+                pytest.fail,
+                poll=0.005,
+                reservation=reservation,
+            ) as device:
+                assert device == "cuda:1"
+                deadline = time.monotonic() + 2
+                while "updated_at_monotonic" not in json.loads(reservation.read_text()):
+                    assert time.monotonic() < deadline
+                    time.sleep(0.01)
+                if not retry:
+                    raise OSError("retry in process")
+        except OSError:
+            assert not retry
+    assert calls and not reservation.exists()
+
+
+def test_retry_before_selection_does_not_query_reserved_other_device(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        admission.torch,
+        "cuda",
+        SimpleNamespace(
+            is_initialized=lambda: True,
+            current_device=lambda: 0,
+            memory_reserved=lambda _: pytest.fail("unselected reservation queried"),
+            max_memory_reserved=lambda _: pytest.fail("unselected reservation queried"),
+        ),
+    )
+    monkeypatch.setattr(
+        admission, "gpu_memory_info", lambda devices: {d: (0, 120 * 2**30) for d in devices}
+    )
+    path = tmp_path / "slot_own.json"
+    admission.write_admission_slot(
+        path,
+        {
+            "pid": os.getpid(),
+            "process_start_time": process_start_time(os.getpid()),
+            "device": "cuda:1",
+            "required_bytes": 10 * 2**30,
+            "current_reserved_bytes": 0,
+            "reservation": "own",
+            "reserved_at_ns": 1,
+        },
+    )
+
+    def waiting(_):
+        raise OSError("resource unavailable")
+
+    with (
+        pytest.raises(OSError, match="resource unavailable"),
+        admission.gpu_admission_slot(tmp_path, ["cuda:1"], 10, waiting, reservation=path),
+    ):
+        pytest.fail("admitted")
+    assert json.loads(path.read_text())["current_reserved_now_bytes"] == 0

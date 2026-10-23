@@ -633,3 +633,54 @@ def test_oom_threads_are_compared_with_pre_oom_baseline(tmp_path, leaked):
             checks._check_specific_faults([tmp_path], [])
     else:
         assert checks._check_specific_faults([tmp_path], [])
+
+
+@pytest.mark.parametrize(
+    "peak,accepted", [(0, False), (-1, False), (88.3, True), (110, True), (110.01, False)]
+)
+def test_oom_retry_peak_only_rejects_growth_or_nonpositive_peak(tmp_path, peak, accepted):
+    fault = {"method": "ccnet5d_grid", "run": "a05_b02", "point": "report", "action": "oom"}
+    seal(tmp_path, [fault], "seg_c3_na")
+    write_json(tmp_path / "rehearsal_faults/000.json", {"attempt": 0})
+    output = tmp_path / "method_runs/ccnet5d_grid/S1/a05_b02"
+    write_json(
+        output / "attempts/1/manifest.json",
+        {"pid": 1, "threads_at_start": 4, "peak_cuda_reserved_bytes": 100},
+    )
+    write_json(
+        output / "manifest.json", {"pid": 1, "threads_at_end": 4, "peak_cuda_reserved_bytes": peak}
+    )
+    write_json(
+        tmp_path / "method_runs/pocs_grid/S1/a/manifest.json",
+        {"method_id": "pocs_grid", "nice": 10},
+    )
+    if accepted:
+        assert checks._check_specific_faults([tmp_path], [])
+    else:
+        with pytest.raises(ValueError, match="retry peak"):
+            checks._check_specific_faults([tmp_path], [])
+
+
+def test_determinism_twins_accept_c3_seals_without_dataset_id(tmp_path):
+    experiments, twins = [], []
+    for dataset, candidate in ((None, "a05_b02"), ("forge_2017", "a05_b05")):
+        for index in range(3):
+            experiment = tmp_path / f"{dataset}_{index}"
+            seal(experiment, [], dataset)
+            if dataset is None:
+                path = experiment / "experiment.json"
+                record = json.loads(path.read_text())
+                record.pop("dataset_id")
+                write_json(path, record)
+            if index == 0:
+                experiments.append(experiment)
+                continue
+            twins.append(experiment)
+            output = experiment / "method_runs/ccnet5d_grid/S1" / candidate
+            output.mkdir(parents=True)
+            (output / "config.resolved.yaml").write_text("execution: {cudnn_benchmark: false}\n")
+            pd.DataFrame({"step": range(1, 301), "loss": np.linspace(1, 0.5, 300)}).to_csv(
+                output / "history.csv", index=False
+            )
+            np.save(output / "prediction.npy", np.ones((2, 3)))
+    assert len(checks._check_determinism_twins(experiments, [], twins)) == 8
