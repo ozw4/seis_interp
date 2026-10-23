@@ -58,7 +58,10 @@ def test_invalid_observed_rms_stops(value):
 
 
 @pytest.mark.parametrize("mode", ["observed_trace_rms_idw", "trace_oracle"])
-def test_restoration_multiplies_rms_once_without_forcing_prediction_rms(mode):
+@pytest.mark.parametrize(
+    "method", ["pocs_grid", "drr_grid", "ccnet5d_grid", "regsi_real", "regsi_grid"]
+)
+def test_restoration_multiplies_rms_once_without_forcing_prediction_rms(mode, method):
     normalized = np.array([[0.1, -0.1], [0.0, 0.0]], dtype=np.float32)
     model_inputs = object()
     inputs = SimpleNamespace(
@@ -67,9 +70,10 @@ def test_restoration_multiplies_rms_once_without_forcing_prediction_rms(mode):
         binding={"trace_scale_hash": "sealed", "amplitude_scaling": mode},
     )
     result = ForgeMethodResult(normalized.copy(), np.array([1, 2]), [], None, {})
+    config = {"method_id": method}
     with patch("seis_interp.training.forge_mvp_methods._run_method", return_value=result) as worker:
-        actual = run_method(inputs, {})
-    worker.assert_called_once_with(model_inputs, {}, print)
+        actual = run_method(inputs, config)
+    worker.assert_called_once_with(model_inputs, config, print)
     np.testing.assert_array_equal(
         actual.prediction, np.array([[0.2, -0.2], [0.0, 0.0]], dtype=np.float32)
     )

@@ -1,6 +1,11 @@
-"""Six fixed-method adapters consuming only compact observed FORGE inputs."""
+"""Fixed-method adapters consuming only compact observed FORGE inputs.
+
+The six MVP methods plus ``nersi_profile``, the profile-wise NeRSI of Gao et al. (2025)
+added to a sealed preparation by ``derive_forge_preparation``.
+"""
 
 import hashlib
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass, field
 from time import perf_counter
@@ -12,11 +17,17 @@ from seis_interp.data.c3_poc_trace_graph import C3PocTraceGraphTrainingData
 from seis_interp.data.forge_aligned_inputs import align_model_inputs, unalign_predictions
 from seis_interp.data.forge_mvp_artifacts import ForgeModelInputs
 from seis_interp.data.trace_graph_domain import build_trace_graph_domain
+from seis_interp.forge_mvp_config import canvas_time_stages, profile_side, profile_time_multiple
 from seis_interp.models.ccnet5d import CCNet5D
+from seis_interp.models.nersi import Nersi
 from seis_interp.models.nersi_trace import NersiTrace
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
 from seis_interp.processing.drr_batched import interpolate_drr_volume_batched
 from seis_interp.processing.drr_windows import interpolate_drr_volume
+from seis_interp.processing.forge_nersi_profiles import (
+    ExactTraceProfileSampler,
+    nersi_profile_layout,
+)
 from seis_interp.processing.pocs_batched import interpolate_pocs_volume_batched
 from seis_interp.processing.pocs_windows import interpolate_pocs_volume
 from seis_interp.processing.trace_graph_preprocessing import build_poc_trace_graph_preprocessing
@@ -24,10 +35,30 @@ from seis_interp.processing.trace_graph_settings import TraceGraphSettings
 from seis_interp.training.ccnet5d_observed_patches import CCNet5DObservedPatchSource
 from seis_interp.training.ccnet5d_observed_training import train_ccnet5d_observed_steps
 from seis_interp.training.ccnet5d_prediction import predict_ccnet5d_volume
-from seis_interp.training.relational_trace_graph_poc_trainer import train_relational_trace_graph_poc
-from seis_interp.training.relational_trace_graph_prediction import predict_relational_trace_graph
+from seis_interp.training.exact_resume import object_state, restore_objects
+from seis_interp.training.mixed_precision import mixed_precision_dtype
+from seis_interp.training.nersi_loss_support import recorded_trace_samples
+from seis_interp.training.nersi_profile_regularization import (
+    ProfileCoordinateJitter,
+    normalized_nuclear_norm,
+    validate_nuclear_norm_weight,
+)
+from seis_interp.training.neural_diagnostics import NeuralTrainingDiagnostics
+from seis_interp.training.prediction_warmup import warm_ccnet, warm_coordinates, warm_graph
+from seis_interp.training.relational_trace_graph_poc_trainer import (
+    build_training_neighbor_table,
+    train_relational_trace_graph_poc,
+)
+from seis_interp.training.relational_trace_graph_prediction import (
+    predict_relational_trace_graph,
+    predict_relational_trace_graph_states,
+)
 from seis_interp.training.trace_graph_ema import TraceGraphEMA, validate_trace_graph_ema_decay
-from seis_interp.training.trace_relative_loss import masked_trace_relative_mse
+from seis_interp.training.trace_graph_execution import (
+    torch_cpu_threads,
+    validate_trace_graph_execution,
+)
+from seis_interp.training.trace_relative_loss import masked_trace_loss, masked_trace_relative_mse
 
 LOSS_WINDOW_UPDATES = 1000
 
@@ -102,6 +133,8 @@ def initialize_model(config):
         return CCNet5D(**config["model"])
     if method == "nersi_real":
         return NersiTrace(**config["model"])
+    if method == "nersi_profile":
+        return Nersi(**config["model"])
     if method in ("regsi_real", "regsi_grid"):
         return RelationalTraceGraphInterpolator(**config["model"])
     raise ValueError("method has no neural model")
@@ -178,24 +211,55 @@ def canvas_method_config(config: dict, canvas_length: int) -> dict:
     resolved = deepcopy(config)
     if resolved["method_id"] == "nersi_real":
         resolved["model"]["time_sample_count"] = int(canvas_length)
+    if resolved["method_id"] == "nersi_profile":
+        normalize = resolved.pop("canvas_time_upsampling", False)
+        if not isinstance(normalize, bool):
+            raise ValueError("canvas_time_upsampling must be boolean")
+        stages = canvas_time_stages(canvas_length) if normalize else 0
+        if stages:
+            resolved["model"].update(
+                time_upsample_channels=[resolved["model"]["latent_channels"]] * stages,
+                time_kernel_size=3,
+            )
+        resolved["model"]["profile_shape"][0] = profile_side(
+            canvas_length, profile_time_multiple(resolved["model"])
+        )
     return resolved
 
 
-def run_method(inputs: ForgeModelInputs, config: dict, reporter=print) -> ForgeMethodResult:
+def run_method(
+    inputs: ForgeModelInputs, config: dict, reporter=print, *, checkpoint_path=None, recovery=None
+) -> ForgeMethodResult:
     """Run in model amplitude units, then apply the preparation's restoration RMS.
 
     With ``config["alignment"]`` every method fits and predicts on the common
     geometry-only moveout canvas; predictions return to the original samples by
     the exact inverse shift before amplitude restoration.
     EMA shadows are restored exactly like the primary prediction.
+    A CCNet checkpoint path saves its final training weights before prediction.
     """
+    if checkpoint_path is not None and config["method_id"] != "ccnet5d_grid":
+        raise ValueError("pre-prediction checkpoint saving requires CCNet5D")
+    options = {"checkpoint_path": checkpoint_path} if checkpoint_path is not None else {}
+    if recovery is not None:
+        options["recovery"] = recovery
     model_inputs = inputs.model_space()
     canvas = None
     if config.get("alignment") is None:
-        result = _run_method(model_inputs, config, reporter)
+        resolved = config
+        if config.get("method_id") in ("nersi_real", "nersi_profile"):
+            resolved = canvas_method_config(config, len(model_inputs.time_s))
+        result = _run_method(model_inputs, resolved, reporter, **options)
     else:
         aligned, canvas = align_model_inputs(model_inputs, config["alignment"])
-        result = _run_method(aligned, canvas_method_config(config, canvas.length), reporter)
+        if config["method_id"] == "nersi_profile" and config["training"].get("loss_support_mask"):
+            options["loss_support"] = (
+                canvas.max_delay_samples - canvas.delays_for(aligned.observed_cells),
+                canvas.time_sample_count,
+            )
+        result = _run_method(
+            aligned, canvas_method_config(config, canvas.length), reporter, **options
+        )
         result.diagnostics["alignment_canvas_sample_count"] = canvas.length
     result.prediction = _physical_prediction(result.prediction, result.cell_ids, canvas, inputs)
     decays = ema_eval_decays(config.get("training", {}))
@@ -223,11 +287,24 @@ def _physical_prediction(prediction, cell_ids, canvas, inputs):
     return prediction
 
 
-def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethodResult:
+def _run_method(
+    inputs: ForgeModelInputs,
+    config: dict,
+    reporter,
+    *,
+    checkpoint_path=None,
+    loss_support=None,
+    recovery=None,
+) -> ForgeMethodResult:
     """No raw amplitude path or evaluator is reachable through the input object."""
     method = config["method_id"]
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    benchmark = config.get("execution", {}).get("cudnn_benchmark", False)
+    if not isinstance(benchmark, bool) or (benchmark and method != "ccnet5d_grid"):
+        raise ValueError("execution.cudnn_benchmark is a CCNet-only boolean")
+    torch.backends.cudnn.benchmark = benchmark
+    torch.backends.cudnn.deterministic = not benchmark
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
     if method in ("pocs_grid", "drr_grid"):
         volume = inputs.volume()
         observed = (volume.values.astype(np.float64) / inputs.global_rms).astype(np.float32)
@@ -265,25 +342,27 @@ def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethod
         fit = _fit_ccnet
     elif method == "nersi_real":
         fit = _fit_nersi
+    elif method == "nersi_profile":
+        fit = _fit_nersi_profile
     elif method in ("regsi_real", "regsi_grid"):
         fit = _fit_regsi
     else:
         raise ValueError("unsupported MVP method")
+    fit_options = {} if recovery is None else {"recovery": recovery}
+    if loss_support is not None:
+        fit_options["loss_support"] = loss_support
+    if checkpoint_path is not None:
+
+        def save_training_checkpoint():
+            torch.save(
+                _method_checkpoint(model, inputs, config, initialization_hash), checkpoint_path
+            )
+
+        fit_options["before_prediction"] = save_training_checkpoint
     prediction, history, shadows, records, states = fit(
-        model, inputs, config, reporter, decays, snapshots
+        model, inputs, config, reporter, decays, snapshots, **fit_options
     )
-    checkpoint = {
-        "method_id": method,
-        "model_config": config["model"],
-        "model_state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
-        "steps_completed": tr["max_steps"],
-        "selection_rule": config["checkpoint_rule"],
-        "initialization_hash": initialization_hash,
-        "model_seed": config["model_seed"],
-        "input_binding": inputs.binding,
-    }
-    if config.get("alignment") is not None:
-        checkpoint["alignment"] = dict(config["alignment"])
+    checkpoint = _method_checkpoint(model, inputs, config, initialization_hash)
     records["runtime_training_seconds"] = records.pop("training_end") - started
     return ForgeMethodResult(
         prediction,
@@ -298,6 +377,31 @@ def _run_method(inputs: ForgeModelInputs, config: dict, reporter) -> ForgeMethod
         shadows,
         states,
     )
+
+
+def _method_checkpoint(model, inputs, config, initialization_hash):
+    checkpoint = {
+        "method_id": config["method_id"],
+        "model_config": config["model"],
+        "model_state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+        "steps_completed": config["training"]["max_steps"],
+        "selection_rule": config["checkpoint_rule"],
+        "initialization_hash": initialization_hash,
+        "model_seed": config["model_seed"],
+        "input_binding": inputs.binding,
+    }
+    if config.get("alignment") is not None:
+        checkpoint["alignment"] = dict(config["alignment"])
+    return checkpoint
+
+
+def _reserved_memory(device, phase):
+    if not str(device).startswith("cuda"):
+        return {}
+    return {
+        f"cuda_reserved_{phase}_bytes": int(torch.cuda.memory_reserved(device)),
+        f"cuda_max_reserved_{phase}_bytes": int(torch.cuda.max_memory_reserved(device)),
+    }
 
 
 def _training_end(device) -> float:
@@ -365,18 +469,34 @@ def _average_snapshots(averages, updates):
     return {n: {decay: ema.snapshots[n] for decay, ema in averages.items()} for n in updates}
 
 
-def _fit_ccnet(model, inputs, config, reporter, decays, snapshot_updates):
+def _fit_ccnet(
+    model,
+    inputs,
+    config,
+    reporter,
+    decays,
+    snapshot_updates,
+    *,
+    before_prediction=None,
+    recovery=None,
+):
     device, tr = config["device"], config["training"]
     volume = inputs.volume()
     patch_shape = (volume.values.shape[0], *config["patches"]["shape"][1:])
+    placement_seed, mask_seed, supervision_seed = np.random.SeedSequence(
+        config["model_seed"]
+    ).spawn(3)
     source = CCNet5DObservedPatchSource(
         volume,
         amplitude_scale=inputs.global_rms,
         patch_shape=patch_shape,
         inner_mask_fraction=config["patches"]["inner_mask_fraction"],
-        placement_seed=config["model_seed"],
-        inner_mask_seed=config["model_seed"],
+        placement_seed=placement_seed,
+        inner_mask_seed=mask_seed,
+        supervision_seed=supervision_seed,
     )
+    warm_ccnet(model, volume.values.shape, config)
+    warm_memory = _reserved_memory(device, "after_warmup")
     result = train_ccnet5d_observed_steps(
         model,
         source,
@@ -391,10 +511,29 @@ def _fit_ccnet(model, inputs, config, reporter, decays, snapshot_updates):
         supervised_traces_per_update=tr.get("supervised_traces_per_update"),
         ema_eval_decays=decays,
         ema_snapshot_updates=snapshot_updates,
+        mixed_precision=tr["mixed_precision"],
+        reuse_patch=config.get("execution", {}).get("reuse_patch", False),
+        spatial_query_chunk_size=config.get("execution", {}).get("spatial_query_chunk_size"),
+        cache_patch_gradients=config.get("execution", {}).get("cache_patch_gradients", False),
+        recovery=recovery,
+        prefetch=config.get("execution", {}).get("patch_prefetch", True),
+        profile_first_update=torch.device(device).type == "cuda",
         reporter=reporter,
     )
-    records = {"training_end": _training_end(device)}
+    records = {
+        "training_end": _training_end(device),
+        **warm_memory,
+        **_reserved_memory(device, "before_prediction"),
+    }
+    if result.time_conv_tensor_cores is not None:
+        records["conv_kernels_first_update"] = list(result.conv_kernels_first_update)
+        records["time_conv_tensor_cores"] = result.time_conv_tensor_cores
+        if not result.time_conv_tensor_cores:
+            reporter("WARNING: CCNet5D time convolutions did not all use Tensor Core kernels")
     history = list(result.history)
+    if before_prediction is not None:
+        before_prediction()
+        reporter("CCNet training checkpoint saved before prediction")
 
     def parameter_state(parameters):
         state = _cpu_state(model.state_dict())
@@ -403,12 +542,16 @@ def _fit_ccnet(model, inputs, config, reporter, decays, snapshot_updates):
         return state
 
     def predict():
+        core_shape = tuple(config["prediction"]["core_shape"])
+        if config.get("execution", {}).get("full_trace_prediction", False):
+            core_shape = (volume.values.shape[0], *core_shape[1:])
         values = predict_ccnet5d_volume(
             model,
             volume,
             amplitude_rms=inputs.global_rms,
-            core_shape=tuple(config["prediction"]["core_shape"]),
+            core_shape=core_shape,
             device=device,
+            mixed_precision=config["prediction"].get("mixed_precision", "off"),
         ).values
         return values.reshape(len(inputs.time_s), -1)[:, inputs.test_cells].T.copy()
 
@@ -431,23 +574,46 @@ def _fit_ccnet(model, inputs, config, reporter, decays, snapshot_updates):
     }
     records.update(
         timing,
+        **result.diagnostics,
         final_training_loss=result.final_loss,
         **_window_loss(history, tr["max_steps"]),
         mean_patches_per_update=source.patches_drawn / tr["max_steps"],
         mean_visible_observed_cells_per_update=(
             source.visible_observed_cells_drawn / tr["max_steps"]
         ),
+        supervised_traces_per_update=result.supervised_trace_presentations / tr["max_steps"],
+        effective_inner_fraction_per_patch=source.effective_inner_fractions,
+        rng_streams="SeedSequence(model_seed).spawn(3): placement, mask, supervision",
+        cudnn_benchmark=config.get("execution", {}).get("cudnn_benchmark", False),
     )
     states = _ema_states(final_states, snapshots, tr["max_steps"])
+    records.update(_reserved_memory(device, "after_prediction"))
     return prediction, history, shadows, records, states
 
 
-def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates):
+def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates, *, recovery=None):
+    """Optional ``training.execution`` switches only change how the fit is executed."""
     device, tr = config["device"], config["training"]
+    execution = validate_trace_graph_execution(
+        tr.get("execution"), neighbor_search=config["graph"]["neighbor_search"], device=device
+    )
     domain, training, settings = graph_data(inputs, config)
+    table = build_training_neighbor_table(training, settings) if execution.neighbor_table else None
     primary = tr.get("ema_decay")
     ema = TraceGraphEMA(primary, snapshot_updates) if primary else None
     extra = {decay: TraceGraphEMA(decay, snapshot_updates) for decay in decays if decay != primary}
+    diagnostics = NeuralTrainingDiagnostics(tr["max_steps"], config["loss"])
+    warm_graph(
+        model,
+        domain,
+        training.preprocessing,
+        settings,
+        inputs.test_cells,
+        config["prediction"]["query_batch_size"],
+        device,
+        table,
+    )
+    warm_memory = _reserved_memory(device, "after_warmup")
     result = train_relational_trace_graph_poc(
         model,
         training,
@@ -467,39 +633,55 @@ def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates):
         ema_shadows=list(extra.values()),
         device=device,
         reporter=reporter,
+        execution=execution,
+        neighbor_table=table,
+        diagnostics=diagnostics,
+        recovery=recovery,
     )
-    records = {"training_end": _training_end(device)}
+    records = {
+        "training_end": _training_end(device),
+        **warm_memory,
+        **_reserved_memory(device, "before_prediction"),
+    }
     history = result.history
     if ema is not None:
         model.load_state_dict(ema.state_dict())
     observed_waveforms = inputs.read_observed(domain.trace_ids[domain.observed_mask])
+    options = {
+        "graph_settings": settings,
+        "query_trace_ids": inputs.test_cells,
+        "observed_waveforms": observed_waveforms,
+        "query_batch_size": config["prediction"]["query_batch_size"],
+        "device": device,
+    }
 
     def predict():
         return predict_relational_trace_graph(
-            model,
-            domain,
-            training.preprocessing,
-            graph_settings=settings,
-            query_trace_ids=inputs.test_cells,
-            observed_waveforms=observed_waveforms,
-            query_batch_size=config["prediction"]["query_batch_size"],
-            device=device,
+            model, domain, training.preprocessing, **options
         ).prediction
 
-    started = perf_counter()
-    prediction = predict()
-    records["runtime_prediction_seconds"] = perf_counter() - started
-    shadows, timing, final_states = _shadow_predictions(
-        model,
-        decays,
-        primary,
-        lambda decay: model.load_state_dict(extra[decay].state_dict()),
-        predict,
-    )
+    with torch_cpu_threads(execution.cpu_threads):
+        if execution.shared_prediction:
+            prediction, shadows, timing, final_states = _shared_regsi_predictions(
+                model, domain, training, options | {"neighbor_table": table}, decays, primary, extra
+            )
+            records["runtime_prediction_seconds"] = timing.pop("runtime_primary_seconds")
+        else:
+            started = perf_counter()
+            prediction = predict()
+            records["runtime_prediction_seconds"] = perf_counter() - started
+            shadows, timing, final_states = _shadow_predictions(
+                model,
+                decays,
+                primary,
+                lambda decay: model.load_state_dict(extra[decay].state_dict()),
+                predict,
+            )
     averages = {} if ema is None else {primary: ema}
     snapshots = _average_snapshots(averages | extra, snapshot_updates)
     records.update(
         timing,
+        **diagnostics.records(),
         final_training_loss=history[-1]["loss"],
         **_window_loss(history, tr["max_steps"]),
         mean_subgraph_support_node_count=float(
@@ -514,7 +696,35 @@ def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates):
             mean_gradient_norm=float(norms.mean()),
         )
     states = _ema_states(final_states, snapshots, tr["max_steps"])
+    records.update(_reserved_memory(device, "after_prediction"))
     return prediction, history, shadows, records, states
+
+
+def _shared_regsi_predictions(model, domain, training, options, decays, primary, extra):
+    """The primary and every non-primary shadow from one graph per batch.
+
+    Same predictions and shadow states as ``_shadow_predictions``; ``model`` keeps
+    the primary weights. The shadows' share of the runtime is their forward passes.
+    """
+    started = perf_counter()
+    others = [decay for decay in decays if decay != primary] if len(decays) > 1 else []
+    states = [model.state_dict()] + [extra[decay].state_dict() for decay in others]
+    predicted = predict_relational_trace_graph_states(
+        model, states, domain, training.preprocessing, **options
+    )
+    total = perf_counter() - started
+    shadow_seconds = sum(item.diagnostics["timings"]["forward_seconds"] for item in predicted[1:])
+    shadows = {
+        shadow_key(d): item.prediction for d, item in zip(others, predicted[1:], strict=True)
+    }
+    final_states = {
+        shadow_key(d): _cpu_state(state) for d, state in zip(others, states[1:], strict=True)
+    }
+    timing = {
+        "runtime_primary_seconds": total - shadow_seconds,
+        "runtime_shadow_prediction_seconds": shadow_seconds,
+    }
+    return predicted[0].prediction, shadows, timing, final_states
 
 
 def _weight_decay_after(training):
@@ -540,7 +750,7 @@ def _weight_decay_after(training):
     return {"step": step, "value": float(value)}
 
 
-def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
+def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates, *, recovery=None):
     """Fit observed traces at four unrounded local coordinates; fixed final EMA.
 
     Extra EMA shadows and snapshots never touch optimization.
@@ -566,7 +776,15 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
     history = []
     window_first = tr["max_steps"] - min(LOSS_WINDOW_UPDATES, tr["max_steps"])
     window_losses = []
-    for step in range(1, tr["max_steps"] + 1):
+    warm_coordinates(model, (config["prediction"]["batch_size"], coordinates.shape[1]), device)
+    warm_memory = _reserved_memory(device, "after_warmup")
+    objects = {"ema": ema} | {str(key): value for key, value in extra.items()}
+    state = {} if recovery is None else recovery.load(model, optimizer)
+    if state:
+        restore_objects(objects, state["objects"])
+        rng.bit_generator.state = state["sampler"]
+        history, window_losses = state["history"], state["window_losses"]
+    for step in range(state.get("step", 0) + 1, tr["max_steps"] + 1):
         rows = rng.choice(len(inputs.observed_cells), size=tr["batch_size"], replace=False)
         target = torch.from_numpy(
             (inputs.observed_values[rows].astype(np.float64) / inputs.global_rms).astype(np.float32)
@@ -587,11 +805,31 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
             average.update(model)
         if step > window_first:
             window_losses.append(float(loss.detach()))
-        if step % tr["report_interval"] == 0 or step == tr["max_steps"]:
+        reporting = step % tr["report_interval"] == 0 or step == tr["max_steps"]
+        if reporting or (recovery is not None and recovery.record_all_steps):
             value = float(loss.detach())
             history.append({"step": step, "loss": value, "learning_rate": tr["learning_rate"]})
+        if recovery is not None and (recovery.due(step) or step == tr["max_steps"]):
+            recovery.save(
+                step,
+                model,
+                optimizer,
+                {
+                    "objects": object_state(objects),
+                    "sampler": rng.bit_generator.state,
+                    "history": history,
+                    "window_losses": window_losses,
+                },
+                force=True,
+                phase="before_prediction" if step == tr["max_steps"] else "training",
+            )
+        if reporting:
             reporter(f"NeRSI step {step}/{tr['max_steps']} minibatch_loss {value:.6g}")
-    records = {"training_end": _training_end(device)}
+    records = {
+        "training_end": _training_end(device),
+        **warm_memory,
+        **_reserved_memory(device, "before_prediction"),
+    }
     if ema is not None:
         model.load_state_dict(ema.state_dict())
     model.eval()
@@ -625,4 +863,184 @@ def _fit_nersi(model, inputs, config, reporter, decays, snapshot_updates):
         final_training_loss_window_updates=len(window_losses),
     )
     states = _ema_states(final_states, snapshots, tr["max_steps"])
+    records.update(_reserved_memory(device, "after_prediction"))
+    return output, history, shadows, records, states
+
+
+def _fit_nersi_profile(
+    model, inputs, config, reporter, decays, snapshot_updates, *, loss_support=None, recovery=None
+):
+    """Fit whole profiles at three unrounded coordinates; exactly k loss traces per update.
+
+    A profile fixes a source cell and a receiver line (``nersi_profile_layout``);
+    the decoder's receiver-point columns are the grid points. Each update decodes
+    only the drawn profiles holding a selected trace. Fixed final EMA; extra EMA
+    shadows and snapshots never touch optimization.
+
+    Optional parameter-free regularizers: ``training.nuclear_norm_weight`` adds that
+    weight times the normalized nuclear norm of the decoded profiles to the loss;
+    ``training.coordinate_jitter_cells`` perturbs the inputs of the decoded training
+    profiles (never prediction). History ``loss`` is the data term only.
+    """
+    layout = nersi_profile_layout(inputs.geometry, inputs.spatial_shape)
+    coordinates = torch.from_numpy(layout.coordinates.astype(np.float32))
+    profiles, columns = layout.locate(inputs.observed_cells)
+    time_count = len(inputs.time_s)
+    device, tr = config["device"], config["training"]
+    if not isinstance(tr.get("loss_support_mask", False), bool):
+        raise ValueError("training.loss_support_mask must be boolean")
+    diagnostics = NeuralTrainingDiagnostics(tr["max_steps"], config["loss"])
+    sampler = ExactTraceProfileSampler(
+        profiles, tr["supervised_traces_per_update"], config["model_seed"]
+    )
+    model.to(device)
+    if tr["optimizer"] not in ("adam", "adamw"):
+        raise ValueError("profile NeRSI optimizer must be adam or adamw")
+    optimizer_type = torch.optim.Adam if tr["optimizer"] == "adam" else torch.optim.AdamW
+    optimizer = optimizer_type(
+        model.parameters(), lr=tr["learning_rate"], weight_decay=tr["weight_decay"]
+    )
+    primary = tr.get("ema_decay")
+    ema = TraceGraphEMA(primary, snapshot_updates) if primary else None
+    extra = {decay: TraceGraphEMA(decay, snapshot_updates) for decay in decays if decay != primary}
+    nuclear_weight = validate_nuclear_norm_weight(tr.get("nuclear_norm_weight", 0.0))
+    jitter = (
+        None
+        if tr.get("coordinate_jitter_cells") is None
+        else ProfileCoordinateJitter(
+            tr["coordinate_jitter_cells"], inputs.spatial_shape[:3], config["model_seed"]
+        )
+    )
+
+    amp_dtype = mixed_precision_dtype(tr["mixed_precision"], device)
+
+    def decode(profile_coordinates):
+        """``(profile, receiver point, time)`` at the given profile input coordinates."""
+        with (
+            torch.autocast(torch.device(device).type, dtype=amp_dtype)
+            if amp_dtype is not None and model.training
+            else nullcontext()
+        ):
+            output = model(profile_coordinates.to(device)).float()
+        return output[:, 0, :time_count, : layout.receiver_points].transpose(1, 2)
+
+    history, window_losses, decoded = [], [], 0
+    window_first = tr["max_steps"] - min(LOSS_WINDOW_UPDATES, tr["max_steps"])
+    warm_coordinates(model, (config["prediction"]["profile_batch_size"], 3), device)
+    warm_memory = _reserved_memory(device, "after_warmup")
+    objects = {"ema": ema, "sampler": sampler, "jitter": jitter, "diagnostics": diagnostics} | {
+        str(key): value for key, value in extra.items()
+    }
+    state = {} if recovery is None else recovery.load(model, optimizer)
+    if state:
+        restore_objects(objects, state["objects"])
+        history, window_losses, decoded = state["history"], state["window_losses"], state["decoded"]
+    for step in range(state.get("step", 0) + 1, tr["max_steps"] + 1):
+        rows = sampler.sample()
+        selected, inverse = np.unique(profiles[rows], return_inverse=True)
+        decoded += len(selected)
+        target = torch.from_numpy(
+            (inputs.observed_values[rows].astype(np.float64) / inputs.global_rms).astype(np.float32)
+        ).to(device)
+        optimizer.zero_grad(set_to_none=True)
+        profile_inputs = coordinates[selected]
+        if jitter is not None:
+            profile_inputs = jitter(profile_inputs)
+        decoded_profiles = decode(profile_inputs)
+        prediction = decoded_profiles[
+            torch.from_numpy(inverse).to(device), torch.from_numpy(columns[rows]).to(device)
+        ]
+        if loss_support is not None:
+            starts, samples = loss_support
+            prediction, target = recorded_trace_samples(prediction, target, starts[rows], samples)
+        loss = (
+            masked_trace_relative_mse(prediction, target)
+            if config["loss"] == "masked_trace_relative_mse"
+            else masked_trace_loss(prediction, target, loss_name=config["loss"])
+        )
+        objective = loss
+        if nuclear_weight:
+            penalty = normalized_nuclear_norm(decoded_profiles)
+            objective = loss + nuclear_weight * penalty
+        if not torch.isfinite(objective):
+            raise RuntimeError(f"nonfinite NeRSI loss at step {step}")
+        diagnostics.observe(step, prediction, target, loss)
+        objective.backward()
+        diagnostics.gradients(model)
+        optimizer.step()
+        if ema is not None:
+            ema.update(model)
+        for average in extra.values():
+            average.update(model)
+        if step > window_first:
+            window_losses.append(float(loss.detach()))
+        reporting = step % tr["report_interval"] == 0 or step == tr["max_steps"]
+        if reporting or (recovery is not None and recovery.record_all_steps):
+            value = float(loss.detach())
+            row = {"step": step, "loss": value, "learning_rate": tr["learning_rate"]}
+            if nuclear_weight:
+                row["nuclear_norm"] = float(penalty.detach())
+            history.append(row)
+        if recovery is not None and (recovery.due(step) or step == tr["max_steps"]):
+            recovery.save(
+                step,
+                model,
+                optimizer,
+                {
+                    "objects": object_state(objects),
+                    "history": history,
+                    "window_losses": window_losses,
+                    "decoded": decoded,
+                },
+                force=True,
+                phase="before_prediction" if step == tr["max_steps"] else "training",
+            )
+        if reporting:
+            reporter(f"NeRSI profile step {step}/{tr['max_steps']} minibatch_loss {value:.6g}")
+    records = {
+        "training_end": _training_end(device),
+        **warm_memory,
+        **_reserved_memory(device, "before_prediction"),
+    }
+    if ema is not None:
+        model.load_state_dict(ema.state_dict())
+    model.eval()
+    test_profiles, test_columns = layout.locate(inputs.test_cells)
+    unique, inverse = np.unique(test_profiles, return_inverse=True)
+
+    def predict():
+        output = np.empty((len(inputs.test_cells), time_count), dtype=np.float32)
+        batch = config["prediction"]["profile_batch_size"]
+        with torch.inference_mode():
+            for start in range(0, len(unique), batch):
+                values = decode(coordinates[unique[start : start + batch]])
+                values = values.cpu().numpy().astype(np.float64)
+                rows = np.flatnonzero((inverse >= start) & (inverse < start + batch))
+                output[rows] = values[inverse[rows] - start, test_columns[rows]] * inputs.global_rms
+        return output
+
+    started = perf_counter()
+    output = predict()
+    records["runtime_prediction_seconds"] = perf_counter() - started
+    shadows, timing, final_states = _shadow_predictions(
+        model,
+        decays,
+        primary,
+        lambda decay: model.load_state_dict(extra[decay].state_dict()),
+        predict,
+    )
+    averages = {} if ema is None else {primary: ema}
+    snapshots = _average_snapshots(averages | extra, snapshot_updates)
+    records.update(
+        timing,
+        **diagnostics.records(),
+        final_training_loss=window_losses[-1],
+        final_training_loss_window_mean=float(np.mean(window_losses)),
+        final_training_loss_window_updates=len(window_losses),
+        mean_profiles_drawn_per_update=sampler.profiles_drawn / tr["max_steps"],
+        mean_profiles_decoded_per_update=decoded / tr["max_steps"],
+        loss_support_samples_per_trace=time_count if loss_support is None else loss_support[1],
+    )
+    states = _ema_states(final_states, snapshots, tr["max_steps"])
+    records.update(_reserved_memory(device, "after_prediction"))
     return output, history, shadows, records, states

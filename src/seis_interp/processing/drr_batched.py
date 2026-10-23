@@ -70,33 +70,40 @@ def _reduce_torch(current, indices, inverse, counts, rank, power):
     return result / counts
 
 
-def _reconstruct_blocks(values, masks, selection, maps, rank, power, iterations, device):
+def _reconstruct_blocks(
+    values, masks, selection, maps, rank, power, iterations, device, matrix_limit
+):
     shape = values[0].shape
     mask = np.stack(masks).reshape(len(masks), 1, -1)
     observed = np.stack(values).reshape(len(values), shape[0], -1).astype(np.float64)
     observed = np.where(mask, observed, 0.0)
     transformed = np.fft.rfft(observed, n=selection.fft_length, axis=1, norm="ortho")
-    bins = selection.bin_indices
-    frequency = np.ascontiguousarray(transformed[:, bins]).reshape(-1, mask.shape[-1])
-    expanded_mask = np.broadcast_to(mask, (len(mask), len(bins), mask.shape[-1])).reshape(
-        frequency.shape
-    )
-    if torch.device(device).type == "cpu":
-        current = frequency.copy()
-        for _ in range(iterations):
-            current = _reduce_numpy(current, *maps, rank, power)
-            current = np.where(expanded_mask, frequency, current)
-    else:
-        frequency = torch.as_tensor(frequency, dtype=torch.complex128, device=device)
-        expanded_mask = torch.as_tensor(np.array(expanded_mask), device=device)
-        tensor_maps = tuple(torch.as_tensor(value, device=device) for value in maps)
-        current = frequency.clone()
-        for _ in range(iterations):
-            current = _reduce_torch(current, *tensor_maps, rank, power)
-            current = torch.where(expanded_mask, frequency, current)
-        current = current.cpu().numpy()
     predicted = np.zeros_like(transformed)
-    predicted[:, bins] = current.reshape(len(values), len(bins), -1)
+    # Bound the stacked Hankel matrices even when one block's complete spectrum
+    # exceeds the limit. One matrix is the irreducible minimum allocation.
+    bins_per_batch = max(1, matrix_limit // (len(values) * maps[0].size))
+    cpu = torch.device(device).type == "cpu"
+    tensor_maps = None if cpu else tuple(torch.as_tensor(value, device=device) for value in maps)
+    for start in range(0, len(selection.bin_indices), bins_per_batch):
+        bins = selection.bin_indices[start : start + bins_per_batch]
+        frequency = np.ascontiguousarray(transformed[:, bins]).reshape(-1, mask.shape[-1])
+        expanded_mask = np.broadcast_to(mask, (len(mask), len(bins), mask.shape[-1])).reshape(
+            frequency.shape
+        )
+        if cpu:
+            current = frequency.copy()
+            for _ in range(iterations):
+                current = _reduce_numpy(current, *maps, rank, power)
+                current = np.where(expanded_mask, frequency, current)
+        else:
+            frequency = torch.as_tensor(frequency, dtype=torch.complex128, device=device)
+            expanded_mask = torch.as_tensor(np.array(expanded_mask), device=device)
+            current = frequency.clone()
+            for _ in range(iterations):
+                current = _reduce_torch(current, *tensor_maps, rank, power)
+                current = torch.where(expanded_mask, frequency, current)
+            current = current.cpu().numpy()
+        predicted[:, bins] = current.reshape(len(values), len(bins), -1)
     predicted[:, 0] = predicted[:, 0].real
     predicted[:, -1] = predicted[:, -1].real
     result = np.fft.irfft(predicted, n=selection.fft_length, axis=1, norm="ortho")[:, : shape[0]]
@@ -104,7 +111,7 @@ def _reconstruct_blocks(values, masks, selection, maps, rank, power, iterations,
 
 
 def _reconstruct_batch(
-    batch, *, values, mask, shape, selection, maps, rank, power, iterations, device
+    batch, *, values, mask, shape, selection, maps, rank, power, iterations, device, matrix_limit
 ):
     slices, batch_values, batch_masks = [], [], []
     for location in batch:
@@ -116,7 +123,15 @@ def _reconstruct_batch(
     predictions = []
     if slices:
         predictions = _reconstruct_blocks(
-            batch_values, batch_masks, selection, maps, rank, power, iterations, device
+            batch_values,
+            batch_masks,
+            selection,
+            maps,
+            rank,
+            power,
+            iterations,
+            device,
+            matrix_limit,
         )
     return slices, predictions, len(batch)
 
@@ -133,17 +148,32 @@ def interpolate_drr_volume_batched(
     frequency_max_hz,
     spatial_window_shape,
     spatial_overlap,
+    overlap_policy="explicit",
+    boundary_rule="clip_and_shift",
     device="cpu",
     batch_matrix_limit=2_000_000,
     workers=1,
     reporter=None,
 ):
-    """Keep the reference padding, damping, and windows while batching frequencies.
+    """Clip windows to each axis and shift the last window inside the volume.
 
+    Nonempty blocks use positive interior-Hann synthesis weights. With
+    ``overlap_policy='point_half'``, line axes have zero overlap and point axes
+    have half the requested window width. ``batch_matrix_limit`` bounds Hankel
+    elements per worker and SVD call, except for one irreducible matrix.
     CPU uses NumPy SVD. CUDA computes the damped projection via a double-precision
     Hermitian Gram eigendecomposition; final candidates can be verified on CPU.
     """
     values, mask = validate_drr_block_inputs(observed, observed_trace_mask, time_s)
+    if boundary_rule != "clip_and_shift":
+        raise ValueError("DRR boundary_rule must be clip_and_shift")
+    if overlap_policy not in ("explicit", "point_half"):
+        raise ValueError("DRR overlap_policy must be explicit or point_half")
+    if overlap_policy == "point_half":
+        requested, _ = _validated_window_spec(spatial_window_shape, (0, 0, 0, 0))
+        if requested is None:
+            raise ValueError("point_half overlap requires spatial_window_shape")
+        spatial_overlap = (0, requested[1] // 2, 0, requested[3] // 2)
     window, overlap = _validated_window_spec(spatial_window_shape, spatial_overlap)
     if window is None:
         window, overlap = values.shape[1:], (0,) * 4
@@ -152,7 +182,11 @@ def interpolate_drr_volume_batched(
     selection = select_drr_frequencies(
         time_s, frequency_min_hz=frequency_min_hz, frequency_max_hz=frequency_max_hz
     )
-    if not isinstance(batch_matrix_limit, int) or batch_matrix_limit < 1:
+    if (
+        isinstance(batch_matrix_limit, bool)
+        or not isinstance(batch_matrix_limit, int)
+        or batch_matrix_limit < 1
+    ):
         raise ValueError("batch_matrix_limit must be a positive integer")
     if not isinstance(workers, int) or isinstance(workers, bool) or workers < 1:
         raise ValueError("workers must be a positive integer")
@@ -181,6 +215,7 @@ def interpolate_drr_volume_batched(
         power=power,
         iterations=iterations,
         device=device,
+        matrix_limit=batch_matrix_limit,
     )
     batches = iter(lambda: list(islice(locations, batch_size)), [])
     with ThreadPoolExecutor(max_workers=workers) if workers > 1 else nullcontext() as executor:

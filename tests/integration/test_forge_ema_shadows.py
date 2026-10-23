@@ -103,6 +103,47 @@ def test_shadows_equal_separately_trained_ema_and_keep_the_primary(preparation, 
     assert diagnostics["final_training_loss_window_updates"] == STEPS
 
 
+@pytest.mark.parametrize("method", ["ccnet5d_grid", "regsi_real"])
+def test_primary_ema0999_stays_bitwise_with_round2_shadows(preparation, method):
+    _, prepared = preparation
+    inputs, plain = _config(prepared, method, ema_decay=0.999)
+    if method == "regsi_real":
+        plain["graph"]["neighbor_search"] = "exact_index"
+        plain["training"]["execution"] = {
+            "neighbor_table": True,
+            "prefetch": True,
+            "deferred_checks": True,
+            "foreach_ema": True,
+            "shared_prediction": True,
+        }
+    expected = _run(inputs, plain)
+    plain["training"]["ema_eval_decays"] = [0.999, 0.9995, 0.9998]
+    actual = _run(inputs, plain)
+    np.testing.assert_array_equal(actual.prediction, expected.prediction)
+    for name, value in expected.checkpoint["model_state_dict"].items():
+        assert torch.equal(value, actual.checkpoint["model_state_dict"][name])
+    assert set(actual.shadow_predictions) == {"0.999", "0.9995", "0.9998"}
+    assert "would_clip_fraction" in actual.diagnostics
+    assert "zero_predictor_loss" in actual.diagnostics["g0"]
+
+
+def test_memory_probe_fresh_timing_path_runs_on_cpu(preparation):
+    from seis_interp.training.ccnet5d_memory_probe import measure_ccnet5d_memory
+
+    _, prepared = preparation
+    inputs, config = _config(
+        prepared, "ccnet5d_grid", ema_decay=0.999, supervised_traces_per_update=2
+    )
+    config.setdefault("execution", {}).update(reuse_patch=False, cache_patch_gradients=False)
+    result = measure_ccnet5d_memory(inputs, config, "cpu", optimizer_updates=3)
+    assert result["training_probe_optimizer_updates"] == 3
+    assert result["seconds_per_update"] > 0
+    assert result["diagnostics"]["g0"]["status"] == "insufficient_updates"
+    assert result["inference_forward_dtype"] == "torch.float32"
+    assert result["prediction_calls"] == 1
+    assert result["measured_peak_reserved_gib_ceil"] == 0
+
+
 @pytest.mark.parametrize(
     "training",
     [
@@ -244,6 +285,8 @@ def test_ccnet_records_visible_context_per_update(preparation, monkeypatch):
     visible, available = np.array(drawn).T
     # Visible context excludes the hidden pseudo-targets of every drawn patch.
     assert diagnostics["mean_patches_per_update"] == len(drawn) / STEPS
+    assert sum(diagnostics["patches_per_update"]) == len(drawn)
+    assert len(diagnostics["patches_per_update"]) == STEPS
     assert diagnostics["mean_visible_observed_cells_per_update"] == visible.sum() / STEPS
     assert (visible < available).all()
     assert diagnostics["mean_patches_per_update"] >= 1

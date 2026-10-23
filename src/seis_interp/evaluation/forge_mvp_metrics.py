@@ -12,12 +12,10 @@ def validate_predictions(prediction, prediction_cells, mask, samples):
     ids = np.asarray(prediction_cells)
     if len(np.unique(ids)) != len(ids) or not np.array_equal(np.sort(ids), np.sort(expected)):
         raise ValueError("prediction must cover each original test cell exactly once")
-    if (
-        prediction.shape != (len(ids), samples)
-        or prediction.dtype != np.float32
-        or not np.isfinite(prediction).all()
-    ):
+    if prediction.shape != (len(ids), samples) or prediction.dtype != np.float32:
         raise ValueError("prediction shape/dtype/finite gate failed")
+    if not np.isfinite(prediction).all():
+        raise ValueError("non-finite prediction; prediction shape/dtype/finite gate failed")
     return pd.Index(ids).get_indexer(expected)
 
 
