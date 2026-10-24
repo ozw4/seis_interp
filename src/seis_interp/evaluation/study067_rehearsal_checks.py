@@ -6,6 +6,7 @@ import math
 import re
 import subprocess
 import sys
+from ast import literal_eval
 from datetime import datetime
 from pathlib import Path
 
@@ -76,6 +77,99 @@ def _admission_records(experiment):
 
 def _overlap(first, second):
     return max(_start(first), _start(second)) < min(_end(first), _end(second))
+
+
+def _seed_wait_reserved_capacity(record, details, samples):
+    """Match raw-free outliers to sampled, already-promised regrowth capacity."""
+    execution = record | record.get("prediction_execution", {})
+    admission = execution["cuda_admission"]
+    if "wait_seconds" not in admission or "pid" not in admission:
+        return False
+    end = _start(execution)
+    start = end - admission["wait_seconds"]
+    matching = [
+        sample
+        for sample in samples
+        if sample.get("at")
+        and start <= _time(sample["at"]) <= end
+        and all(
+            any(
+                gpu["device"] == device and abs(gpu["free_bytes"] - free) < 2**20
+                for gpu in sample["gpus"]
+            )
+            for device, free in details["free_memory_bytes"].items()
+        )
+    ]
+    # nvidia-smi reports whole MiB; NVML's byte counts differ by <1 MiB.
+    # Require matching evidence, and prove insufficient unpromised capacity on
+    # both bracketing slot reads. Never excuse an outlier just because it is brief.
+    return bool(matching) and all(
+        free
+        - sum(
+            max(0, slot["required_bytes"] - slot["current_reserved_bytes"])
+            for slot in sample[key]
+            if slot["device"] == device and slot["pid"] != admission["pid"]
+        )
+        < details["required_bytes"]
+        for sample in matching
+        for key in ("slots_before", "slots_after")
+        for device, free in details["free_memory_bytes"].items()
+    )
+
+
+def _check_seed_admission(forge, samples):
+    contract = yaml.safe_load((forge / "study/config.yaml").read_text())
+    expected = set(contract["trace_split"]["evaluation_seeds"])
+    seeds = {
+        record["trace_seed"]: record
+        for _, record in _records(forge)
+        if record.get("method_id") == "ccnet5d_grid" and record.get("stage") == "evaluation"
+    }
+    _require(
+        set(seeds) == expected,
+        "missing FORGE a05 seed child",
+        forge / "method_runs/ccnet5d_grid/evaluation",
+    )
+    for record in seeds.values():
+        admission = record.get("cuda_admission") or record.get("prediction_execution", {}).get(
+            "cuda_admission"
+        )
+        _require(
+            record["id"].startswith("a05_") and admission,
+            "FORGE a05 seed child was never admitted",
+            forge / "method_runs/ccnet5d_grid/evaluation",
+        )
+    path = forge / "workers/ccnet5d_grid.log"
+    for line in path.read_text().splitlines():
+        match = re.fullmatch(r"ccnet5d_grid seed_(\d+): waiting for GPU: (.+)", line)
+        if match is None:
+            continue
+        try:
+            details = literal_eval(match[2])
+        except (ValueError, SyntaxError) as error:
+            raise ValueError(f"invalid seed admission wait; evidence={path}") from error
+        _require(int(match[1]) in expected, "unexpected seed admission wait", path)
+        if details.get("reason") != "insufficient_free_memory":
+            continue
+        eligible = set(contract["cuda_execution"]["devices"]) - set(details["excluded_devices"])
+        free = details["free_memory_bytes"]
+        required = details["required_bytes"]
+        _require(
+            set(free) == eligible
+            and isinstance(required, (int, float))
+            and math.isfinite(required)
+            and required > 0
+            and all(
+                isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
+                for value in free.values()
+            )
+            and (
+                all(value < required for value in free.values())
+                or _seed_wait_reserved_capacity(seeds[int(match[1])], details, samples)
+            ),
+            "FORGE a05 seed waited with eligible memory available or invalid wait evidence",
+            path,
+        )
 
 
 def _check_freeze(experiment, samples, launch_commit):
@@ -188,24 +282,7 @@ def _check_admission(experiments, samples):
         "FORGE a05 shards did not overlap on different GPUs",
         forge / "method_runs/ccnet5d_grid/S1",
     )
-    seeds = [
-        record
-        for _, record in _admission_records(forge)
-        if record.get("method_id") == "ccnet5d_grid"
-        and record.get("stage") == "evaluation"
-        and record.get("cuda_admission")
-    ]
-    _require(
-        any(
-            a["trace_seed"] != b["trace_seed"]
-            and a["cuda_admission"]["device"] != b["cuda_admission"]["device"]
-            and _overlap(a, b)
-            for a in seeds
-            for b in seeds
-        ),
-        "FORGE a05 seed children did not overlap on different GPUs",
-        forge / "method_runs/ccnet5d_grid/evaluation",
-    )
+    _check_seed_admission(forge, samples)
     for experiment in experiments:
         events = _jsonl(experiment / "workers/rehearsal_events.jsonl")
         for event in events:
@@ -411,17 +488,20 @@ def _check_ccnet_twin(left, right):
 
 
 def _check_ccnet_summaries(left, right, first_loss, second_loss):
-    # A constant curve has no Pearson correlation; accept it only if identical.
-    correlation = (
-        1.0
-        if np.array_equal(first_loss, second_loss)
-        else 0.0
-        if np.ptp(first_loss) == 0 or np.ptp(second_loss) == 0
-        else float(np.corrcoef(first_loss, second_loss)[0, 1])
-    )
+    log = left / "execution.log"
+    resumes = re.findall(r"resumed step=(\d+) phase=training\b", log.read_text())
+    _require(len(resumes) == 1, "expected one CCNet training restart", log)
+    resume_step = int(resumes[0])
     _require(
-        correlation >= 0.99,
-        "CCNet twin loss curve correlation below 0.99",
+        100 <= resume_step < len(first_loss), "insufficient CCNet restart comparison updates", log
+    )
+    delta = np.abs(np.asarray(first_loss) - np.asarray(second_loss))
+    # Include every sliding 100-update window wholly before the re-executed updates.
+    pre_max = float(np.convolve(delta[:resume_step], np.ones(100) / 100, mode="valid").max())
+    post_mean = float(delta[resume_step:].mean())
+    _require(
+        post_mean <= 3 * pre_max,
+        "CCNet twin post-restart loss divergence exceeds 3 times pre-restart maximum",
         left / "history.csv",
         right / "history.csv",
     )

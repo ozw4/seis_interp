@@ -10,6 +10,8 @@ from seis_interp.forge_mvp_config import canvas_time_stages
 from seis_interp.processing.c3_region_search import c3_search_candidates, resolve_c3_candidate
 from seis_interp.processing.experiment_commonality import check_fixed_settings
 from seis_interp.training.forge_mvp_methods import canvas_method_config, initialize_model
+from seis_interp.training.rehearsal import rehearsal_candidates
+from seis_interp.training.worker_shards import shard_candidates
 
 STUDY = Path(__file__).resolve().parents[2] / "studies/study_067_forge_c3_common_grid"
 
@@ -245,6 +247,39 @@ def test_adopted_drr_overlap_keeps_rank_window_axes_and_schedules_heaviest_first
     assert schedule["candidate_priority"] == [
         f"a{a:02d}_b{b:02d}" for b in range(5, 0, -1) for a in range(5, 0, -1)
     ]
+
+
+@pytest.mark.parametrize("dataset", ["c3", "forge"])
+def test_launch_neural_priorities_preserve_candidates_and_feed_both_shards(dataset):
+    contract = config(dataset, "config")
+    grid = yaml.safe_load((STUDY / "grid.yaml").read_text())["methods"]
+    for method in ("ccnet5d_grid", "regsi_real", "nersi_profile"):
+        candidates = c3_search_candidates(config(dataset, method), grid[method])
+        ordered = rehearsal_candidates(candidates, contract, method, None)
+        assert {item["id"]: item["config"] for item in ordered} == {
+            item["id"]: item["config"] for item in candidates
+        }
+        ids = [item["id"] for item in ordered]
+        if method == "nersi_profile" and dataset == "c3":
+            assert ordered == candidates
+            continue
+        assert len(contract["method_execution"][method]["candidate_priority"]) == 25
+        if method == "regsi_real":
+            assert ids[:5] == [f"a{a:02d}_b05" for a in range(1, 6)]
+            assert [item[-3:] for item in ids] == sorted([item[-3:] for item in ids], reverse=True)
+        elif method == "ccnet5d_grid":
+            heavy = ids[1:] if dataset == "forge" else ids
+            assert [item[:3] for item in heavy] == sorted(
+                [item[:3] for item in heavy], reverse=True
+            )
+            if dataset == "forge":
+                assert ids[0] == "a01_b02"
+                assert contract["method_execution"][method]["worker_shards"] == 2
+                shards = [shard_candidates(ordered, f"{i}/2") for i in range(2)]
+                assert [item["id"] for item in shards[0]][:3] == ["a01_b02", "a05_b02", "a05_b04"]
+                assert [item["id"] for item in shards[1]][:3] == ["a05_b01", "a05_b03", "a05_b05"]
+        else:
+            assert ids[:10] == [f"a{a:02d}_b{b:02d}" for a in (3, 4) for b in range(1, 6)]
 
 
 def test_round2_rules_are_registered_verbatim_and_config_hashes_match():

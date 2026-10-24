@@ -166,6 +166,60 @@ method_execution:
     - a03_b01
     - a02_b01
     - a01_b01
+  ccnet5d_grid:
+    candidate_priority:
+    - a05_b01
+    - a05_b02
+    - a05_b03
+    - a05_b04
+    - a05_b05
+    - a04_b01
+    - a04_b02
+    - a04_b03
+    - a04_b04
+    - a04_b05
+    - a03_b01
+    - a03_b02
+    - a03_b03
+    - a03_b04
+    - a03_b05
+    - a02_b01
+    - a02_b02
+    - a02_b03
+    - a02_b04
+    - a02_b05
+    - a01_b01
+    - a01_b02
+    - a01_b03
+    - a01_b04
+    - a01_b05
+  regsi_real:
+    candidate_priority:
+    - a01_b05
+    - a02_b05
+    - a03_b05
+    - a04_b05
+    - a05_b05
+    - a01_b04
+    - a02_b04
+    - a03_b04
+    - a04_b04
+    - a05_b04
+    - a01_b03
+    - a02_b03
+    - a03_b03
+    - a04_b03
+    - a05_b03
+    - a01_b02
+    - a02_b02
+    - a03_b02
+    - a04_b02
+    - a05_b02
+    - a01_b01
+    - a02_b01
+    - a03_b01
+    - a04_b01
+    - a05_b01
 import_from:
 - runs/study_067_forge_c3_common_grid/20261022T183550980564Z_05c92e79ce80_traces
 - runs/study_067_forge_c3_common_grid/20261022T202519313159Z_05c92e79ce80_traces

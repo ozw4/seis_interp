@@ -47,21 +47,150 @@ FORGE CCNet は C3 と同じく、毎更新 fresh patch と現在重みの forwa
 
 `prepare --check-only` は CPU で一時ディレクトリへ prepare し、成功した場合に import coverage を表示して削除する。`runs/` は変更しない。GPU 要求量は明示 margin を含め、許可 device の total memory から config の `context_allowance_gib` を引いた最大容量と prepare / admission の両入口で照合する。FORGE CCNet の予算は fresh training / prediction の C-0 実測により 17 / 17 / 17 / 30 / 64 GiB を維持する。coverage の評価 seed 件数は候補別に示し、S1 winner 未確定時の最大件数は保証ではない。
 
-C3 / FORGE とも `cuda_execution.excluded_devices_while_pids_alive` に legacy ReGSI worker と child の PID / `/proc/<pid>/stat` start ticks を固定する。いずれかが生存し zombie でない間は、対応する device を admission の候補から外す。PID reuse は start ticks の不一致で区別する。既存 worker を停止・変更せず、終了後は自動的にその device を再び許可する。下記 launch もこの config の除外規則を使用する。
+## 本番 launch（operator）
+
+2026-10-24 にユーザーが本番開始と2 shard・重い候補優先の scheduling を承認した。
+以下は最終差分を operator が commit / tag した**clean checkout の launch commit**で行う。
+`study-067-launch-v4`（`11ebcc7`）は rehearsal の production code の基準であり、今回の
+scheduling 設定を含む最終 launch commit は operator が確定する。学習・予測の production
+code は v4 と同一で、今回の `src/` 変更は rehearsal checker だけである。
+
+`excluded_devices_while_pids_alive` の legacy PID **3958956 と381291 は、2026-10-24 の
+read-only `/proc` 確認で両方とも消滅済み**。登録した start ticks と一致する生存 process は
+なく、この2 entry は cuda:0 を除外しない。entry は残し、PID reuse は start ticks で区別する。
+両 GPU を見せるため、CPU 検証時の空の `CUDA_VISIBLE_DEVICES` を引き継がない。
 
 ```bash
-CUDA_VISIBLE_DEVICES='' python scripts/run_c3_region_experiment.py prepare --study studies/study_067_forge_c3_common_grid/c3 --check-only
-CUDA_VISIBLE_DEVICES='' python scripts/run_forge_grid_experiment.py prepare --study studies/study_067_forge_c3_common_grid/forge --check-only
+cd /workspace
+set -euo pipefail
+test -z "$(git status --porcelain)"
+export LAUNCH_COMMIT=$(git rev-parse HEAD)
+export PY=/workspace/.venv/bin/python
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True PYTHONUNBUFFERED=1
+unset CUDA_VISIBLE_DEVICES
+C3=$(PYTHONPATH=/workspace/src "$PY" scripts/run_c3_region_experiment.py \
+  prepare --repo /workspace --study studies/study_067_forge_c3_common_grid/c3)
+FG=$(PYTHONPATH=/workspace/src "$PY" scripts/run_forge_grid_experiment.py \
+  prepare --repo /workspace --study studies/study_067_forge_c3_common_grid/forge)
+export C3 FG
+printf 'launch=%s\nC3=%s\nFORGE=%s\n' "$LAUNCH_COMMIT" "$C3" "$FG"
+```
 
-python scripts/run_c3_region_experiment.py prepare --study studies/study_067_forge_c3_common_grid/c3
-python scripts/run_forge_grid_experiment.py prepare --study studies/study_067_forge_c3_common_grid/forge
-# 上の出力パスをそれぞれ指定する。
-python scripts/run_c3_region_experiment.py run --experiment <C3_EXPERIMENT>
-python scripts/run_forge_grid_experiment.py run --experiment <FORGE_EXPERIMENT>
-python scripts/run_c3_region_experiment.py status --experiment <C3_EXPERIMENT>
-python scripts/run_forge_grid_experiment.py status --experiment <FORGE_EXPERIMENT>
-# method 単独 worker（同じ全手法 barrier を使用する）
-python scripts/run_forge_grid_experiment.py worker --experiment <FORGE_EXPERIMENT> --method pocs_grid
+FORGE CCNet は2 shard。変更した priority は全25 IDを一度ずつ列挙する。
+下表の行内は b 昇順、列内は a 昇順。C3 NeRSI・POCS と両 DRR priority は変更しない。
+
+| dataset / method | priority |
+|---|---|
+| FORGE CCNet | `a01_b02`（G0 gate）、a05 行、a04、a03、a02、a01 の残り |
+| C3 CCNet | a05 行、a04、a03、a02、a01 |
+| C3 ReGSI | b05（k6）列、b04、b03、b02、b01 |
+| FORGE ReGSI | `a01_b05`、b05 列の残り、b04、b03、b02、b01 |
+| FORGE NeRSI | a03（λ 0.01）行、a04（λ 0.03）、a01、a02、a05 |
+
+`candidate_priority` を適用してから `i/n` の位置剰余で分割する。FORGE CCNet の先頭は、
+`0/2`: `a01_b02, a05_b02, a05_b04, a04_b01, ...`、
+`1/2`: `a05_b01, a05_b03, a05_b05, a04_b02, ...`。
+各 shard 内で、import / 完了候補を先に処理し、残りの優先順から現在メモリに収まる最初の候補を
+共通 admission lock 内で予約する。a05 が収まらない間に軽い候補へ進むことは承認済みの例外。
+shard 間には全候補の厳密な開始順を強制する barrier はなく、G0 は shard 0 内の先頭である。
+両 shard に a05 が先頭群として配分されるが、scheduler の process 起動順は決定的ではない。
+
+**大きな shard を先に確保する段階は本番にも必要**。supervisor は method 順に worker を
+起動し、method 間の重さ順は保証しない。ReGSI などが先に相乗りすると、両 a05 の同時 admission
+を妨げる。次は FORGE CCNet だけを先に開始し、gate を経た後の両 a05 が別 GPU を確保するまで
+待つ。gate は本番50,000更新なので rehearsal の5分期限を流用しない。空き不足なら log と
+admission state を確認し、別 process に signal を送らない。
+
+```bash
+mkdir -p "$FG/workers"
+W() {
+  local method=$1 shard=$2 worker=$3
+  local niceness=()
+  if [[ "$method" == pocs_grid || "$method" == drr_grid ]]; then niceness=(nice -n 10); fi
+  setsid nohup env PYTHONPATH="$FG/source/src" \
+    OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+    PYTHONUNBUFFERED=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+    "${niceness[@]}" "$PY" "$FG/source/scripts/run_forge_grid_experiment.py" worker \
+    --repo /workspace --experiment "$FG" --method "$method" --shard "$shard" \
+    >> "$FG/workers/$worker.log" 2>&1 </dev/null &
+}
+W ccnet5d_grid 0/2 ccnet5d_grid
+W ccnet5d_grid 1/2 ccnet5d_grid_shard_1_of_2
+PYTHONPATH="$FG/source/src" "$PY" - <<'PY'
+import json, os, time
+from pathlib import Path
+from seis_interp.training.worker_processes import process_is_alive
+root = Path(os.environ['FG']) / 'workers'
+while True:
+    states = []
+    for name in ('ccnet5d_grid', 'ccnet5d_grid_shard_1_of_2'):
+        try:
+            state = json.loads((root / f'{name}.json').read_text())
+        except (OSError, ValueError):
+            break
+        if state.get('status') in ('failed', 'retry_pending', 'completed'):
+            raise SystemExit(f'{name}: inspect startup state/log before proceeding')
+        if not process_is_alive(state.get('pid', -1), state.get('process_start_time')):
+            raise SystemExit(f'{name}: worker is no longer alive')
+        states.append(state)
+    if len(states) == 2 and all(
+        state.get('phase') == 'S1'
+        and state.get('last_admission', {}).get('run', '').startswith('a05_')
+        for state in states
+    ) and {state['last_admission']['device'] for state in states} == {'cuda:0', 'cuda:1'}:
+        break
+    time.sleep(5)
+PY
+for method in regsi_real nersi_profile pocs_grid drr_grid; do W "$method" 0/1 "$method"; done
+PYTHONPATH="$FG/source/src" "$PY" - <<'PY'
+import json, os, time
+from pathlib import Path
+from seis_interp.training.worker_processes import process_is_alive
+root = Path(os.environ['FG']) / 'workers'
+deadline = time.monotonic() + 60
+while True:
+    ready = True
+    for method in ('regsi_real', 'nersi_profile', 'pocs_grid', 'drr_grid'):
+        try:
+            state = json.loads((root / f'{method}.json').read_text())
+        except (OSError, ValueError):
+            ready = False
+            continue
+        if state.get('status') in ('failed', 'retry_pending'):
+            raise SystemExit(f'{method}: inspect startup state/log before proceeding')
+        ready &= state.get('status') == 'completed' or process_is_alive(
+            state.get('pid', -1), state.get('process_start_time'))
+    if ready:
+        break
+    if time.monotonic() >= deadline:
+        raise SystemExit('FORGE worker startup precondition was not met')
+    time.sleep(1)
+PY
+# 全 FORGE worker を先に開始したため、初回の missing-worker retry を消費せず adoption する。
+"$PY" scripts/launch_grid_experiment.py forge --repo /workspace --experiment "$FG" --only-dead-workers
+"$PY" scripts/launch_grid_experiment.py c3 --repo /workspace --experiment "$C3"
+```
+
+`launch_grid_experiment.py` は experiment 内の frozen CLI と frozen `source/src` を使って、
+`nohup`・新 session・stdin `/dev/null`・append `supervisor.out` で supervisor を起動する。
+両 supervisor が worker に明示する環境は `OMP_NUM_THREADS=1`、`OPENBLAS_NUM_THREADS=1`、
+`MKL_NUM_THREADS=1`、`PYTHONUNBUFFERED=1`、`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`、
+`PYTHONPATH=<experiment>/source/src` の6つで、rehearsal の W と同じ。追加の worker 専用環境は
+不要。`CUDA_VISIBLE_DEVICES` は親から継承し、supervisor は解除しない。POCS / DRR は nice 10。
+
+進捗・待機理由・retry は frozen status と worker log、全体完了は supervisor state で確認する。
+復旧は supervisor が不在になったことを確認後に `--only-dead-workers` で行い、live worker を
+PID / start ticks で採用し、完了 worker と retry budget を保持する。live supervisor との同時起動は
+lock で拒否する。通常の `run` は live worker があると拒否する。
+
+```bash
+PYTHONPATH="$C3/source/src" "$PY" "$C3/source/scripts/run_c3_region_experiment.py" status --experiment "$C3"
+PYTHONPATH="$FG/source/src" "$PY" "$FG/source/scripts/run_forge_grid_experiment.py" status --experiment "$FG"
+tail -n 50 "$C3/supervisor.out" "$FG/supervisor.out" "$FG/workers/ccnet5d_grid.log"
+# supervisor 不在時の復旧（必要な dataset だけ実行）
+"$PY" scripts/launch_grid_experiment.py c3 --repo /workspace --experiment "$C3" --only-dead-workers
+"$PY" scripts/launch_grid_experiment.py forge --repo /workspace --experiment "$FG" --only-dead-workers
 ```
 
 結果は experiment 直下の `summary.csv` / `seed_metrics.csv`、`workers/<method>_summary.csv`、各 run の `manifest.json` / prediction / per-trace parquet に保存する。FORGE は直下にも `<method>_summary.csv` を保存する。全 run manifest は runtime、run ごとにリセットした RSS sampler の peak（sampling interval も記録）、run ごとにリセットした CUDA allocated / reserved peak、allocator 設定と admission cap を記録する。import run の計測値は再採点処理の資源量を表す。

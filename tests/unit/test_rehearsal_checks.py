@@ -72,6 +72,15 @@ def gpu_record(method, run, device, stage="S1"):
 @pytest.fixture
 def gpu_evidence(tmp_path):
     c3, forge = tmp_path / "c3", tmp_path / "forge"
+    (forge / "study").mkdir(parents=True)
+    (forge / "study/config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "trace_split": {"evaluation_seeds": [990671, 990672, 990673]},
+                "cuda_execution": {"devices": ["cuda:0", "cuda:1"]},
+            }
+        )
+    )
     write_json(
         c3 / "method_runs/regsi_real/S1/a01_b05/manifest.json",
         gpu_record("regsi_real", "a01_b05", "cuda:0"),
@@ -81,7 +90,7 @@ def gpu_evidence(tmp_path):
             forge / f"method_runs/ccnet5d_grid/S1/{name}/manifest.json",
             gpu_record("ccnet5d_grid", name, device),
         )
-    for seed, device in ((990671, "cuda:0"), (990672, "cuda:1")):
+    for seed, device in ((990671, "cuda:0"), (990672, "cuda:1"), (990673, "cuda:0")):
         record = gpu_record("ccnet5d_grid", "a05_b05", device, "evaluation")
         prediction = {
             key: record[key]
@@ -105,6 +114,7 @@ def gpu_evidence(tmp_path):
             experiment / "workers/rehearsal_events.jsonl",
             [{"last_admission": {"device": "cuda:0"}, "child_processes": [{"pid": 1}, {"pid": 2}]}],
         )
+    (forge / "workers/ccnet5d_grid.log").write_text("")
     sample = {
         "gpus": [
             {
@@ -138,8 +148,82 @@ def test_admission_checker_uses_preserved_prediction_intervals(gpu_evidence):
     record = json.loads(path.read_text())
     record.pop("prediction_execution")
     write_json(path, record)
-    with pytest.raises(ValueError, match="seed children did not overlap"):
+    with pytest.raises(ValueError, match="seed child was never admitted"):
         checks._check_admission(experiments, samples * 2)
+
+
+@pytest.mark.parametrize("broken", [None, "capacity", "missing_device", "missing_seed", "excluded"])
+def test_seed_admission_accepts_serial_children_only_without_available_capacity(
+    gpu_evidence, broken
+):
+    experiments, samples = gpu_evidence
+    forge = experiments[1]
+    for index, seed in enumerate((990671, 990672, 990673)):
+        path = forge / f"method_runs/ccnet5d_grid/evaluation/seed_{seed}/manifest.json"
+        record = json.loads(path.read_text())
+        record["prediction_execution"].update(
+            started_at=f"2026-10-22T00:00:{index * 10:02d}Z",
+            ended_at=f"2026-10-22T00:00:{(index + 1) * 10:02d}Z",
+        )
+        write_json(path, record)
+    details = {
+        "reason": "insufficient_free_memory",
+        "required_bytes": 66 * 2**30,
+        "free_memory_bytes": {"cuda:0": 29 * 2**30, "cuda:1": 46 * 2**30},
+        "excluded_devices": [],
+    }
+    if broken == "capacity":
+        details["free_memory_bytes"]["cuda:1"] = details["required_bytes"]
+    if broken in ("missing_device", "excluded"):
+        details["free_memory_bytes"].pop("cuda:1")
+    if broken == "excluded":
+        details["excluded_devices"] = ["cuda:1"]
+    if broken == "missing_seed":
+        path.unlink()
+    (forge / "workers/ccnet5d_grid.log").write_text(
+        f"ccnet5d_grid seed_990672: waiting for GPU: {details!r}\n"
+    )
+    if broken in (None, "excluded"):
+        assert checks._check_admission(experiments, samples)
+    else:
+        with pytest.raises(ValueError, match="eligible memory|missing FORGE a05 seed"):
+            checks._check_admission(experiments, samples)
+
+
+@pytest.mark.parametrize(
+    "broken", [None, "no_slots", "released_slot", "outside_wait", "other_free"]
+)
+def test_seed_wait_accounts_for_promised_regrowth_only_with_matching_samples(gpu_evidence, broken):
+    experiments, samples = gpu_evidence
+    forge = experiments[1]
+    path = forge / "method_runs/ccnet5d_grid/evaluation/seed_990671/manifest.json"
+    record = json.loads(path.read_text())
+    record["prediction_execution"]["cuda_admission"].update(pid=999, wait_seconds=5)
+    record["prediction_execution"]["started_at"] = "2026-10-22T00:00:10Z"
+    write_json(path, record)
+    details = {
+        "reason": "insufficient_free_memory",
+        "required_bytes": 66 * 2**30,
+        "free_memory_bytes": {"cuda:0": 81 * 2**30, "cuda:1": 29 * 2**30},
+        "excluded_devices": [],
+    }
+    (forge / "workers/ccnet5d_grid.log").write_text(
+        f"ccnet5d_grid seed_990671: waiting for GPU: {details!r}\n"
+    )
+    sample = samples[0]
+    sample["at"] = "2026-10-22T00:00:00Z" if broken == "outside_wait" else "2026-10-22T00:00:08Z"
+    sample["gpus"][0]["free_bytes"] = (82 if broken == "other_free" else 81) * 2**30
+    sample["gpus"].append({"device": "cuda:1", "free_bytes": 29 * 2**30})
+    slot = sample["slots_after"][0]
+    slot.update(required_bytes=66 * 2**30, current_reserved_bytes=7 * 2**30)
+    sample["slots_before"] = [] if broken == "no_slots" else [slot.copy()]
+    if broken in ("no_slots", "released_slot"):
+        sample["slots_after"] = []
+    if broken:
+        with pytest.raises(ValueError, match="eligible memory"):
+            checks._check_seed_admission(forge, samples)
+    else:
+        checks._check_seed_admission(forge, samples)
 
 
 @pytest.mark.parametrize(
@@ -511,10 +595,8 @@ def test_capacity_context_allowance_is_per_process_and_does_not_hide_external_us
         checks._check_admission(experiments, samples * 2)
 
 
-@pytest.mark.parametrize(
-    "changed", ["relmse", "snr", "loss", "steps", "shape", "nan", "metric_nan"]
-)
-def test_benchmarked_ccnet_twins_compare_run_summaries_and_loss_correlation(tmp_path, changed):
+@pytest.mark.parametrize("changed", ["relmse", "snr", "steps", "shape", "nan", "metric_nan"])
+def test_benchmarked_ccnet_twins_compare_run_summaries_and_restart_loss(tmp_path, changed):
     left, right = tmp_path / "left", tmp_path / "right"
     for path, delta in ((left, 0.0), (right, 1e-4)):
         path.mkdir()
@@ -529,6 +611,7 @@ def test_benchmarked_ccnet_twins_compare_run_summaries_and_loss_correlation(tmp_
         write_json(
             path / "manifest.json", {"status": "completed", "metrics": {"validation": validation}}
         )
+    (left / "execution.log").write_text("resumed step=200 phase=training\n")
     checks._check_ccnet_twin(left, right)
     if changed in ("relmse", "snr", "metric_nan"):
         record = json.loads((right / "manifest.json").read_text())
@@ -544,13 +627,68 @@ def test_benchmarked_ccnet_twins_compare_run_summaries_and_loss_correlation(tmp_
         np.save(right / "prediction.npy", prediction)
     else:
         history = pd.read_csv(right / "history.csv")
-        if changed == "loss":
-            history["loss"] = history.loss.to_numpy()[::-1]
-        else:
-            history.loc[0, "step"] = 2
+        history.loc[0, "step"] = 2
         history.to_csv(right / "history.csv", index=False)
-    with pytest.raises(ValueError, match="exceeds tolerance|correlation|invalid"):
+    with pytest.raises(ValueError, match="exceeds tolerance|invalid"):
         checks._check_ccnet_twin(left, right)
+
+
+@pytest.mark.parametrize("resume_step", [150, 200])
+@pytest.mark.parametrize("restart", ["real_like", "initial_weights", "step_100"])
+def test_ccnet_restart_loss_rejects_both_wrong_states(tmp_path, resume_step, restart):
+    left, right = tmp_path / "left", tmp_path / "right"
+    primary = 0.05 + 0.6 * np.exp(-np.arange(300) / 60)
+    twin = primary + 0.003 * (1 + np.sin(np.arange(300)))
+    if restart != "real_like":
+        offset = 0 if restart == "initial_weights" else 100
+        primary[resume_step:] = primary[offset : offset + 300 - resume_step]
+    for path, loss in ((left, primary), (right, twin)):
+        path.mkdir()
+        (path / "config.resolved.yaml").write_text("execution: {cudnn_benchmark: true}\n")
+        pd.DataFrame({"step": range(1, 301), "loss": loss}).to_csv(
+            path / "history.csv", index=False
+        )
+        np.save(path / "prediction.npy", np.ones((2, 3)))
+        write_json(
+            path / "manifest.json",
+            {
+                "status": "completed",
+                "metrics": {
+                    "validation": {"masked_trace_relative_mse": 0.5, "mean_trace_snr_db": 3.0}
+                },
+            },
+        )
+    (left / "execution.log").write_text(f"resumed step={resume_step} phase=training\n")
+    if restart == "real_like":
+        checks._check_ccnet_twin(left, right)
+    else:
+        with pytest.raises(ValueError, match="post-restart loss divergence"):
+            checks._check_ccnet_twin(left, right)
+
+
+@pytest.mark.parametrize("post,accepted", [(3.0, True), (3.001, False)])
+def test_ccnet_loss_baseline_uses_every_sliding_window(tmp_path, post, accepted):
+    left, right = tmp_path / "left", tmp_path / "right"
+    for path in (left, right):
+        write_json(
+            path / "manifest.json",
+            {
+                "status": "completed",
+                "metrics": {
+                    "validation": {"masked_trace_relative_mse": 0.5, "mean_trace_snr_db": 3.0}
+                },
+            },
+        )
+    (left / "execution.log").write_text("resumed step=200 phase=training\n")
+    # Only the sliding window 51–150 sees all 100 nonzero differences.
+    loss = np.zeros(300)
+    loss[50:150] = 1
+    loss[200:] = post
+    if accepted:
+        checks._check_ccnet_summaries(left, right, loss, np.zeros(300))
+    else:
+        with pytest.raises(ValueError, match="post-restart loss divergence"):
+            checks._check_ccnet_summaries(left, right, loss, np.zeros(300))
 
 
 @pytest.mark.parametrize("filename", ["history.csv", "prediction.npy"])
@@ -597,6 +735,7 @@ def test_benchmarked_ccnet_summary_tolerances(tmp_path, metric, delta, accepted)
             path / "manifest.json", {"status": "completed", "metrics": {"validation": summary}}
         )
     loss = np.linspace(1.0, 0.5, 300)
+    (left / "execution.log").write_text("resumed step=200 phase=training\n")
     if accepted:
         checks._check_ccnet_summaries(left, right, loss, loss)
     else:

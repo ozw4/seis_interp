@@ -356,7 +356,7 @@ C-1 の UUID 指定とメモリ事前確認は N-1 と同じ launcher 方式を�
 | ファイル | SHA256 |
 |---|---|
 | [c3/ccnet5d_grid.yaml](c3/ccnet5d_grid.yaml) | `cb8713085c8ffdca30f3576612195c7d971761aac0db16f45443e75eb66e1f2f` |
-| [c3/config.yaml](c3/config.yaml) | `1759592346b056963077d94c9cb9a12d3c46b8a0781f219e6da8a15391141882` |
+| [c3/config.yaml](c3/config.yaml) | `7e74db1748510a67d86b29421f3a04680f473fab8baa7e94c23d1638367bfb81` |
 | [c3/drr_grid.yaml](c3/drr_grid.yaml) | `6e465080712272a313adef7802698b0a61436ba7386a060b3231953da4d96336` |
 | [c3/inputs.yaml](c3/inputs.yaml) | `02db0cdeca2570fa8736495e2c8102e82076caf71de5413832475854d4f50ede` |
 | [c3/nersi_profile.yaml](c3/nersi_profile.yaml) | `eb7da44217858c180a7f44e7fcea0a288eeb8ceccdabd189a38505cf887a9dc9` |
@@ -365,7 +365,7 @@ C-1 の UUID 指定とメモリ事前確認は N-1 と同じ launcher 方式を�
 | [c3/regsi_real.yaml](c3/regsi_real.yaml) | `0289dc66f4afd589d8a6f80c0ec62d6daaa6144767f448b1a9d8a7c68910f19e` |
 | [dataset_differences.yaml](dataset_differences.yaml) | `b5760ca9e76cf8c2e5e0aae5b25c4dbf3bc83d7396997673db73b5cbadba5be5` |
 | [forge/ccnet5d_grid.yaml](forge/ccnet5d_grid.yaml) | `6d5bf508ed44f93a7ab15d4a36d418e40fb47a4d095714fdf8af74abd6ff9dc3` |
-| [forge/config.yaml](forge/config.yaml) | `cbe17d5582b73cf14a78e8c34f47a10aab13cebbd1ff03e39dcf514af42bbd67` |
+| [forge/config.yaml](forge/config.yaml) | `9e27bde0ac5a8acc4f5e30ca3f1e853d6d2b654b0439f9a307e3b2264b1a8611` |
 | [forge/drr_grid.yaml](forge/drr_grid.yaml) | `6e465080712272a313adef7802698b0a61436ba7386a060b3231953da4d96336` |
 | [forge/inputs.yaml](forge/inputs.yaml) | `257e389b8b3aff6d8cae1beeeb2c0169636398cd96aca9241eca08ffe6ebedaa` |
 | [forge/nersi_n1_jitter_canvas.yaml](forge/nersi_n1_jitter_canvas.yaml) | `596cb540da80665e4f57792fe96709673a1ac0a7944431d661ed3645414b1ffc` |
@@ -427,3 +427,125 @@ watchdog は自 worker の終了と supervisor による再起動を使い、別
 長時間 run の復旧では、再試行枠を run ごとに数え、資源不足の待機と実行失敗を分ける。CUDA context の障害と watchdog の終了は独立 process で復旧し、正常な隣接 run の進捗・試行枠を失わせない。POCS / DRR は更新単位の再開と進捗報告を持たないため watchdog を適用せず、既定の壁時計上限も設けない。
 
 S1 barrier は一度通過した事実を永続化する。後続 worker の障害で採点許可を取り消すと、未採点 seed が3 seed の集計に紛れ込むためである。発散は手法全体の中止ではなく最下位の最終結果とし、集計は欠測・発散 seed を明示して3完了未満の平均・SDを公表しない。候補選択時のメモリ予約を admission と同じ lock で確保し、完了・import 対象に不要なメモリ待ちを課さない。
+
+## 本番 launch rehearsal と開始承認（2026-10-24）
+
+ユーザーは2026-10-24に本番 launch と、FORGE CCNet の2 shard・重い候補優先の scheduling を
+承認した。この準備作業では GPU 実行・実験の本 prepare・signal・commit / tag を行わない。
+本番 code の基準は v4 `11ebcc78d39cd50f8d5012d2b8fb2bfc79c6a7d9`
+（`study-067-launch-v4`）。今回の production `src/` 差分は rehearsal checker に限り、
+学習・予測・admission・supervisor は v4 と同一に保つ。最終 scheduling と文書を含む clean な
+launch commit / tag は operator が確定する。上の古い base commit / dirty 状態の記述は当時の
+snapshot であり、現行 launch の基準は本節とする。
+
+rehearsal 評価 seed **990671–990673 は burned**。科学的評価へ再利用しない。
+本番の7321–7323と model seed 7301 は変更しない。
+
+### 証拠の所在と当時の acceptance
+
+experiment の共通親は `runs/study_067_forge_c3_common_grid_rehearsal/`。
+以下の C3 / FORGE はその下の directory 名、証拠 root には `env.sh`、GPU sample、当時の
+`acceptance.txt` がある。これらは read-only の履歴として保持する。
+
+| 版 / commit | 証拠 root | C3 / FORGE experiment |
+|---|---|---|
+| v1 / `ebe3c9306268` | `runs/study_067_forge_c3_common_grid_rehearsal/` | `20261023T150752712084Z_ebe3c9306268_traces` / `20261023T150757511431Z_ebe3c9306268_forge` |
+| v2 / `5130d2edea8e` | 同じ親。独立した full rehearsal / acceptance は未実施 | `20261023T170034621262Z_5130d2edea8e_traces` / `20261023T170041027002Z_5130d2edea8e_forge`（prepare 証拠。独立完走としない） |
+| v3 / `7d7d4d1f0e00` | `runs/study_067_forge_c3_common_grid_rehearsal_v3/` | `20261023T182955930826Z_7d7d4d1f0e00_traces` / `20261023T183003367014Z_7d7d4d1f0e00_forge` |
+| v4 / `11ebcc78d39c` | `runs/study_067_forge_c3_common_grid_rehearsal_v4/` | `20261023T222329917833Z_11ebcc78d39c_traces` / `20261023T222334889775Z_11ebcc78d39c_forge` |
+
+| acceptance area | v1 保存記録 | v2 | v3 保存記録 | v4 保存記録 | v4 今回の checker |
+|---|---|---|---|---|---|
+| Freeze and launch | PASS | 未実施 | PASS | PASS | PASS |
+| Admission and sharding | FAIL | 未実施 | PASS | FAIL | PASS |
+| Warm-up | FAIL | 未実施 | PASS | PASS | PASS |
+| Resume | FAIL | 未実施 | FAIL | FAIL | PASS |
+| Specific faults | FAIL | 未実施 | PASS | PASS | PASS |
+| Divergence | PASS | 未実施 | PASS | PASS | PASS |
+| Barrier | PASS | 未実施 | PASS | PASS | PASS |
+| Summaries | PASS | 未実施 | PASS | PASS | PASS |
+| R0 (imports) | PASS | 未実施 | PASS | PASS | PASS |
+| 合計 | 5 PASS / 4 FAIL | — | 8 PASS / 1 FAIL | 7 PASS / 2 FAIL | **9 PASS / 0 FAIL** |
+
+v1 の保存記録には capacity 超過・予測時 reserved 増加・C3 seal の `dataset_id` 欠落・
+retry peak の下方変化による FAIL がある。v3 の Resume FAIL は C3 ReGSI seed child の
+予期しない再起動。v4 の残る2 FAIL は下記の checker 基準であり、他の7基準は変更しない。
+過去の失敗表を現在の判定で書き換えず、v4 の再確認結果を別に記録する。
+
+実際に見つけて修正した4件は次のとおり。
+
+1. **worker-lock の restart race**：v1 で ReGSI の fork DataLoader child が worker の
+   `flock` を約5秒保持し、親の終了後すぐの再起動が失敗した。v2 `5130d2e` で lock 待ちを
+   restart credit を消費しない pending とし、最大120秒再確認する。fork child は継承した
+   GPU startup-lock の fd を親の unlock なしに閉じる。
+2. **使用しない GPU の stray CUDA context**：全 device の `mem_get_info` が process ごとに
+   約0.5 GiBの context を残し、rehearsal 全体では各 GPU 約5 GiBになった。v3 `7d7d4d1` で
+   free / total を CUDA context を作らない NVML / nvidia-smi に変更し、allocator の参照は
+   選択した device だけに限定した。
+3. **C3 prediction warm-up の不足**：単一の最大 tile では境界 shape と allocation lifetime を
+   再現できず、予測時に reserved が1.94から3.04 GiBへ増えた。v3 でゼロ入力による実際の
+   tile 列を replay する。出力と RNG は変更しない。retry peak は autotuning を再利用して
+   11.7%下がるため、既に v3 で上限110%だけを検査する cleanup gate に修正済み。
+4. **無報告の正常な prediction を watchdog が stall と誤認**：v3 の C3 ReGSI で主 EMA と
+   shadow EMA の予測等が長く無報告となり、seed child を再起動した。v4 `11ebcc7` で
+   prediction・warm-up・checkpoint / array write・alignment・restoration・scoring の実作業に
+   よる30秒間隔の heartbeat を既存 report channel に追加した。watchdog の閾値、p95 の
+   標本、計算順・出力・RNG は保持する。
+
+### 今回の checker 2基準の改訂理由
+
+benchmark-on CCNet twin は fault 前から非決定性で分岐し、FORGE v4 は更新4で約1.6e-7、更新7で約4.6e-6の差がある。
+FORGE loss は約0.403–0.462、100更新単位の標準偏差は約0.003–0.009と平坦で、Pearson は
+v3 0.9921 / v4 0.9877と noise に敏感。v4 の平均絶対差は0.0027（約0.6%）で、validation の
+relMSE 差は約0.003%、mean trace SNR 差は約0.0001 dB。relative 2%案も C3 の小さい late loss
+（約0.06–0.1）で2.2–3.4%となるため採用しない。
+
+ユーザーの revision 2 に従い、**再実行更新の mean |primary − twin| ≤ 3 × resume 前の任意の
+連続100更新窓の mean |primary − twin| の最大値**を使う。resume step は log から読む。
+今回の fault@250 は200から再開するため、post は201–300。sliding window での実測比は、
+v3 C3 / FORGE が0.3211 / 0.8521、v4 が0.4224 / 0.8130。
+初期重みの模擬再開（primary の1–100で post を置換）は38.3630 / 16.6500 / 29.8822 / 9.6524、
+step-100 の模擬再開（101–200で置換）は5.8045 / 7.6948 / 4.5321 / 5.1285となり、全て3を超える。
+提示された0.36 / 0.88 / 0.53 / 0.85は固定窓1–100と101–200だけなら再現する。
+全ての sliding window を使う今回の数値・baseline・証拠・再確認 command は
+[rehearsal.md](rehearsal.md#revised-benchmark-on-and-seed-admission-gates-2026-10-24) に記録する。
+relMSE ≤ 1%、SNR ≤ 0.05 dB、checkpoint digest の完全一致、benchmark-off twin の byte 一致は
+変更しない。
+
+FORGE a05 seed の別 GPU 同時実行は必須の正しさではなく、空き容量に依存する。
+v4 の seed 学習・予測は2026-10-23 UTCで22:59–23:12、23:12–23:23、23:23–23:32と直列になった。
+cuda:0 は66 GiBの seed budget、cuda:1 には他 slot があり、待機は正しい。
+全 seed の最終 admission と、全 memory wait で eligible device の未予約容量が必要量未満で
+あることを要求する。1,041件中1,040件は raw free 自体が70.9 GB未満。
+残る1件は cuda:0 raw free 81.1 GBだが、23:00:54の sample が他 seed の66 GiB slot と
+7.6 GBの allocator 使用を記録し、63.2 GBが regrowth 用に予約済み。未予約は約17.9 GBで不足。
+その待機期間内の free-memory vector に対応する sample の前後 slot 読み取りの両方で
+検証する。corroboration がなければ FAIL とする。a05 S1 shard が別 GPU で重なる条件は保持し、
+v3 では seed 同時実行自体も確認できる。
+
+### 実行専用 scheduling と identity
+
+両 `config.yaml` の priority だけを重い順へ変更し、FORGE CCNet の `worker_shards` を
+rehearsal と同じ2にした。変更した5 list は全25 IDを一度ずつ列挙する。行内は b 昇順、列内は
+a 昇順。FORGE CCNet は G0 `a01_b02` を最初にして a05→a04→a03→a02→a01残り、
+C3 CCNet は a05→a04→a03→a02→a01。ReGSI は両 dataset とも b05→b04→b03→b02→b01で、
+FORGE の gate `a01_b05` は先頭のまま。FORGE NeRSI は a03→a04→a01→a02→a05。
+C3 NeRSI と DRR / POCS は不変。
+
+priority を full grid に適用してから位置の剰余で shard を分ける。FORGE `0/2` は
+`a01_b02, a05_b02, a05_b04, ...`、`1/2` は `a05_b01, a05_b03, a05_b05, ...`から始まり、
+両方へ大きな候補が分配される。各 shard はその中の最初にメモリへ収まる候補を共通 lock 内で
+予約する。空き不足で軽い候補へ進む例外は lane plan の承認どおり。shard 間・method 間に
+厳密な全順序はなく、G0 は shard 0 の先頭であって全 shard の barrier ではない。
+そのため両 a05 用の容量を開始時に確保するには、rehearsal と同じ staged startup を本番にも
+使う。G0 の本番50,000更新を経るため、rehearsal の5分期限は使わない。
+operator の本 prepare、環境、frozen supervisor、監視、`--only-dead-workers` の正確な command は
+[README の launch 節](README.md#本番-launchoperator) に置く。
+
+CPU の `prepare --check-only` で coverage は C3 **30 import / 95 remaining**、FORGE
+**29 / 96**のまま。temporary check-only preparation 上で旧 HEAD の候補と新 schedule の候補を
+同じ実入力の alignment・観測数で resolve し、各 dataset の5手法×25候補×4 seed、計500ずつの
+identity hash が全て不変であることを確認した。candidate IDを key とした全 seed の hash 表の
+aggregate SHA256 は C3 `3fabe14597b94d2f8f4e7bf2f998d3a40a09d1ed65c94d186a6971f95fa1a23a`、
+FORGE `50b14152b698aab9251eb6795cc7a558b05e0a86f2fcbb6e46dffbed512373be`。
+`runs/` の証拠は変更せず、再確認出力は `/tmp/study067-launch-prep/` に保存した。

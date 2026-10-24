@@ -9,10 +9,8 @@ force; both devices must be available for the two-device acceptance checks.
 
 The evaluation seeds **990671, 990672, 990673 are reserved/burned for this
 rehearsal**, within the existing partition namespaces. Do not reuse them for
-scientific evaluation. The real evaluation seeds remain 7321–7323. After an
-accepted rehearsal, the operator records its paths, launch commit and PASS table
-with these burned seeds in `decisions.md` when that document is next updated.
-This new note avoids changing the concurrently maintained study documents.
+scientific evaluation. The real evaluation seeds remain 7321–7323. Rehearsal roots, launch commits, acceptance tables and the launch approval are
+recorded in [decisions.md](decisions.md).
 
 `rehearsal.yaml` is accepted only for a study ending `_rehearsal`. Preparation
 seals its digest, the rehearsal flag and actual S1 counts. Workers load overrides
@@ -31,10 +29,15 @@ restore checks are state exact; its atomic accumulation does not promise a
 bitwise identical CUDA trajectory. Primary CCNet runs and their uninterrupted
 twins keep the frozen `cudnn_benchmark: true` setting. Compare their run-level
 validation summaries: absolute relMSE difference at most 1% of the primary
-relMSE, absolute mean trace SNR difference at most 0.05 dB, and Pearson loss-curve
-correlation at least 0.99 over all 300 updates. FORGE uses the `clean_target`
-validation population; C3 uses its validation summary. Identical constant loss
-curves pass; other constant curves fail because correlation is undefined.
+relMSE and absolute mean trace SNR difference at most 0.05 dB. For losses, define
+Δ at each update as primary minus uninterrupted twin. Require the mean |Δ| over
+the re-executed updates to be at most **3 times the largest mean |Δ| over any
+sliding 100-update window before resumption**. Read the resume step from the
+primary execution log; the report@250 rehearsal resumes at 200, so the baseline
+windows lie in updates 1–200 and the post-restart interval is 201–300. Include
+updates 201–250 because they were re-executed. A zero baseline permits only zero
+post-restart divergence. FORGE uses the `clean_target` validation population;
+C3 uses its validation summary.
 Require matching steps and prediction shapes, finite losses/predictions/metrics,
 and completed manifests. These comparisons cover the benchmark-on restart
 trajectory against its uninterrupted twin; re-logged losses only need to be
@@ -258,6 +261,115 @@ reservation also records instantaneous/peak evidence, including
 cached memory that has not yet been released. The checker requires instantaneous
 evidence and never substitutes the 30-second minimum or the peak.
 `nvidia-smi` host process PIDs are never matched against container PIDs.
+
+
+## Revised benchmark-on and seed-admission gates (2026-10-24)
+
+The benchmark-on twins already diverge while uninterrupted. FORGE v4 first
+differs at update 4 (about 1.6e-7); update 7 differs by about 4.6e-6. FORGE's 300-update loss is nearly flat (about 0.403–0.462;
+per-100-update standard deviation about 0.003–0.009), making Pearson correlation
+noise-sensitive: v3 0.9921, v4 0.9877. v4 mean |Δloss| is 0.0027, about 0.6% of
+the loss, while the validation relMSE difference is about 0.003% and mean trace
+SNR difference about 0.0001 dB. The discarded relative-2% proposal also fails
+C3 (2.2–3.4%) because its late losses are only about 0.06–0.1. The self-calibrated
+rule above measures the restart against its own uninterrupted nondeterminism.
+The relMSE ≤ 1%, SNR ≤ 0.05 dB, exact state digests and byte-identical
+benchmark-off twins remain unchanged.
+
+Recomputed from the primary/twin `history.csv` files below, with resume step 200
+read from each primary `execution.log`. Synthetic bad resumes replace primary
+updates 201–300 with its own updates 1–100 or 101–200; the uninterrupted twin and
+baseline stay fixed. All ratios compare against the same baseline; threshold 3.
+
+| evidence | pre-max mean | post mean | post / pre-max | initial weights | step-100 state | maximizing pre window |
+|---|---:|---:|---:|---:|---:|---|
+| v3 C3 | 0.006276 | 0.002015 | 0.3211 | 38.3630 | 5.8045 | 34–133 |
+| v3 FORGE | 0.002273 | 0.001937 | 0.8521 | 16.6500 | 7.6948 | 78–177 |
+| v4 C3 | 0.008117 | 0.003429 | 0.4224 | 29.8822 | 4.5321 | 38–137 |
+| v4 FORGE | 0.004056 | 0.003298 | 0.8130 | 9.6524 | 5.1285 | 88–187 |
+
+The supplied ratios are reproduced by using only the two fixed windows 1–100
+and 101–200, rather than every sliding window:
+
+| evidence | post / fixed-window max | initial weights | step-100 state |
+|---|---:|---:|---:|
+| v3 C3 | 0.3597 | 42.9752 | 6.5023 |
+| v3 FORGE | 0.8780 | 17.1543 | 7.9279 |
+| v4 C3 | 0.5337 | 37.7557 | 5.7262 |
+| v4 FORGE | 0.8546 | 10.1461 | 5.3908 |
+
+v3 primary C3/FORGE directories end in
+`20261023T182955930826Z_7d7d4d1f0e00_traces` /
+`20261023T183003367014Z_7d7d4d1f0e00_forge`; their twins end in
+`20261023T204120371706Z_7d7d4d1f0e00_traces` /
+`20261023T204129629544Z_7d7d4d1f0e00_forge`.
+All are below `runs/study_067_forge_c3_common_grid_rehearsal/`; v4 paths are in
+the reproducible command below. Unit tests require a real-like nondeterministic
+curve to pass and both synthetic wrong-state resumes to fail, including a resume
+step other than 200. A separate boundary test distinguishes sliding from fixed
+windows and checks the factor-of-3 threshold.
+
+The seed gate now requires every configured FORGE CCNet evaluation seed to be
+present and eventually admitted. Every logged `insufficient_free_memory` wait
+must have insufficient **unpromised** memory on every eligible device. Device
+exclusions still apply. The log is `workers/ccnet5d_grid.log`; CPU-only scoring
+preserves the admission in `prediction_execution` in each final manifest.
+
+In v4 the training/prediction execution intervals were 22:59:26–23:12:03
+(seed 990672), 23:12:04–23:23:13 (990671), and 23:23:31–23:32:49 (990673),
+2026-10-23 UTC; actual training ended earlier than prediction completion.
+Each used cuda:0 with 70,866,960,384 required bytes (66 GiB including margin).
+There are 1,041 memory-wait records; 1,040 have raw free memory below that
+requirement on both devices. One record has 81,117,052,928 raw free bytes on
+cuda:0. The matching 23:00:54 GPU sample has the other seed's live 66 GiB slot
+with only 7,623,147,520 allocator bytes, reserving 63,243,812,864 bytes for
+regrowth. Thus unpromised memory is about 17.9 GB, below 70.9 GB. Both slot
+reads corroborate it. The checker requires a sample within the seed's waiting
+interval matching the wait's free-memory vector within nvidia-smi's 1 MiB
+reporting resolution, with insufficient capacity in both slot reads. Missing
+corroboration fails; a brief raw-free outlier is not ignored. Tests reject real
+capacity starvation and missing/released/noncontemporaneous reservations.
+The separate requirement that FORGE a05 S1 shards overlap on different GPUs is
+unchanged; v3 additionally demonstrated seed overlap.
+
+### Recheck the frozen v4 evidence from the working tree
+
+This command reads `runs/` and writes the new result under `/tmp`; it does not
+replace the original v4 acceptance record (7 PASS / 2 FAIL).
+
+```bash
+export CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export PY=/workspace/.venv/bin/python
+export E=/workspace/runs/study_067_forge_c3_common_grid_rehearsal
+export V4=/workspace/runs/study_067_forge_c3_common_grid_rehearsal_v4
+PYTHONPATH=/workspace/src "$PY" scripts/check_study067_rehearsal.py \
+  --c3 "$E/20261023T222329917833Z_11ebcc78d39c_traces" \
+  --forge "$E/20261023T222334889775Z_11ebcc78d39c_forge" \
+  --gpu-log "$V4/gpu_samples.jsonl" \
+  --twin "$E/20261024T004807664648Z_11ebcc78d39c_traces" \
+  --twin "$E/20261024T004812646006Z_11ebcc78d39c_forge" \
+  --determinism-twin "$E/20261024T005846143352Z_11ebcc78d39c_traces" \
+  --determinism-twin "$E/20261024T005856425133Z_11ebcc78d39c_traces" \
+  --determinism-twin "$E/20261024T005901493576Z_11ebcc78d39c_forge" \
+  --determinism-twin "$E/20261024T005906240468Z_11ebcc78d39c_forge" \
+  --imports "$E/20261023T222345159462Z_11ebcc78d39c_traces" \
+  --imports "$E/20261023T222350092027Z_11ebcc78d39c_forge" \
+  --launch-commit 11ebcc78d39cd50f8d5012d2b8fb2bfc79c6a7d9 \
+  > /tmp/study067-v4-acceptance.txt
+cat /tmp/study067-v4-acceptance.txt
+```
+
+| area | revised v4 |
+|---|---|
+| Freeze and launch | PASS |
+| Admission and sharding | PASS |
+| Warm-up | PASS |
+| Resume | PASS |
+| Specific faults | PASS |
+| Divergence | PASS |
+| Barrier | PASS |
+| Summaries | PASS |
+| R0 (imports) | PASS |
 
 ## Operator supervisor-loss drill
 
