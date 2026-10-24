@@ -1,5 +1,21 @@
 # study_067: C3 / FORGE 共通 25 候補と 3 seed 比較
 
+## 評価（Sprint 3）
+
+評価の正本は [evaluation.yaml](evaluation.yaml)。S1 の validation relMSE 最小（同値は candidate ID、diverged は最下位）で選び、各 seed 自身の test 集合を使う。source-cell bootstrap の重みは seed・手法・対比・指標で共有し、SNR 8 対比と relMSE 8 対比を別々の Holm 族とする。全 seed 終了後、repository root から次を実行する。保存済み run は読み取り専用で、結果は指定した新規出力ディレクトリへ保存する。
+
+```bash
+CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+nice -n 19 .venv/bin/python scripts/evaluate_study067.py evaluate \
+  --c3 runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces \
+  --forge runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge \
+  --output runs/study_067_forge_c3_common_grid/analysis_final
+```
+
+`contrasts.csv` に seed 別差・percentile CI・両側 p・Holm・df=2 の t 区間、`contrasts_validation_free.csv` に S1 validation の和集合を除いた感度を保存する。`seed_summary.csv` は3 seed の等重み平均・標本 SD・各 seed 値、`per_seed_metrics.csv` は validation/test の副次指標、`ema_shadow.csv` は保存済み shadow の値と欠測を表す。`selection.csv`、`expected_best_of_k.csv`、`winners_curse.csv`、`cost.csv` と、dataset/手法ごとの heatmap・曲線・派生 per-trace parquet も出力する。`manifest.json` に解析コード一式・評価設定・grid・各設定と run manifest の SHA256、Git commit/tag を残す。
+
+diverged 評価 seed があれば3 seed 平均と該当 CI は算出不能とし、残り seed だけで代用しない。欠けた対比を含む8対比の族では Holm も欠測とする。winner's curse は S1 の source-cell bootstrap による in-bag 選択と out-of-bag 評価の差を記述する。expected-best-of-k は復元抽出で、diverged だけを引く確率を保持し、有限候補を含む条件付き曲線を併記する。追加 pilot の入力欄は空であり、S-a / S-b、古典手法の dataset 別上限、Q3(b) は含めない。
+
 ReGSI（提案法）、CCNet5D、profile-wise NeRSI、POCS、DRR を、各手法につき両 dataset で同じ二軸の探索により比較する。現在は実行仕様を準備した段階であり、本 study の比較結果は未確定。POCS は第2弾 P-1 の K1 を両 dataset に採用し、ReGSI は R-1 を通過した V3 を維持する。
 
 ReGSI P2（k=2、dilations `[1,2]`）の validation mean trace SNR は baseline / V1 / V2 / V3 の順に FORGE 1.8990 / 2.2110 / 2.7100 / 3.0070 dB、C3 18.8600 / 19.1400 / 19.1400 / 19.0700 dB。V3 は FORGE +1.1080 dB、C3 +0.2100 dB で、事前規則（FORGE ΔSNR ≥ +0.2 dB、C3 ΔSNR ≥ −0.2 dB を満たすうち FORGE 改善最大）により採用する。全 25 候補は 346,885 parameters（363,269 比 −4.5102%、既存の ±5% tolerance 内）を共有する。数値は提示された丸め値である。

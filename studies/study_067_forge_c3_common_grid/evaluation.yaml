@@ -1,0 +1,69 @@
+# Analysis-only configuration. grid.yaml/configs/method YAMLs are launch-frozen.
+bootstrap:
+  seed: 670703
+  resamples: 10000
+  interval: percentile_95
+  p_value: null_centred_two_sided_plus_one
+  weights: multinomial_shared_across_seeds_methods_contrasts_and_metrics_per_dataset
+cluster_column: source_cell
+experiments:
+  c3: null  # Supplied by --c3 (repository-relative path).
+  forge: null  # Supplied by --forge (repository-relative path).
+datasets:
+  c3:
+    source_cell_count: 512
+    primary_population: all_eligible
+    amplitude: observed_global_rms_physical_predictions
+  forge:
+    source_cell_count: 192
+    primary_population: clean_target
+    amplitude: per_trace_oracle_test_rms
+selection:
+  stage: S1
+  metric: masked_trace_relative_mse
+  tie_break: candidate_id
+  diverged: rank_last
+contrasts:  # ReGSI minus each baseline, on each dataset.
+  - ccnet5d_grid
+  - nersi_profile
+  - pocs_grid
+  - drr_grid
+families:
+  primary_snr: snr_db  # Eight contrasts, Holm within this family.
+  relmse: relative_mse  # Eight contrasts, separate Holm family.
+metrics:
+  snr_db: 10 * (log10(target_energy) - log10(error_energy)); no clipping or epsilon
+  primary: equal_weight_mean_of_three_seed_test_mean_trace_snr_db
+  seed_dispersion: sample_sd_ddof_1
+  relative_mse: mean(error_energy / target_energy); zero target uses sample_count denominator
+  global_nmse: sum(error_energy) / sum(target_energy)
+  global_snr_db: -10 * log10(global_nmse)
+  median_correlation: median_of_defined_centred_per_trace_Pearson_correlations
+  trace_snr_quantiles: [10, 50, 90]
+  fraction_below_0_db: mean(trace_snr_db < 0)
+  prediction_energy: sum_over_time(prediction ** 2); saved_physical_prediction
+  idw_scale_k_i: exp(IDW(log(observed_trace_RMS))) / oracle_trace_RMS
+  idw_prediction: float32(saved_physical_prediction * idw_scale_k_i)
+  scale_invariant_relative_mse: per_trace_least_squares_scalar_times_prediction_vs_target
+idw:
+  geometry: projected_grid
+  radius: 2
+  power: 2.0
+  distance: physical
+  restoration: multiply_once
+sensitivities:
+  paired_t: seed_level_95_percent_df_2
+  validation_free: exclude_union_of_all_S1_validation_trace_ids_including_pilots
+  ema_shadow: saved_validation_and_test_metrics_where_present
+  multiplicity: descriptive_no_additional_adjustment
+best_claim:
+  snr: all_four_CI_lower_bounds_gt_0_and_all_three_seed_differences_gt_0
+  indistinguishable_label: 区別不能
+  qualified_wording: SNR では最良、relMSE では区別不能／逆
+search_diagnostics:
+  expected_best_of_k: empirical_with_replacement; retain_all_diverged_probability_separately
+  winners_curse: S1_cluster_bootstrap_in_bag_selection_and_out_of_bag_evaluation
+# Extra scores enter search diagnostics and the S1-validation exclusion union,
+# never the registered grid selection. Example entry:
+# {dataset: c3, method: regsi_real, directory: runs/<study>/<experiment>/method_runs/<method>/S1/<candidate>}
+extra_pilot_score_sources: []

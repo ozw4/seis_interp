@@ -1,5 +1,21 @@
 # 現行条件を選ぶ理由
 
+## Sprint 3（2026-10-24）：登録済み解析の実装と盲検の維持
+
+評価設定は `evaluation.yaml` に独立させた。`grid.yaml` は launch tag `study-067-launch-v5` で凍結され、hash が run identity に含まれるため、設計書の「grid.yaml に evaluation 節を追加」は適用しない。両 dataset の config と各手法 YAML、runner・training・scoring は変更していない。`prediction_energy` と FORGE の IDW scale `k_i` は、保存された prediction・物理 target・observed input から解析側で計算し、解析出力だけに保存する。稼働中実験の所有物である run parquet への埋め戻しは行わない。EMA shadow は元々 scalar 指標だけの保存であり、shadow prediction/weight のない run で派生 per-trace 列は復元できない。import 元に shadow 指標がなければ欠測と明示する。必要なら将来の別途実行で shadow prediction と cell ID の保存を追加するのが最小変更であり、今回の本番コードには加えない。
+
+本番開始は 2026-10-24 11:08 UTC。POCS の S1 は起動から約1.5時間以内に完了し、seed test の採点はこの script の完成より先に始まった。解析規則自体は [事前登録設計](../../reports/study_067_design_round2.md) (5) 9・14・15 と (6) に登録済みである。script 固定前に誰も本番 test 値を閲覧していない。本実装の開発・検証には rehearsal v4、study_063/064、および synthetic fixture だけを用い、本番2 run の評価 seed 出力・test 値を含む summary は開いていない。seed 監査でも本番2 root を `os.walk` の子ディレクトリから除いてから走査する。
+
+受入1：study_064 `20261012T235609226847Z_05c92e79ce80_traces` の ReGSI `a01_b05`（dilation 1、k=6）と CCNet `a05_b02`（patch `[8,16,8,16]`、dilation 2）を validation relMSE から再選択した。seed 7311–7313 の partition は study_063 `20261011T145500928121Z_05c92e79ce80_traces` と一致する。新しい seed 別の対比計算で **+0.9198 dB、95% CI [0.8347, 1.0068]** を再現した（表示は小数4桁、B=10,000、RNG=670703、512 source cells、共有 multinomial 重み）。指定の +0.920、約 [0.83, 1.00] に対する許容幅内であり、定義や seed・cell を調整していない。
+
+受入3：`runs/` と `studies/` の全 YAML、および experiment/manifest/config JSON を、frozen source snapshot も含めて検索した。評価 seed の宣言と partition の実体を区別する。**「7321–7323 は一度も partition seed として使われていない」は文字どおりには成立しない。** 10/22–23 の study_067 pilot 準備14 run の seal に、これらの評価 seed の `input/seed_*/partition.parquet` が記録されていた。該当 run の evaluation ディレクトリは0、実行された S1 の seed は C3=620702、FORGE=600702 である。他 study の partition 使用は検出されていない。これらは未採点の評価用 partition の事前生成であり、以前の「既存使用なし」という表現はこの区別で限定する。監査の機械判定は strict な不合格を保持し、事前生成をなかったことにはしない。
+
+受入2：rehearsal v4 の C3 / FORGE、全5手法を保存配列だけから解析し、選択表10行、対比表16行、seed 別指標279行、seed 集計630行、EMA 表242行、cost 表62行、探索 score 表20行、expected-best-of-k 表40行、winner's-curse 表20行を生成した。図は validation heatmap 20枚、expected-best 曲線10枚、winner's-curse 10枚、派生 per-trace parquet は77個。未実行の grid セルは空欄で、diverged セルは D とする。意味のない rehearsal の値を科学的な結論には用いない。出力は作業用一時領域に置き、commit しない。manifest の142 SHA256は解析終了時のコード・入力とすべて一致した。
+
+受入4：共有重み bootstrap と seed ごとに異なる test 集合を使う逐次参照実装の一致、Holm と8対比の族、選択の tie-break / diverged 最下位、S1 validation 和集合の除外、df=2 の paired t 区間を synthetic fixture で確認した。必要な配列がない場合の欠測表示も確認した。変更箇所と既存 fair-grid 統計の focused tests は30件通過。全 pytest は 7,080 passed / 32 skipped / 1 failed（`evaluation.yaml` の SHA256 が下の hash 表に未登録）で、登録後に study_067 の test 68件が通過した。
+
+rehearsal v4 には FORGE NeRSI seed 990672 の `nan_prediction` fault injection による divergence がある。事前登録にない欠測値の補完、2 seed への母数変更、有限 penalty は導入しない。該当する3 seed 平均・CI・t 区間を算出不能とし、欠けた対比がある族では Holm p も欠測のまま表示する。これは解析規則の変更ではなく、必要なデータが存在しない箇所の表示である。S1 の divergence は登録どおり最下位として候補数に含める。
+
 共通 grid は study_064 の ReGSI / CCNet / NeRSI、study_063 の DRR、および C3 POCS forge-matched 探索の組合せとする。候補順序は configuration ID を安定させる。共通 grid の空間値は dataset 別に変更せず、CCNet の時間長だけを固定設定の dataset 差として扱う。固定値の例外は leaf key ごとに理由を記録し、探索軸とは別に検証する。
 
 ニューラル 3 手法は C3 study_064 の MSE、AdamW、定数学習率、更新数、loss trace 数、EMA と初期化 seed を引き継ぐ。FORGE の BF16 CCNet は study_066 の実行条件を引き継ぐが、丸め誤差を持つため import の execution-only 例外にはしない。CCNet の cached patch gradients / reuse_patch も学習入力順序への影響を無視できないため、import では一致を要求する。ReGSI の pruning / fused aggregation / activation checkpointing は既存の exact-by-design memory 実装であり、数学的設定から除く。
@@ -364,6 +380,7 @@ C-1 の UUID 指定とメモリ事前確認は N-1 と同じ launcher 方式を�
 | [c3/pocs_k1.yaml](c3/pocs_k1.yaml) | `e291a855d2c26872e9e84a06ee17486274f67e00d9c9fc6b98cb4784590375fc` |
 | [c3/regsi_real.yaml](c3/regsi_real.yaml) | `0289dc66f4afd589d8a6f80c0ec62d6daaa6144767f448b1a9d8a7c68910f19e` |
 | [dataset_differences.yaml](dataset_differences.yaml) | `b5760ca9e76cf8c2e5e0aae5b25c4dbf3bc83d7396997673db73b5cbadba5be5` |
+| [evaluation.yaml](evaluation.yaml) | `3c76742dea34f85b0317d2778f02c46bb32fe5c387ee27d180bedd31833f4ed0` |
 | [forge/ccnet5d_grid.yaml](forge/ccnet5d_grid.yaml) | `6d5bf508ed44f93a7ab15d4a36d418e40fb47a4d095714fdf8af74abd6ff9dc3` |
 | [forge/config.yaml](forge/config.yaml) | `9e27bde0ac5a8acc4f5e30ca3f1e853d6d2b654b0439f9a307e3b2264b1a8611` |
 | [forge/drr_grid.yaml](forge/drr_grid.yaml) | `6e465080712272a313adef7802698b0a61436ba7386a060b3231953da4d96336` |
