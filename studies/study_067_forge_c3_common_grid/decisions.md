@@ -1,5 +1,20 @@
 # 現行条件を選ぶ理由
 
+## 本番 G0（2026-10-24）：FORGE の最初のニューラル run
+
+G0 は manifest に記録するだけの診断で、run を止めず、選択・解析にも入らない。
+
+| run | 更新 901–1000 の loss / L0 | 出力 RMS / target RMS | 有限 | G0 | validation SNR |
+|---|---:|---:|---|---|---:|
+| CCNet `a01_b02` | 0.9191 | 0.2838 | true | passed | 1.582 dB |
+| NeRSI `a03_b01` | 0.9985 | 0.0360 | true | failed | 0.269 dB |
+
+NeRSI の不合格は実装バグではなく、座標ネットの遅い立ち上がりと判断した。登録規則どおりハイパーパラメータは変えず、そのまま実行してユーザーに報告する。
+- 採用構成を決めた N-1 の FORGE run（本番へ import 済みの `a02_b04`、10-22 の同じ code path）も、更新 1000 で 0.996·L0 に留まっていた。その後は 2000 で 0.975、5000 で 0.779、50,000 で 0.500·L0 まで下がった。
+- 本番の `a03_b01` も同じ経過をたどった（1000 で 1.000、5000 で 0.886、50,000 で 0.625·L0）。validation SNR は N-1 の −0.038 dB を上回る。
+- G0 の閾値は CCNet の 1000 更新で較正したもので、NeRSI の 1000 更新では「張り付き」と「遅い立ち上がり」を区別できない。バグ探索は、この参照 run との比較で終えた。NeRSI には bf16 の経路がなく、学習後の loss と予測が正常なため、それ以上の探索は行わない。
+- 以後の FORGE NeRSI の run も同じ理由で G0 不合格を記録しうる。判定には最終 loss と validation 指標を使う。ReGSI の最初の FORGE run（`a01_b05`）の G0 は、実行後に同様に確認する。
+
 ## Sprint 3（2026-10-24）：登録済み解析の実装と盲検の維持
 
 評価設定は `evaluation.yaml` に独立させた。`grid.yaml` は launch tag `study-067-launch-v5` で凍結され、hash が run identity に含まれるため、設計書の「grid.yaml に evaluation 節を追加」は適用しない。両 dataset の config と各手法 YAML、runner・training・scoring は変更していない。`prediction_energy` と FORGE の IDW scale `k_i` は、保存された prediction・物理 target・observed input から解析側で計算し、解析出力だけに保存する。稼働中実験の所有物である run parquet への埋め戻しは行わない。EMA shadow は元々 scalar 指標だけの保存であり、shadow prediction/weight のない run で派生 per-trace 列は復元できない。import 元に shadow 指標がなければ欠測と明示する。必要なら将来の別途実行で shadow prediction と cell ID の保存を追加するのが最小変更であり、今回の本番コードには加えない。
