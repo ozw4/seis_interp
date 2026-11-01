@@ -1,5 +1,31 @@
 # 現行条件を選ぶ理由
 
+## 感度 run の準備（2026-11-01、未起動）
+
+事前登録の S-a / S-b を [pilot specs と実行手順](pilots/sensitivity_preparation.md) に用意した。`sa_forge_mask010` は production FORGE CCNet `a03_b02` の `patches.inner_mask_fraction: 0.25 → 0.1` の1行だけ、`sa_c3_mask010_seeds` は production C3 CCNet `a05_b02` の同じ1行だけを変更する。`sb_forge_fp32` は精度という1因子を、実在する `training.mixed_precision` と `prediction.mixed_precision` の2 leaf key の `bf16 → 'off'` で変更する。各 method YAML の残りは byte-identical、入力 YAML は production の複製、local grid は共通 CCNet 25候補の ID・順序を保持する。config の別差分は routing・import 元・GPU0 制限と S-b の予算である。新規 src は専用入口1ファイルのみで、既存 production code、launch-frozen YAML、解析設定を変えない。
+
+FORGE の2 arm は frozen `run_forge_grid_experiment.py pilot --candidate a03_b02` で S1 validation のみ。C3 は通常 worker が25候補を必須とし、pilot は seed を実行しないため、凍結される `study/run_seeds.py` → 新規 `pipelines/run_c3_fixed_cell_sensitivity.py` を使う。旧 winner 選択ファイルの hash、本番の全手法 S1 barrier、本番と同じ入力 artifact hash・評価 seed・mask 以外の method identity を確認し、外部固定 cell の provenance を持つ感度側 test-access marker を作る。本番の公開 `execute_c3_region_run` と partition loader / target reader / scorer / parquet writer / retry / deadline は無変更で、7321–7323 を逐次実行する。25候補の選択・rehearsal・感度S1 runは作らない。
+
+study_064 の relMSE winner は `a05_b02`（patch `[384,8,16,8,16]`、dilation2、tk3）で Sprint 3 の受入 cell と一致した。ただし旧 resolved config には `reuse_patch: false` / `cache_patch_gradients: false` の明示がなく、現行 hash は absent と同一視しない。旧 hash `8af014bd27b29655285e72a81e17a76eeab2f24fd8279882194789cb8012b490` は今回の `e470fc0b5130f9f84b2c94b990324980c9b045a21897b3f3dd99f446e7558301` と異なり、check-only の S1 import は0/25。cuDNN benchmark と shadow EMA の差は identity 除外だが、旧 frozen fitter は乱数 stream 分離前でもある。旧 S1 を同一計算として import せず、歴史的19.073 dBとの既登録比較を保持する。新3 seed は現行 production の RNG を使い、mask だけを変える。identity 互換処理や追加S1学習は導入しない。
+
+公式 `prepare --check-only` は3 spec とも成功。全4 seed で対応 production と input fingerprint が一致し、C3 の `input/` 全 artifact hash も一致する。FORGE production `ffb7f05a...` に対し S-a `8e6810e4...`、S-b `5ea2caa7...`、C3 production `6a55abbe...` に対し S-a `e470fc0b...`（full hash は手順書）。差分はそれぞれ mask、学習・予測の精度だけ。C3 の paired ReGSI − CCNet@0.1 を後日計算できる partition と採点 schema を維持する。
+
+FP32 は既存の off path でサポートされ、TF32 許可も production のままとする。a03/d2 FP32 に一致する保存済み peak はなく、設計の約30 GiBを暫定 peak として C-0 の `max(17, ceil(30) + 2) = 32` GiBを設定し、admission margin 2 GiB込み34 GiBとする。実測とは主張しない。S-a FORGE は17+2、C3 は32+2 GiB。費用は FORGE S-a 10–14 GPU-h、S-b 15–25 GPU-h、C3 約8×3=24 GPU-h。
+
+launcher は既存 pilot launcher の frozen-source 起動を再利用し、起動時に physical GPU0 の完全 UUID を解決して `CUDA_VISIBLE_DEVICES` に設定、許可 device `cuda:0`、BLAS threads1、nice19とする。本番は無制限で可視性の並べ替えがなく、共有 slot の `cuda:0` は同じ GPU0を指す。共有 startup lock・再成長予約は維持する。3種類各1 process は margin込み87 GiBで GPU0 の宣言容量93.08−context2 GiB内に収まり、最大3 processを相乗りできる（C3 seedは逐次）。ただし現行 slot key は physical UUID ではないため、GPU1への pinning / reordering の混在一般には不整合がある。UUIDへ統一する将来修正案と CUDA ordinal / NVML index 一致の前提は手順書に記し、production code は変更しない。
+
+登録済み規則を再掲する（[設計書「感度 run」](../../reports/study_067_design_round2.md)）：
+
+> 事前登録：どちらかの dataset で 0.1 が 0.25 より 0.2 dB 以上良ければ、ReGSI − CCNet@0.1 を co-primary の感度として報告します。
+>
+> C3 で tk3 を維持した場合は、study_064 の 0.1 grid の勝者を新 seed で3 run 追加します（約24 GPU-h）。FORGE は単一 cell の差だけを報告します。
+>
+> 事前登録：FP32 − bf16 ≥ 0.2 dB なら、FORGE の seed を始める前にユーザーへ報告します。選ばれた cell を FP32 で3 seed 実行する案を、co-primary の感度として提示します。a05 の場合は、厳密な activation checkpointing の実装が必要です。
+
+**S-b の時機の逸脱**：11-01 時点で FORGE CCNet の seed は既に学習・予測済みで、全手法 S1 barrier 待ちのため test は未採点である。「seed を始める前に報告」は文字どおりには達成できない。これを満たしたとは記録しない。≥0.2 dB のときのユーザーへの報告と、選択 cell の FP32 3-seed co-primary 感度という登録済み remedy はなお可能であり、その実行は今回の準備範囲に含めない。本番の seed を変更・再採点しない。
+
+C3 production は 2026-11-01 11:08 UTC に完了済み。この準備は production の test 採点後だが、感度の対象 cell・変更 key・判定規則はすべて設計書の事前登録どおりで、test 結果に基づく変更はない。凍結済み Sprint 3 解析 `study-067-analysis-v1` は S-a C3 対比を含まない。後日、登録済み出力を変更しない、明確に感度と表示する別 script / option で加える。単純な入力差替えだけでは済まないため今回は実装しない。
+
 ## 本番 G0（2026-10-24）：FORGE の最初のニューラル run
 
 G0 は manifest に記録するだけの診断で、run を止めず、選択・解析にも入らない。
@@ -582,3 +608,20 @@ identity hash が全て不変であることを確認した。candidate IDを ke
 aggregate SHA256 は C3 `3fabe14597b94d2f8f4e7bf2f998d3a40a09d1ed65c94d186a6971f95fa1a23a`、
 FORGE `50b14152b698aab9251eb6795cc7a558b05e0a86f2fcbb6e46dffbed512373be`。
 `runs/` の証拠は変更せず、再確認出力は `/tmp/study067-launch-prep/` に保存した。
+
+### 感度 run の study YAML SHA256（2026-11-01）
+
+| file | SHA256 |
+|---|---|
+| [pilots/sa_forge_mask010/ccnet5d_grid.yaml](pilots/sa_forge_mask010/ccnet5d_grid.yaml) | `3b601efab6ba28e6c7c62432ac43287a8b499e92e273ca5a7dc5b678228acb98` |
+| [pilots/sa_forge_mask010/config.yaml](pilots/sa_forge_mask010/config.yaml) | `bea3a6e6383fac3c480b6d165e9c24a2496c1a947e20a708b120213ebb8e52a3` |
+| [pilots/sa_forge_mask010/grid.yaml](pilots/sa_forge_mask010/grid.yaml) | `7cbd91f31fd2a1914cc8f1d28e67101b4233e3849f4156cd02e605a0c3f8335d` |
+| [pilots/sa_forge_mask010/inputs.yaml](pilots/sa_forge_mask010/inputs.yaml) | `257e389b8b3aff6d8cae1beeeb2c0169636398cd96aca9241eca08ffe6ebedaa` |
+| [pilots/sb_forge_fp32/ccnet5d_grid.yaml](pilots/sb_forge_fp32/ccnet5d_grid.yaml) | `9fb8d19acb3439d9b2044606e61f40bece3c06708df4f196fa64b64d387bfafc` |
+| [pilots/sb_forge_fp32/config.yaml](pilots/sb_forge_fp32/config.yaml) | `7ba5931ea698147ee8f484d093285356d145fcef894a63f3c689b8e918e0b200` |
+| [pilots/sb_forge_fp32/grid.yaml](pilots/sb_forge_fp32/grid.yaml) | `7cbd91f31fd2a1914cc8f1d28e67101b4233e3849f4156cd02e605a0c3f8335d` |
+| [pilots/sb_forge_fp32/inputs.yaml](pilots/sb_forge_fp32/inputs.yaml) | `257e389b8b3aff6d8cae1beeeb2c0169636398cd96aca9241eca08ffe6ebedaa` |
+| [pilots/sa_c3_mask010_seeds/ccnet5d_grid.yaml](pilots/sa_c3_mask010_seeds/ccnet5d_grid.yaml) | `336c31d7b2568e20a4d31e9ac43f9314dcd0df9c1d9d0ed4c1c42575f4d3944d` |
+| [pilots/sa_c3_mask010_seeds/config.yaml](pilots/sa_c3_mask010_seeds/config.yaml) | `aecb4e50910da7b7f4265819f99e56af1c2546e2bd93911e35f368a1df9ccba3` |
+| [pilots/sa_c3_mask010_seeds/grid.yaml](pilots/sa_c3_mask010_seeds/grid.yaml) | `7cbd91f31fd2a1914cc8f1d28e67101b4233e3849f4156cd02e605a0c3f8335d` |
+| [pilots/sa_c3_mask010_seeds/inputs.yaml](pilots/sa_c3_mask010_seeds/inputs.yaml) | `02db0cdeca2570fa8736495e2c8102e82076caf71de5413832475854d4f50ede` |

@@ -1,0 +1,107 @@
+study_id: study_067_forge_c3_common_grid
+dataset_id: seg_c3_na
+candidate_id: c3_shot18_ry18
+axis_order:
+- source_grid_line
+- source_grid_point
+- receiver_grid_line
+- receiver_grid_point
+spatial_shape:
+- 16
+- 32
+- 8
+- 32
+eligible_trace_count: 131072
+natural_missing_cell_count: 0
+time_sample_count: 384
+sample_interval_us: 8000
+mask_id: c3_random80_regions
+mask_study_id: study_062_c3_region_grid
+mask_family: random_trace
+missing_fraction: 0.8
+mask_seed: 620701
+test_trace_count: 104858
+observed_trace_count: 26214
+model_seed: 7301
+preprocessing:
+  dtype: float32
+  amplitude_scaling: observed_global_rms
+  trace_rms: false
+  agc: false
+  bandpass: null
+  mute: null
+  spatial_interpolation: false
+  alignment: null
+matched_training:
+  max_steps: 50000
+  learning_rate: 0.001
+  loss_traces_per_update: 64
+  parameter_count_target: 363269
+  parameter_count_tolerance: 0.05
+selection:
+  metric: masked_trace_relative_mse
+  tie_break: configuration_id
+  checkpoint: fixed_final_ema
+  ema_decay: 0.999
+trace_split:
+  search_seed: 620702
+  evaluation_seeds:
+  - 7321
+  - 7322
+  - 7323
+validation_holdout:
+  fraction: 0.1
+  mask_id: c3_random80_validation_v1
+  mask_seed: 620702
+methods:
+- ccnet5d_grid
+validation_study_id: study_063_c3_trace_grid
+training_loss: masked_trace_mse
+cuda_execution:
+  admission_margin_gib: 2
+  context_allowance_gib: 2
+  excluded_devices_while_pids_alive:
+    cuda:0:
+    - pid: 3958956
+      process_start_time: 1111834778
+    - pid: 381291
+      process_start_time: 1113638455
+  device_total_memory_gib:
+    cuda:0: 93.08
+  minimum_free_memory_gib:
+    ccnet5d_grid:
+      a01_b01: 10
+      a01_b02: 14
+      a01_b03: 18
+      a01_b04: 22
+      a01_b05: 26
+      a02_b01: 12
+      a02_b02: 14
+      a02_b03: 18
+      a02_b04: 22
+      a02_b05: 26
+      a03_b01: 16
+      a03_b02: 16
+      a03_b03: 18
+      a03_b04: 22
+      a03_b05: 26
+      a04_b01: 22
+      a04_b02: 22
+      a04_b03: 22
+      a04_b04: 22
+      a04_b05: 26
+      a05_b01: 32
+      a05_b02: 32
+      a05_b03: 32
+      a05_b04: 32
+      a05_b05: 32
+  global_admission: true
+  devices:
+  - cuda:0
+  startup_timeout_seconds: 60
+method_execution: {}
+import_from:
+- runs/study_064_c3_reference_grid/20261012T235609226847Z_05c92e79ce80_traces
+fixed_cell_selection:
+  path: runs/study_064_c3_reference_grid/20261012T235609226847Z_05c92e79ce80_traces/workers/ccnet5d_grid_selection.json
+  sha256: 0206fbdb0544c0b2eeb891a33aad01d1f705d61ae4105dc2e3843803cb527c58
