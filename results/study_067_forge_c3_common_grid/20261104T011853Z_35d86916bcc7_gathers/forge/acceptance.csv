@@ -1,0 +1,11 @@
+method,candidate_id,domain,trace_count,max_abs_snr_db_difference,max_relative_error_energy_difference
+pocs_grid,a04_b01,validation,3,0.0,0.0
+pocs_grid,a04_b01,test,58,0.0,0.0
+drr_grid,a03_b02,validation,3,0.0,0.0
+drr_grid,a03_b02,test,58,0.0,0.0
+nersi_profile,a04_b02,validation,3,0.0,0.0
+nersi_profile,a04_b02,test,58,0.0,0.0
+ccnet5d_grid,a02_b05,validation,3,0.0,0.0
+ccnet5d_grid,a02_b05,test,58,0.0,0.0
+regsi_real,a05_b04,validation,3,0.0,0.0
+regsi_real,a05_b04,test,58,0.0,0.0

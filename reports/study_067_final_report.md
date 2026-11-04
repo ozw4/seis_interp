@@ -262,6 +262,7 @@ seed の学習時間は解析の cost 表に含まれていません。cost 表�
 9. **diverged な評価 seed の扱い**：3 seed がそろわない対比の平均・CI・t 区間と、その族の Holm p を「算出不能」と表示する規則は、設計書にはありません。launch 前の decisions（3完了未満の平均・SD を公表しない）と、解析凍結時の decisions（欠けた箇所の表示。「解析規則の変更ではない」と位置づけ）に記録しました。本番では diverged が0件で、発動していません。
 10. **設計書の記述の不正確さ（ReGSI の dilation の時間幅）**：設計書 (5) の6（README と decisions にも同じ文）は「grid の値は sample 単位」とし、「dilation 6 は FORGE で 24 ms、C3 で 48 ms」としています。CCNet の time dilation はこのとおりです。しかし ReGSI の dilation は2倍に間引いた latent frame 上で効くため、ReGSI の d=6 は FORGE で 48 ms、C3 で 96 ms です。grid の値と実行には影響しない、記述だけの問題です（付録 A-1）。
 11. **clip 発動率の事前の値**：設計書 (2) の「C3 の S1 で平均 0.53%・最大 1.26%、FORGE で 0.01% 以下」は study_064・study_066 の値でした。本番の S1 25 cell では、C3 が平均 0.46%・最大 0.68%、FORGE が平均 0.009%・最大 0.046% で、FORGE の6 cell が 0.01% を超えました（付録 A-1）。
+12. **ギャザー比較図の追加**：ギャザー図は登録した図の一覧になく、test の結果を見た後にユーザーの依頼で追加しました。表示する seed（最初の評価 seed 7321）と断面（grid の中心）は振幅を見ずに決めており、選択・数値・判定には影響しません。
 
 ## 11. 本文に書く注意
 
@@ -274,6 +275,7 @@ seed の学習時間は解析の cost 表に含まれていません。cost 表�
 
 - 主解析：`results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/`（表、図、manifest）。派生 per-trace parquet（316 file、約 444 MiB）と bootstrap 重み（npz）は Git に入れていません。README の command を新しい出力先（`--output`）で実行すると再生成されます（既存の出力先には書き込めません）。重みは RNG 670703 から決定的に作られます。感度の集計はこの2つを読むため、感度を再現するときは先に主解析を再生成します。Git に入れた `cost.csv` と `search_scores.csv`（各 dataset 版を含む6 file）は、run の path を絶対 path からリポジトリ相対 path に置き換えています（値は変えていません）。
 - 感度：`results/study_067_forge_c3_common_grid/20261103T233134Z_ba805bd26f6a_sensitivity/`
+- ギャザー比較図：`results/study_067_forge_c3_common_grid/20261104T011853Z_35d86916bcc7_gathers/`（[README](../results/study_067_forge_c3_common_grid/20261104T011853Z_35d86916bcc7_gathers/README.md)）。選択 cell の評価 seed 7321 の test 予測を、study_042 / study_060 と同じ体裁で示します（C3 は3断面、FORGE は4ギャザー × 物理振幅・trace RMS 版）。可視化のみで、表示した trace の SNR は保存済みの score と一致します。1200 dpi の PNG / PDF は Git に入れず、README の command で再生成できます。
 - 再現 command は [study README](../studies/study_067_forge_c3_common_grid/README.md) にあります。
 - 本番 run：`runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces`（C3）、`…/20261024T110745841828Z_5ad36bdb74fd_forge`（FORGE）
 

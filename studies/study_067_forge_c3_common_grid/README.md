@@ -29,6 +29,16 @@ nice -n 19 .venv/bin/python scripts/evaluate_study067_sensitivity.py \
   --output results/study_067_forge_c3_common_grid/20261103T233134Z_ba805bd26f6a_sensitivity
 ```
 
+ギャザー比較図（選択 cell・評価 seed 7321・幾何だけで決めた中心断面。可視化のみ）は次で出力する。表示した trace の SNR が各 run の保存済み per-trace score と一致することを出力前に検査する。説明は [出力の README](../../results/study_067_forge_c3_common_grid/20261104T011853Z_35d86916bcc7_gathers/README.md)。
+
+```bash
+CUDA_VISIBLE_DEVICES='' OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+nice -n 19 .venv/bin/python scripts/export_study067_gathers.py \
+  --c3 runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces \
+  --forge runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge \
+  --output results/study_067_forge_c3_common_grid/20261104T011853Z_35d86916bcc7_gathers
+```
+
 ReGSI（提案法）、CCNet5D、profile-wise NeRSI、POCS、DRR を、各手法につき両 dataset で同じ二軸の探索により比較する。現在は実行仕様を準備した段階であり、本 study の比較結果は未確定。POCS は第2弾 P-1 の K1 を両 dataset に採用し、ReGSI は R-1 を通過した V3 を維持する。
 
 ReGSI P2（k=2、dilations `[1,2]`）の validation mean trace SNR は baseline / V1 / V2 / V3 の順に FORGE 1.8990 / 2.2110 / 2.7100 / 3.0070 dB、C3 18.8600 / 19.1400 / 19.1400 / 19.0700 dB。V3 は FORGE +1.1080 dB、C3 +0.2100 dB で、事前規則（FORGE ΔSNR ≥ +0.2 dB、C3 ΔSNR ≥ −0.2 dB を満たすうち FORGE 改善最大）により採用する。全 25 候補は 346,885 parameters（363,269 比 −4.5102%、既存の ±5% tolerance 内）を共有する。数値は提示された丸め値である。
