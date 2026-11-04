@@ -1,0 +1,11 @@
+dataset,method,metric,status,scored_configurations,diverged_configurations,bootstrap_inbag_mean,bootstrap_oob_mean,optimism_mean,replicates_with_oob,replicates_without_oob,definition
+forge,regsi_real,relative_mse,available,25,0,0.5221847090786592,0.5250498609473776,0.002865151868718474,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,regsi_real,snr_db,available,25,0,3.3410964037968545,3.3192284010422894,0.021868002754564977,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,ccnet5d_grid,relative_mse,available,25,0,0.703472485130936,0.705764345142815,0.0022918600118790222,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,ccnet5d_grid,snr_db,available,25,0,1.8100368148021884,1.798564832588356,0.011471982213832327,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,nersi_profile,relative_mse,available,25,0,0.942656537386301,0.9426450802342957,-1.1457152005436111e-05,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,nersi_profile,snr_db,available,25,0,0.37012089173546125,0.37111896419749624,-0.0009980724620349542,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,pocs_grid,relative_mse,available,25,0,0.795656886726762,0.7966927547587296,0.0010358680319673816,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,pocs_grid,snr_db,available,25,0,1.1664502312915157,1.1614149954935855,0.005035235797930266,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,drr_grid,relative_mse,available,25,0,0.7858196080544343,0.7858961505966812,7.654254224683825e-05,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells
+forge,drr_grid,snr_db,available,25,0,1.234554655686823,1.233094790019673,0.0014598656671499586,10000,0,S1 source-cell bootstrap selection in bag; evaluation on undrawn cells

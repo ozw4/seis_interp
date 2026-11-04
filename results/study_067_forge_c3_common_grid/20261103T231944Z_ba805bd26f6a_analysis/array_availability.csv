@@ -1,0 +1,4 @@
+run_type,missing_array,available,minimal_fix
+fresh neural EMA shadow,shadow predictions/weights are not saved,validation/test scalar metrics in ema_shadow_metrics,a future run could save shadow predictions and cell_ids; no production code changed
+imported S1 without shadow metrics,original run did not save EMA shadow predictions or metrics,primary saved prediction and validation metrics,report missing; recovering historical shadow predictions requires retained weights or a future rerun
+classical,EMA is not applicable,primary saved prediction,none

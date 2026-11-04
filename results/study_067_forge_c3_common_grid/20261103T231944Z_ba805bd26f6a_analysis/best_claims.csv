@@ -1,0 +1,3 @@
+dataset,regsi_best_snr,wording
+c3,True,SNR では最良、relMSE でも優位
+forge,True,SNR では最良、relMSE でも優位

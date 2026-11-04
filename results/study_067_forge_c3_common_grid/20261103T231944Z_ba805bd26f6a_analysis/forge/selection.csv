@@ -1,0 +1,6 @@
+dataset,method,candidate_id,axis_a,axis_b,validation_relmse,grid_edge,s1_candidates,s1_diverged,s1_imported,spearman_rho,best_snr_id
+forge,regsi_real,a05_b04,6,5,0.5226487785464528,True,25,0,1,0.9784615384615385,a05_b04
+forge,ccnet5d_grid,a02_b05,"[4, 12, 4, 12]",6,0.7041463991827055,True,25,0,1,0.9938461538461538,a02_b05
+forge,nersi_profile,a04_b02,0.03,1.075,0.9425649713411244,False,25,0,1,0.8776923076923077,a04_b02
+forge,pocs_grid,a04_b01,192,"[2, 8]",0.7958516144040593,True,25,0,25,0.9961538461538462,a04_b01
+forge,drr_grid,a03_b02,18,"[4, 8, 4, 8]",0.7858818420938829,False,25,0,1,0.9930769230769231,a04_b02
