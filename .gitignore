@@ -49,6 +49,9 @@ data/external/**
 # Generated trace tables and arrays are written here.
 data/interim/
 data/processed/
+# Derived per-trace tables and bootstrap weights; analysis scripts regenerate them.
+results/**/*.parquet
+results/**/*.npz
 
 # Machine-generated runs
 runs/**
