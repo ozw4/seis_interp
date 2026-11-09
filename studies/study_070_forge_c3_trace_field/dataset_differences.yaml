@@ -1,0 +1,61 @@
+inputs:
+  spatial_shape.0: C3 と FORGE の取得格子の source line 数が異なる。
+  time_sample_count: C3 crop と FORGE 4 ms trace の時間長が異なる。
+  sample_interval_us: C3 は 8 ms、FORGE は anti-alias decimation 後の 4 ms。
+  preprocessing.amplitude_scaling: FORGE は既存契約の trace_oracle、C3 は observed_global_rms。
+  preprocessing.trace_rms: FORGE の oracle scalar 境界でのみ trace RMS を使用。
+  preprocessing.alignment: C3 は整列しない。
+  preprocessing.alignment.velocity_m_per_s: FORGE は既存の 500 m/s 幾何整列。
+  boundary_handling.natural_missing: FORGE の source-line / canvas 境界と自然欠損の扱いを明示する。C3
+    も同じ unknown padding 実装。
+  candidate_id: 取得 dataset / crop の固有 ID と eligible / natural-missing cell 数。
+  dataset_id: 取得 dataset / crop の固有 ID と eligible / natural-missing cell 数。
+  device: 実行場所のみ。実際の neural method は両 dataset とも auto を使用。
+  eligible_trace_count: 取得 dataset / crop の固有 ID と eligible / natural-missing cell
+    数。
+  evaluation.primary: FORGE は取得 QC に基づく clean_target / all_eligible を区別する。C3 は全対象を採点。
+  evaluation.primary_domain: FORGE は取得 QC に基づく clean_target / all_eligible を区別する。C3
+    は全対象を採点。
+  evaluation.recompute_atol: FORGE は取得 QC に基づく clean_target / all_eligible を区別する。C3
+    は全対象を採点。
+  evaluation.recompute_rtol: FORGE は取得 QC に基づく clean_target / all_eligible を区別する。C3
+    は全対象を採点。
+  evaluation.secondary_domain: FORGE は取得 QC に基づく clean_target / all_eligible を区別する。C3
+    は全対象を採点。
+  evaluation.test_rms_usage: FORGE は取得 QC に基づく clean_target / all_eligible を区別する。C3
+    は全対象を採点。
+  mask_id: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed は共通。
+  mask_seed: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed は共通。
+  mask_study_id: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed は共通。
+  missing_fraction: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed は共通。
+  natural_missing_cell_count: 取得 dataset / crop の固有 ID と eligible / natural-missing
+    cell 数。
+  observed_trace_count: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed は共通。
+  test_trace_count: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed は共通。
+  time_sampling.decimation_factor: FORGE だけ native 1 ms から anti-alias decimation で
+    4 ms へ変換。
+  time_sampling.native_sample_count: FORGE だけ native 1 ms から anti-alias decimation
+    で 4 ms へ変換。
+  time_sampling.native_sample_interval_us: FORGE だけ native 1 ms から anti-alias decimation
+    で 4 ms へ変換。
+  trace_split.search_seed: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed
+    は共通。
+  validation_holdout.mask_id: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed
+    は共通。
+  validation_holdout.mask_seed: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価
+    seed は共通。
+  validation_study_id: 既存 S1 の assignment を厳密保存する dataset 固有の mask 契約。評価 seed は共通。
+methods:
+  inr_real:
+    model.time_sample_count: C3 crop と FORGE 4 ms trace の時間長が異なる。実行時は canvas_method_config
+      が整列 canvas 長へ上書きする。
+    model.hidden_width: 唯一の canvas 適応。出力写像の大きさが canvas で決まる（C3 384 / FORGE 2172）ため、層数・Fourier
+      成分数・kernel・活性を同一に保ったまま hidden 幅だけを合わせ、同一 target 363269 ±5% を両 dataset で満たす（C3
+      249 → 362,679 / −0.1624%、FORGE 126 → 364,296 / +0.2827%）。
+execution:
+  cuda_execution: dataset ごとの測定値と明示 margin で admission 予算を決める。FORGE CCNet の現行 17 /
+    17 / 17 / 30 / 64 GiB は暫定下限であり、fresh training / prediction の C-0 実測後に max(現行値,
+    ceil(最大 reserved GiB) + 2) とする。
+  method_execution: 候補の priority と CPU process 数だけであり、選択規則と手法設定には影響しない。
+  reference_experiment: FORGE の入力と S1 cell ID 検証用の既存 run。
+  visualization: dataset 固有の表示位置と時間範囲。
