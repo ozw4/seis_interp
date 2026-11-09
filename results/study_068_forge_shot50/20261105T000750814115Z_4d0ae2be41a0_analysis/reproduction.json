@@ -1,0 +1,109 @@
+{
+  "study_id": "study_068_forge_shot50",
+  "run": "runs/study_068_forge_shot50/20261105T000750814115Z_4d0ae2be41a0",
+  "git_commit": "4d0ae2be41a049a4ac03fbcae59ad2c8ba679c87",
+  "dirty_worktree": true,
+  "source_snapshot": "runs/study_068_forge_shot50/20261105T000750814115Z_4d0ae2be41a0/source",
+  "source_snapshot_hash": "8dafaec13319df09b3d828ca08713597b082cbafb2bcfd18da470ab50a694be5",
+  "source_snapshot_hash_definition": "SHA256 of UTF-8 json.dumps(source artifact hash mapping, sort_keys=True, separators=(comma,colon))",
+  "experiment_hash": "3bdb4b9a43cb991f0a3da892d1f6d5912ec3a3e6ec54529749c97c40f0ec7f64",
+  "render_source_sha256": "b2ccd79634c54551b44c814bffb9e3ec0b54735406e372ea7782714b6539a869",
+  "seed": 7301,
+  "phase": 0,
+  "amplitude_scaling": "trace_oracle",
+  "input_hashes": {
+    "input/gather_selection.json": "01119aa3956136cbe9760bb67f90fdbc5a47ebd4d6e0dfb8da31ea82cf3159eb",
+    "input/grid_geometry.parquet": "d5a625d5910af8acb151e734cfb4df5373bc9e8e5de81e7e2645f8a36a469776",
+    "input/manifest.parquet": "87567a64fbbd6bf16ee6644711e2847979afcb2fd4a7f910e7732a7c8b2002cf",
+    "input/mask_counts.json": "37605f5d08253228dbc62a20979312f1b8179dcea2e3eae3ea42cea5e3f1cc75",
+    "input/observed_waveforms.npy": "252475c3db935a3d238800a629313fc73a81f5460398a22ad3aaa1a25e4a34a0",
+    "input/partition.parquet": "792e9a829afafd2250209b73515be40fbdc673bc08560bdd960d64bed0b2c918",
+    "input/raw_input_hashes.json": "93fe4a2be4350c0fa3de74a6ffaaf36edc51391783cb4ba89f5bb45a38d8adbc",
+    "input/real_geometry.parquet": "f5225c4e3e3690a3194aec285e8ca942951cfdd2f3e27ba0abe596a1ac78a02d",
+    "input/trace_scales.parquet": "293841f2fbf301f7cf3158144cab66788abec6d36b3a8decffff9006170dd16b",
+    "input/waveforms.npy": "ed3e78c982de7bff0bdca3f7c8e6c114d59299e4dc464de8de0af408b476cf23"
+  },
+  "methods": {
+    "regsi_real": {
+      "status": "completed",
+      "manifest_sha256": "1b1341ccba73b8b370adc24e7d7e7d0f5de48d59f9e6a53d6e90320e92321a19",
+      "prediction.npy": "bf4fbcb9d74f67c899400c5a515a3e85771f364090ad18e99d058e96a56e2642",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "d872ddce448d48bb3ceb56c93a18e2fc459b4d62aa38e64b85784ce58b8cba84"
+    },
+    "ccnet5d_grid": {
+      "status": "completed",
+      "manifest_sha256": "2b8d941880e55a4faf3276a4ae891ec514002f2382564896d5d0d57082ec0854",
+      "prediction.npy": "b570a3a5b6052ba5a1b4eaea1235d2373d90fcdcb1154da99b13ad80c4047276",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "a5f12f622d87465811e66329f321d049e67e9d58aa73fd79054297799b2fd836"
+    },
+    "nersi_profile": {
+      "status": "completed",
+      "manifest_sha256": "406c46926ea91d71efa161b96c8714427297e113cdd73c4c1ec987097d1aeec0",
+      "prediction.npy": "3bf6be4b61a09f2a8052c3b4de649ffe7e5ec1a19b706c7765af5981262c803b",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "ff2b3c4361c5afffb5c7b518f2b8650d33027591f8a5d6f56f58751c60aa6a11"
+    },
+    "pocs_grid": {
+      "status": "completed",
+      "manifest_sha256": "fba32dfeb476daf41ef44c786db7f96dbb746bd7215deb38ae9b4be91f6f2fe1",
+      "prediction.npy": "33413f40d156d70142b3773f696fbd5ac3fc2f652adfc0c162bb5ba864b82277",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "fc3025b849f784bc5f8fcc22dbb01fb713e822efd01a8aaea33c6c914d2ffe74"
+    },
+    "drr_grid": {
+      "status": "completed",
+      "manifest_sha256": "539acd0632d7294bc21b1214454a159ea8cbaba3ee8bc4cd738ae8b0cede0626",
+      "prediction.npy": "b010f72ce3fe5f7dc63e9c7a15f55917f4e3d210c00f57402ca0668845fd2d55",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "8e6c4758461f2436b4769d90e93298000030ba270e77060a02a9bdd3b30fec94"
+    }
+  },
+  "reference_resolved_config_comparison": {
+    "regsi_real": {
+      "reference": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/regsi_real/S1/a05_b04/config.resolved.yaml",
+      "reference_sha256": "896eaa87872ef15c2bdc856565f5d72f20297554fb84dd39160b000de436d3bd",
+      "allowed_differences": {
+        "device": {
+          "reference": "cuda:1",
+          "new": "cuda:0"
+        },
+        "training.inner_mask_fraction": {
+          "reference": 0.24594981538693392,
+          "new": 0.2474059003051882
+        }
+      },
+      "all_other_resolved_values_equal": true
+    },
+    "ccnet5d_grid": {
+      "reference": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/ccnet5d_grid/S1/a02_b05/config.resolved.yaml",
+      "reference_sha256": "d9352d056640112c01d444d5486056a007c0e2d2bbdf85f6073dbfca2637ddcb",
+      "allowed_differences": {
+        "device": {
+          "reference": "cuda:0",
+          "new": "cuda:1"
+        }
+      },
+      "all_other_resolved_values_equal": true
+    },
+    "nersi_profile": {
+      "reference": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/nersi_profile/S1/a04_b02/config.resolved.yaml",
+      "reference_sha256": "ff2b3c4361c5afffb5c7b518f2b8650d33027591f8a5d6f56f58751c60aa6a11",
+      "allowed_differences": {},
+      "all_other_resolved_values_equal": true
+    },
+    "pocs_grid": {
+      "reference": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/pocs_grid/S1/a04_b01/config.resolved.yaml",
+      "reference_sha256": "fc3025b849f784bc5f8fcc22dbb01fb713e822efd01a8aaea33c6c914d2ffe74",
+      "allowed_differences": {},
+      "all_other_resolved_values_equal": true
+    },
+    "drr_grid": {
+      "reference": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/drr_grid/S1/a03_b02/config.resolved.yaml",
+      "reference_sha256": "8e6c4758461f2436b4769d90e93298000030ba270e77060a02a9bdd3b30fec94",
+      "allowed_differences": {},
+      "all_other_resolved_values_equal": true
+    }
+  }
+}

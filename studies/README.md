@@ -107,6 +107,10 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_067_forge_c3_common_grid](study_067_forge_c3_common_grid/README.md): prepared specification — C3 / FORGE 共通 5×5 grid、validation-only S1、全手法 barrier と 3-seed 評価。POCS は 16 反復 + receiver [4,8]、ReGSI は P2 V3（inner mask 0.25、node Fourier 0）を両 dataset に採用済み。
 
+- [study_068_forge_shot50](study_068_forge_shot50/README.md): completed — study_067 の FORGE 選択設定を periodic whole-shot 50% へ移した固定設定5手法比較。標準5手法は全て完了。ReGSI 1.2758 dB、CCNet5D −0.5667 dB、profile NeRSI / POCS / DRR は approximately 0 dB。1 mask・1 model seed の記述的比較。
+
+- [study_069_forge_random_shot50](study_069_forge_random_shot50/README.md): completed — 同じ選択設定を random whole-shot 50%（seed 7302）へ移した固定設定5手法比較。標準5手法は全て予測・採点を完了し、失敗・未実行は0件。ReGSI 2.5702 dB、CCNet5D 1.2157 dB、DRR 1.0033 dB、POCS 0.7105 dB、profile NeRSI は approximately 0 dB。periodic の study_068 とは独立した結果として保持する。
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.

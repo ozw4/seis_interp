@@ -23,6 +23,7 @@ from seis_interp.data.forge_trace_experiment import (
     read_forge_trace_targets,
 )
 from seis_interp.evaluation.forge_mvp_metrics import evaluate_traces, validate_predictions
+from seis_interp.evaluation.forge_shot_results import finalize_forge_shot_experiment
 from seis_interp.evaluation.trace_snr import trace_snr_db
 from seis_interp.processing.c3_region_search import resolve_c3_candidate
 from seis_interp.training.cuda_run_slot import cuda_run_slot
@@ -73,27 +74,45 @@ def run_forge_trace_method(repo: Path, experiment: Path, method: str):
 
                 record = execute_forge_trace_method(repo, experiment, method, report)
             state.update(status=record["status"], phase="completed", metrics=record["metrics"])
-            summarize_forge_trace_experiment(experiment)
+            if contract.get("mask_family") not in ("periodic_shot", "random_shot"):
+                summarize_forge_trace_experiment(experiment)
             return record
         except BaseException as error:
             state.update(status="failed", failure_reason=f"{type(error).__name__}: {error}")
+            if contract.get("mask_family") in ("periodic_shot", "random_shot"):
+                manifest = experiment / "method_runs" / method / "manifest.json"
+                if not manifest.exists():
+                    write_json(
+                        manifest,
+                        {
+                            **state,
+                            "ended_at": utc_now(),
+                            "artifacts": {},
+                            "metrics": {},
+                            "test_scoring_calls": 0,
+                        },
+                    )
             raise
         finally:
             state["updated_at"] = utc_now()
             write_forge_worker_state(path, state)
+            if contract.get("mask_family") in ("periodic_shot", "random_shot"):
+                finalize_forge_shot_experiment(experiment)
 
 
 def execute_forge_trace_method(repo, experiment, method, progress=None):
     """Finalize the complete prediction before performing either scoring pass."""
+    contract = yaml.safe_load((experiment / "study/config.yaml").read_text())
+    whole_shot = contract.get("mask_family") in ("periodic_shot", "random_shot")
     output = experiment / "method_runs" / method
     if output.exists():
         record = json.loads((output / "manifest.json").read_text())
-        if record["status"] != "completed":
+        if record["status"] != "completed" and not (whole_shot and record["status"] == "predicted"):
             raise ValueError("an unfinished method run is never overwritten")
         verify_hashes(output, record["artifacts"])
         return record
     inputs, config, partition = load_forge_trace_inputs(experiment, method)
-    contract = yaml.safe_load((experiment / "study/config.yaml").read_text())
+    nominal_mask = config.get("training", {}).get("inner_mask_fraction")
     config = resolve_c3_candidate(
         config, len(inputs.observed_cells), contract["matched_training"]["loss_traces_per_update"]
     )
@@ -109,6 +128,13 @@ def execute_forge_trace_method(repo, experiment, method, progress=None):
         "test_scoring_calls": 0,
         "metrics": {},
     }
+    if whole_shot:
+        record["selection_source"] = contract["fixed_settings"][method]
+        if nominal_mask is not None:
+            record["inner_mask_fraction"] = {
+                "nominal": nominal_mask,
+                "effective": config["training"]["inner_mask_fraction"],
+            }
     write_json(output / "manifest.json", record)
 
     def report(message):
@@ -141,6 +167,10 @@ def execute_forge_trace_method(repo, experiment, method, progress=None):
         pd.DataFrame(result.history).to_csv(output / "history.csv", index=False)
         record.update(diagnostics=result.diagnostics, prediction_finalized_at=utc_now())
         write_json(output / "manifest.json", record)
+        if whole_shot:
+            record["status"] = "predicted"
+            report("prediction finalized; waiting for all method outcomes before test scoring")
+            return record
         positions = pd.Index(result.cell_ids)
         for domain in ("validation", "test"):
             rows, targets = read_forge_trace_targets(experiment, domain)
@@ -183,7 +213,7 @@ def execute_forge_trace_method(repo, experiment, method, progress=None):
             for path in sorted(output.iterdir())
             if path.is_file() and path.name != "manifest.json"
         }
-        write_json(output / "manifest.json", record)
+        write_forge_worker_state(output / "manifest.json", record)
         if record["status"] == "completed":
             for path in output.iterdir():
                 if path.is_file():
@@ -195,6 +225,9 @@ def execute_forge_trace_method(repo, experiment, method, progress=None):
 
 
 def summarize_forge_trace_experiment(experiment):
+    contract = yaml.safe_load((experiment / "study/config.yaml").read_text())
+    if contract.get("mask_family") in ("periodic_shot", "random_shot"):
+        return finalize_forge_shot_experiment(experiment)
     workers = experiment / "workers"
     workers.mkdir(exist_ok=True)
     with (workers / "summary.lock").open("a") as lock:
@@ -239,7 +272,9 @@ def launch_forge_trace_experiment(repo: Path, experiment: Path):
             process = subprocess.Popen(
                 [
                     sys.executable,
-                    str(repo / "scripts/forge_trace_experiment.py"),
+                    str(experiment / "source/scripts/forge_trace_experiment.py")
+                    if (experiment / "source/scripts/forge_trace_experiment.py").is_file()
+                    else str(repo / "scripts/forge_trace_experiment.py"),
                     "worker",
                     "--experiment",
                     str(experiment),

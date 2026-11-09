@@ -1,0 +1,167 @@
+{
+  "study_id": "study_068_forge_shot50",
+  "run": "runs/study_068_forge_shot50/20261105T000750814115Z_4d0ae2be41a0",
+  "experiment_hash": "3bdb4b9a43cb991f0a3da892d1f6d5912ec3a3e6ec54529749c97c40f0ec7f64",
+  "render_source_sha256": "b2ccd79634c54551b44c814bffb9e3ec0b54735406e372ea7782714b6539a869",
+  "input_hashes": {
+    "input/gather_selection.json": "01119aa3956136cbe9760bb67f90fdbc5a47ebd4d6e0dfb8da31ea82cf3159eb",
+    "input/grid_geometry.parquet": "d5a625d5910af8acb151e734cfb4df5373bc9e8e5de81e7e2645f8a36a469776",
+    "input/manifest.parquet": "87567a64fbbd6bf16ee6644711e2847979afcb2fd4a7f910e7732a7c8b2002cf",
+    "input/mask_counts.json": "37605f5d08253228dbc62a20979312f1b8179dcea2e3eae3ea42cea5e3f1cc75",
+    "input/observed_waveforms.npy": "252475c3db935a3d238800a629313fc73a81f5460398a22ad3aaa1a25e4a34a0",
+    "input/partition.parquet": "792e9a829afafd2250209b73515be40fbdc673bc08560bdd960d64bed0b2c918",
+    "input/raw_input_hashes.json": "93fe4a2be4350c0fa3de74a6ffaaf36edc51391783cb4ba89f5bb45a38d8adbc",
+    "input/real_geometry.parquet": "f5225c4e3e3690a3194aec285e8ca942951cfdd2f3e27ba0abe596a1ac78a02d",
+    "input/trace_scales.parquet": "293841f2fbf301f7cf3158144cab66788abec6d36b3a8decffff9006170dd16b",
+    "input/waveforms.npy": "ed3e78c982de7bff0bdca3f7c8e6c114d59299e4dc464de8de0af408b476cf23"
+  },
+  "mask": {
+    "mask_id": "periodic_shot50_phase0",
+    "period": 2,
+    "observed_phase": 0,
+    "by_line": [
+      {
+        "source_grid_line": 0,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 1,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 2,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4095,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 3,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 4,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 5,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      }
+    ],
+    "observed_shot_count": 96,
+    "observed_trace_count": 24575,
+    "test_shot_count": 96,
+    "test_trace_count": 24576,
+    "eligible_trace_missing_fraction": 0.5000101727330064,
+    "natural_missing_cell_count": 1
+  },
+  "selected_gathers": {
+    "internal": 79,
+    "edge": 95
+  },
+  "selection_rule": "geometry only: central line, central missing point and missing edge",
+  "fixed_settings": {
+    "regsi_real": {
+      "candidate_id": "a05_b04",
+      "base": "studies/study_067_forge_c3_common_grid/forge/regsi_real.yaml",
+      "grid": "studies/study_067_forge_c3_common_grid/grid.yaml",
+      "selection_table": "results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv",
+      "selection": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/regsi_real_selection.json"
+    },
+    "ccnet5d_grid": {
+      "candidate_id": "a02_b05",
+      "base": "studies/study_067_forge_c3_common_grid/forge/ccnet5d_grid.yaml",
+      "grid": "studies/study_067_forge_c3_common_grid/grid.yaml",
+      "selection_table": "results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv",
+      "selection": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/ccnet5d_grid_selection.json"
+    },
+    "nersi_profile": {
+      "candidate_id": "a04_b02",
+      "base": "studies/study_067_forge_c3_common_grid/forge/nersi_profile.yaml",
+      "grid": "studies/study_067_forge_c3_common_grid/grid.yaml",
+      "selection_table": "results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv",
+      "selection": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/nersi_profile_selection.json"
+    },
+    "pocs_grid": {
+      "candidate_id": "a04_b01",
+      "base": "studies/study_067_forge_c3_common_grid/forge/pocs_grid.yaml",
+      "grid": "studies/study_067_forge_c3_common_grid/grid.yaml",
+      "selection_table": "results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv",
+      "selection": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/pocs_grid_selection.json"
+    },
+    "drr_grid": {
+      "candidate_id": "a03_b02",
+      "base": "studies/study_067_forge_c3_common_grid/forge/drr_grid.yaml",
+      "grid": "studies/study_067_forge_c3_common_grid/grid.yaml",
+      "selection_table": "results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv",
+      "selection": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/drr_grid_selection.json"
+    }
+  },
+  "method_artifacts": {
+    "regsi_real": {
+      "status": "completed",
+      "manifest_sha256": "1b1341ccba73b8b370adc24e7d7e7d0f5de48d59f9e6a53d6e90320e92321a19",
+      "prediction.npy": "bf4fbcb9d74f67c899400c5a515a3e85771f364090ad18e99d058e96a56e2642",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "d872ddce448d48bb3ceb56c93a18e2fc459b4d62aa38e64b85784ce58b8cba84"
+    },
+    "ccnet5d_grid": {
+      "status": "completed",
+      "manifest_sha256": "2b8d941880e55a4faf3276a4ae891ec514002f2382564896d5d0d57082ec0854",
+      "prediction.npy": "b570a3a5b6052ba5a1b4eaea1235d2373d90fcdcb1154da99b13ad80c4047276",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "a5f12f622d87465811e66329f321d049e67e9d58aa73fd79054297799b2fd836"
+    },
+    "nersi_profile": {
+      "status": "completed",
+      "manifest_sha256": "406c46926ea91d71efa161b96c8714427297e113cdd73c4c1ec987097d1aeec0",
+      "prediction.npy": "3bf6be4b61a09f2a8052c3b4de649ffe7e5ec1a19b706c7765af5981262c803b",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "ff2b3c4361c5afffb5c7b518f2b8650d33027591f8a5d6f56f58751c60aa6a11"
+    },
+    "pocs_grid": {
+      "status": "completed",
+      "manifest_sha256": "fba32dfeb476daf41ef44c786db7f96dbb746bd7215deb38ae9b4be91f6f2fe1",
+      "prediction.npy": "33413f40d156d70142b3773f696fbd5ac3fc2f652adfc0c162bb5ba864b82277",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "fc3025b849f784bc5f8fcc22dbb01fb713e822efd01a8aaea33c6c914d2ffe74"
+    },
+    "drr_grid": {
+      "status": "completed",
+      "manifest_sha256": "539acd0632d7294bc21b1214454a159ea8cbaba3ee8bc4cd738ae8b0cede0626",
+      "prediction.npy": "b010f72ce3fe5f7dc63e9c7a15f55917f4e3d210c00f57402ca0668845fd2d55",
+      "cell_ids.npy": "2722a930325dca6eed213d1a8c4e5be4dacc392253baf417d0a91248980b2862",
+      "config.resolved.yaml": "8e6c4758461f2436b4769d90e93298000030ba270e77060a02a9bdd3b30fec94"
+    }
+  },
+  "display_clip": 0.009943929743021804,
+  "artifacts": {
+    "acquisition_mask.png": "a3c8af1d8ecc291d8bc16a4a553d1edba418e41e0eec9a6afcde77bd4a09e10c",
+    "gather_edge.png": "efb6ecedc53a4ca171be0ab0ecebd171bff1af806004e42b4be64f0e44eb1d24",
+    "gather_internal.png": "afeb625b7c1bbf2646be5f2a2c53d28eab2fb1ac138463093ca369eed7682945",
+    "outcomes.json": "fffee610127cf9576519abb89fe6d6ad260e3a35934dcb96f825584faf70526e",
+    "paired_shot_differences.csv": "98cd0ff4e4cdc4ba8cf3a29ac7e39d846e5a1225af303d888eda5fa41c938dee",
+    "per_shot.csv": "74e9f854071f2597177e0ed0cbab4f882f64eac798c941e25a33a7ae28cf0b8d",
+    "shot_equal_weight.csv": "ec5f16bbbd67e813740fd9a18bab62f96b2a969e169ea4142a98eac58bc35ed2",
+    "shot_support.csv": "8cf202cfb67b3f0624c48e1a806de99d8bc370d4298fa195884c436586b3e4ac",
+    "summary.csv": "b67722926e9385b1b26ddfa95d0f46519212522fc38ca5ce36abbca156e7b152",
+    "verification.json": "2f180e9ca7cdcc926c3556cba924b6db8a5c9bf7fd6d6f69bee86f78e00d3145",
+    "final_audit.json": "3592fb522901cb6cbb95310b5e9d05e58490ec45410fc2f247e94e24633d0b4f",
+    "reproduction.json": "92354f139b0052073065c1ef8ab159af66d7aad1d73e30856d16c4fba6957b2e"
+  }
+}

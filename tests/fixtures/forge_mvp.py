@@ -17,7 +17,7 @@ from seis_interp.processing.forge_mvp_contract import (
 )
 
 
-def tiny_forge_study(root):
+def tiny_forge_study(root, *, source_points=3):
     repository = Path(__file__).resolve().parents[2]
     script = root / "scripts/forge_m1_mvp.py"
     script.parent.mkdir(parents=True)
@@ -29,8 +29,8 @@ def tiny_forge_study(root):
     config.update(
         study_id=study.name,
         candidate_id="tiny",
-        spatial_shape=[2, 3, 2, 3],
-        eligible_trace_count=35,
+        spatial_shape=[2, source_points, 2, 3],
+        eligible_trace_count=2 * source_points * 6 - 1,
         test_trace_count=28,
         observed_trace_count=7,
         time_sample_count=9,
@@ -38,8 +38,9 @@ def tiny_forge_study(root):
     config["visualization"].update(source_cell=2, receiver_cell=2, time_range_s=[0, 0.008])
     grids, stations = {}, {}
     for role in ("source", "receiver"):
+        points = source_points if role == "source" else 3
         definition = {
-            "shape": [2, 3],
+            "shape": [2, points],
             "first_u_m": 0.0,
             "first_v_m": 0.0,
             "along_spacing_m": 50.0,
@@ -48,24 +49,25 @@ def tiny_forge_study(root):
             "direction": [1.0, 0.0],
             "normal": [0.0, 1.0],
         }
-        indices = np.column_stack(np.unravel_index(np.arange(6), (2, 3)))
+        indices = np.column_stack(np.unravel_index(np.arange(2 * points), (2, points)))
         projected = grid_coordinates(indices, definition)
         actual = projected.copy()
-        actual[:, 0] += (np.arange(6) + 1) ** 2 * (0.7 if role == "source" else 0.03)
+        actual[:, 0] += (np.arange(2 * points) + 1) ** 2 * (0.7 if role == "source" else 0.03)
         grids[role] = definition
         stations[role] = pd.DataFrame(
             {
-                "station_id": np.arange(6),
+                "station_id": np.arange(2 * points),
                 "grid_line": indices[:, 0],
                 "grid_point": indices[:, 1],
-                "cell": np.arange(6),
+                "cell": np.arange(2 * points),
                 "x_m": actual[:, 0],
                 "y_m": actual[:, 1],
                 "grid_x_m": projected[:, 0],
                 "grid_y_m": projected[:, 1],
             }
         )
-    source, receiver = np.indices((6, 6))
+    count = 2 * source_points * 6
+    source, receiver = np.indices((2 * source_points, 6))
     s, r = source.ravel(), receiver.ravel()
     mapping = pd.DataFrame(
         {
@@ -73,7 +75,7 @@ def tiny_forge_study(root):
             "trace_index": r,
             "source_id": s,
             "receiver_id": r,
-            "grid_cell": np.arange(36),
+            "grid_cell": np.arange(count),
             "source_cell": s,
             "receiver_cell": r,
             "sample_count": 9,
@@ -98,12 +100,15 @@ def tiny_forge_study(root):
             continuous_indices(xy, grids[role]) - selected[["grid_line", "grid_point"]].to_numpy(),
             axis=1,
         )
-    mapping.loc[35, ["eligible_after_fixed_qc", "header_eligible"]] = False
+    mapping.loc[count - 1, ["eligible_after_fixed_qc", "header_eligible"]] = False
     mapping.loc[2, "dc_review"] = True
     mapping.loc[3, "amplitude_review"] = True
     mapping.loc[4, "near_constant_review"] = True
     cells = pd.DataFrame(
-        {"grid_cell": np.arange(36), "retained_count": mapping.eligible_after_fixed_qc.astype(int)}
+        {
+            "grid_cell": np.arange(count),
+            "retained_count": mapping.eligible_after_fixed_qc.astype(int),
+        }
     )
     directory = root / "candidate"
     directory.mkdir()
@@ -122,9 +127,11 @@ def tiny_forge_study(root):
     (directory / "metadata.json").write_text(json.dumps({"artifacts": paths}))
     raw = root / "raw"
     raw.mkdir()
-    values = (np.sin(np.arange(9)[None, :] + np.arange(36)[:, None] * 0.1) + 0.2).astype(np.float32)
+    values = (np.sin(np.arange(9)[None, :] + np.arange(count)[:, None] * 0.1) + 0.2).astype(
+        np.float32
+    )
     lock = []
-    for i in range(6):
+    for i in range(2 * source_points):
         spec = segyio.spec()
         spec.samples, spec.format, spec.tracecount, spec.endian = np.arange(9), 5, 6, "little"
         path = raw / f"{i}.sgy"

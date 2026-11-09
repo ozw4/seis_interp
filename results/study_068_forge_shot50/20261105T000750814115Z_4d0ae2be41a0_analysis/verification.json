@@ -1,0 +1,34 @@
+{
+  "commands": [
+    {
+      "command": "ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed!"
+    },
+    {
+      "command": "ruff format --check .",
+      "exit_code": 0,
+      "result": "946 files already formatted"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 pytest -q tests/integration/test_forge_shot_experiment.py tests/integration/test_forge_trace_experiment.py tests/unit/test_forge_mvp_contract.py",
+      "exit_code": 0,
+      "result": "58 passed, 1 warning in 13.99s"
+    },
+    {
+      "command": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 pytest -q tests/integration/test_forge_shot_experiment.py::test_all_outcomes_and_predictions_precede_scoring_and_completed_runs_are_reused",
+      "exit_code": 0,
+      "result": "1 passed in 5.51s",
+      "scope": "post-training result provenance metadata"
+    }
+  ],
+  "warning": "Existing pandas FutureWarning for None/NaN equality in test_historical_mask_identities_preserve_roles_in_a_new_study",
+  "test_file_hashes": {
+    "tests/integration/test_forge_shot_experiment.py": "72dc69a4f302e3c1f4faa37d3aba6a08785433341861fc5f5fc53d0b93527996",
+    "tests/integration/test_forge_trace_experiment.py": "6b19c249b27093481e8819d73b43c735076624147062df0fa7e23d5a58187779",
+    "tests/unit/test_forge_mvp_contract.py": "db5ccb3cfb26875cc653b3a207a6251fac5c7a9c7517fad1c6eda1829849ff4d",
+    "tests/fixtures/forge_mvp.py": "d85c76f1622e7928efa075817811058d8cb11417f2caaa7de6ec4cb0a5e6c593"
+  },
+  "full_suite_run": false,
+  "post_render_test_file_hash": "247082a6453a87d649b0c7567f0649b35236e10418b0e1e6bdb6e2836c002cb4"
+}

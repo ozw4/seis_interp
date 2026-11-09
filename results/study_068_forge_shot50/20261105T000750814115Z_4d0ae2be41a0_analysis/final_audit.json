@@ -1,0 +1,52 @@
+{
+  "status": "passed",
+  "latest_prediction_finalized_at": "2026-11-05T05:28:09.068576+00:00",
+  "earliest_scored_at": "2026-11-05T05:28:11.027772+00:00",
+  "methods": {
+    "regsi_real": {
+      "prediction_shape": [
+        24576,
+        1001
+      ],
+      "zero_prediction_trace_count": 0,
+      "maximum_absolute_prediction": 3.257983684539795,
+      "manifest_sha256": "1b1341ccba73b8b370adc24e7d7e7d0f5de48d59f9e6a53d6e90320e92321a19"
+    },
+    "ccnet5d_grid": {
+      "prediction_shape": [
+        24576,
+        1001
+      ],
+      "zero_prediction_trace_count": 0,
+      "maximum_absolute_prediction": 0.6332628726959229,
+      "manifest_sha256": "2b8d941880e55a4faf3276a4ae891ec514002f2382564896d5d0d57082ec0854"
+    },
+    "nersi_profile": {
+      "prediction_shape": [
+        24576,
+        1001
+      ],
+      "zero_prediction_trace_count": 0,
+      "maximum_absolute_prediction": 0.0019148136489093304,
+      "manifest_sha256": "406c46926ea91d71efa161b96c8714427297e113cdd73c4c1ec987097d1aeec0"
+    },
+    "pocs_grid": {
+      "prediction_shape": [
+        24576,
+        1001
+      ],
+      "zero_prediction_trace_count": 24576,
+      "maximum_absolute_prediction": 0.0,
+      "manifest_sha256": "fba32dfeb476daf41ef44c786db7f96dbb746bd7215deb38ae9b4be91f6f2fe1"
+    },
+    "drr_grid": {
+      "prediction_shape": [
+        24576,
+        1001
+      ],
+      "zero_prediction_trace_count": 0,
+      "maximum_absolute_prediction": 2.7176159278496925e-07,
+      "manifest_sha256": "539acd0632d7294bc21b1214454a159ea8cbaba3ee8bc4cd738ae8b0cede0626"
+    }
+  }
+}

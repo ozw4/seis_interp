@@ -26,14 +26,27 @@ from seis_interp.processing.forge_mvp_contract import (
     make_validation_holdout,
     validate_mapping,
 )
+from seis_interp.processing.forge_shot_mask import (
+    make_periodic_shot_mask,
+    make_random_shot_mask,
+    selected_shot_gathers,
+    shot_mask_counts,
+)
 from seis_interp.processing.forge_time_sampling import native_time_contract, resample_forge_traces
 from seis_interp.processing.forge_trace_scaling import prepare_oracle_trace_scales
 from seis_interp.training.forge_mvp_methods import model_parameter_count
 
 
-def prepare_forge_trace_experiment(repo: Path, study: Path) -> Path:
+def prepare_forge_trace_experiment(repo: Path, study: Path, *, observed_phase=None) -> Path:
     """Freeze inputs once; target waveforms are read only for the authorized oracle RMS."""
     contract = yaml.safe_load((study / "config.yaml").read_text())
+    periodic = contract.get("mask_family") == "periodic_shot"
+    whole_shot = contract.get("mask_family") in ("periodic_shot", "random_shot")
+    if observed_phase is not None:
+        if not periodic or observed_phase not in (0, 1):
+            raise ValueError("phase override requires periodic shot50")
+        contract["interpolation_mask"]["observed_phase"] = observed_phase
+        contract["interpolation_mask"]["id"] = f"periodic_shot50_phase{observed_phase}"
     sources = yaml.safe_load((study / "inputs.yaml").read_text())
     if contract["preprocessing"]["amplitude_scaling"] != "trace_oracle":
         raise ValueError("this comparison requires the existing FORGE trace_oracle contract")
@@ -48,6 +61,8 @@ def prepare_forge_trace_experiment(repo: Path, study: Path) -> Path:
     }
     verify_hashes(repo, references)
     hashes.update(references)
+    verify_hashes(repo, sources.get("selection_hashes", {}))
+    hashes.update(sources.get("selection_hashes", {}))
     manifest = (
         validate_mapping(
             tables["trace_mapping"],
@@ -59,16 +74,33 @@ def prepare_forge_trace_experiment(repo: Path, study: Path) -> Path:
         .sort_values("cell_id")
         .reset_index(drop=True)
     )
-    outer = make_outer_mask(
-        manifest, {**contract, "study_id": contract.get("mask_study_id", contract["study_id"])}
-    )
-    partition = make_validation_holdout(
-        outer,
-        {**contract, "study_id": contract.get("validation_study_id", contract["study_id"])},
-    )
-    partition["role"] = partition.split.map(
-        {"observed": "train", "test": "validation", "excluded": "test"}
-    )
+    if whole_shot:
+        if contract["validation_holdout"] is not None:
+            if periodic:
+                raise ValueError(
+                    "periodic fixed comparison requires explicit validation_holdout: null"
+                )
+            raise ValueError("random fixed comparison requires explicit validation_holdout: null")
+        shot_contract = {
+            **contract,
+            "study_id": contract.get("mask_study_id", contract["study_id"]),
+        }
+        partition = (
+            make_periodic_shot_mask(manifest, shot_contract)
+            if periodic
+            else make_random_shot_mask(manifest, shot_contract)
+        )
+    else:
+        outer = make_outer_mask(
+            manifest, {**contract, "study_id": contract.get("mask_study_id", contract["study_id"])}
+        )
+        partition = make_validation_holdout(
+            outer,
+            {**contract, "study_id": contract.get("validation_study_id", contract["study_id"])},
+        )
+        partition["role"] = partition.split.map(
+            {"observed": "train", "test": "validation", "excluded": "test"}
+        )
     geometries = {mode: make_geometry(manifest, grids, mode) for mode in ("real", "grid")}
     alignment = shared_alignment(
         contract["preprocessing"]["alignment"]["velocity_m_per_s"],
@@ -76,6 +108,10 @@ def prepare_forge_trace_experiment(repo: Path, study: Path) -> Path:
         contract["sample_interval_us"] / 1e6,
     )
     canvas = contract["time_sample_count"] + alignment["max_delay_samples"]
+    reuse = sources.get("physical_reference")
+    if reuse is not None:
+        physical_hashes = verify_physical_reference(repo, reuse, contract, manifest, geometries)
+        hashes.update(physical_hashes)
     counts = {
         name: model_parameter_count(config, canvas)
         for name, config in configs.items()
@@ -90,40 +126,46 @@ def prepare_forge_trace_experiment(repo: Path, study: Path) -> Path:
     verify_hashes(repo, {sources["raw_input_lock"]: sources["raw_input_lock_sha256"]})
     inventory = {entry["path"]: entry["sha256"] for entry in json.loads(lock.read_text())}
     raw_hashes = {name: inventory[name] for name in sorted(manifest.source_file.unique())}
-    print(f"{experiment}: verifying {len(raw_hashes)} SEG-Y identities", flush=True)
-    verify_hashes(repo / sources["dataset_root"], raw_hashes)
+    if reuse is None:
+        print(f"{experiment}: verifying {len(raw_hashes)} SEG-Y identities", flush=True)
+        verify_hashes(repo / sources["dataset_root"], raw_hashes)
     for path in sorted(study.iterdir()):
         if path.is_file():
             destination = experiment / "study" / path.name
             destination.parent.mkdir(exist_ok=True)
             shutil.copyfile(path, destination)
+    if whole_shot:
+        (experiment / "study/config.yaml").write_text(yaml.safe_dump(contract, sort_keys=False))
     for path in sorted((repo / "src/seis_interp").rglob("*.py")):
         destination = experiment / "source" / path.relative_to(repo)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, destination)
+    script = repo / "scripts/forge_trace_experiment.py"
+    if script.is_file():
+        destination = experiment / "source/scripts/forge_trace_experiment.py"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(script, destination)
     write_json(experiment / "input/raw_input_hashes.json", raw_hashes)
     manifest.to_parquet(experiment / "input/manifest.parquet", index=False)
     partition.to_parquet(experiment / "input/partition.parquet", index=False)
     for mode, table in geometries.items():
         table.to_parquet(experiment / "input" / f"{mode}_geometry.parquet", index=False)
-    values = np.lib.format.open_memmap(
-        experiment / "input/waveforms.npy",
-        mode="w+",
-        dtype=np.float32,
-        shape=(len(manifest), contract["time_sample_count"]),
-    )
-    write_json(experiment / "preparation_status.json", {"status": "reading_and_resampling"})
-    for start in range(0, len(manifest), 8192):
-        rows = manifest.iloc[start : start + 8192]
-        native_values = read_selected_traces(
-            repo / sources["dataset_root"],
-            rows,
-            native["time_sample_count"],
-            native["sample_interval_us"],
+    if whole_shot:
+        write_json(
+            experiment / "input/gather_selection.json",
+            selected_shot_gathers(partition, contract["spatial_shape"]),
         )
-        values[start : start + len(rows)] = resample_forge_traces(native_values, contract)
-        print(f"FORGE preparation: {start + len(rows)}/{len(manifest)} traces", flush=True)
-    values.flush()
+        write_json(
+            experiment / "input/mask_counts.json",
+            shot_mask_counts(partition, contract["spatial_shape"]),
+        )
+    if reuse is not None:
+        shutil.copyfile(
+            repo / reuse["experiment"] / "input/waveforms.npy", experiment / "input/waveforms.npy"
+        )
+        values = np.load(experiment / "input/waveforms.npy", mmap_mode="r")
+    else:
+        values = prepare_physical_waveforms(repo, sources, contract, native, manifest, experiment)
     training = partition.role.eq("train").to_numpy()
     cells = manifest.cell_id.to_numpy()
     observed_values = np.ascontiguousarray(values[training])
@@ -145,6 +187,7 @@ def prepare_forge_trace_experiment(repo: Path, study: Path) -> Path:
         "parameter_counts": counts,
         "global_rms": observed_global_rms(observed_values),
         "input_hashes": hashes,
+        "physical_reference": reuse,
         "oracle_target_waveforms_read": int((~training).sum()),
         "target_waveform_usage": "RMS preparation and post-finalization scoring only",
         "artifacts": {
@@ -158,6 +201,66 @@ def prepare_forge_trace_experiment(repo: Path, study: Path) -> Path:
     for relative in seal["artifacts"]:
         (experiment / relative).chmod(0o444)
     return experiment
+
+
+def prepare_physical_waveforms(repo, sources, contract, native, manifest, experiment):
+    """Read and decimate physical traces without an acquisition mask."""
+    values = np.lib.format.open_memmap(
+        experiment / "input/waveforms.npy",
+        mode="w+",
+        dtype=np.float32,
+        shape=(len(manifest), contract["time_sample_count"]),
+    )
+    write_json(experiment / "preparation_status.json", {"status": "reading_and_resampling"})
+    for start in range(0, len(manifest), 8192):
+        rows = manifest.iloc[start : start + 8192]
+        native_values = read_selected_traces(
+            repo / sources["dataset_root"],
+            rows,
+            native["time_sample_count"],
+            native["sample_interval_us"],
+        )
+        values[start : start + len(rows)] = resample_forge_traces(native_values, contract)
+        print(f"FORGE preparation: {start + len(rows)}/{len(manifest)} traces", flush=True)
+    values.flush()
+    return values
+
+
+def verify_physical_reference(repo, reference, contract, manifest, geometries):
+    """Authorize only sealed physical waveforms, mapping and mask-independent geometry."""
+    directory = repo / reference["experiment"]
+    hashes = {str((directory / "experiment.json").relative_to(repo)): reference["sha256"]}
+    verify_hashes(repo, hashes)
+    seal = json.loads((directory / "experiment.json").read_text())
+    if seal["status"] != "prepared":
+        raise ValueError("physical reference is not sealed and prepared")
+    original = yaml.safe_load((directory / "study/config.yaml").read_text())
+    for key in (
+        "candidate_id",
+        "spatial_shape",
+        "axis_order",
+        "time_sample_count",
+        "sample_interval_us",
+        "time_sampling",
+        "preprocessing",
+    ):
+        if original.get(key) != contract.get(key):
+            raise ValueError(f"physical reference contract mismatch: {key}")
+    names = ["input/manifest.parquet", "input/waveforms.npy", "study/config.yaml"]
+    names += [f"input/{mode}_geometry.parquet" for mode in geometries]
+    reused = {name: seal["artifacts"][name] for name in names}
+    verify_hashes(directory, reused)
+    pd.testing.assert_frame_equal(pd.read_parquet(directory / "input/manifest.parquet"), manifest)
+    for mode, geometry in geometries.items():
+        pd.testing.assert_frame_equal(
+            pd.read_parquet(directory / f"input/{mode}_geometry.parquet"), geometry
+        )
+    values = np.load(directory / "input/waveforms.npy", mmap_mode="r")
+    if values.shape != (len(manifest), contract["time_sample_count"]) or values.dtype != np.float32:
+        raise ValueError("physical reference waveform shape/dtype mismatch")
+    return hashes | {
+        str((directory / name).relative_to(repo)): digest for name, digest in reused.items()
+    }
 
 
 def load_forge_trace_inputs(experiment: Path, method: str, *, verify_target_waveforms=True):

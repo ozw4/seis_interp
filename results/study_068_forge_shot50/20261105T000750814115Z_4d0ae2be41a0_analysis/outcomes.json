@@ -1,0 +1,35 @@
+{
+  "all_methods_completed": true,
+  "methods": {
+    "regsi_real": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-05T05:23:37.279688+00:00",
+      "scored_at": "2026-11-05T05:28:11.027772+00:00"
+    },
+    "ccnet5d_grid": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-05T01:58:35.795750+00:00",
+      "scored_at": "2026-11-05T05:28:12.056367+00:00"
+    },
+    "nersi_profile": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-05T05:28:09.068576+00:00",
+      "scored_at": "2026-11-05T05:28:13.110976+00:00"
+    },
+    "pocs_grid": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-05T01:23:07.400750+00:00",
+      "scored_at": "2026-11-05T05:28:14.083196+00:00"
+    },
+    "drr_grid": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-05T03:13:52.238514+00:00",
+      "scored_at": "2026-11-05T05:28:15.148658+00:00"
+    }
+  }
+}
