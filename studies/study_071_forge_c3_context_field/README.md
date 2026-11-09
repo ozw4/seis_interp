@@ -1,6 +1,6 @@
 # study_071: C3 / FORGE 共通 25 候補による条件付き implicit trace field
 
-Status: `prepared` — 実行仕様を凍結した段階。本 study の比較結果は未確定。
+Status: `completed` — S1 25 候補と 3 seed 評価を両 dataset で完了（失敗 0）。事前登録した床は両 dataset で達成（C3 14.4023 dB > 10、FORGE 1.4861 dB > 0.4）。
 
 ## 目的
 
@@ -52,6 +52,76 @@ codec が畳み込みなのでパラメータ数は時間長に依存せず、**
 
 admission は study_067 の C-0 規則 `max(ceil(最大 reserved GiB) + 2, 3)`。S1 と 3 seed の合計は
 C3 約 1.4 GPU-h、FORGE 約 5.1 GPU-h。
+
+## 結果
+
+生成元: [C3 run](../../runs/study_071_forge_c3_context_field/20261109T042809568788Z_766f4f10a666_traces) /
+[FORGE run](../../runs/study_071_forge_c3_context_field/20261109T042814452404Z_766f4f10a666_forge)。
+両 run で `dirty_worktree: false`、`total_runs: 28`、`target_waveforms_read: 0`、
+S1 完了後に seed ごと 1 回だけ test を採点。8 partition はすべて study_067 / study_070 と一致。
+sealed parameter 数は両 dataset とも 362,642。
+
+### S1 選択
+
+| | 採用 cell | k | base | validation relMSE | validation SNR | best-of-25 SNR | 床 | 判定 |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| C3 | `a03_b04` | 4 | 1.15 | 0.0510 | 14.4023 dB | 14.4023 dB | > 10 dB | **達成** |
+| FORGE | `a05_b01` | 16 | 1.05 | 0.7652 | 1.4861 dB | 1.4861 dB | > 0.4 dB | **達成** |
+
+ゼロ予測 gate は両 dataset で **25/25 が `passed`**（study_070 の FORGE は 25/25 が `failed`）。
+
+近傍数ごとの validation（5 base の平均）:
+
+| k | C3 relMSE | C3 SNR (dB) | C3 相関 | FORGE relMSE | FORGE SNR (dB) | FORGE 相関 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.0689 | 13.0678 | 0.9781 | 0.9031 | 0.6631 | 0.3722 |
+| 2 | 0.0624 | 13.5677 | 0.9807 | 0.8505 | 1.0037 | 0.4350 |
+| 4 | 0.0619 | 13.7495 | 0.9815 | 0.8169 | 1.2078 | 0.4743 |
+| 8 | 0.0613 | 13.7942 | 0.9819 | 0.7978 | 1.3255 | 0.4938 |
+| 16 | 0.0640 | 13.4920 | 0.9808 | 0.7900 | 1.3636 | 0.5035 |
+
+FORGE は k に対して単調、C3 は k = 4–8 で最良。
+
+### test（3 seed 7321 / 7322 / 7323、採用 cell）
+
+| | trace 数 | mean trace SNR (dB) | relMSE | global NMSE | 相関中央値 |
+|---|---:|---:|---:|---:|---:|
+| C3（all_eligible） | 104,858 | **14.2516 ± 0.1536** | 0.0540 ± 0.0026 | 0.0523 | 0.9836 |
+| FORGE（clean_target） | 34,153 | **1.4558 ± 0.0168** | 0.7679 ± 0.0029 | 1.4894 | 0.5169 |
+
+seed 別 mean trace SNR: C3 14.0743 / 14.3372 / 14.3434 dB、FORGE 1.4692 / 1.4613 / 1.4369 dB。
+
+### 採否
+
+同じ test domain・population における study_067 / study_070 の記録との対比。
+
+| FORGE test | mean trace SNR (dB) | relMSE | 相関中央値 | global NMSE |
+|---|---:|---:|---:|---:|
+| regsi_real | 3.0342 | 0.5777 | 0.7301 | 1.0628 |
+| ccnet5d_grid | 1.6010 | 0.7368 | 0.5743 | 1.1016 |
+| **cinr_real** | **1.4558** | **0.7679** | **0.5169** | **1.4894** |
+| drr_grid | 1.0910 | 0.8033 | 0.4561 | 1.0681 |
+| pocs_grid | 1.0510 | 0.8130 | 0.4532 | 1.0565 |
+| nersi_profile | 0.3126 | 0.9416 | 0.2646 | 1.0444 |
+| inr_real | 0.1011 | 1.0071 | 0.2185 | 1.0640 |
+
+| C3 test | mean trace SNR (dB) | relMSE | 相関中央値 |
+|---|---:|---:|---:|
+| regsi_real | 19.9918 | 0.0126 | 0.9951 |
+| ccnet5d_grid | 18.8614 | 0.0164 | 0.9942 |
+| drr_grid | 17.7448 | 0.0215 | 0.9921 |
+| **cinr_real** | **14.2516** | **0.0540** | **0.9836** |
+| pocs_grid | 13.8043 | 0.0587 | 0.9822 |
+| nersi_profile | 12.5611 | 0.0681 | 0.9743 |
+| inr_real | 11.3884 | 0.0941 | — |
+
+`cinr_real` を neural-implicit の代表手法として採用する。FORGE では両古典手法を上回り、
+C3 では POCS と両 weight-only field を上回る。事前登録した対比（共有 bootstrap 重み、Holm 族）は
+[`evaluation.yaml`](evaluation.yaml) の規則で別途算出する。
+
+FORGE の global NMSE 1.4894 は本比較で最大である（他手法は 1.0444–1.1016）。
+この population では全手法が 1 を超えており、`cinr_real` の誤差は高エネルギー trace に
+より強く集中している。study_070 の診断が示した短オフセット側の難しさと整合する。
 
 ## 実行
 

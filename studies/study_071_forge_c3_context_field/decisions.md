@@ -105,6 +105,46 @@ parameter tensor）に勾配が届かない。パラメータ数は変わらな�
 **理由:** 文脈は全レートで畳み込まれるので記憶は k にほぼ比例する。k=16 の FORGE で
 `parallel_candidates: 4` でも 44 GiB で、1枚 93.08 GiB の範囲内。
 
+## 2026-11-09 — 条件付き field を neural-implicit の代表手法として採用する
+
+**Status:** 採用。
+
+**Decision:** `cinr_real` を neural-implicit の代表手法として採用する。事前登録した床は両 dataset で
+達成した（C3 best-of-25 14.4023 dB > 10、FORGE 1.4861 dB > 0.4）。
+
+**Evidence:** 仮説（観測を参照することが差を埋める）は近傍数に対する単調な用量反応として確認された。
+FORGE validation は k = 1 → 16 で relMSE 0.9031 → 0.7900、mean trace SNR 0.6631 → 1.3636 dB、
+相関中央値 0.3722 → 0.5035。k = 1（最近傍1本だけ）の 0.9031 / 0.6631 dB でも study_070 の
+best-of-25（1.0033 / 0.1201 dB）と `nersi_profile`（validation relMSE 0.9426）を上回る。
+ゼロ予測 gate は両 dataset で 25/25 が `passed`（study_070 の FORGE は 25/25 が `failed`）。
+
+test 3 seed 平均での差（同じ domain・population の記録に対して）:
+
+| | C3 | FORGE |
+|---|---:|---:|
+| `cinr_real` − `inr_real`（条件付けの効果） | +2.8632 dB / relMSE −0.0401 | +1.3547 dB / relMSE −0.2392 |
+| `cinr_real` − `nersi_profile`（従来の代表手法） | +1.6905 dB / relMSE −0.0141 | +1.1432 dB / relMSE −0.1737 |
+| `regsi_real` − `cinr_real`（提案法との差） | +5.7402 dB / relMSE −0.0414 | +1.5784 dB / relMSE −0.1902 |
+
+順位は FORGE で 7 手法中 3 位（両古典手法の上、CCNet5D の下）、C3 で 4 位（POCS と両 weight-only
+field の上）。study_070 で欠けていた機構だけを変えて得られた差であり、出力単位・探索範囲・
+振幅校正の調整では到達しなかった水準である。
+
+**理由:** 比較対象として機能する neural-implicit baseline が得られた。`nersi_profile` は FORGE で
+ゼロ予測と区別できず（study_068/069 では完全に縮退）、`inr_real` はゼロ予測より悪かった。
+`cinr_real` は両 dataset で床を満たし、古典手法と同程度以上の水準にある。
+
+**未決事項と留保:**
+
+- この baseline は予測時に観測データを読むため、機構が提案法（ReGSI）に近い。重みのみに符号化する形式
+  （`nersi_profile`、`inr_real`）とは別クラスであることを論文で明示する。時間 codec は提案法と共有するので
+  対比は空間機構に絞られるが、提案法との差（FORGE +1.5784 dB）はその分だけ「空間機構の差」として読む。
+- FORGE の global NMSE 1.4894 は本比較で最大（他手法 1.0444–1.1016）。この population では全手法が
+  1 を超えるが、`cinr_real` の誤差は高エネルギー trace により集中している。study_070 の診断が示した
+  短オフセット側の難しさと整合し、改善余地が残る箇所を指している。
+- FORGE の採用 cell `a05_b01` は k = 16 と base 1.05 の両端にある。k の単調性は飽和しつつある
+  （0.7978 → 0.7900）が、探索範囲が最適点を挟んでいない可能性は残る。本 study ではこれ以上拡張しない。
+
 ## 2026-11-09 — study 内 YAML の sha256
 
 launch 時点の正本。

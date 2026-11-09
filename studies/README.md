@@ -113,7 +113,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_070_forge_c3_trace_field](study_070_forge_c3_trace_field/README.md): completed — FORGE の床 0.4 dB 未達、代表手法の置き換えは不採用。 study_067 と同一の入力・mask・validation holdout・予算・seed・選択規則で、新規のトレース出力 implicit field `inr_real` を共通 5×5 grid で測定。test 3 seed 平均は C3 11.3884 ± 0.0140 dB / relMSE 0.0941、FORGE 0.1011 ± 0.0073 dB / relMSE 1.0071 で、同じ test における study_067 の profile NeRSI（C3 12.5611 dB、FORGE 0.3126 dB）を両 dataset で下回る。FORGE は 25 候補すべてが validation relMSE > 1。縮退はしていない（相関中央値 0.2185）が補間に至らない。
 
-- [study_071_forge_c3_context_field](study_071_forge_c3_context_field/README.md): prepared — study_070 の測定（同一 FORGE test 上で、観測トレースを読む4手法は相関中央値 0.4544–0.7275、重みのみの2手法は 0.2159–0.2600）を受けて、neural-implicit を観測近傍で条件付ける。近傍は field が読む4正規化座標だけで決まり、query は自分自身を文脈から除外する。時間表現は提案法と同じ共有 trace codec を使うため、パラメータ数が時間長に依存せず width 120 / 362,642 parameters が両 dataset で同一、宣言する手法差分は実行時に上書きされる `model.time_sample_count` の1件だけ。探索軸は近傍数 × Fourier 帯域。この baseline は予測時に観測データを読むため機構が提案法に近づくことを明示して報告する。比較結果は未確定。
+- [study_071_forge_c3_context_field](study_071_forge_c3_context_field/README.md): completed — 床を両 dataset で達成、neural-implicit の代表手法として採用。study_070 の測定（機構で二分）を受けて field を観測近傍で条件付けた。近傍は field が読む4正規化座標だけで決まり、query は自分自身を文脈から 除外する。時間表現は提案法と同じ共有 trace codec を使い、パラメータ数は時間長に依存せず両 dataset で 362,642。test 3 seed 平均は C3 14.2516 ± 0.1536 dB / relMSE 0.0540、FORGE 1.4558 ± 0.0168 dB / relMSE 0.7679。FORGE では両古典手法（POCS 1.0510、DRR 1.0910 dB）の上、CCNet5D（1.6010 dB）の下で 7 手法中 3 位。近傍数に対する単調な用量反応（FORGE k=1→16 で 0.6631→1.3636 dB）。 この baseline は予測時に観測データを読むため機構が提案法に近いことを明示して報告する。
 
 ## Scratch workspaces
 
