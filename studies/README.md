@@ -115,6 +115,8 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_071_forge_c3_context_field](study_071_forge_c3_context_field/README.md): completed — 床を両 dataset で達成、neural-implicit の代表手法として採用。study_070 の測定（機構で二分）を受けて field を観測近傍で条件付けた。近傍は field が読む4正規化座標だけで決まり、query は自分自身を文脈から 除外する。時間表現は提案法と同じ共有 trace codec を使い、パラメータ数は時間長に依存せず両 dataset で 362,642。test 3 seed 平均は C3 14.2516 ± 0.1536 dB / relMSE 0.0540、FORGE 1.4558 ± 0.0168 dB / relMSE 0.7679。FORGE では両古典手法（POCS 1.0510、DRR 1.0910 dB）の上、CCNet5D（1.6010 dB）の下で 7 手法中 3 位。近傍数に対する単調な用量反応（FORGE k=1→16 で 0.6631→1.3636 dB）。 この baseline は予測時に観測データを読むため機構が提案法に近いことを明示して報告する。
 
+- [study_072_forge_random_shot50_context_field](study_072_forge_random_shot50_context_field/README.md): prepared — study_071 の採用設定（近傍 16 本、Fourier base 1.05）を study_069 の random whole-shot 50% mask へ移す固定設定比較。mask は `mask_study_id` で study_069 と byte 一致させ、波形は同じ study_067 FORGE run の sealed 入力を再利用する。study_069 の5手法記録との対比は事後的・探索的。結果は未確定。
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.

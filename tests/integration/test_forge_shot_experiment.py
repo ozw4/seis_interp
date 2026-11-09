@@ -322,9 +322,18 @@ def test_failure_is_na_and_invalid_success_blocks_every_scoring_read(shot_prepar
     assert not json.loads((experiment / "outcomes.json").read_text())["all_methods_completed"]
 
 
-@pytest.mark.parametrize("method", METHODS)
-@pytest.mark.parametrize("study_name", ["study_068_forge_shot50", "study_069_forge_random_shot50"])
-def test_shot_studies_use_forge_selected_nominal_base_plus_grid(method, study_name):
+SHOT_STUDY_METHODS = {
+    "study_068_forge_shot50": METHODS,
+    "study_069_forge_random_shot50": METHODS,
+    "study_072_forge_random_shot50_context_field": ["cinr_real"],
+}
+
+
+@pytest.mark.parametrize(
+    "study_name,method",
+    [(study, method) for study, methods in SHOT_STUDY_METHODS.items() for method in methods],
+)
+def test_shot_studies_use_forge_selected_nominal_base_plus_grid(study_name, method):
     repo = Path(__file__).resolve().parents[2]
     study = repo / "studies" / study_name
     contract = yaml.safe_load((study / "config.yaml").read_text())
@@ -343,7 +352,9 @@ def test_shot_studies_use_forge_selected_nominal_base_plus_grid(method, study_na
     assert "c3_selections" not in sources
     for name, digest in sources["selection_hashes"].items():
         assert sha256_file(repo / name) == digest
-    assert contract["validation_holdout"] is None and contract["workflow"]["total_runs"] == 5
+    assert contract["validation_holdout"] is None
+    assert contract["workflow"]["total_runs"] == len(SHOT_STUDY_METHODS[study_name])
+    assert contract["methods"] == SHOT_STUDY_METHODS[study_name]
 
 
 def test_random_shot_mask_is_seeded_line_balanced_and_row_order_independent(shot_prepared):
