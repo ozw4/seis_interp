@@ -1,0 +1,34 @@
+methods:
+  cinr_real:
+    axis_a:
+    - id: '1'
+      set:
+        context.neighbor_count: 1
+    - id: '2'
+      set:
+        context.neighbor_count: 2
+    - id: '4'
+      set:
+        context.neighbor_count: 4
+    - id: '8'
+      set:
+        context.neighbor_count: 8
+    - id: '16'
+      set:
+        context.neighbor_count: 16
+    axis_b:
+    - id: '1.05'
+      set:
+        model.frequency_base: 1.05
+    - id: '1.075'
+      set:
+        model.frequency_base: 1.075
+    - id: '1.1'
+      set:
+        model.frequency_base: 1.1
+    - id: '1.15'
+      set:
+        model.frequency_base: 1.15
+    - id: '1.25'
+      set:
+        model.frequency_base: 1.25
