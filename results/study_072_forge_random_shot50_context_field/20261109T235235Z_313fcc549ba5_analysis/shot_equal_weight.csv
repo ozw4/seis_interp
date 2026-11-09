@@ -1,0 +1,7 @@
+method_id,population,shot_support,shot_count,equal_weight_shot_mean_mean_trace_snr_db,equal_weight_shot_mean_masked_trace_relative_mse
+cinr_real,clean_target,all,96,0.3599217819603187,1.000393176432412
+cinr_real,clean_target,internal,85,0.4196114333316406,0.9918407530123562
+cinr_real,clean_target,edge,11,-0.10131643318171384,1.066480084678297
+cinr_real,all_eligible,all,96,0.38000764460486264,0.9984125152050591
+cinr_real,all_eligible,internal,85,0.4387949288104987,0.989988473873115
+cinr_real,all_eligible,edge,11,-0.07425773334777969,1.0635073800428123

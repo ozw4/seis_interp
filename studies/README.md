@@ -115,7 +115,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_071_forge_c3_context_field](study_071_forge_c3_context_field/README.md): completed — 床を両 dataset で達成、neural-implicit の代表手法として採用。study_070 の測定（機構で二分）を受けて field を観測近傍で条件付けた。近傍は field が読む4正規化座標だけで決まり、query は自分自身を文脈から 除外する。時間表現は提案法と同じ共有 trace codec を使い、パラメータ数は時間長に依存せず両 dataset で 362,642。test 3 seed 平均は C3 14.2516 ± 0.1536 dB / relMSE 0.0540、FORGE 1.4558 ± 0.0168 dB / relMSE 0.7679。FORGE では両古典手法（POCS 1.0510、DRR 1.0910 dB）の上、CCNet5D（1.6010 dB）の下で 7 手法中 3 位。近傍数に対する単調な用量反応（FORGE k=1→16 で 0.6631→1.3636 dB）。 この baseline は予測時に観測データを読むため機構が提案法に近いことを明示して報告する。
 
-- [study_072_forge_random_shot50_context_field](study_072_forge_random_shot50_context_field/README.md): prepared — study_071 の採用設定（近傍 16 本、Fourier base 1.05）を study_069 の random whole-shot 50% mask へ移す固定設定比較。mask は `mask_study_id` で study_069 と byte 一致させ、波形は同じ study_067 FORGE run の sealed 入力を再利用する。study_069 の5手法記録との対比は事後的・探索的。結果は未確定。
+- [study_072_forge_random_shot50_context_field](study_072_forge_random_shot50_context_field/README.md): completed — 本 mask では不採用。study_071 の採用設定（近傍 16 本、Fourier base 1.05）を study_069 の random whole-shot 50% mask へ byte 一致の入力で移した結果、clean_target は relMSE 1.0005 / 0.3596 dB で、ReGSI 2.5702・CCNet5D 1.2157・DRR 1.0033・POCS 0.7105 dB の下、profile NeRSI の上。 幾何だけの近傍測定が原因を特定した: 観測 trace は約1.85倍で最近傍距離も同じだが、 同一 shot gather 内の観測近傍が 95.97 % → 0 % になる。条件付けは gather 内近傍に依存する。
 
 ## Scratch workspaces
 

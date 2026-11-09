@@ -1,6 +1,6 @@
 # FORGE random whole-shot50 への条件付き implicit field の移植
 
-Status: `prepared` — 実行仕様を凍結した段階。本 study の結果は未確定。
+Status: `completed` — 予測・採点を完了（失敗 0）。clean_target の relMSE は 1.0005 で、同一 mask の study_069 では ReGSI・CCNet5D・DRR・POCS の下、profile NeRSI の上。study_071 の同設定（random trace 70% で relMSE 0.7679）から大きく後退した。
 
 ## 目的
 
@@ -39,6 +39,60 @@ config・inputs のいずれにも書けない値は次のとおり。
 | パラメータ数 | 362,642（目標 363,269 比 −0.1726 %） |
 | 近傍数 | 16 |
 | admission（実測 8.578 GiB に C-0 規則） | 11 GiB |
+
+## 結果
+
+生成元 [run](../../runs/study_072_forge_random_shot50_context_field/20261109T232516173813Z_313fcc549ba5)、
+[採用図表・CSV](../../results/study_072_forge_random_shot50_context_field/20261109T235235Z_313fcc549ba5_analysis)。
+`dirty_worktree: false`、`total_runs: 1`、`test_scoring_calls: 1`、runtime 1460.3666 s、
+peak CUDA reserved 7.1446 GiB（宣言 11 GiB）。入力9成果物は study_069 と byte 一致。
+
+主評価 clean_target（24,397 trace）。表示は小数4桁。
+
+| population | trace 数 | mean trace SNR (dB) | masked trace relative MSE |
+| --- | ---: | ---: | ---: |
+| clean_target | 24,397 | 0.3596 | 1.0005 |
+| all_eligible | 24,576 | 0.3800 | 0.9984 |
+
+shot 支持別（clean_target、shot 等重み）:
+
+| shot_support | shot 数 | trace 数 | mean trace SNR (dB) | relMSE |
+| --- | ---: | ---: | ---: | ---: |
+| internal | 85 | 21,603 | 0.4196 | 0.9918 |
+| edge | 11 | 2,794 | −0.1013 | 1.0665 |
+
+### 同一 mask・同一 test 集合での対比（study_069 の記録）
+
+| 手法 | mean trace SNR (dB) | relMSE |
+| --- | ---: | ---: |
+| ReGSI | 2.5702 | 0.6191 |
+| CCNet5D | 1.2157 | 0.7898 |
+| DRR | 1.0033 | 0.8192 |
+| POCS | 0.7105 | 0.8901 |
+| **cinr_real** | **0.3596** | **1.0005** |
+| profile NeRSI | approximately 0 | 1.0000 |
+
+### 近傍の測定（幾何のみ、波形を読まない）
+
+study_071 の random trace 70% mask と本 study の random shot 50% mask で、test trace ごとに
+採用設定と同じ 16 近傍を選び直した結果。
+
+| | study_071 random trace 70% | study_072 random shot 50% |
+| --- | ---: | ---: |
+| 観測 trace 数 | 13,271 | 24,575 |
+| 最近傍距離（中央値） | 0.03228 | 0.03229 |
+| 第16近傍距離（中央値） | 0.14417 | 0.11636 |
+| 同一 shot gather 内の近傍数（16 本中） | **2.63** | **0.00** |
+| 同一 shot の近傍を1本以上持つ query の割合 | **0.9597** | **0.0000** |
+
+本 study は観測 trace が約1.85倍あり最近傍距離も同じだが、同一 shot gather 内の観測 trace は
+構造上ゼロである。
+
+### 採否
+
+本 mask では `cinr_real` を代表手法として採用しない。study_071 の random trace mask における採用
+（[study_071 README](../study_071_forge_c3_context_field/README.md)）は維持する。
+判断理由と帰結は [decisions.md](decisions.md) に置く。
 
 ## 実行
 
