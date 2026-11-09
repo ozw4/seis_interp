@@ -79,6 +79,7 @@ TUNABLE_SECTIONS = {
     "ccnet5d_grid": ("model", "training", "patches", "prediction"),
     "nersi_real": ("model", "training", "prediction"),
     "inr_real": ("model", "training", "prediction"),
+    "cinr_real": ("model", "training", "prediction", "context"),
     "nersi_profile": ("model", "training", "prediction"),
     "regsi_real": ("model", "training", "graph", "geometry_features", "prediction"),
     "regsi_grid": ("model", "training", "graph", "geometry_features", "prediction"),
@@ -89,6 +90,7 @@ OPTIONAL_KEYS = {
     ("nersi_real", "model"): {"coordinate_transform", "polar_offset"},
     ("nersi_real", "training"): {"ema_eval_decays", "ema_snapshot_updates"},
     ("inr_real", "training"): {"ema_eval_decays", "ema_snapshot_updates"},
+    ("cinr_real", "training"): {"ema_eval_decays", "ema_snapshot_updates"},
     ("nersi_profile", "model"): {
         "time_upsample_channels",
         "time_kernel_size",

@@ -23,6 +23,7 @@ from seis_interp.models.ccnet5d import CCNet5D
 from seis_interp.models.nersi import Nersi
 from seis_interp.models.nersi_trace import NersiTrace
 from seis_interp.models.relational_trace_graph import RelationalTraceGraphInterpolator
+from seis_interp.models.trace_context_field import TraceContextField
 from seis_interp.models.trace_coordinate_field import TraceCoordinateField
 from seis_interp.processing.drr_batched import interpolate_drr_volume_batched
 from seis_interp.processing.drr_windows import interpolate_drr_volume
@@ -32,6 +33,7 @@ from seis_interp.processing.forge_nersi_profiles import (
 )
 from seis_interp.processing.pocs_batched import interpolate_pocs_volume_batched
 from seis_interp.processing.pocs_windows import interpolate_pocs_volume
+from seis_interp.processing.trace_field_neighbors import nearest_observed_positions
 from seis_interp.processing.trace_graph_preprocessing import build_poc_trace_graph_preprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
 from seis_interp.training.ccnet5d_observed_patches import CCNet5DObservedPatchSource
@@ -47,7 +49,12 @@ from seis_interp.training.nersi_profile_regularization import (
 )
 from seis_interp.training.neural_diagnostics import NeuralTrainingDiagnostics
 from seis_interp.training.phase_progress import PhaseProgress, ProgressWriter
-from seis_interp.training.prediction_warmup import warm_ccnet, warm_coordinates, warm_graph
+from seis_interp.training.prediction_warmup import (
+    warm_ccnet,
+    warm_context_field,
+    warm_coordinates,
+    warm_graph,
+)
 from seis_interp.training.relational_trace_graph_poc_trainer import (
     build_training_neighbor_table,
     train_relational_trace_graph_poc,
@@ -140,6 +147,8 @@ def initialize_model(config):
         return Nersi(**config["model"])
     if method == "inr_real":
         return TraceCoordinateField(**config["model"])
+    if method == "cinr_real":
+        return TraceContextField(**config["model"])
     if method in ("regsi_real", "regsi_grid"):
         return RelationalTraceGraphInterpolator(**config["model"])
     raise ValueError("method has no neural model")
@@ -214,7 +223,7 @@ def graph_data(inputs, config):
 def canvas_method_config(config: dict, canvas_length: int) -> dict:
     """Copy of ``config`` whose trace decoder emits the whole aligned canvas."""
     resolved = deepcopy(config)
-    if resolved["method_id"] in ("nersi_real", "inr_real"):
+    if resolved["method_id"] in ("nersi_real", "inr_real", "cinr_real"):
         resolved["model"]["time_sample_count"] = int(canvas_length)
     if resolved["method_id"] == "nersi_profile":
         normalize = resolved.pop("canvas_time_upsampling", False)
@@ -253,7 +262,7 @@ def run_method(
     canvas = None
     if config.get("alignment") is None:
         resolved = config
-        if config.get("method_id") in ("nersi_real", "inr_real", "nersi_profile"):
+        if config.get("method_id") in ("nersi_real", "inr_real", "cinr_real", "nersi_profile"):
             resolved = canvas_method_config(config, len(model_inputs.time_s))
         result = _run_method(model_inputs, resolved, reporter, **options)
     else:
@@ -354,6 +363,8 @@ def _run_method(
         fit = _fit_nersi
     elif method == "inr_real":
         fit = _fit_inr
+    elif method == "cinr_real":
+        fit = _fit_context_field
     elif method == "nersi_profile":
         fit = _fit_nersi_profile
     elif method in ("regsi_real", "regsi_grid"):
@@ -1009,6 +1020,175 @@ def _fit_inr(model, inputs, config, reporter, decays, snapshot_updates, *, recov
                 progress(
                     f"predicting {min(start + batch, len(output))}/{len(output)} cells ({phase})"
                 )
+        return output
+
+    started = perf_counter()
+    output = predict()
+    records["runtime_prediction_seconds"] = perf_counter() - started
+    shadows, timing, final_states = _shadow_predictions(
+        model,
+        decays,
+        primary,
+        lambda decay: model.load_state_dict(extra[decay].state_dict()),
+        predict,
+    )
+    averages = {} if ema is None else {primary: ema}
+    snapshots = _average_snapshots(averages | extra, snapshot_updates)
+    records.update(
+        timing,
+        **diagnostics.records(),
+        final_training_loss=window_losses[-1],
+        final_training_loss_window_mean=float(np.mean(window_losses)),
+        final_training_loss_window_updates=len(window_losses),
+    )
+    states = _ema_states(final_states, snapshots, tr["max_steps"])
+    records.update(_reserved_memory(device, "after_prediction"))
+    return output, history, shadows, records, states
+
+
+def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates, *, recovery=None):
+    """Fit observed traces from their nearest other observed traces; fixed final EMA.
+
+    Each update draws ``training.batch_size`` complete observed traces as queries and
+    reads ``context.neighbor_count`` other observed traces as their context, so a query
+    is never reconstructed from its own amplitudes. A neighbourhood follows the four
+    normalized local coordinates alone and is selected once, before any fitting.
+    """
+    columns = [
+        f"{role}_{axis}_continuous" for role in ("source", "receiver") for axis in ("line", "point")
+    ]
+    table = inputs.geometry.set_index("cell_id")
+    coordinates = table[columns].to_numpy() / np.maximum(np.asarray(inputs.spatial_shape) - 1, 1)
+    positions = {int(cell): i for i, cell in enumerate(table.index)}
+    observed_rows = np.array([positions[int(cell)] for cell in inputs.observed_cells])
+    query_rows = np.array([positions[int(cell)] for cell in inputs.test_cells])
+    device, tr = config["device"], config["training"]
+    count = config["context"]["neighbor_count"]
+    progress = PhaseProgress(reporter)
+    started = perf_counter()
+    observed_context = nearest_observed_positions(coordinates, observed_rows, observed_rows, count)
+    progress("observed neighbourhoods selected")
+    query_context = nearest_observed_positions(coordinates, observed_rows, query_rows, count)
+    progress("query neighbourhoods selected")
+    neighbor_seconds = perf_counter() - started
+    observed_coordinates = torch.from_numpy(coordinates[observed_rows].astype(np.float32)).to(
+        device
+    )
+    query_coordinates = torch.from_numpy(coordinates[query_rows].astype(np.float32)).to(device)
+    observed_values = torch.from_numpy(
+        (inputs.observed_values.astype(np.float64) / inputs.global_rms).astype(np.float32)
+    ).to(device)
+    observed_context = torch.from_numpy(observed_context).to(device)
+    query_context = torch.from_numpy(query_context).to(device)
+    diagnostics = NeuralTrainingDiagnostics(tr["max_steps"], config["loss"])
+    model.to(device)
+    if tr["optimizer"] not in ("adam", "adamw"):
+        raise ValueError("the trace context field optimizer must be adam or adamw")
+    optimizer_type = torch.optim.Adam if tr["optimizer"] == "adam" else torch.optim.AdamW
+    optimizer = optimizer_type(
+        model.parameters(), lr=tr["learning_rate"], weight_decay=tr["weight_decay"]
+    )
+    rng = np.random.default_rng(config["model_seed"])
+    primary = tr.get("ema_decay")
+    ema = TraceGraphEMA(primary, snapshot_updates) if primary else None
+    extra = {decay: TraceGraphEMA(decay, snapshot_updates) for decay in decays if decay != primary}
+    history, window_losses = [], []
+    window_first = tr["max_steps"] - min(LOSS_WINDOW_UPDATES, tr["max_steps"])
+    warm_context_field(
+        model,
+        (config["prediction"]["batch_size"], count, len(inputs.time_s)),
+        device,
+        reporter=reporter,
+    )
+    warm_memory = _reserved_memory(device, "after_warmup")
+    objects = {"ema": ema, "diagnostics": diagnostics} | {
+        str(key): value for key, value in extra.items()
+    }
+    state = {} if recovery is None else recovery.load(model, optimizer)
+    if state:
+        restore_objects(objects, state["objects"])
+        rng.bit_generator.state = state["sampler"]
+        history, window_losses = state["history"], state["window_losses"]
+    for step in range(state.get("step", 0) + 1, tr["max_steps"] + 1):
+        rows = torch.from_numpy(
+            rng.choice(len(observed_rows), size=tr["batch_size"], replace=False)
+        ).to(device)
+        neighbors = observed_context[rows]
+        optimizer.zero_grad(set_to_none=True)
+        prediction = model(
+            observed_coordinates[rows],
+            observed_values[neighbors],
+            observed_coordinates[neighbors],
+        )
+        target = observed_values[rows]
+        loss = (
+            masked_trace_relative_mse(prediction, target)
+            if config["loss"] == "masked_trace_relative_mse"
+            else masked_trace_loss(prediction, target, loss_name=config["loss"])
+        )
+        if not torch.isfinite(loss):
+            raise RuntimeError(f"nonfinite trace context field loss at step {step}")
+        diagnostics.observe(step, prediction, target, loss)
+        loss.backward()
+        diagnostics.gradients(model)
+        optimizer.step()
+        if ema is not None:
+            ema.update(model)
+        for average in extra.values():
+            average.update(model)
+        if step > window_first:
+            window_losses.append(float(loss.detach()))
+        reporting = step % tr["report_interval"] == 0 or step == tr["max_steps"]
+        if reporting or (recovery is not None and recovery.record_all_steps):
+            value = float(loss.detach())
+            history.append({"step": step, "loss": value, "learning_rate": tr["learning_rate"]})
+        if recovery is not None and (recovery.due(step) or step == tr["max_steps"]):
+            recovery.save(
+                step,
+                model,
+                optimizer,
+                {
+                    "objects": object_state(objects),
+                    "sampler": rng.bit_generator.state,
+                    "history": history,
+                    "window_losses": window_losses,
+                },
+                force=True,
+                phase="before_prediction" if step == tr["max_steps"] else "training",
+            )
+        if reporting:
+            reporter(f"context field step {step}/{tr['max_steps']} minibatch_loss {value:.6g}")
+    records = {
+        "training_end": _training_end(device),
+        "context_neighbor_count": count,
+        "runtime_neighbor_selection_seconds": neighbor_seconds,
+        **warm_memory,
+        **_reserved_memory(device, "before_prediction"),
+    }
+    if ema is not None:
+        model.load_state_dict(ema.state_dict())
+    model.eval()
+
+    def predict(phase="primary"):
+        phase_progress = PhaseProgress(reporter)
+        output = np.empty((len(inputs.test_cells), len(inputs.time_s)), dtype=np.float32)
+        with torch.inference_mode():
+            batch = config["prediction"]["batch_size"]
+            for start in range(0, len(output), batch):
+                stop = min(start + batch, len(output))
+                neighbors = query_context[start:stop]
+                values = (
+                    model(
+                        query_coordinates[start:stop],
+                        observed_values[neighbors],
+                        observed_coordinates[neighbors],
+                    )
+                    .cpu()
+                    .numpy()
+                    .astype(np.float64)
+                )
+                output[start:stop] = values * inputs.global_rms
+                phase_progress(f"predicting {stop}/{len(output)} cells ({phase})")
         return output
 
     started = perf_counter()

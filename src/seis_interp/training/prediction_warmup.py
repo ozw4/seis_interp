@@ -35,6 +35,22 @@ def warm_coordinates(model, shape, device, *, reporter=None):
         progress("prediction warm-up complete (coordinates)")
 
 
+def warm_context_field(model, shape, device, *, reporter=None):
+    """``shape`` is ``(batch, context, time)``; the field also reads a query coordinate."""
+    if torch.device(device).type != "cuda":
+        return
+    batch, context, time_count = shape
+    progress = PhaseProgress(reporter)
+    with prediction_mode(model, device):
+        model(
+            torch.zeros((batch, 4), device=device),
+            torch.zeros((batch, context, time_count), device=device),
+            torch.zeros((batch, context, 4), device=device),
+        )
+        torch.cuda.synchronize(device)
+        progress("prediction warm-up complete (context field)")
+
+
 def warm_ccnet(model, shape, config, *, reporter=None):
     device = config["device"]
     if torch.device(device).type != "cuda":

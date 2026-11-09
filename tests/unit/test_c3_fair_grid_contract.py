@@ -273,10 +273,11 @@ def test_config_validation_requires_exactly_the_five_methods(valid):
         validate_c3_fair_grid_configs(configs, contract)
 
 
-def test_the_trace_field_is_declared_not_defaulted():
-    assert C3_ADDED_METHODS == ("inr_real",)
+def test_the_trace_fields_are_declared_not_defaulted():
+    assert C3_ADDED_METHODS == ("inr_real", "cinr_real")
     assert c3_experiment_methods({}) == C3_FAIR_GRID_METHODS
-    assert c3_experiment_methods({"methods": ["inr_real"]}) == ("inr_real",)
+    for method in C3_ADDED_METHODS:
+        assert c3_experiment_methods({"methods": [method]}) == (method,)
     with pytest.raises(ValueError, match="distinct supported methods"):
         c3_experiment_methods({"methods": ["gnn_real"]})
 

@@ -8,7 +8,8 @@ NEURAL_METHODS = ("ccnet5d_grid", "nersi_real", "regsi_real", "regsi_grid")
 # Methods added to a sealed six-method preparation (``derive_forge_preparation``).
 ADDED_METHODS = ("nersi_profile",)
 # Implicit trace fields: four continuous coordinates to one complete trace, no output canvas.
-FIELD_METHODS = ("inr_real",)
+# ``cinr_real`` additionally reads a declared number of observed neighbours.
+FIELD_METHODS = ("inr_real", "cinr_real")
 TUNABLE_NEURAL_METHODS = (*NEURAL_METHODS, *ADDED_METHODS, *FIELD_METHODS)
 MATCHED_TRAINING_KEYS = {
     "max_steps",
@@ -122,7 +123,8 @@ def validate_field_method_config(config, contract, *, loss_name="masked_trace_re
 
     ``inr_real`` maps four unrounded local coordinates to one complete trace
     through a single linear output layer, so the output layer spans the declared
-    time axis exactly and no sample of it is discarded.
+    time axis exactly and no sample of it is discarded. ``cinr_real`` decodes the
+    same time axis from a declared number of observed neighbours.
     """
     name = config["method_id"]
     if name not in FIELD_METHODS or config["geometry_mode"] != "real":
@@ -143,6 +145,18 @@ def validate_field_method_config(config, contract, *, loss_name="masked_trace_re
     batch = config["prediction"].get("batch_size")
     if isinstance(batch, bool) or not isinstance(batch, int) or batch < 1:
         raise ValueError("prediction.batch_size must be a positive integer")
+    context = config.get("context")
+    if (name == "cinr_real") != (context is not None):
+        raise ValueError("only the conditioned field declares a context")
+    if context is not None:
+        neighbors = context.get("neighbor_count")
+        if (
+            set(context) != {"neighbor_count"}
+            or isinstance(neighbors, bool)
+            or not isinstance(neighbors, int)
+            or neighbors < 1
+        ):
+            raise ValueError("context.neighbor_count must be a positive integer")
     if "matched_training" in contract:
         validate_matched_training(
             {name: config}, contract["matched_training"], contract["observed_trace_count"]
@@ -184,7 +198,7 @@ def validate_neural_training(name, config, contract):
     ):
         raise ValueError("unsupported fixed training schedule")
     optimizers = ("adamw",) if name.startswith("regsi") else ("adam",)
-    if name in ("ccnet5d_grid", "nersi_profile", "inr_real"):
+    if name in ("ccnet5d_grid", "nersi_profile", "inr_real", "cinr_real"):
         optimizers = ("adam", "adamw")
     if training["optimizer"] not in optimizers:
         raise ValueError("optimizer contract mismatch")
@@ -257,7 +271,7 @@ def validate_matched_training(configs, budget, observed_trace_count):
             raise ValueError("NeRSI batch size must equal the budgeted loss traces")
         if name == "nersi_profile" and training.get("supervised_traces_per_update") != traces:
             raise ValueError("profile NeRSI must select exactly the budgeted traces per update")
-        if name == "inr_real" and training["batch_size"] != traces:
+        if name in FIELD_METHODS and training["batch_size"] != traces:
             raise ValueError("trace field batch size must equal the budgeted loss traces")
         if name.startswith("regsi"):
             hidden = round(observed_trace_count * training["inner_mask_fraction"])

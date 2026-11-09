@@ -22,8 +22,8 @@ from seis_interp.processing.forge_mvp_contract import AXES
 
 C3_FAIR_GRID_METHODS = ("pocs_grid", "drr_grid", "ccnet5d_grid", "regsi_real", "nersi_profile")
 C3_NEURAL_METHODS = ("ccnet5d_grid", "regsi_real", "nersi_profile")
-# Joins the same C3 contract only when a study declares it; not part of the five-method default.
-C3_ADDED_METHODS = ("inr_real",)
+# Join the same C3 contract only when a study declares them; not part of the five-method default.
+C3_ADDED_METHODS = ("inr_real", "cinr_real")
 C3_GEOMETRY_MODES = {
     "pocs_grid": "grid",
     "drr_grid": "grid",
@@ -31,6 +31,7 @@ C3_GEOMETRY_MODES = {
     "regsi_real": "real",
     "nersi_profile": "real",
     "inr_real": "real",
+    "cinr_real": "real",
 }
 
 
@@ -74,7 +75,7 @@ def validate_c3_fair_grid_configs(configs: dict, contract: dict) -> None:
             validate_classical_execution(config)
         elif name == "nersi_profile":
             validate_added_method_config(config, contract, loss_name=expected_loss)
-        elif name == "inr_real":
+        elif name in C3_ADDED_METHODS:
             validate_field_method_config(config, contract, loss_name=expected_loss)
         else:
             validate_neural_training(name, config, contract)
