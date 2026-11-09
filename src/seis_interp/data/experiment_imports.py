@@ -128,7 +128,7 @@ def _saved_input_fingerprint(experiment, seed, method, domains, revision):
     _array_digest(digest, "observed_order", observed)
     waveforms = np.load(directory / "observed_waveforms.npy", mmap_mode="r", allow_pickle=False)
     _array_digest(digest, "observed_waveforms", waveforms)
-    mode = "real" if method in ("regsi_real", "nersi_profile") else "grid"
+    mode = "real" if method in ("regsi_real", "inr_real", "nersi_profile") else "grid"
     geometry_path = base / f"{mode}_geometry.parquet"
     if not geometry_path.exists():
         geometry_path = base / "geometry.parquet"

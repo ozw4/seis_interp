@@ -5,7 +5,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from seis_interp.c3_fair_grid_config import C3_FAIR_GRID_METHODS, validate_c3_fair_grid_configs
+from seis_interp.c3_fair_grid_config import (
+    C3_ADDED_METHODS,
+    C3_FAIR_GRID_METHODS,
+    c3_experiment_methods,
+    validate_c3_fair_grid_configs,
+)
 from seis_interp.evaluation.fair_grid_trace_snr import (
     paired_trace_snr_contrasts,
     seed_averaged_trace_snr,
@@ -23,6 +28,7 @@ from tests.fixtures.c3_fair_grid import (
     SPATIAL_SHAPE,
     tiny_c3_configs,
     tiny_c3_contract,
+    tiny_c3_trace_field_config,
     tiny_c3_volume_index,
 )
 
@@ -265,6 +271,41 @@ def test_config_validation_requires_exactly_the_five_methods(valid):
     del configs["drr_grid"]
     with pytest.raises(ValueError, match="exactly"):
         validate_c3_fair_grid_configs(configs, contract)
+
+
+def test_the_trace_field_is_declared_not_defaulted():
+    assert C3_ADDED_METHODS == ("inr_real",)
+    assert c3_experiment_methods({}) == C3_FAIR_GRID_METHODS
+    assert c3_experiment_methods({"methods": ["inr_real"]}) == ("inr_real",)
+    with pytest.raises(ValueError, match="distinct supported methods"):
+        c3_experiment_methods({"methods": ["gnn_real"]})
+
+
+def test_a_declared_trace_field_joins_the_c3_contract(valid):
+    _, contract = valid
+    contract["methods"] = ["inr_real"]
+    validate_c3_fair_grid_configs({"inr_real": tiny_c3_trace_field_config()}, contract)
+
+
+@pytest.mark.parametrize(
+    "dotted,value,message",
+    [
+        ("model.time_sample_count", 16, "complete traces"),
+        ("geometry_mode", "grid", "geometry mismatch"),
+        ("training.batch_size", 3, "budgeted loss traces"),
+        ("training.max_steps", 5, "match the budget"),
+        ("training.optimizer", "sgd", "optimizer"),
+        ("prediction.batch_size", 0, "prediction.batch_size"),
+        ("model_seed", 1, "model seed"),
+    ],
+)
+def test_trace_field_contract_drift_is_rejected(valid, dotted, value, message):
+    _, contract = valid
+    contract["methods"] = ["inr_real"]
+    config = tiny_c3_trace_field_config()
+    _set(config, dotted, value)
+    with pytest.raises(ValueError, match=message):
+        validate_c3_fair_grid_configs({"inr_real": config}, contract)
 
 
 def test_trace_snr_contrasts_keep_the_dB_orientation():

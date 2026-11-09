@@ -7,7 +7,9 @@ from seis_interp.processing.forge_time_sampling import native_time_contract
 NEURAL_METHODS = ("ccnet5d_grid", "nersi_real", "regsi_real", "regsi_grid")
 # Methods added to a sealed six-method preparation (``derive_forge_preparation``).
 ADDED_METHODS = ("nersi_profile",)
-TUNABLE_NEURAL_METHODS = (*NEURAL_METHODS, *ADDED_METHODS)
+# Implicit trace fields: four continuous coordinates to one complete trace, no output canvas.
+FIELD_METHODS = ("inr_real",)
+TUNABLE_NEURAL_METHODS = (*NEURAL_METHODS, *ADDED_METHODS, *FIELD_METHODS)
 MATCHED_TRAINING_KEYS = {
     "max_steps",
     "learning_rate",
@@ -115,6 +117,38 @@ def validate_added_method_config(config, contract, *, loss_name="masked_trace_re
         )
 
 
+def validate_field_method_config(config, contract, *, loss_name="masked_trace_relative_mse"):
+    """An implicit trace field keeps the shared contract of the preparation it joins.
+
+    ``inr_real`` maps four unrounded local coordinates to one complete trace
+    through a single linear output layer, so the output layer spans the declared
+    time axis exactly and no sample of it is discarded.
+    """
+    name = config["method_id"]
+    if name not in FIELD_METHODS or config["geometry_mode"] != "real":
+        raise ValueError("unsupported field method or geometry")
+    if loss_name not in ("masked_trace_mse", "masked_trace_relative_mse"):
+        raise ValueError("unsupported trace field training loss")
+    if config["loss"] != loss_name:
+        if loss_name == "masked_trace_relative_mse":
+            raise ValueError("MVP requires the existing relative-MSE loss")
+        raise ValueError("trace field loss must match the declared training loss")
+    if "alignment" in config:
+        raise ValueError("alignment is a shared preprocessing condition, not a method setting")
+    validate_neural_training(name, config, contract)
+    if "weight_decay_after" in config["training"]:
+        raise ValueError("the trace field keeps one constant weight decay")
+    if config["model"]["time_sample_count"] != contract["time_sample_count"]:
+        raise ValueError("the trace field output must use complete traces")
+    batch = config["prediction"].get("batch_size")
+    if isinstance(batch, bool) or not isinstance(batch, int) or batch < 1:
+        raise ValueError("prediction.batch_size must be a positive integer")
+    if "matched_training" in contract:
+        validate_matched_training(
+            {name: config}, contract["matched_training"], contract["observed_trace_count"]
+        )
+
+
 def profile_side(length: int, multiple: int = 8) -> int:
     """Smallest multiple of ``multiple`` covering ``length`` (eight: three 2x decoder stages)."""
     return -(-int(length) // multiple) * multiple
@@ -150,7 +184,7 @@ def validate_neural_training(name, config, contract):
     ):
         raise ValueError("unsupported fixed training schedule")
     optimizers = ("adamw",) if name.startswith("regsi") else ("adam",)
-    if name in ("ccnet5d_grid", "nersi_profile"):
+    if name in ("ccnet5d_grid", "nersi_profile", "inr_real"):
         optimizers = ("adam", "adamw")
     if training["optimizer"] not in optimizers:
         raise ValueError("optimizer contract mismatch")
@@ -223,6 +257,8 @@ def validate_matched_training(configs, budget, observed_trace_count):
             raise ValueError("NeRSI batch size must equal the budgeted loss traces")
         if name == "nersi_profile" and training.get("supervised_traces_per_update") != traces:
             raise ValueError("profile NeRSI must select exactly the budgeted traces per update")
+        if name == "inr_real" and training["batch_size"] != traces:
+            raise ValueError("trace field batch size must equal the budgeted loss traces")
         if name.startswith("regsi"):
             hidden = round(observed_trace_count * training["inner_mask_fraction"])
             if training["query_batch_size"] != traces or hidden < traces:

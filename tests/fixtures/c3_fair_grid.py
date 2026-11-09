@@ -299,6 +299,41 @@ def tiny_c3_configs() -> dict:
     return deepcopy(configs)
 
 
+def tiny_c3_trace_field_config() -> dict:
+    """The declared ``inr_real`` config on the tiny crop, inside the matched budget.
+
+    A study that compares the implicit trace field declares it in ``methods``; it
+    is not part of the five-method default returned by :func:`tiny_c3_configs`.
+    """
+    return deepcopy(
+        {
+            "method_id": "inr_real",
+            "geometry_mode": "real",
+            "device": "cpu",
+            "loss": "masked_trace_relative_mse",
+            "model_seed": 7301,
+            "checkpoint_rule": "fixed_final_ema",
+            "model": {
+                "input_features": 4,
+                "fourier_components": 2,
+                "frequency_base": 1.1,
+                "hidden_width": 4,
+                "hidden_layers": 2,
+                "activation": "gelu",
+                "output_activation": "linear",
+                "time_sample_count": TIME_COUNT,
+            },
+            "training": {
+                "optimizer": "adamw",
+                **TRAINING,
+                "batch_size": TRACES,
+                "ema_decay": 0.8,
+            },
+            "prediction": {"batch_size": 2},
+        }
+    )
+
+
 def tiny_c3_study(root: Path) -> tuple[Path, dict, dict]:
     """Inputs, ``studies/<study>`` and the preparation script copy under ``root``."""
     repository = Path(__file__).resolve().parents[2]

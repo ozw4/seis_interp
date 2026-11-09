@@ -4,7 +4,8 @@ The C3 crop runs the FORGE fair-grid methods under the C3 v3 preprocessing: one
 observed-only global RMS (no trace RMS, physical-amplitude predictions), no
 moveout alignment (the canvas is the trace) and no time resampling. ReGSI runs
 on real geometry only; profile NeRSI decodes complete ``(time, relative
-receiver y)`` profiles.
+receiver y)`` profiles; the implicit trace field returns one complete trace per
+coordinate query.
 """
 
 import numpy as np
@@ -12,6 +13,7 @@ import numpy as np
 from seis_interp.forge_mvp_config import (
     validate_added_method_config,
     validate_classical_execution,
+    validate_field_method_config,
     validate_matched_training,
     validate_neural_training,
 )
@@ -20,23 +22,23 @@ from seis_interp.processing.forge_mvp_contract import AXES
 
 C3_FAIR_GRID_METHODS = ("pocs_grid", "drr_grid", "ccnet5d_grid", "regsi_real", "nersi_profile")
 C3_NEURAL_METHODS = ("ccnet5d_grid", "regsi_real", "nersi_profile")
+# Joins the same C3 contract only when a study declares it; not part of the five-method default.
+C3_ADDED_METHODS = ("inr_real",)
 C3_GEOMETRY_MODES = {
     "pocs_grid": "grid",
     "drr_grid": "grid",
     "ccnet5d_grid": "grid",
     "regsi_real": "real",
     "nersi_profile": "real",
+    "inr_real": "real",
 }
 
 
 def c3_experiment_methods(contract: dict) -> tuple[str, ...]:
     """The explicit active methods, or the established five-method experiment."""
     methods = tuple(contract.get("methods", C3_FAIR_GRID_METHODS))
-    if (
-        not methods
-        or len(set(methods)) != len(methods)
-        or not set(methods) <= set(C3_FAIR_GRID_METHODS)
-    ):
+    supported = set(C3_FAIR_GRID_METHODS) | set(C3_ADDED_METHODS)
+    if not methods or len(set(methods)) != len(methods) or not set(methods) <= supported:
         raise ValueError("C3 experiment methods must be distinct supported methods")
     return methods
 
@@ -55,7 +57,8 @@ def validate_c3_fair_grid_configs(configs: dict, contract: dict) -> None:
     for name, config in configs.items():
         if config["method_id"] != name or config["geometry_mode"] != C3_GEOMETRY_MODES[name]:
             raise ValueError("method geometry mismatch")
-        expected_loss = training_loss if name in C3_NEURAL_METHODS else "masked_trace_relative_mse"
+        trains = name in C3_NEURAL_METHODS or name in C3_ADDED_METHODS
+        expected_loss = training_loss if trains else "masked_trace_relative_mse"
         if config["loss"] != expected_loss:
             if expected_loss == "masked_trace_relative_mse":
                 raise ValueError("MVP requires the existing relative-MSE loss")
@@ -71,6 +74,8 @@ def validate_c3_fair_grid_configs(configs: dict, contract: dict) -> None:
             validate_classical_execution(config)
         elif name == "nersi_profile":
             validate_added_method_config(config, contract, loss_name=expected_loss)
+        elif name == "inr_real":
+            validate_field_method_config(config, contract, loss_name=expected_loss)
         else:
             validate_neural_training(name, config, contract)
         if (
