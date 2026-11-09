@@ -12,7 +12,10 @@ from seis_interp.data.forge_mvp_artifacts import write_json
 from seis_interp.pipelines import run_c3_region_experiment as pipeline
 from seis_interp.processing.c3_region_search import c3_search_candidates
 from seis_interp.training.worker_processes import process_start_time
-from tests.fixtures.c3_region_experiment import tiny_c3_trace_study
+from tests.fixtures.c3_region_experiment import (
+    tiny_c3_trace_field_study,
+    tiny_c3_trace_study,
+)
 
 
 @pytest.fixture
@@ -117,3 +120,48 @@ def test_three_new_trace_assignments_use_fresh_models_and_read_test_after_s1(pre
     assert len(summary) == 10 and summary.seed_count.eq(3).all()
     pipeline.execute_c3_region_run(repo, experiment, candidate, 7311, "evaluation")
     assert len(calls) == 6
+
+
+def test_the_declared_trace_field_runs_the_s1_search_on_the_observed_partition(
+    tmp_path, monkeypatch
+):
+    """A one-method study drives the same runner, barrier and parameter seal."""
+    monkeypatch.setattr(data, "execution_identity", lambda _: {"git_commit": "testcommit"})
+    study, contract, configs = tiny_c3_trace_field_study(tmp_path)
+    experiment = data.prepare_c3_region_experiment(tmp_path, study)
+    seal = json.loads((experiment / "experiment.json").read_text())
+    assert seal["total_runs"] == 28 and seal["target_waveforms_read"] == 0
+
+    optimizers = []
+
+    class RecordedAdamW(torch.optim.AdamW):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.update_count = 0
+            optimizers.append(self)
+
+        def step(self, *args, **kwargs):
+            self.update_count += 1
+            return super().step(*args, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", RecordedAdamW)
+    grid = yaml.safe_load((experiment / "study/grid.yaml").read_text())
+    candidates = c3_search_candidates(configs["inr_real"], grid["methods"]["inr_real"])
+    assert len(candidates) == 25
+    record = pipeline.execute_c3_region_run(
+        tmp_path, experiment, candidates[0], contract["trace_split"]["search_seed"], "S1"
+    )
+    assert record["status"] == "completed"
+    assert np.isfinite(record["validation_score"])
+    assert record["test_scoring_calls"] == 0
+    assert record["parameter_count"] == seal["parameter_counts"]["inr_real"]
+    assert len(optimizers) == 1
+    optimizer = optimizers[0]
+    assert optimizer.defaults["lr"] == contract["matched_training"]["learning_rate"]
+    assert optimizer.update_count == contract["matched_training"]["max_steps"]
+    manifest = json.loads(
+        (experiment / "method_runs/inr_real/S1" / candidates[0]["id"] / "manifest.json").read_text()
+    )
+    gate = manifest["diagnostics"]["g0"]
+    assert gate["zero_predictor_loss"] > 0 and gate["mean_loss"] is not None
+    assert manifest["diagnostics"]["would_clip_threshold"] == 1.0

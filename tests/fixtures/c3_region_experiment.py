@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from tests.fixtures.c3_fair_grid import tiny_c3_study
+from tests.fixtures.c3_fair_grid import tiny_c3_study, tiny_c3_trace_field_config
 
 
 def tiny_c3_region_study(root: Path):
@@ -58,3 +58,33 @@ def tiny_c3_trace_study(root: Path):
     }
     (study / "config.yaml").write_text(yaml.safe_dump(contract))
     return study, contract, configs
+
+
+def tiny_c3_trace_field_study(root: Path):
+    """One declared implicit trace field on the trace holdout, with the production axes."""
+    study, contract, configs = tiny_c3_trace_study(root)
+    config = tiny_c3_trace_field_config()
+    config["loss"] = "masked_trace_mse"
+    contract["methods"] = ["inr_real"]
+    contract["training_loss"] = "masked_trace_mse"
+    (study / "config.yaml").write_text(yaml.safe_dump(contract))
+    (study / "inr_real.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+    (study / "grid.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "methods": {
+                    "inr_real": {
+                        "axis_a": [
+                            {"id": str(value), "set": {"training.weight_decay": value}}
+                            for value in (0.0, 0.001, 0.01, 0.03, 0.1)
+                        ],
+                        "axis_b": [
+                            {"id": str(value), "set": {"model.frequency_base": value}}
+                            for value in (1.05, 1.075, 1.1, 1.15, 1.25)
+                        ],
+                    }
+                }
+            }
+        )
+    )
+    return study, contract, {"inr_real": config}

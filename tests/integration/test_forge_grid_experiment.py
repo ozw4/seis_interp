@@ -9,6 +9,7 @@ import yaml
 
 from seis_interp.data import forge_grid_inputs as data
 from seis_interp.data import forge_trace_experiment as single
+from seis_interp.models.trace_coordinate_field import field_parameter_count
 from seis_interp.pipelines import run_forge_grid_experiment as pipeline
 from seis_interp.processing.c3_region_search import c3_search_candidates
 from seis_interp.processing.forge_grid_partition import (
@@ -16,7 +17,10 @@ from seis_interp.processing.forge_grid_partition import (
     verify_forge_s1_partition,
 )
 from seis_interp.training.candidate_schedule import candidate_outcomes, ordered_candidates
-from tests.fixtures.forge_grid_experiment import tiny_forge_grid_study
+from tests.fixtures.forge_grid_experiment import (
+    tiny_forge_grid_field_study,
+    tiny_forge_grid_study,
+)
 
 
 @pytest.fixture
@@ -189,3 +193,53 @@ def test_diverged_s1_is_a_final_outcome_on_worker_resume(prepared, monkeypatch):
     pipeline.run_forge_grid_worker(repo, experiment, "pocs_grid")
     assert len(calls) == 28 and failed_path.read_bytes() == before
     assert json.loads((experiment / "workers/pocs_grid.json").read_text())["status"] == "completed"
+
+
+def test_the_declared_trace_field_is_built_on_the_aligned_canvas(tmp_path, monkeypatch):
+    """The output layer spans the moveout canvas, not the declared trace length."""
+
+    def identity(_):
+        return {"git_commit": "testcommit"}
+
+    monkeypatch.setattr(data, "execution_identity", identity)
+    monkeypatch.setattr(single, "execution_identity", identity)
+    study, contract, config, _ = tiny_forge_grid_field_study(tmp_path)
+    experiment = data.prepare_forge_grid_experiment(tmp_path, study)
+    seal = json.loads((experiment / "experiment.json").read_text())
+    canvas = seal["canvas_sample_count"]
+    assert canvas > contract["time_sample_count"]
+    settings = {
+        "fourier_components": config["model"]["fourier_components"],
+        "hidden_width": config["model"]["hidden_width"],
+        "hidden_layers": config["model"]["hidden_layers"],
+    }
+    assert seal["parameter_counts"]["inr_real"] == field_parameter_count(
+        time_sample_count=canvas, **settings
+    )
+    assert seal["parameter_counts"]["inr_real"] != field_parameter_count(
+        time_sample_count=contract["time_sample_count"], **settings
+    )
+
+    grid = yaml.safe_load((experiment / "study/grid.yaml").read_text())
+    candidates = c3_search_candidates(config, grid["methods"]["inr_real"])
+    assert (
+        len(
+            {
+                field_parameter_count(
+                    time_sample_count=canvas,
+                    **{
+                        key: item["config"]["model"].get(key, item["config"]["training"].get(key))
+                        for key in settings
+                    },
+                )
+                for item in candidates
+            }
+        )
+        == 1
+    )
+    record = pipeline.execute_forge_grid_run(
+        tmp_path, experiment, candidates[0], contract["trace_split"]["search_seed"], "S1"
+    )
+    assert record["status"] == "completed"
+    assert record["parameter_count"] == seal["parameter_counts"]["inr_real"]
+    assert record["test_scoring_calls"] == 0

@@ -65,3 +65,61 @@ def tiny_forge_grid_study(root):
         (Path(__file__).resolve().parents[2] / "scripts/run_forge_grid_experiment.py").read_bytes()
     )
     return study, contract, config, reference
+
+
+def tiny_forge_grid_field_study(root):
+    """The same sealed FORGE inputs with one declared implicit trace field."""
+    study, contract, _, reference = tiny_forge_grid_study(root)
+    config = {
+        "method_id": "inr_real",
+        "geometry_mode": "real",
+        "device": "cpu",
+        "loss": "masked_trace_mse",
+        "checkpoint_rule": "fixed_final_ema",
+        "model_seed": contract["model_seed"],
+        "model": {
+            "input_features": 4,
+            "fourier_components": 2,
+            "frequency_base": 1.1,
+            "hidden_width": 4,
+            "hidden_layers": 2,
+            "activation": "gelu",
+            "output_activation": "linear",
+            "time_sample_count": contract["time_sample_count"],
+        },
+        "training": {
+            "optimizer": "adamw",
+            "learning_rate": 0.001,
+            "max_steps": 2,
+            "weight_decay": 0.0,
+            "report_interval": 1,
+            "learning_rate_schedule": "constant",
+            "mixed_precision": "off",
+            "ema_decay": 0.8,
+            "batch_size": contract["matched_training"]["loss_traces_per_update"],
+        },
+        "prediction": {"batch_size": 2},
+    }
+    contract["methods"] = ["inr_real"]
+    contract["training_loss"] = "masked_trace_mse"
+    (study / "config.yaml").write_text(yaml.safe_dump(contract))
+    (study / "inr_real.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+    (study / "grid.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "methods": {
+                    "inr_real": {
+                        "axis_a": [
+                            {"id": str(value), "set": {"training.weight_decay": value}}
+                            for value in (0.0, 0.001, 0.01, 0.03, 0.1)
+                        ],
+                        "axis_b": [
+                            {"id": str(value), "set": {"model.frequency_base": value}}
+                            for value in (1.05, 1.075, 1.1, 1.15, 1.25)
+                        ],
+                    }
+                }
+            }
+        )
+    )
+    return study, contract, config, reference
