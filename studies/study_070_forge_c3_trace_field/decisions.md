@@ -137,6 +137,39 @@ receiver point 15.5。
 事前登録 axis_b と同形になり、出力構造の対比が Fourier 帯域で交絡しない。
 b01（場合により b02）が短い軸で解像不足になることは共通 grid を共有する代償として受け入れる。
 
+## 2026-11-09 — 床未達により調整を終了し、代表手法の置き換えは採用しない
+
+**Status:** 採用（事前登録した帰結の適用）。
+
+**Decision:** FORGE の事前登録した床（best-of-25 S1 validation mean trace SNR > 0.4 dB）が未達
+（0.1201 dB）であるため、本 study の調整を終了する。追加の tuning、第3の出力形式、grid の拡張、
+救済 arm はいずれも行わない。neural-implicit の代表手法を `inr_real` に置き換える根拠は得られなかった。
+
+**Evidence:**
+
+- test 3 seed 平均: C3 11.3884 ± 0.0140 dB / relMSE 0.0941、FORGE 0.1011 ± 0.0073 dB / relMSE 1.0071。
+- 同じ test domain・population における study_067 の `nersi_profile`: C3 12.5611 dB / relMSE 0.0681、
+  FORGE 0.3126 dB / relMSE 0.9416。`inr_real` は両 dataset でこれを下回る。
+- FORGE は 25 候補すべてが validation relMSE > 1（最小 1.0033）。学習 loss は全候補が
+  ゼロ予測の 0.4609 を下回る（0.2855–0.3297）一方、未観測トレースでは誤差エネルギーが
+  目標エネルギーを超える（global NMSE 1.0640）。相関中央値は 0.2185 で、
+  study_068/069 の `nersi_profile`（approximately 0）とは異なり縮退はしていない。
+- 採用 cell は両 dataset で grid の角（weight decay 0.1 × Fourier base 最小側）にあり、
+  axis_a・axis_b のどちらも単調である。事前登録した探索範囲は最適点を挟んでおらず、
+  単調な傾向が指す方向（さらに低容量・さらに低帯域）の極限はゼロ予測である。
+
+**理由:** 置き換えの動機は「断面単位 NeRSI が FORGE で縮退し、比較対象として機能しない」ことだった。
+出力 canvas の 7/8 破棄は構造的に解消し（C3 では 25/25 が G0 を通過し相関中央値 0.9683 を得た）、
+縮退も再現しなかったが、FORGE の 70% 欠損・crooked 実座標では座標から全トレースへの写像が
+観測トレースを記憶するだけで補間に至らない。これは実装ではなく手法クラスの限界を示す測定であり、
+grid 内での調整では解消しない。
+
+**帰結と未決事項:** 論文の neural-implicit 代表としては、公表形式であり両 dataset で測定上も優る
+`nersi_profile` を維持する。本 study は事前登録・開示付きの試行として記録し、
+「出力単位の変更では FORGE の床に到達しない」という否定的結果を報告する。
+時間を入力座標に含める真の INR、および時間基底を学習する低ランク field は、
+本 study の救済ではなく独立した事前登録を伴う別 study の対象とする。
+
 ## 2026-11-09 — study 内 YAML の sha256
 
 launch 時点の正本。

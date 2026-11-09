@@ -1,6 +1,6 @@
 # study_070: C3 / FORGE 共通 25 候補による implicit trace field
 
-Status: `prepared` — 実行仕様を凍結した段階。本 study の比較結果は未確定。
+Status: `completed` — S1 25 候補と 3 seed 評価を両 dataset で完了（失敗 0）。FORGE の事前登録した床 0.4 dB は未達。事前登録の規則により追加調整・第3形式・救済 arm は行わない。
 
 ## 目的
 
@@ -40,6 +40,48 @@ config・inputs のいずれにも書けない値は次のとおり。
 
 25 候補は単一のパラメータ数を共有する（`training.weight_decay` と `model.frequency_base` は
 どちらもパラメータ数を変えない）。`model.time_sample_count` は実行時に整列 canvas 長へ上書きされる。
+
+## 結果
+
+生成元: [C3 run](../../runs/study_070_forge_c3_trace_field/20261109T024714931416Z_63414473e4b2_traces) /
+[FORGE run](../../runs/study_070_forge_c3_trace_field/20261109T024720614852Z_63414473e4b2_forge)。
+両 run で `dirty_worktree: false`、`total_runs: 28`、`target_waveforms_read: 0`、
+S1 完了後に seed ごと 1 回だけ test を採点（`test_scoring_calls: 1`）。
+8 partition はすべて study_067 の sealed hash と一致。
+
+### S1 選択（validation `masked_trace_relative_mse` 最小、同値は candidate ID）
+
+| | 採用 cell | wd | base | validation relMSE | validation mean trace SNR | best-of-25 SNR | 床 | 判定 |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| C3 | `a05_b04` | 0.1 | 1.15 | 0.0950 | 11.3812 dB | 11.3812 dB | > 10 dB | **達成** |
+| FORGE | `a05_b01` | 0.1 | 1.05 | 1.0033 | 0.1201 dB | 0.1201 dB | > 0.4 dB | **未達** |
+
+25 候補の範囲は C3 validation relMSE 0.0950–0.1093（mean trace SNR 10.8108–11.3812 dB）、
+FORGE 1.0033–1.3394（−1.0945–0.1201 dB）。**FORGE は 25 候補すべてが validation relMSE > 1**。
+両 dataset で採用 cell が grid の角（weight decay 最大 × Fourier base 最小）にあり、
+事前登録した探索範囲は最適点を挟んでいない。
+
+ゼロ予測 gate（更新 901–1000、記述のみ）: C3 は 25/25 が `passed`、FORGE は 25/25 が `failed`。
+FORGE の学習 loss（最終 1000 更新平均）は 0.2855–0.3297 で、ゼロ予測の loss 0.4609 を全候補が下回る。
+
+### test（3 seed 7321 / 7322 / 7323、採用 cell）
+
+| | trace 数 | mean trace SNR (dB) | relMSE | global NMSE | 相関中央値 |
+|---|---:|---:|---:|---:|---:|
+| C3（all_eligible） | 104,858 | **11.3884 ± 0.0140** | 0.0941 ± 0.0003 | 0.0915 | 0.9683 |
+| FORGE（clean_target） | 34,153 | **0.1011 ± 0.0073** | 1.0071 ± 0.0012 | 1.0640 | 0.2185 |
+
+seed 別 mean trace SNR: C3 11.3779 / 11.3830 / 11.4042 dB、FORGE 0.0933 / 0.1078 / 0.1021 dB。
+
+### 採否
+
+study_067 の記録（[seed_summary.csv](../../results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/seed_summary.csv)、
+同じ test domain・population）の `nersi_profile` は C3 12.5611 dB / relMSE 0.0681、
+FORGE 0.3126 dB / relMSE 0.9416。`inr_real` は**両 dataset でこれを下回る**。
+
+neural-implicit の代表手法を `inr_real` へ置き換える根拠は得られなかった。事前登録どおり、
+FORGE の床未達をもって本 study の調整を終了する。事前登録した study_067 との対比
+（共有 bootstrap 重み、Holm 族）は [`evaluation.yaml`](evaluation.yaml) の規則で別途算出する。
 
 ## 実行
 

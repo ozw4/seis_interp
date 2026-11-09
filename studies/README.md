@@ -111,7 +111,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_069_forge_random_shot50](study_069_forge_random_shot50/README.md): completed — 同じ選択設定を random whole-shot 50%（seed 7302）へ移した固定設定5手法比較。標準5手法は全て予測・採点を完了し、失敗・未実行は0件。ReGSI 2.5702 dB、CCNet5D 1.2157 dB、DRR 1.0033 dB、POCS 0.7105 dB、profile NeRSI は approximately 0 dB。periodic の study_068 とは独立した結果として保持する。
 
-- [study_070_forge_c3_trace_field](study_070_forge_c3_trace_field/README.md): prepared — study_067 と同一の入力・mask・validation holdout・予算・seed・選択規則で、neural-implicit の代表手法を新規のトレース出力 implicit field `inr_real` に置いた共通 5×5 grid。両 dataset で 25 候補が単一のパラメータ数を共有する（C3 362,679 / FORGE 364,296、目標 363,269 の ±0.3% 以内）。study_067 の5 arm との対比は事前登録の対比群の外にある探索的な比較。比較結果は未確定。
+- [study_070_forge_c3_trace_field](study_070_forge_c3_trace_field/README.md): completed — FORGE の床 0.4 dB 未達、代表手法の置き換えは不採用。 study_067 と同一の入力・mask・validation holdout・予算・seed・選択規則で、新規のトレース出力 implicit field `inr_real` を共通 5×5 grid で測定。test 3 seed 平均は C3 11.3884 ± 0.0140 dB / relMSE 0.0941、FORGE 0.1011 ± 0.0073 dB / relMSE 1.0071 で、同じ test における study_067 の profile NeRSI（C3 12.5611 dB、FORGE 0.3126 dB）を両 dataset で下回る。FORGE は 25 候補すべてが validation relMSE > 1。縮退はしていない（相関中央値 0.2185）が補間に至らない。
 
 ## Scratch workspaces
 
