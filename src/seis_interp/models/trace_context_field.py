@@ -24,6 +24,10 @@ class TraceContextField(nn.Module):
     discarded, and because the codec is convolutional the prediction is not confined
     to any fixed subspace and the parameter count does not depend on the time axis.
 
+    ``input_features`` is four local coordinates, or five when the caller appends the
+    log-offset coordinate; the module only requires that queries and context carry
+    the same width.
+
     The caller supplies the neighbourhood, so which traces are visible is a
     property of the declared geometry and of the preparation's observed set, never
     of this module.
@@ -43,8 +47,8 @@ class TraceContextField(nn.Module):
         output_activation="linear",
     ):
         super().__init__()
-        if input_features != 4:
-            raise ValueError("the trace context field requires four coordinates")
+        if input_features not in (4, 5):
+            raise ValueError("the trace context field requires four or five coordinates")
         if activation != "gelu" or output_activation != "linear":
             raise ValueError("the trace context field requires GELU and linear output")
         self.time_sample_count = _positive_integer(time_sample_count, "time_sample_count")
@@ -81,7 +85,13 @@ class TraceContextField(nn.Module):
     def forward(self, coordinates, context_values, context_coordinates):
         """``(batch, 4)`` and ``(batch, context, …)`` to ``(batch, time_sample_count)``."""
         if coordinates.ndim != 2 or context_values.ndim != 3 or context_coordinates.ndim != 3:
-            raise ValueError("expected (batch, 4), (batch, context, time), (batch, context, 4)")
+            raise ValueError(
+                "expected (batch, features), (batch, context, time), (batch, context, features)"
+            )
+        if coordinates.shape[1] != self.encoding.input_features:
+            raise ValueError("coordinates must carry the declared number of features")
+        if context_coordinates.shape[2] != self.encoding.input_features:
+            raise ValueError("context coordinates must carry the declared number of features")
         if context_values.shape[:2] != context_coordinates.shape[:2]:
             raise ValueError("context values and coordinates must describe the same neighbours")
         if context_values.shape[0] != coordinates.shape[0]:

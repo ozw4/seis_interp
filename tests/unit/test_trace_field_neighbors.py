@@ -61,7 +61,8 @@ def test_the_count_must_leave_one_observed_trace_after_excluding_the_query():
 @pytest.mark.parametrize(
     "kwargs,message",
     [
-        ({"coordinates": np.zeros((4, 3))}, "finite"),
+        ({"coordinates": np.zeros(4)}, "finite"),
+        ({"coordinates": np.zeros((4, 0))}, "finite"),
         ({"coordinates": np.full((4, 4), np.nan)}, "finite"),
         ({"observed_rows": np.array([0, 0])}, "distinct"),
         ({"observed_rows": np.array([0, 99])}, "observed_rows"),
@@ -84,3 +85,12 @@ def test_invalid_arguments_are_rejected(kwargs, message):
         nearest_observed_positions(
             **settings, **({"chunk_size": chunk} if chunk is not None else {})
         )
+
+
+def test_any_ranking_width_is_accepted():
+    """The caller owns the ranking space; a trace field may append a log-offset axis."""
+    coordinates = np.random.default_rng(7).uniform(0, 1, size=(20, 5))
+    positions = nearest_observed_positions(coordinates, np.arange(0, 20, 2), np.arange(20), 3)
+    assert positions.shape == (20, 3)
+    narrow = nearest_observed_positions(coordinates[:, :1], np.arange(0, 20, 2), np.arange(20), 3)
+    assert narrow.shape == (20, 3)

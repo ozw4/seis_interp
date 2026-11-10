@@ -115,7 +115,8 @@ def test_the_prediction_depends_on_every_input(trained, perturbed):
 @pytest.mark.parametrize(
     "overrides,arguments,message",
     [
-        ({"input_features": 3}, None, "four coordinates"),
+        ({"input_features": 3}, None, "four or five coordinates"),
+        ({"input_features": 6}, None, "four or five coordinates"),
         ({"activation": "relu"}, None, "GELU and linear"),
         ({"output_activation": "tanh"}, None, "GELU and linear"),
         ({"time_downsample_factor": 5}, None, "divisible by time_downsample_factor"),

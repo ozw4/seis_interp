@@ -33,6 +33,7 @@ from seis_interp.processing.forge_nersi_profiles import (
 )
 from seis_interp.processing.pocs_batched import interpolate_pocs_volume_batched
 from seis_interp.processing.pocs_windows import interpolate_pocs_volume
+from seis_interp.processing.trace_field_coordinates import field_coordinates
 from seis_interp.processing.trace_field_neighbors import nearest_observed_positions
 from seis_interp.processing.trace_graph_preprocessing import build_poc_trace_graph_preprocessing
 from seis_interp.processing.trace_graph_settings import TraceGraphSettings
@@ -1054,19 +1055,24 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
     is never reconstructed from its own amplitudes. A neighbourhood is selected once,
     before any fitting, by ``context.distance``: ``index`` ranks on the four normalized
     local coordinates the field reads, and ``physical`` ranks on the source and receiver
-    station positions in metres, so near follows the acquisition geometry rather than the
-    number of indices on an axis. The field always reads the normalized local
-    coordinates; only the ranking changes.
+    station positions in metres. With ``model.input_features`` five the field also reads a
+    log-offset axis and ``context.offset_weight`` scales that axis in the ranking alone, so
+    the weight separates an offset-aware neighbourhood from an offset-aware input.
     """
-    columns = [
-        f"{role}_{axis}_continuous" for role in ("source", "receiver") for axis in ("line", "point")
-    ]
     table = inputs.geometry.set_index("cell_id")
-    coordinates = table[columns].to_numpy() / np.maximum(np.asarray(inputs.spatial_shape) - 1, 1)
+    features = model.encoding.input_features
+    coordinates = field_coordinates(table, inputs.spatial_shape, features)
     distance = config["context"].get("distance", "index")
+    offset_weight = config["context"].get("offset_weight")
+    if (features == 5) != (offset_weight is not None):
+        raise ValueError("the log-offset axis needs exactly one declared context.offset_weight")
     if distance == "index":
         ranking = coordinates
+        if features == 5:
+            ranking = np.column_stack((coordinates[:, :4], coordinates[:, 4] * offset_weight))
     elif distance == "physical":
+        if features != 4:
+            raise ValueError("the physical ranking reads the four station coordinates only")
         ranking = table[
             [f"{role}_{axis}_m" for role in ("source", "receiver") for axis in ("x", "y")]
         ].to_numpy()
@@ -1175,6 +1181,7 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
         "training_end": _training_end(device),
         "context_neighbor_count": count,
         "context_distance": distance,
+        "context_offset_weight": offset_weight,
         "runtime_neighbor_selection_seconds": neighbor_seconds,
         **warm_memory,
         **_reserved_memory(device, "before_prediction"),

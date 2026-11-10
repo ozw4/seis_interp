@@ -1,4 +1,4 @@
-"""Nearest observed traces in the four normalized coordinates a trace field reads."""
+"""Nearest observed traces in whatever ranking space the caller supplies."""
 
 from numbers import Integral
 
@@ -8,9 +8,10 @@ import numpy as np
 def nearest_observed_positions(coordinates, observed_rows, query_rows, count, *, chunk_size=512):
     """Positions into ``observed_rows`` of each query's ``count`` nearest observed traces.
 
-    Distance is Euclidean in the four normalized local coordinates the field
-    itself reads, so a neighbourhood is a property of the declared geometry alone
-    and never of a waveform. A query that is itself observed excludes itself, so a
+    Distance is Euclidean in the supplied coordinates. The caller chooses that
+    space, and a trace field passes the coordinates it reads itself, so a
+    neighbourhood is a property of the declared geometry alone and never of a
+    waveform. A query that is itself observed excludes itself, so a
     fit never reconstructs a trace from its own amplitudes. Ties break on the
     observed position, which follows the preparation's cell order.
 
@@ -20,8 +21,8 @@ def nearest_observed_positions(coordinates, observed_rows, query_rows, count, *,
     coordinates = np.asarray(coordinates, dtype=np.float64)
     observed_rows = np.asarray(observed_rows, dtype=np.int64)
     query_rows = np.asarray(query_rows, dtype=np.int64)
-    if coordinates.ndim != 2 or coordinates.shape[1] != 4 or not np.isfinite(coordinates).all():
-        raise ValueError("coordinates must be a finite (trace, 4) table")
+    if coordinates.ndim != 2 or not coordinates.shape[1] or not np.isfinite(coordinates).all():
+        raise ValueError("coordinates must be a finite (trace, feature) table")
     for rows, name in ((observed_rows, "observed_rows"), (query_rows, "query_rows")):
         if rows.ndim != 1 or not len(rows) or np.any(rows < 0) or np.any(rows >= len(coordinates)):
             raise ValueError(f"{name} must index the coordinate table")

@@ -151,7 +151,7 @@ def validate_field_method_config(config, contract, *, loss_name="masked_trace_re
     if context is not None:
         neighbors = context.get("neighbor_count")
         if (
-            not set(context) <= {"neighbor_count", "distance"}
+            not set(context) <= {"neighbor_count", "distance", "offset_weight"}
             or "neighbor_count" not in context
             or isinstance(neighbors, bool)
             or not isinstance(neighbors, int)
@@ -160,6 +160,13 @@ def validate_field_method_config(config, contract, *, loss_name="masked_trace_re
             raise ValueError("context.neighbor_count must be a positive integer")
         if context.get("distance", "index") not in ("index", "physical"):
             raise ValueError("context.distance must be index or physical")
+        weight = context.get("offset_weight")
+        if (config["model"]["input_features"] == 5) != (weight is not None):
+            raise ValueError("the log-offset axis needs exactly one declared context.offset_weight")
+        if weight is not None and (
+            isinstance(weight, bool) or not isinstance(weight, (int, float)) or weight < 0
+        ):
+            raise ValueError("context.offset_weight must be a nonnegative number")
     if "matched_training" in contract:
         validate_matched_training(
             {name: config}, contract["matched_training"], contract["observed_trace_count"]

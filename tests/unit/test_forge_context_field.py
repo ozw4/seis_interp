@@ -8,6 +8,7 @@ import torch
 from seis_interp.data.forge_mvp_artifacts import ForgeModelInputs
 from seis_interp.forge_mvp_config import validate_field_method_config
 from seis_interp.models.trace_context_field import TraceContextField
+from seis_interp.processing.trace_field_coordinates import field_coordinates
 from seis_interp.training import forge_mvp_methods
 from seis_interp.training.forge_mvp_methods import _fit_context_field
 
@@ -44,6 +45,9 @@ def _inputs():
     for role, (line, point) in (("source", (0, 1)), ("receiver", (2, 3))):
         geometry[f"{role}_x_m"] = axes[:, line] * LINE_SPACING_M
         geometry[f"{role}_y_m"] = axes[:, point] * POINT_SPACING_M
+    geometry["offset_m"] = np.hypot(
+        geometry.receiver_x_m - geometry.source_x_m, geometry.receiver_y_m - geometry.source_y_m
+    )
     observed = np.arange(0, size, 2, dtype=np.int64)
     test = np.setdiff1d(np.arange(size, dtype=np.int64), observed)
     rng = np.random.default_rng(3)
@@ -300,3 +304,122 @@ def test_the_declared_distance_defaults_to_the_index_ranking():
     _, _, _, records, _ = _fit_inr_context(_fit_config())
     assert records["context_distance"] == "index"
     validate_field_method_config(_method_config(), _contract(), loss_name="masked_trace_mse")
+
+
+OFFSET_WEIGHT = 3.0
+
+
+def _offset_model():
+    torch.manual_seed(7301)
+    return TraceContextField(
+        time_sample_count=TIME_COUNT,
+        input_features=5,
+        fourier_components=2,
+        width=8,
+        stem_kernel_size=3,
+        time_downsample_factor=2,
+    )
+
+
+def _offset_config(**context):
+    config = _fit_config()
+    config["context"] = {"neighbor_count": NEIGHBORS, "offset_weight": OFFSET_WEIGHT} | context
+    return config
+
+
+def _fit_offset(config=None, decays=(), snapshots=()):
+    return _fit_context_field(
+        _offset_model(), _inputs(), config or _offset_config(), lambda _: None, decays, snapshots
+    )
+
+
+def test_the_offset_weight_scales_the_ranking_but_not_the_input(monkeypatch):
+    """The weight separates an offset-aware neighbourhood from an offset-aware input."""
+    ranked = []
+    original = forge_mvp_methods.nearest_observed_positions
+    monkeypatch.setattr(
+        forge_mvp_methods,
+        "nearest_observed_positions",
+        lambda coordinates, *a, **k: (
+            ranked.append(np.array(coordinates, dtype=np.float64)),
+            original(coordinates, *a, **k),
+        )[1],
+    )
+    read = []
+    model = _offset_model()
+    forward = model.forward
+    monkeypatch.setattr(
+        model,
+        "forward",
+        lambda q, v, c: (read.append(q.detach().cpu().numpy().copy()), forward(q, v, c))[1],
+    )
+    _fit_context_field(model, _inputs(), _offset_config(), lambda _: None, (), ())
+
+    expected = field_coordinates(_inputs().geometry.set_index("cell_id"), SHAPE, 5)
+    assert ranked and read
+    # the ranking carries the weighted axis
+    np.testing.assert_allclose(ranked[0][:, 4], expected[:, 4] * OFFSET_WEIGHT)
+    np.testing.assert_allclose(ranked[0][:, :4], expected[:, :4])
+    # the field reads the unweighted one: every query axis value is an unscaled
+    # log-offset, and the unscaled axis stays inside the unit range the weight leaves.
+    assert read[0].shape[1] == 5
+    assert np.isclose(read[0][:, 4, None], expected[None, :, 4], atol=1e-6).any(axis=1).all()
+    assert read[0][:, 4].max() <= 1.0
+    assert ranked[0][:, 4].max() == pytest.approx(expected[:, 4].max() * OFFSET_WEIGHT)
+    assert ranked[0][:, 4].max() > 1.0
+
+
+def test_the_fit_records_the_declared_offset_weight():
+    _, _, _, records, _ = _fit_offset()
+    assert records["context_offset_weight"] == OFFSET_WEIGHT
+    assert records["context_distance"] == "index"
+    _, _, _, four, _ = _fit_inr_context()
+    assert four["context_offset_weight"] is None
+
+
+@pytest.mark.parametrize(
+    "model_factory,context,message",
+    [
+        (_offset_model, {"neighbor_count": NEIGHBORS}, "exactly one declared"),
+        (_model, {"neighbor_count": NEIGHBORS, "offset_weight": 1.0}, "exactly one declared"),
+        (
+            _offset_model,
+            {"neighbor_count": NEIGHBORS, "offset_weight": 1.0, "distance": "physical"},
+            "four station coordinates only",
+        ),
+    ],
+)
+def test_the_offset_axis_and_its_weight_must_agree(model_factory, context, message):
+    config = _fit_config()
+    config["context"] = context
+    with pytest.raises(ValueError, match=message):
+        _fit_context_field(model_factory(), _inputs(), config, lambda _: None, (), ())
+
+
+@pytest.mark.parametrize(
+    "overrides,message",
+    [
+        ({"model": {"input_features": 5}}, "exactly one declared"),
+        ({"context": {"offset_weight": 1.0}}, "exactly one declared"),
+        (
+            {"model": {"input_features": 5}, "context": {"offset_weight": -1.0}},
+            "nonnegative number",
+        ),
+        (
+            {"model": {"input_features": 5}, "context": {"offset_weight": True}},
+            "nonnegative number",
+        ),
+    ],
+)
+def test_the_contract_rejects_a_mismatched_offset_axis(overrides, message):
+    with pytest.raises(ValueError, match=message):
+        validate_field_method_config(
+            _method_config(**overrides), _contract(), loss_name="masked_trace_mse"
+        )
+
+
+def test_the_contract_accepts_a_declared_offset_axis():
+    config = _method_config(
+        model={"input_features": 5}, context={"neighbor_count": NEIGHBORS, "offset_weight": 1.0}
+    )
+    validate_field_method_config(config, _contract(), loss_name="masked_trace_mse")
