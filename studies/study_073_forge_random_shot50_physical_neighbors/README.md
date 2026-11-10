@@ -1,6 +1,6 @@
 # FORGE random whole-shot50 での物理スケール近傍
 
-Status: `prepared` — 実行仕様を凍結した段階。本 study の結果は未確定。
+Status: `completed` — 予測・採点を完了（失敗 0）。物理スケールの順位付けは study_072 の index 正規化に対し **clean_target で −0.1684 dB / relMSE +0.0648 と劣化**した。改善しないという事前の予測は当たり、さらに小幅な劣化であることが確定した。`context.distance` の既定は `index` のまま維持する。
 
 ## 目的
 
@@ -40,6 +40,47 @@ index 正規化が偶然物理異方性に近いため選択はほとんど動�
 （whole-shot mask では同一 gather 内の観測 trace が存在しない）は順位付けの重みでは変わらない。
 したがって本 study は**改善を予想しない**。index 距離の異方性が格子の index 本数由来であるという
 弱点に対して、物理スケールが FORGE でどれだけの効果量を持つかを確定させるための測定である。
+
+## 結果
+
+生成元 [run](../../runs/study_073_forge_random_shot50_physical_neighbors/20261110T001537787611Z_0c98af748471)、
+[採用図表・CSV](../../results/study_073_forge_random_shot50_physical_neighbors/20261110T004234Z_0c98af748471_analysis)。
+`dirty_worktree: false`、`total_runs: 1`、`test_scoring_calls: 1`、runtime 1450.9284 s。
+run は `context_distance: physical` を記録している。入力10成果物は study_069 / study_072 と byte 一致。
+
+### A/B（study_072 との差は近傍の順位付けだけ）
+
+| | 順位付け | clean_target SNR (dB) | clean_target relMSE | all_eligible SNR (dB) | all_eligible relMSE | 学習 loss |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| study_072 | index | **0.3596** | **1.0005** | 0.3800 | 0.9984 | 0.2043 |
+| study_073 | physical | 0.1912 | 1.0652 | 0.2125 | 1.0633 | 0.2038 |
+| 差（physical − index） | | **−0.1684** | **+0.0648** | −0.1675 | +0.0649 | −0.0005 |
+
+学習 loss はほぼ同一（0.2038 / 0.2043）であり、観測トレースへの適合は同等で、差は汎化だけに現れる。
+
+### shot 支持別（clean_target）
+
+| shot_support | shot 数 | index SNR (dB) | physical SNR (dB) | index relMSE | physical relMSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| internal | 85 | +0.4193 | +0.3283 | 0.9919 | 1.0287 |
+| edge | 11 | −0.1023 | **−0.8687** | 1.0667 | **1.3476** |
+
+劣化は edge shot（source 軸の支持が片側だけの shot）に集中する。
+
+### 両順位付けが選ぶ近傍の差（幾何のみ）
+
+| query 群 | 件数 | 16 近傍の一致数 | 集合が完全一致 | 最近傍が一致 |
+| --- | ---: | ---: | ---: | ---: |
+| 学習 query（観測 → 観測） | 24,575 | 15.75 / 16 | 82.62 % | 98.27 % |
+| test internal shot | 21,760 | 15.76 / 16 | 83.88 % | 100.00 % |
+| test edge shot | 2,816 | 15.37 / 16 | **56.46 %** | 100.00 % |
+
+不一致は edge shot で 43.5 % と、internal shot の 16.1 % に対し約 2.7 倍である。
+
+### 採否
+
+`context.distance` の既定は `index` のまま維持し、`physical` は採用しない。
+判断理由は [decisions.md](decisions.md) に置く。
 
 ## 条件
 

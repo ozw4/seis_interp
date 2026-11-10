@@ -117,7 +117,7 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_072_forge_random_shot50_context_field](study_072_forge_random_shot50_context_field/README.md): completed — 本 mask では不採用。study_071 の採用設定（近傍 16 本、Fourier base 1.05）を study_069 の random whole-shot 50% mask へ byte 一致の入力で移した結果、clean_target は relMSE 1.0005 / 0.3596 dB で、ReGSI 2.5702・CCNet5D 1.2157・DRR 1.0033・POCS 0.7105 dB の下、profile NeRSI の上。 幾何だけの近傍測定が原因を特定した: 観測 trace は約1.85倍で最近傍距離も同じだが、 同一 shot gather 内の観測近傍が 95.97 % → 0 % になる。条件付けは gather 内近傍に依存する。
 
-- [study_073_forge_random_shot50_physical_neighbors](study_073_forge_random_shot50_physical_neighbors/README.md): prepared — study_072 から1行だけの A/B。近傍の順位付けを index 正規化座標から取得幾何の物理座標（m）へ変える（`context.distance: physical`）。事前の幾何測定では両者の 16 近傍が平均 15.72 本一致し最近傍は 100 % 一致、同一 shot gather 内の近傍は双方 0 なので改善は予想しない。index 距離の異方性が軸の index 本数由来であるという弱点に対する効果量を確定させる測定。結果は未確定。
+- [study_073_forge_random_shot50_physical_neighbors](study_073_forge_random_shot50_physical_neighbors/README.md): completed — 不採用。study_072 から1行（`context.distance: physical`）だけの A/B で、 clean_target は −0.1684 dB / relMSE +0.0648 の劣化。学習 loss はほぼ同一（0.2038 対 0.2043）なので 差は汎化だけに現れ、劣化は edge shot に集中する（−0.1023 → −0.8687 dB）。近傍の不一致率も edge shot で 最大（集合完全一致 internal 83.88 % 対 edge 56.46 %）。launch 前に記録した「改善を予想しない」は的中。 `context.distance` の既定は `index` のまま維持する。
 
 ## Scratch workspaces
 
