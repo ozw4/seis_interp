@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-11-10T23:37:00.787896+00:00",
+  "created_at": "2026-11-10T23:42:49.998113+00:00",
   "experiment": "runs/study_076_forge_random_shot50_aligned_baselines/20261110T030856201743Z_fd810e6bcb8c",
   "study_id": "study_076_forge_random_shot50_aligned_baselines",
   "dataset_id": "forge_2017",
@@ -39,6 +39,6 @@
   ],
   "artifacts": {
     "per_trace.parquet": "06daa8673d2b934b46dc463a890dd56f6b06308212eda66f758bdfcdfaa98cdf",
-    "summary.csv": "1aab93307f50f20afdd31277b5295d10ff49bda2e587ec6a1c0129cb5090f9f9"
+    "summary.csv": "ce029b08c27eca8cb0b0e4587c9988e1fceaa44b58d1cd15df5a00b6275aadd1"
   }
 }

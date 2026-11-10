@@ -13,9 +13,14 @@ precedes the arrival. The constants come from observed traces only -- the model'
 own input -- with a margin, and they are recorded with every result.
 
 The headline number is the amplitude a method invented before the arrival: the RMS
-of its own prediction inside the window, averaged over traces with no weighting. It
-is in the data's units, it stays defined when the reference window is silent, and it
-is read beside the reference's own pre-arrival amplitude on the same traces.
+of its own prediction inside the window, in the data's units, read beside the
+reference's own pre-arrival amplitude on the same traces. It stays defined when the
+reference window is silent, which a ratio to it does not.
+
+Summarize it with the median. Trace amplitudes span orders of magnitude -- on FORGE
+the reference's own pre-arrival RMS has a mean 73 times its median -- so a mean over
+traces describes the loudest few, not the typical trace, and disagrees with what a
+gather display shows.
 
 A zero prediction invents nothing, so this number alone cannot rank methods. Read it
 beside the post-arrival SNR, never on its own.

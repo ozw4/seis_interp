@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-11-10T23:37:06.600362+00:00",
+  "created_at": "2026-11-10T23:42:55.921037+00:00",
   "experiment": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge",
   "study_id": "study_067_forge_c3_common_grid",
   "dataset_id": "forge_2017",
@@ -69,6 +69,6 @@
   ],
   "artifacts": {
     "per_trace.parquet": "1ec9cc1fefbc9ad388bbd6830c1d2092b17856d7ed029694b5e66d61f3be4bd9",
-    "summary.csv": "b150896e1509cc834c8ddd284f21adc71689a234a1bf7dbd081f39e8739f71f9"
+    "summary.csv": "e153751b1fbce2797309f2ba145d886a5636520c84716017b679f5e01705a1b6"
   }
 }

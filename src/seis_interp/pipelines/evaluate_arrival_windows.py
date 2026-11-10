@@ -160,8 +160,18 @@ def summarize(table, population):
         "median_post_snr_db": float(rows.post_snr_db.median()),
         # Mean of the per-trace ratio, matching the studies' masked_trace_relative_mse.
         "mean_post_relative_mse": float(rows.post_relative_mse.mean()),
-        # The invented pre-arrival amplitude, averaged over traces with no weighting,
-        # beside the amplitude that is really there on the same traces.
+        # The invented pre-arrival amplitude, beside the amplitude that is really there
+        # on the same traces. Trace amplitudes span orders of magnitude, so the median is
+        # the typical trace and the mean is set by the loudest few; both are reported and
+        # their ratio says how skewed this population is.
+        "median_pre_prediction_rms": float(rows.pre_prediction_rms.median()),
+        "median_pre_target_rms": float(rows.pre_target_rms.median()),
+        "median_pre_prediction_rms_over_trace_rms": _statistic(
+            rows.pre_prediction_rms_over_trace_rms, "median"
+        ),
+        "median_pre_target_rms_over_trace_rms": _statistic(
+            rows.pre_target_rms_over_trace_rms, "median"
+        ),
         "mean_pre_prediction_rms": float(rows.pre_prediction_rms.mean()),
         "mean_pre_target_rms": float(rows.pre_target_rms.mean()),
         "mean_pre_prediction_rms_over_trace_rms": _statistic(

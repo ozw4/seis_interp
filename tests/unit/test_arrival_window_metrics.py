@@ -177,7 +177,9 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
     assert summary["mean_post_snr_db"] == pytest.approx(2.0)
     # Mean of the per-trace ratio, as the studies report masked_trace_relative_mse.
     assert summary["mean_post_relative_mse"] == pytest.approx(0.5)
-    # The invented amplitude is a plain unweighted mean over the test traces.
+    # The invented amplitude is summarized by the median, with the mean kept beside it:
+    # trace amplitudes are skewed, so the mean describes the loudest few.
+    assert summary["median_pre_prediction_rms"] == pytest.approx(1.5)
+    assert summary["median_pre_target_rms"] == pytest.approx(3.0)
+    assert summary["median_pre_prediction_rms_over_trace_rms"] == pytest.approx(0.15)
     assert summary["mean_pre_prediction_rms"] == pytest.approx(1.5)
-    assert summary["mean_pre_target_rms"] == pytest.approx(3.0)
-    assert summary["mean_pre_prediction_rms_over_trace_rms"] == pytest.approx(0.15)
