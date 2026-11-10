@@ -500,3 +500,66 @@ def test_the_gather_excluded_study_changes_one_declared_condition():
     for name, digest in sources["selection_hashes"].items():
         assert sha256_file(repo / name) == digest
     assert contract["validation_holdout"] is None and contract["workflow"]["total_runs"] == 1
+
+
+def test_the_aligned_baseline_study_changes_one_declared_line_per_method():
+    """study_076 is study_069's two data-reading methods with the training view aligned.
+
+    The whole-shot test view gives a query no trace of its own gather. Both methods
+    default to re-masking individual traces, so without these two declared lines the
+    fit reads context its test never carries. One line each, nothing else moved.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    previous = repo / "studies/study_069_forge_random_shot50"
+    study = repo / "studies/study_076_forge_random_shot50_aligned_baselines"
+    changes = {
+        "regsi_real": ("training", "episode_kind", "random_whole_ffid", "random_trace"),
+        "ccnet5d_grid": ("patches", "inner_mask_unit", "source_station", "trace"),
+    }
+    for method, (section, key, declared, default) in changes.items():
+        before = yaml.safe_load((previous / f"{method}.yaml").read_text())
+        after = yaml.safe_load((study / f"{method}.yaml").read_text())
+        assert before[section].get(key, default) == default
+        assert after == {**before, section: {**before[section], key: declared}}
+
+    contract = yaml.safe_load((study / "config.yaml").read_text())
+    earlier = yaml.safe_load((previous / "config.yaml").read_text())
+    assert contract["methods"] == ["regsi_real", "ccnet5d_grid"]
+    assert contract["workflow"]["total_runs"] == 2
+    assert contract["mask_study_id"] == "study_069_forge_random_shot50"
+    assert contract["interpolation_mask"] == earlier["interpolation_mask"]
+    assert contract["matched_training"] == earlier["matched_training"]
+    assert contract["validation_holdout"] is None
+    for method, (section, key, declared, _) in changes.items():
+        reference = contract["fixed_settings"][method]
+        assert reference["changes_from_selected"] == [f"{section}.{key}: {declared}"]
+        for name in ("candidate_id", "base", "grid", "selection", "selection_table"):
+            assert reference[name] == earlier["fixed_settings"][method][name]
+    sources = yaml.safe_load((study / "inputs.yaml").read_text())
+    assert "c3_selections" not in sources
+    for name, digest in sources["selection_hashes"].items():
+        assert sha256_file(repo / name) == digest
+
+
+@pytest.mark.parametrize(
+    "method,section,key,declared",
+    [
+        ("regsi_real", "training", "episode_kind", "random_whole_ffid"),
+        ("ccnet5d_grid", "patches", "inner_mask_unit", "source_station"),
+    ],
+)
+def test_the_declared_training_view_reaches_the_fit(shot_prepared, method, section, key, declared):
+    """A config-level assertion would miss the wiring; run the fit and read it back."""
+    _, experiment, _ = shot_prepared
+    inputs, config, partition = data.load_forge_trace_inputs(experiment, method)
+    assert key not in config[section]
+    default = run_forge_c3_method(inputs, config, reporter=lambda _: None)
+
+    config[section][key] = declared
+    aligned = run_forge_c3_method(inputs, config, reporter=lambda _: None)
+    assert aligned.diagnostics[key] == declared
+    assert default.diagnostics[key] != declared
+    count = int(partition.role.eq("test").sum())
+    assert aligned.prediction.shape == (count, 9) and np.isfinite(aligned.prediction).all()
+    # The declared view changes what the fit sees, so it must change what the fit learns.
+    assert not np.array_equal(aligned.prediction, default.prediction)

@@ -517,6 +517,7 @@ def _fit_ccnet(
         amplitude_scale=inputs.global_rms,
         patch_shape=patch_shape,
         inner_mask_fraction=config["patches"]["inner_mask_fraction"],
+        inner_mask_unit=config["patches"].get("inner_mask_unit", "trace"),
         placement_seed=placement_seed,
         inner_mask_seed=mask_seed,
         supervision_seed=supervision_seed,
@@ -548,6 +549,7 @@ def _fit_ccnet(
     )
     records = {
         "training_end": _training_end(device),
+        "inner_mask_unit": source.inner_mask_unit,
         **warm_memory,
         **_reserved_memory(device, "before_prediction"),
     }
@@ -649,6 +651,7 @@ def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates, *, rec
         graph_settings=settings,
         random_seed=config["model_seed"],
         inner_mask_fraction=tr["inner_mask_fraction"],
+        episode_kind=tr.get("episode_kind", "random_trace"),
         max_steps=tr["max_steps"],
         query_batch_size=tr["query_batch_size"],
         learning_rate=tr["learning_rate"],
@@ -669,6 +672,7 @@ def _fit_regsi(model, inputs, config, reporter, decays, snapshot_updates, *, rec
     )
     records = {
         "training_end": _training_end(device),
+        "episode_kind": tr.get("episode_kind", "random_trace"),
         **warm_memory,
         **_reserved_memory(device, "before_prediction"),
     }

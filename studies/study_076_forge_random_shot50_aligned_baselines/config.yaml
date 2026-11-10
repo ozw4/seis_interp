@@ -1,0 +1,98 @@
+candidate_id: medium_source_b06_u3400.0_receiver_b13_u1900.0
+axis_order:
+- source_grid_line
+- source_grid_point
+- receiver_grid_line
+- receiver_grid_point
+spatial_shape:
+- 6
+- 32
+- 8
+- 32
+eligible_trace_count: 49151
+natural_missing_cell_count: 1
+time_sample_count: 1001
+sample_interval_us: 4000
+model_seed: 7301
+preprocessing:
+  dtype: float32
+  amplitude_scaling: trace_oracle
+  agc: false
+  trace_rms: true
+  bandpass: null
+  mute: null
+  spatial_interpolation: false
+  alignment:
+    velocity_m_per_s: 500.0
+evaluation:
+  primary: mean_trace_snr_db
+  primary_domain: clean_target
+  secondary_domain: all_eligible
+  recompute_rtol: 1.0e-10
+  recompute_atol: 1.0e-12
+  test_rms_usage: oracle_normalization_and_restoration_only
+  paired_metric: masked_trace_relative_mse
+  shot_support_definition: 'internal: observed points on both sides within source
+    line; edge: one-sided source-axis support'
+visualization:
+  time_range_s:
+  - 0.0
+  - 4.0
+  clip_observed_percentile: 99.0
+  gather_selection: geometry_only_central_internal_and_one_sided_test_shots
+time_sampling:
+  native_sample_count: 4001
+  native_sample_interval_us: 1000
+  decimation_factor: 4
+matched_training:
+  max_steps: 50000
+  learning_rate: 0.001
+  loss_traces_per_update: 64
+  parameter_count_policy: preserve_c3_architecture_widths_allow_declared_canvas_time_upsampling
+methods:
+- regsi_real
+- ccnet5d_grid
+selection:
+  metric: masked_trace_relative_mse
+  tie_break: configuration_id
+  checkpoint: fixed_final_ema
+  ema_decay: 0.999
+training_loss: masked_trace_mse
+boundary_handling:
+  ccnet_source_lines: append_unknown_lines_to_fit_fixed_patch_without_remapping_cells
+  natural_missing: excluded_from_training_labels_and_scoring
+study_id: study_076_forge_random_shot50_aligned_baselines
+dataset_id: forge_2017
+mask_family: random_shot
+interpolation_mask:
+  id: random_whole_shot50_seed7302
+  mask_seed: 7302
+  observed_shots_per_line: 16
+  algorithm: sha256_rank_per_source_line
+validation_holdout: null
+workflow:
+  total_runs: 2
+  training: fresh_initialization
+  scoring: test_only_after_all_method_outcomes
+cuda_execution:
+  minimum_free_memory_gib:
+    regsi_real: 46
+    ccnet5d_grid: 83
+fixed_settings:
+  regsi_real:
+    candidate_id: a05_b04
+    base: studies/study_067_forge_c3_common_grid/forge/regsi_real.yaml
+    grid: studies/study_067_forge_c3_common_grid/grid.yaml
+    selection_table: results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv
+    selection: runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/regsi_real_selection.json
+    changes_from_selected:
+    - 'training.episode_kind: random_whole_ffid'
+  ccnet5d_grid:
+    candidate_id: a02_b05
+    base: studies/study_067_forge_c3_common_grid/forge/ccnet5d_grid.yaml
+    grid: studies/study_067_forge_c3_common_grid/grid.yaml
+    selection_table: results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv
+    selection: runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/ccnet5d_grid_selection.json
+    changes_from_selected:
+    - 'patches.inner_mask_unit: source_station'
+mask_study_id: study_069_forge_random_shot50

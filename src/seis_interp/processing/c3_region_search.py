@@ -69,7 +69,10 @@ def resolve_c3_candidate(config: dict, observed_count: int, traces_per_update: i
         hidden = traces_per_update * math.floor(nominal * observed_count / traces_per_update)
         if hidden < traces_per_update or hidden >= observed_count:
             raise ValueError("ReGSI train observations cannot supply one complete query batch")
-        resolved["training"]["inner_mask_fraction"] = hidden / observed_count
+        # Whole-gather episodes quantize the hidden count by gather size, so rounding it to
+        # a query batch would move the declared gather fraction instead of the batch fill.
+        if config["training"].get("episode_kind", "random_trace") == "random_trace":
+            resolved["training"]["inner_mask_fraction"] = hidden / observed_count
     return resolved
 
 

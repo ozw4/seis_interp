@@ -116,6 +116,7 @@ def train_relational_trace_graph_poc(
     graph_settings: TraceGraphSettings,
     random_seed: int,
     inner_mask_fraction: float,
+    episode_kind: str = "random_trace",
     max_steps: int,
     query_batch_size: int,
     learning_rate: float,
@@ -193,7 +194,10 @@ def train_relational_trace_graph_poc(
     )
     graph_settings.validate_model_config(model.constructor_config())
     episodes = PocTraceGraphEpisodeGenerator(
-        training, random_seed=random_seed, missing_fraction=inner_mask_fraction
+        training,
+        random_seed=random_seed,
+        missing_fraction=inner_mask_fraction,
+        kind=episode_kind,
     )
     domain = training.domain
     geometry = _training_geometry(training)

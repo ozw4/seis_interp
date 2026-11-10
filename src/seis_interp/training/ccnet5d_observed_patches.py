@@ -38,6 +38,7 @@ class CCNet5DObservedPatchSource:
         amplitude_scale: float,
         patch_shape: tuple[int, ...],
         inner_mask_fraction: float,
+        inner_mask_unit: str = "trace",
         placement_seed: int | np.random.SeedSequence,
         inner_mask_seed: int | np.random.SeedSequence,
         supervision_seed: int | np.random.SeedSequence | None = None,
@@ -51,6 +52,9 @@ class CCNet5DObservedPatchSource:
         if self.patch_shape[0] != volume.shape[0]:
             raise ValueError("patch_shape must span the complete trace time axis")
         self.inner_mask_fraction = _inner_mask_fraction(inner_mask_fraction)
+        if inner_mask_unit not in ("trace", "source_station"):
+            raise ValueError("inner_mask_unit must be 'trace' or 'source_station'")
+        self.inner_mask_unit = inner_mask_unit
         self.amplitude_scale = _positive_finite_scale(amplitude_scale)
         self._placement_generator = _random_generator(placement_seed, "placement_seed")
         self._mask_generator = _random_generator(inner_mask_seed, "inner_mask_seed")
@@ -75,6 +79,7 @@ class CCNet5DObservedPatchSource:
             self._observed_mask,
             patch_shape=self.patch_shape[1:],
             inner_mask_fraction=self.inner_mask_fraction,
+            inner_mask_unit=self.inner_mask_unit,
         )
         if not self._eligible_spatial_starts:
             raise ValueError(
@@ -125,6 +130,7 @@ class CCNet5DObservedPatchSource:
             available,
             fraction=self.inner_mask_fraction,
             generator=self._mask_generator,
+            unit=self.inner_mask_unit,
         )
         visible = available & ~hidden
         self.patches_drawn += 1
@@ -272,6 +278,7 @@ def _eligible_spatial_starts(
     *,
     patch_shape: tuple[int, ...],
     inner_mask_fraction: float,
+    inner_mask_unit: str = "trace",
 ) -> tuple[tuple[int, ...], ...]:
     starts: list[tuple[int, ...]] = []
     ranges = (
@@ -283,9 +290,10 @@ def _eligible_spatial_starts(
             slice(start, start + extent)
             for start, extent in zip(candidate, patch_shape, strict=True)
         )
-        available_count = int(np.count_nonzero(observed_mask[slices]))
-        hidden_count = _pseudo_target_count(available_count, inner_mask_fraction)
-        if 0 < hidden_count < available_count:
+        available = observed_mask[slices]
+        units = _available_units(available, inner_mask_unit)
+        hidden_units = _pseudo_target_count(len(units), inner_mask_fraction)
+        if 0 < hidden_units < len(units):
             starts.append(candidate)
     return tuple(starts)
 
@@ -295,15 +303,39 @@ def _draw_pseudo_target_mask(
     *,
     fraction: float,
     generator: np.random.Generator,
+    unit: str = "trace",
 ) -> np.ndarray:
-    available_positions = np.flatnonzero(available_mask)
-    hidden_count = _pseudo_target_count(len(available_positions), fraction)
-    if hidden_count < 1 or hidden_count >= len(available_positions):
+    """Hide a fraction of the patch's available units.
+
+    ``trace`` hides individual cells, so a pseudo-target keeps most of its own source
+    station's cells as visible context. ``source_station`` hides whole source stations,
+    which is what a whole-shot interpolation mask does to a test cell: no cell of its
+    own station is visible. Declare the unit of the mask the fit will be tested under,
+    or the fit learns to read context the test never carries.
+    """
+    units = _available_units(available_mask, unit)
+    hidden_count = _pseudo_target_count(len(units), fraction)
+    if hidden_count < 1 or hidden_count >= len(units):
         raise ValueError("patch must contain at least one pseudo-target and one visible context")
-    selected = generator.choice(available_positions, size=hidden_count, replace=False)
     hidden = np.zeros(available_mask.shape, dtype=np.bool_)
-    hidden.reshape(-1)[selected] = True
-    return hidden
+    if unit == "trace":
+        selected = generator.choice(units, size=hidden_count, replace=False)
+        hidden.reshape(-1)[selected] = True
+        return hidden
+    selected = generator.choice(len(units), size=hidden_count, replace=False)
+    hidden[tuple(units[np.sort(selected)].T)] = True
+    return hidden & available_mask
+
+
+def _available_units(available_mask: np.ndarray, unit: str):
+    """Flat cell positions, or the distinct source stations holding an available cell."""
+    if unit == "trace":
+        return np.flatnonzero(available_mask)
+    if unit != "source_station":
+        raise ValueError("inner_mask_unit must be 'trace' or 'source_station'")
+    if available_mask.ndim != 4:
+        raise ValueError("source_station units require a four-axis spatial patch")
+    return np.argwhere(available_mask.any(axis=(2, 3)))
 
 
 def _pseudo_target_count(available_count: int, fraction: float) -> int:

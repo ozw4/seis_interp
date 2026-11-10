@@ -1,4 +1,4 @@
-"""Random whole-trace pseudo-targets and separated O-only graph label access."""
+"""Random trace or whole-gather pseudo-targets and separated O-only graph label access."""
 
 from __future__ import annotations
 
@@ -9,11 +9,19 @@ import torch
 
 from seis_interp.data.c3_poc_trace_graph import C3PocTraceGraphTrainingData
 from seis_interp.data.masked_trace_source import MaskedTraceSource
-from seis_interp.training.trace_graph_episodes import TraceGraphEpisode
+from seis_interp.training.trace_graph_episodes import EPISODE_KINDS, TraceGraphEpisode
 
 
 class PocTraceGraphEpisodeGenerator:
-    """Redraw a fixed-fraction uniform subset of O using only a local seed."""
+    """Redraw a fixed-fraction subset of O using only a local seed.
+
+    ``kind`` chooses the hidden unit. ``random_trace`` hides individual traces, so a
+    hidden query keeps most of its own source gather as visible context.
+    ``random_whole_ffid`` hides whole gathers, which is what a whole-shot
+    interpolation mask does to a test query: the query has no visible trace from its
+    own gather. Declare the kind that matches the mask the fit will be tested under,
+    or the fit learns to read context the test never carries.
+    """
 
     def __init__(
         self,
@@ -21,6 +29,7 @@ class PocTraceGraphEpisodeGenerator:
         *,
         random_seed: int,
         missing_fraction: float,
+        kind: str = "random_trace",
     ) -> None:
         if (
             isinstance(random_seed, bool)
@@ -35,9 +44,16 @@ class PocTraceGraphEpisodeGenerator:
             or not 0 < missing_fraction < 1
         ):
             raise ValueError("missing_fraction must be strictly between 0 and 1")
+        if kind not in EPISODE_KINDS:
+            raise ValueError(f"kind must be one of {EPISODE_KINDS}")
+        self._kind = kind
         self._trace_ids = training.domain.trace_ids.copy()
-        self._hidden_count = round(len(self._trace_ids) * missing_fraction)
-        if not 0 < self._hidden_count < len(self._trace_ids):
+        self._ffids = np.asarray(training.domain.ffids).copy()
+        if self._ffids.shape != self._trace_ids.shape:
+            raise ValueError("episodes require one ffid per training trace")
+        units = self._trace_ids if kind == "random_trace" else np.unique(self._ffids)
+        self._hidden_count = round(len(units) * missing_fraction)
+        if not 0 < self._hidden_count < len(units):
             raise ValueError("missing_fraction must leave at least one query and one context")
         self._fraction = float(missing_fraction)
         self._rng = np.random.default_rng(int(random_seed))
@@ -52,11 +68,19 @@ class PocTraceGraphEpisodeGenerator:
 
     def next_episode(self) -> TraceGraphEpisode:
         """Keep this visibility fixed while visiting all hidden query batches."""
-        hidden = np.sort(self._rng.choice(self._trace_ids, size=self._hidden_count, replace=False))
+        if self._kind == "random_trace":
+            hidden = np.sort(
+                self._rng.choice(self._trace_ids, size=self._hidden_count, replace=False)
+            )
+        else:
+            gathers = self._rng.choice(
+                np.unique(self._ffids), size=self._hidden_count, replace=False
+            )
+            hidden = np.sort(self._trace_ids[np.isin(self._ffids, gathers)])
         self._episode_id += 1
         return TraceGraphEpisode(
             episode_id=self._episode_id,
-            kind="random_trace",
+            kind=self._kind,
             missing_fraction=self._fraction,
             trace_ids=self._trace_ids.copy(),
             visible_mask=~np.isin(self._trace_ids, hidden),
@@ -101,8 +125,8 @@ class PocTraceGraphEpisodeLabelReader:
 def _validate_episode(training: C3PocTraceGraphTrainingData, episode: TraceGraphEpisode) -> None:
     ids = training.domain.trace_ids
     visible = episode.visible_mask
-    if episode.kind != "random_trace" or not np.array_equal(episode.trace_ids, ids):
-        raise ValueError("PoC episodes must be random_trace over exactly O")
+    if episode.kind not in EPISODE_KINDS or not np.array_equal(episode.trace_ids, ids):
+        raise ValueError(f"PoC episodes must use {EPISODE_KINDS} over exactly O")
     if (
         visible.dtype != np.bool_
         or visible.shape != ids.shape
@@ -112,3 +136,6 @@ def _validate_episode(training: C3PocTraceGraphTrainingData, episode: TraceGraph
         or not np.array_equal(np.sort(episode.query_trace_ids), np.sort(episode.hidden_trace_ids))
     ):
         raise ValueError("episode must partition O into context and hidden query traces")
+    ffids = np.asarray(training.domain.ffids)
+    if episode.kind == "random_whole_ffid" and np.isin(ffids[visible], ffids[~visible]).any():
+        raise ValueError("a whole-gather episode must hide every trace of each hidden gather")

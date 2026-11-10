@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def main():
@@ -18,6 +19,12 @@ def main():
     parser.add_argument("--experiment", type=Path, required=True)
     parser.add_argument(
         "--method", action="append", choices=("regsi_real", "ccnet5d_grid"), required=True
+    )
+    parser.add_argument(
+        "--settings",
+        type=Path,
+        help="study directory whose method YAML replaces the run's resolved settings, "
+        "so a declared change can be checked before it is launched",
     )
     parser.add_argument("--queries", type=int, default=1500, help="sampled ReGSI destinations")
     parser.add_argument("--patches", type=int, default=400, help="sampled CCNet5D patches")
@@ -41,9 +48,12 @@ def main():
     role = partition.set_index("cell_id").role.reindex(geometry.cell_id.to_numpy()).to_numpy()
     tables = []
     for method in dict.fromkeys(args.method):
-        config = yaml.safe_load(
-            (args.experiment / "method_runs" / method / "config.resolved.yaml").read_text()
+        settings = (
+            args.settings / f"{method}.yaml"
+            if args.settings is not None
+            else args.experiment / "method_runs" / method / "config.resolved.yaml"
         )
+        config = yaml.safe_load(settings.read_text())
         measure = regsi_context if method == "regsi_real" else ccnet_context
         count = args.queries if method == "regsi_real" else args.patches
         tables.append(measure(geometry, role, contract, config, count).assign(method=method))
@@ -68,6 +78,7 @@ def regsi_context(geometry, role, contract, config, queries):
         TraceGraphSpatialIndex,
     )
     from seis_interp.processing.trace_graph_settings import TraceGraphSettings
+    from seis_interp.training.c3_poc_trace_graph_episodes import PocTraceGraphEpisodeGenerator
 
     ids = geometry.cell_id.to_numpy()
     gather = (
@@ -117,12 +128,20 @@ def regsi_context(geometry, role, contract, config, queries):
             rows.append(_row(view, name, chosen.sum(), same[chosen], targets[chosen], queries))
         return rows + [_row(view, "all relations", len(edges.edge_type), same, targets, queries)]
 
-    # The episode generator hides a uniform fraction of the observed traces and queries them.
-    fraction = config["training"]["inner_mask_fraction"]
-    episode = np.random.default_rng(config["model_seed"])
-    hidden = episode.choice(ids[candidates], size=round(len(candidates) * fraction), replace=False)
-    hidden_rows = np.flatnonzero(observed & np.isin(ids, hidden))
-    visible = observed & ~np.isin(ids, hidden)
+    # The episode generator hides a fraction of the declared unit and queries what it hid.
+    pool = SimpleNamespace(
+        domain=SimpleNamespace(trace_ids=ids[candidates], ffids=gather[candidates])
+    )
+    kind = config["training"].get("episode_kind", "random_trace")
+    episode = PocTraceGraphEpisodeGenerator(
+        pool,
+        random_seed=config["model_seed"],
+        missing_fraction=config["training"]["inner_mask_fraction"],
+        kind=kind,
+    ).next_episode()
+    print(f"{kind} episode: {len(episode.hidden_trace_ids)} hidden of {len(candidates)} observed")
+    hidden_rows = np.flatnonzero(observed & np.isin(ids, episode.hidden_trace_ids))
+    visible = observed & ~np.isin(ids, episode.hidden_trace_ids)
     sample = np.random.default_rng(991)
     return pd.DataFrame(
         relation_counts(
@@ -149,6 +168,7 @@ def ccnet_context(geometry, role, contract, config, patches):
     shape = tuple(contract["spatial_shape"])
     patch_shape = tuple(config["patches"]["shape"][1:])
     fraction = config["patches"]["inner_mask_fraction"]
+    unit = config["patches"].get("inner_mask_unit", "trace")
     axes = ["source_grid_line", "source_grid_point", "receiver_grid_line", "receiver_grid_point"]
     cells = geometry[axes].to_numpy()
     observed = np.zeros(shape, dtype=bool)
@@ -156,8 +176,9 @@ def ccnet_context(geometry, role, contract, config, patches):
     observed[tuple(cells[role == "train"].T)] = True
     test[tuple(cells[role == "test"].T)] = True
     starts = _eligible_spatial_starts(
-        observed, patch_shape=patch_shape, inner_mask_fraction=fraction
+        observed, patch_shape=patch_shape, inner_mask_fraction=fraction, inner_mask_unit=unit
     )
+    print(f"{unit} unit: {len(starts)} eligible patch placements")
     placement = np.random.default_rng(config["model_seed"])
     draw = np.random.default_rng(config["model_seed"] + 1)
     counts = {"training pseudo-target": [], "test cell": []}
@@ -169,7 +190,7 @@ def ccnet_context(geometry, role, contract, config, patches):
             )
         )
         available = observed[slices]
-        hidden = _draw_pseudo_target_mask(available, fraction=fraction, generator=draw)
+        hidden = _draw_pseudo_target_mask(available, fraction=fraction, generator=draw, unit=unit)
         # A gather is one source station; a patch holds this many of its receiver cells.
         in_gather = (available & ~hidden).sum(axis=(2, 3))
         for view, mask in (("training pseudo-target", hidden), ("test cell", test[slices])):

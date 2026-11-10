@@ -1,0 +1,50 @@
+method_id: ccnet5d_grid
+geometry_mode: grid
+device: cuda:0
+loss: masked_trace_mse
+checkpoint_rule: fixed_final_ema
+model_seed: 7301
+model:
+  hidden_channels: 53
+  intermediate_channels: 63
+  kernel_size: 3
+  time_kernel_size: 3
+  time_dilation: 6
+  output_activation: linear
+training:
+  optimizer: adamw
+  learning_rate: 0.001
+  max_steps: 50000
+  weight_decay: 0.0
+  report_interval: 100
+  learning_rate_schedule: constant
+  mixed_precision: bf16
+  ema_decay: 0.999
+  ema_eval_decays:
+  - 0.999
+  - 0.9995
+  - 0.9998
+  supervised_traces_per_update: 64
+patches:
+  shape:
+  - 2172
+  - 4
+  - 12
+  - 4
+  - 12
+  inner_mask_fraction: 0.25
+  inner_mask_unit: source_station
+prediction:
+  core_shape:
+  - 2172
+  - 4
+  - 8
+  - 4
+  - 8
+  mixed_precision: bf16
+execution:
+  saved_tensors_on_cpu: false
+  reuse_patch: false
+  cache_patch_gradients: false
+  full_trace_prediction: true
+  cudnn_benchmark: true
