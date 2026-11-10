@@ -1,6 +1,6 @@
 # FORGE random whole-shot50 で学習文脈を test 文脈に揃える
 
-Status: `completed` — 予測・採点を完了（失敗 0）。clean_target は **+1.3029 dB / relMSE −0.2514** の改善で、同一 mask の study_069 の5手法中 ReGSI に次ぐ2位（CCNet5D・DRR・POCS の上）。事前の予測（改善するが古典手法帯まで）を上回った。
+Status: `completed` — 予測・採点を完了（失敗 0）。clean_target は **+1.3029 dB / relMSE −0.2514** の改善で、同一 mask の study_069 の5手法中 ReGSI に次ぐ2位（CCNet5D・DRR・POCS の上）。事前の予測（改善するが古典手法帯まで）を上回った。ただしこの順位は **ReGSI と CCNet5D が同じ train/test 文脈不一致を未修正のまま抱えた状態**での比較であり、優位の主張には使えない（下記「比較の非対称性」）。
 
 ## 目的
 
@@ -92,6 +92,41 @@ edge shot は符号が負から正へ変わった（+1.2855 dB）。
 | POCS | 0.7105 | 0.8901 |
 | profile NeRSI | approximately 0 | 1.0000 |
 | cinr_real（study_072） | 0.3596 | 1.0005 |
+
+### 比較の非対称性（この順位をそのまま読んではいけない）
+
+**本 study の変更は shot50 という mask family に合わせた適応であり、study_069 の5手法は同等の適応を
+受けていない。** しかも観測を読む2つの baseline は、study_075 が取り除いたのと**同じ train/test 文脈
+不一致を、より強く持つ**。study_069 の実 mask・実幾何・実コードで測定した（波形は読まない）。
+
+| 学習時の in-gather 文脈 | 学習 query | test query |
+| --- | ---: | ---: |
+| cinr_real（study_072、修正前） | 5.52 / 16 近傍、100 % | 0.00、0 % |
+| ReGSI（study_069） | **10.04 / 20 edge、100 %** | 0.00、0 % |
+| CCNet5D（study_069） | **35.27 / 48 in-patch gather cell、100 %** | 0.00、0 % |
+
+- ReGSI: 学習 query の graph の半分が自分の shot 由来である。4 関係のうち `source` 関係は学習時
+  4.75/5 が in-gather で、test では構造的に 0 になる。原因は
+  `training/c3_poc_trace_graph_episodes.py` の episode が `kind="random_trace"` 固定であること、
+  すなわち **trace 単位の再 mask で学習し whole-shot 欠損で test している**ことである。
+  repo には `training/trace_graph_episodes.py` に `random_whole_ffid` の episode 種別が既に存在するが、
+  studies 067/069 の経路は使っていない。
+- CCNet5D: `_draw_pseudo_target_mask` が patch 内の観測 cell から一様に 25 % を隠すので、学習 target は
+  48 本の gather 兄弟のうち平均 35.3 本を見ている。patch 内の可視観測 cell 総数は 867 対 841 でほぼ
+  同じであり、**情報量ではなく構造だけの不一致**である（cinr_real と同じ signature）。
+- POCS / DRR は学習しないので不一致を持たない。profile NeRSI と `inr_real` は観測を読まない重みのみの
+  手法なので該当しない。この欠陥は**観測を読む3手法に固有**である。
+
+したがって上表の 1.6625 対 2.5702 dB は「**修正済みの cinr_real 対 未修正の ReGSI**」であり、
+ReGSI と CCNet5D の値はこの mask における上限ではない。公平な比較には両者へ同等の
+mask family 整合（whole-shot 単位の学習視野）を与えた再測定が必要で、所要は ReGSI 約 6.6 h +
+CCNet5D 約 3.0 h の約 10 GPU-h である。それを行うまで、本 study の順位は
+**提案法と古典手法に対する優位の主張には使えない**。
+
+対称である次元は次のとおり: mask（partition は byte 一致）、test 集合、入力10成果物、前処理
+（`trace_oracle`）、指標と採点コード、予算（50,000 更新・lr 1e-3・64 loss trace/更新・パラメータ数
+341,485–363,292 がすべて 363,269 ±5% 帯内）、そして**設定の選択元**（5手法すべて study_067 の
+random-trace 70% grid、cinr_real は study_071 の random-trace grid。shot50 で grid 探索した手法はない）。
 
 ### 採否
 

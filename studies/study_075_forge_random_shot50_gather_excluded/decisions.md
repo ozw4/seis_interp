@@ -56,3 +56,54 @@ gather 間の関係だけで補間する関数を学ばざるを得ない。こ�
   （`evaluation/cross_study_method_contrast.py`）はまだ pipeline として走らせていない。
 - 関係別の近傍定義（common receiver / common offset）と格子座標の軸別重みは、study_073 の
   decisions.md に記録したとおり別 study の対象として残る。本 study はそれらを不要にしていない。
+
+## 2026-11-10 — 本 study の順位は公平な比較ではない（開示）
+
+**Status:** 開示。上の採用判断は維持するが、**study_069 の手法群に対する優位の主張には使えない**。
+
+**Decision:** study_075 の変更は shot50 という mask family に合わせた学習視野の適応であり、
+study_069 の5手法は同等の適応を受けていない。さらに観測を読む2つの baseline は、本 study が
+取り除いたのと同じ train/test 文脈不一致を**未修正のまま、より強く**抱えている。
+公平な比較には両者へ同等の mask family 整合を与えた再測定が必要である。
+
+**Evidence:** study_069 の実 run の mask・幾何・実コードで測定した（波形を読まず、採点もしない）。
+再現コマンドは [`scripts/audit_shot_mask_training_context.py`](../../scripts/audit_shot_mask_training_context.py):
+
+```bash
+.venv/bin/python scripts/audit_shot_mask_training_context.py \
+  --experiment runs/study_069_forge_random_shot50/20261106T010056122444Z_4d0ae2be41a0 \
+  --method regsi_real --method ccnet5d_grid
+```
+
+| 学習時の in-gather 文脈 | 学習 query | test query |
+|---|---:|---:|
+| cinr_real（study_072、修正前） | 5.52 / 16 近傍、100 % | 0.00、0 % |
+| ReGSI（study_069） | **10.04 / 20 edge、100 %** | 0.00、0 % |
+| CCNet5D（study_069） | **35.27 / 48 in-patch gather cell、100 %** | 0.00、0 % |
+
+ReGSI は 4 関係のうち `source` 関係が学習時 4.751/5 が in-gather、test では 0 である。すなわち
+**1 関係が学習時は満杯で test では構造的に空**になる。原因は
+`training/c3_poc_trace_graph_episodes.py` の episode が `kind="random_trace"` 固定であること。
+CCNet5D は patch 内の可視観測 cell 総数が 867 対 841 とほぼ同じなので、情報量ではなく構造だけの
+不一致であり、cinr_real study_072 と同じ signature である。
+
+**対称である次元（ここは公平である）:** mask（`partition.parquet` は byte 一致）、test 集合、
+入力10成果物、前処理 `trace_oracle`、指標と採点コード、予算（50,000 更新・lr 1e-3・
+64 loss trace/更新・パラメータ数 341,485–363,292 がすべて 363,269 ±5% 帯内）、
+そして設定の選択元（5手法すべて study_067 の random-trace 70% grid、cinr_real は study_071 の
+random-trace grid。**shot50 で grid 探索した手法は1つもない**）。
+
+**帰結:**
+
+- 論文では study_075 の順位を単独で示さない。示すなら「cinr_real だけが mask family に合わせた
+  学習視野を持つ」ことを同じ表の中で明記する。そうでなければ、mask family に適応した手法を
+  未適応の baseline と比べるという典型的な不公平比較になる。
+- 公平化には別 study（whole-shot 単位の学習視野を ReGSI と CCNet5D にも与える）が必要である。
+  ReGSI 側の機構は repo に既にある（`training/trace_graph_episodes.py` の `random_whole_ffid`、
+  study_021 で使用）が、studies 067/069 の経路（`c3_poc_trace_graph_episodes.py`）は使っていない。
+  CCNet5D 側は `_draw_pseudo_target_mask` に shot 単位の抽選を追加する必要がある。
+  どちらも既定を変えず宣言値で選ぶ形にすれば、studies 067/069 の記録は無効化しない。
+  所要は study_069 の実測から ReGSI 約 6.6 h + CCNet5D 約 3.0 h の約 10 GPU-h である。
+- この再測定で ReGSI と CCNet5D が改善する場合、`cinr_real` の 2 位は維持されない可能性がある。
+  その結果も記録する。**本 study の採用判断（学習文脈を test 文脈へ揃える）は手法内部の A/B で
+  成立しており、順位がどう動いても変わらない。**
