@@ -2,9 +2,10 @@
 
 ``masked_trace_relative_mse`` and ``mean_trace_snr_db`` add two different failures
 into one number: not reproducing the signal, and putting energy where the trace has
-none. A method that mixes neighbours without a time shift must leak energy ahead of
-the arrival of its nearest neighbour, and that leakage is invisible in a whole-trace
-score. Splitting at a geometry-only window separates the two.
+no signal to reproduce. A method that mixes neighbours without a time shift must
+leak energy ahead of the arrival of its nearest neighbour, and that leakage is a
+small fraction of a whole-trace score. Splitting at a geometry-only window separates
+the two.
 
 The window is declared, never picked from a waveform: a first-break pick would read
 the target and break the scoring discipline. ``t < intercept_s + offset / velocity``
@@ -12,13 +13,20 @@ is a straight line under the measured arrival curve, so every sample it selects
 precedes the arrival. The constants come from observed traces only -- the model's
 own input -- with a margin, and they are recorded with every result.
 
-The headline number is the amplitude a method invented before the arrival: the RMS
-of its own prediction inside the window, in the data's units, read beside the
-reference's own pre-arrival amplitude on the same traces. It stays defined when the
-reference window is silent, which a ratio to it does not.
+Judge the pre-arrival part by ``pre_relative_mse`` against 1.0, not by amplitude.
+Ambient noise is a different realization in every trace, so it is not predictable: a
+zero prediction is the squared-error optimum there and scores exactly 1. Below 1
+means the method found something genuinely predictable; above 1 means it injected a
+realization uncorrelated with the one it had to match, and an independent draw of the
+right variance scores 2. Reproducing the noise amplitude is therefore not a virtue on
+real data.
 
-Summarize it with the median. Trace amplitudes span orders of magnitude -- on FORGE
-the reference's own pre-arrival RMS has a mean 73 times its median -- so a mean over
+Amplitude is the right measure only where the reference window is silent, as it is on
+synthetic data: there any amplitude at all is invented, and a ratio to the reference
+is undefined.
+
+Summarize with the median. Trace amplitudes span orders of magnitude -- on FORGE the
+reference's own pre-arrival RMS has a mean 73 times its median -- so a mean over
 traces describes the loudest few, not the typical trace, and disagrees with what a
 gather display shows.
 
@@ -96,6 +104,7 @@ def windowed_waveform_columns(prediction, target, window_ends):
     before = np.arange(y.shape[1])[None, :] < ends[:, None]
     pre_prediction = np.square(np.where(before, p, 0.0)).sum(axis=1)
     pre_target = np.square(np.where(before, y, 0.0)).sum(axis=1)
+    pre_error = np.square(np.where(before, p - y, 0.0)).sum(axis=1)
     post_target = np.square(np.where(before, 0.0, y)).sum(axis=1)
     post_error = np.square(np.where(before, 0.0, p - y)).sum(axis=1)
     target_energy = np.square(y).sum(axis=1)
@@ -106,6 +115,12 @@ def windowed_waveform_columns(prediction, target, window_ends):
         "window_samples": ends,
         "pre_prediction_energy": pre_prediction,
         "pre_target_energy": pre_target,
+        # Whether the pre-arrival part was worth predicting at all. Noise is a different
+        # realization in every trace, so under squared error the best possible estimate of
+        # an unpredictable zero-mean part is zero, which scores exactly 1 here. Below 1
+        # means the method found something real; above 1 means it injected what was not.
+        "pre_error_energy": pre_error,
+        "pre_relative_mse": _ratio(pre_error, pre_target),
         "post_target_energy": post_target,
         "post_error_energy": post_error,
         # The amplitude the method invented before the arrival, and the amplitude that is

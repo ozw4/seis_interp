@@ -125,6 +125,24 @@ def test_the_invented_amplitude_averages_without_a_weighting_rule():
     assert float(np.mean(columns["pre_prediction_rms"])) == pytest.approx(3.0)
 
 
+def test_a_zero_prediction_scores_exactly_one_before_the_arrival():
+    """Noise is a different realization per trace, so zero is the squared-error optimum.
+
+    Reproducing its amplitude from an independent realization doubles the error, which
+    is why a faithful-looking amplitude is not a virtue on real data.
+    """
+    rng = np.random.default_rng(17)
+    target = rng.standard_normal((400, 40))
+    ends = np.full(len(target), 20, dtype=np.int64)
+    silent = windowed_waveform_columns(np.zeros_like(target), target, ends)
+    np.testing.assert_allclose(silent["pre_relative_mse"], 1.0)
+    # An independent draw of the same variance scores two, not one.
+    independent = windowed_waveform_columns(rng.standard_normal(target.shape), target, ends)
+    assert float(np.median(independent["pre_relative_mse"])) == pytest.approx(2.0, abs=0.25)
+    # Reproducing the trace's own realization is what scores below one.
+    assert windowed_waveform_columns(target, target, ends)["pre_relative_mse"].max() == 0.0
+
+
 def test_a_silent_reference_window_leaves_the_excess_ratio_undefined():
     """Synthetic data is exactly silent before the arrival; the share stays defined."""
     target, prediction = _split_case()
@@ -163,6 +181,8 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
             "post_target_energy": [4.0, 4.0, 4.0, 4.0],
             "pre_prediction_energy": [1.0, 1.0, 1.0, 50.0],
             "pre_target_energy": [2.0, 2.0, 2.0, 2.0],
+            "pre_error_energy": [1.0, 2.0, 3.0, 40.0],
+            "pre_relative_mse": [0.5, 1.0, 1.5, 20.0],
             "pre_prediction_rms": [1.0, 1.5, 2.0, 50.0],
             "pre_target_rms": [3.0, 3.0, 3.0, 3.0],
             "pre_amplitude_ratio": [0.2, 0.25, 0.3, 9.0],
@@ -188,6 +208,8 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
     assert summary["mean_pre_prediction_rms"] == pytest.approx(1.5)
     # The per-trace ratio's median, not the ratio of the two medians: those differ.
     assert summary["median_pre_amplitude_ratio"] == pytest.approx(0.25)
+    # One is the zero predictor's score, so the median says the typical trace broke even.
+    assert summary["median_pre_relative_mse"] == pytest.approx(1.0)
     assert summary["median_pre_prediction_rms"] / summary["median_pre_target_rms"] == (
         pytest.approx(0.5)
     )

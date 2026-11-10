@@ -166,6 +166,12 @@ def summarize(table, population):
         # their ratio says how skewed this population is.
         "median_pre_prediction_rms": float(rows.pre_prediction_rms.median()),
         "median_pre_target_rms": float(rows.pre_target_rms.median()),
+        # Did predicting the pre-arrival part help? Exactly 1 is what a zero prediction
+        # scores, so below 1 is a real gain and above 1 is injected noise.
+        "median_pre_relative_mse": _statistic(rows.pre_relative_mse, "median"),
+        "pooled_pre_relative_mse": _safe_ratio(
+            rows.pre_error_energy.sum(), rows.pre_target_energy.sum()
+        ),
         # The typical trace's share of the real pre-arrival amplitude, and the energy form
         # of the same per-trace ratio, whose square root this equals.
         "median_pre_amplitude_ratio": _statistic(rows.pre_amplitude_ratio, "median"),
