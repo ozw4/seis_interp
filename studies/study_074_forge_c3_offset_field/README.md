@@ -1,6 +1,6 @@
 # study_074: C3 / FORGE 共通 25 候補による offset 座標付き条件付き field
 
-Status: `prepared` — 実行仕様を凍結した段階。本 study の比較結果は未確定。
+Status: `stopped by user` — 2026-11-10 にユーザー判断で停止。S1 の数候補を走らせた段階で完了せず、結果は未確定のまま確定しない。幾何だけの測定（[decisions](decisions.md)）で、shot50 では offset 軸が近傍をほとんど動かさないこと（重み 4 でも 16 近傍のうち 13.68 本が不変）と、より大きな原因（学習と test の文脈不一致）が特定されたため、[study_075](../study_075_forge_random_shot50_gather_excluded/README.md) を優先した。仕様と事前予測は記録として保持する。
 
 ## 目的
 

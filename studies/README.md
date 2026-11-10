@@ -119,7 +119,9 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_073_forge_random_shot50_physical_neighbors](study_073_forge_random_shot50_physical_neighbors/README.md): completed — 不採用。study_072 から1行（`context.distance: physical`）だけの A/B で、 clean_target は −0.1684 dB / relMSE +0.0648 の劣化。学習 loss はほぼ同一（0.2038 対 0.2043）なので 差は汎化だけに現れ、劣化は edge shot に集中する（−0.1023 → −0.8687 dB）。近傍の不一致率も edge shot で 最大（集合完全一致 internal 83.88 % 対 edge 56.46 %）。launch 前に記録した「改善を予想しない」は的中。 `context.distance` の既定は `index` のまま維持する。
 
-- [study_074_forge_c3_offset_field](study_074_forge_c3_offset_field/README.md): prepared — study_071 の条件付き field に log-offset 座標（`log10(max(offset_m, 1 m)) / 4`）を加える。測定された支配項に当てる: FORGE は最短オフセット quintile だけが崩れ（相関 0.309 / relMSE 0.973、他 quintile は 0.546–0.563 / 0.698–0.733）、そこが target エネルギーの 99.3 % と誤差エネルギーの 99.6 % を占める。原因は index 格子の順位付けが offset に盲目で、近傍の offset 差が絶対値一定（94–98 m）ゆえ相対差が短オフセットで6倍（0.384 対 0.064）になること。axis_a は順位付けでの offset 軸の重み（0 の列が入力だけの効果を、傾向が近傍選択の効果を測る）。差分予測（FORGE 改善・C3 中立）と反証条件を launch 前に `evaluation.yaml` へ記録。結果は未確定。
+- [study_074_forge_c3_offset_field](study_074_forge_c3_offset_field/README.md): stopped by user — log-offset 座標の共通 grid。仕様と事前予測（FORGE 改善・C3 中立・反証条件）は 保持するが、shot50 では offset 軸が近傍をほとんど動かさないこと（重み 4 でも 16 近傍のうち 13.68 本が不変、相対 offset 差 0.139 → 0.091）と、より大きな原因（学習 query の in-gather 近傍 5.52/16 対 test 0.00/16 という文脈不一致）が幾何測定で判明したため停止。結果は未確定。
+
+- [study_075_forge_random_shot50_gather_excluded](study_075_forge_random_shot50_gather_excluded/README.md): prepared — study_072 から1行（`context.training_exclusion: source`）だけの A/B。whole-shot mask では学習 query が in-gather 近傍 5.52/16 を持つのに test query は 0.00/16 なので、学習時に query の source gather 全体を文脈から除外して学習文脈を test 文脈へ揃える（予測時は観測を捨てない）。除外後の学習近傍は test 近傍と全統計で一致する。改善を予測するが study_071 の水準には届かないと予測。反証条件も記録。結果は未確定。
 
 ## Scratch workspaces
 

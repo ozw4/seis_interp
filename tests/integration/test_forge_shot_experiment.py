@@ -471,3 +471,32 @@ def test_the_physical_neighbour_study_changes_one_declared_condition():
     for name, digest in sources["selection_hashes"].items():
         assert sha256_file(repo / name) == digest
     assert contract["validation_holdout"] is None and contract["workflow"]["total_runs"] == 1
+
+
+def test_the_gather_excluded_study_changes_one_declared_condition():
+    """study_075 is study_072's setting with the training view aligned to the test view."""
+    repo = Path(__file__).resolve().parents[2]
+    previous = repo / "studies/study_072_forge_random_shot50_context_field"
+    study = repo / "studies/study_075_forge_random_shot50_gather_excluded"
+    before = yaml.safe_load((previous / "cinr_real.yaml").read_text())
+    after = yaml.safe_load((study / "cinr_real.yaml").read_text())
+    assert after == {
+        **before,
+        "context": {**before["context"], "training_exclusion": "source"},
+    }
+    assert before["context"].get("training_exclusion", "query") == "query"
+    assert after["model"]["input_features"] == 4
+
+    contract = yaml.safe_load((study / "config.yaml").read_text())
+    earlier = yaml.safe_load((previous / "config.yaml").read_text())
+    assert contract["methods"] == ["cinr_real"]
+    assert contract["mask_study_id"] == earlier["mask_study_id"] == "study_069_forge_random_shot50"
+    assert contract["interpolation_mask"] == earlier["interpolation_mask"]
+    assert contract["fixed_settings"]["cinr_real"]["changes_from_selected"] == [
+        "context.training_exclusion: source"
+    ]
+    sources = yaml.safe_load((study / "inputs.yaml").read_text())
+    assert "c3_selections" not in sources
+    for name, digest in sources["selection_hashes"].items():
+        assert sha256_file(repo / name) == digest
+    assert contract["validation_holdout"] is None and contract["workflow"]["total_runs"] == 1
