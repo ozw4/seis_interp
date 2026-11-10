@@ -94,3 +94,29 @@ def test_any_ranking_width_is_accepted():
     assert positions.shape == (20, 3)
     narrow = nearest_observed_positions(coordinates[:, :1], np.arange(0, 20, 2), np.arange(20), 3)
     assert narrow.shape == (20, 3)
+
+
+def test_groups_exclude_the_whole_group_of_the_query():
+    """A trace field drops a query's whole source gather so a fit sees the test view."""
+    coordinates = np.zeros((12, 4))
+    coordinates[:, 0] = np.arange(12) / 11
+    observed = np.arange(12)
+    groups = np.arange(12) // 4
+    plain = nearest_observed_positions(coordinates, observed, np.array([5]), 3)
+    grouped = nearest_observed_positions(coordinates, observed, np.array([5]), 3, groups=groups)
+    assert set(observed[plain[0]]) & {4, 6, 7}
+    assert not set(observed[grouped[0]]) & {4, 5, 6, 7}
+
+
+def test_the_admissible_pool_must_still_hold_the_requested_count():
+    coordinates = np.zeros((12, 4))
+    coordinates[:, 0] = np.arange(12) / 11
+    groups = np.arange(12) // 4
+    with pytest.raises(ValueError, match="fewer admissible observed candidates"):
+        nearest_observed_positions(coordinates, np.arange(12), np.array([5]), 9, groups=groups)
+
+
+def test_groups_must_label_every_coordinate_row():
+    coordinates = np.zeros((6, 4))
+    with pytest.raises(ValueError, match="groups must label every coordinate row"):
+        nearest_observed_positions(coordinates, np.arange(6), np.array([1]), 2, groups=np.arange(3))

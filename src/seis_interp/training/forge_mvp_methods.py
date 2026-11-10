@@ -1058,6 +1058,10 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
     station positions in metres. With ``model.input_features`` five the field also reads a
     log-offset axis and ``context.offset_weight`` scales that axis in the ranking alone, so
     the weight separates an offset-aware neighbourhood from an offset-aware input.
+    ``context.training_exclusion`` is ``query``, removing only the query itself, or
+    ``source``, removing the query's whole source gather so that a fit sees the
+    neighbourhood a query with a missing gather will see. Prediction always keeps
+    every observed trace.
     """
     table = inputs.geometry.set_index("cell_id")
     features = model.encoding.input_features
@@ -1084,8 +1088,18 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
     device, tr = config["device"], config["training"]
     count = config["context"]["neighbor_count"]
     progress = PhaseProgress(reporter)
+    exclusion = config["context"].get("training_exclusion", "query")
+    if exclusion not in ("query", "source"):
+        raise ValueError("context.training_exclusion must be query or source")
+    groups = (
+        None
+        if exclusion == "query"
+        else (table.source_grid_line * inputs.spatial_shape[1] + table.source_grid_point).to_numpy()
+    )
     started = perf_counter()
-    observed_context = nearest_observed_positions(ranking, observed_rows, observed_rows, count)
+    observed_context = nearest_observed_positions(
+        ranking, observed_rows, observed_rows, count, groups=groups
+    )
     progress("observed neighbourhoods selected")
     query_context = nearest_observed_positions(ranking, observed_rows, query_rows, count)
     progress("query neighbourhoods selected")
@@ -1182,6 +1196,7 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
         "context_neighbor_count": count,
         "context_distance": distance,
         "context_offset_weight": offset_weight,
+        "context_training_exclusion": exclusion,
         "runtime_neighbor_selection_seconds": neighbor_seconds,
         **warm_memory,
         **_reserved_memory(device, "before_prediction"),

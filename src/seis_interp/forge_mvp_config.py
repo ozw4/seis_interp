@@ -151,7 +151,8 @@ def validate_field_method_config(config, contract, *, loss_name="masked_trace_re
     if context is not None:
         neighbors = context.get("neighbor_count")
         if (
-            not set(context) <= {"neighbor_count", "distance", "offset_weight"}
+            not set(context)
+            <= {"neighbor_count", "distance", "offset_weight", "training_exclusion"}
             or "neighbor_count" not in context
             or isinstance(neighbors, bool)
             or not isinstance(neighbors, int)
@@ -167,6 +168,8 @@ def validate_field_method_config(config, contract, *, loss_name="masked_trace_re
             isinstance(weight, bool) or not isinstance(weight, (int, float)) or weight < 0
         ):
             raise ValueError("context.offset_weight must be a nonnegative number")
+        if context.get("training_exclusion", "query") not in ("query", "source"):
+            raise ValueError("context.training_exclusion must be query or source")
     if "matched_training" in contract:
         validate_matched_training(
             {name: config}, contract["matched_training"], contract["observed_trace_count"]

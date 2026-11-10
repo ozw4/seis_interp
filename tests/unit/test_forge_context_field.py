@@ -45,6 +45,10 @@ def _inputs():
     for role, (line, point) in (("source", (0, 1)), ("receiver", (2, 3))):
         geometry[f"{role}_x_m"] = axes[:, line] * LINE_SPACING_M
         geometry[f"{role}_y_m"] = axes[:, point] * POINT_SPACING_M
+    for index, column in enumerate(
+        ("source_grid_line", "source_grid_point", "receiver_grid_line", "receiver_grid_point")
+    ):
+        geometry[column] = axes[:, index].astype(np.int64)
     geometry["offset_m"] = np.hypot(
         geometry.receiver_x_m - geometry.source_x_m, geometry.receiver_y_m - geometry.source_y_m
     )
@@ -423,3 +427,46 @@ def test_the_contract_accepts_a_declared_offset_axis():
         model={"input_features": 5}, context={"neighbor_count": NEIGHBORS, "offset_weight": 1.0}
     )
     validate_field_method_config(config, _contract(), loss_name="masked_trace_mse")
+
+
+def test_the_training_exclusion_drops_the_whole_gather_only_in_training(monkeypatch):
+    """Prediction keeps every observed trace; only the fit sees the reduced view."""
+    calls = []
+    original = forge_mvp_methods.nearest_observed_positions
+
+    def recording(coordinates, observed_rows, query_rows, count, **kwargs):
+        calls.append((len(query_rows), kwargs.get("groups")))
+        return original(coordinates, observed_rows, query_rows, count, **kwargs)
+
+    monkeypatch.setattr(forge_mvp_methods, "nearest_observed_positions", recording)
+    config = _fit_config()
+    config["context"] = {"neighbor_count": NEIGHBORS, "training_exclusion": "source"}
+    _, _, _, records, _ = _fit_inr_context(config)
+    assert records["context_training_exclusion"] == "source"
+    inputs = _inputs()
+    # The fit selects the training neighbourhood first, then the query one; the tiny
+    # fixture has as many observed as test traces, so order is what distinguishes them.
+    assert len(calls) == 2
+    observed_call, query_call = calls
+    assert observed_call[0] == len(inputs.observed_cells)
+    assert query_call[0] == len(inputs.test_cells)
+    assert observed_call[1] is not None
+    assert query_call[1] is None
+
+
+def test_the_training_exclusion_defaults_to_the_query_alone():
+    _, _, _, records, _ = _fit_inr_context()
+    assert records["context_training_exclusion"] == "query"
+
+
+def test_an_unknown_training_exclusion_is_rejected():
+    config = _fit_config()
+    config["context"] = {"neighbor_count": NEIGHBORS, "training_exclusion": "receiver"}
+    with pytest.raises(ValueError, match="query or source"):
+        _fit_inr_context(config)
+    with pytest.raises(ValueError, match="query or source"):
+        validate_field_method_config(
+            _method_config(context={"training_exclusion": "receiver"}),
+            _contract(),
+            loss_name="masked_trace_mse",
+        )
