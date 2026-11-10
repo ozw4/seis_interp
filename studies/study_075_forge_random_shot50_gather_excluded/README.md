@@ -1,6 +1,6 @@
 # FORGE random whole-shot50 で学習文脈を test 文脈に揃える
 
-Status: `completed` — 予測・採点を完了（失敗 0）。clean_target は **+1.3029 dB / relMSE −0.2514** の改善で、同一 mask の study_069 の5手法中 ReGSI に次ぐ2位（CCNet5D・DRR・POCS の上）。事前の予測（改善するが古典手法帯まで）を上回った。ただしこの順位は **ReGSI と CCNet5D が同じ train/test 文脈不一致を未修正のまま抱えた状態**での比較であり、優位の主張には使えない（下記「比較の非対称性」）。
+Status: `completed` — 予測・採点を完了（失敗 0）。clean_target は **+1.3029 dB / relMSE −0.2514** の改善で、同一 mask の study_069 の5手法中 ReGSI に次ぐ2位（CCNet5D・DRR・POCS の上）。事前の予測（改善するが古典手法帯まで）を上回った。ただしこの順位は **ReGSI と CCNet5D が同じ train/test 文脈不一致を未修正のまま抱えた状態**での比較であり、使わない。公平化した [study_076](../study_076_forge_random_shot50_aligned_baselines/README.md) では両 baseline も改善し、`cinr_real` は **3位**（ReGSI 2.9124 > CCNet5D 1.9120 > cinr_real 1.6625 dB）である。
 
 ## 目的
 
@@ -118,10 +118,15 @@ edge shot は符号が負から正へ変わった（+1.2855 dB）。
   手法なので該当しない。この欠陥は**観測を読む3手法に固有**である。
 
 したがって上表の 1.6625 対 2.5702 dB は「**修正済みの cinr_real 対 未修正の ReGSI**」であり、
-ReGSI と CCNet5D の値はこの mask における上限ではない。公平な比較には両者へ同等の
-mask family 整合（whole-shot 単位の学習視野）を与えた再測定が必要で、所要は ReGSI 約 6.6 h +
-CCNet5D 約 3.0 h の約 10 GPU-h である。それを行うまで、本 study の順位は
-**提案法と古典手法に対する優位の主張には使えない**。
+ReGSI と CCNet5D の値はこの mask における上限ではなかった。
+
+**この再測定は [study_076](../study_076_forge_random_shot50_aligned_baselines/README.md) で実施済みである。**
+両 baseline に同等の mask family 整合を与えると ReGSI 2.5702 → **2.9124** dB、
+CCNet5D 1.2157 → **1.9120** dB で、どちらも改善した（学習 loss も両方上昇し、本 study と同じ符号）。
+公平化した順位は ReGSI 2.9124 > CCNet5D 1.9120 > **cinr_real 1.6625** > DRR 1.0033 > POCS 0.7105 >
+profile NeRSI approximately 0 であり、**本 study の2位は3位に下がる**。上の順位表は使わず、
+study_076 の順位を正本とする。本 study の採用判断（学習視野を test 視野へ揃える）は
+同一手法内の A/B で成立しており、この順位変更では変わらない。
 
 対称である次元は次のとおり: mask（partition は byte 一致）、test 集合、入力10成果物、前処理
 （`trace_oracle`）、指標と採点コード、予算（50,000 更新・lr 1e-3・64 loss trace/更新・パラメータ数

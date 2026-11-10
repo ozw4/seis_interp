@@ -1,6 +1,6 @@
 # FORGE random whole-shot50 で baseline の学習文脈も test 文脈に揃える
 
-Status: `prepared` — 実行仕様を凍結した段階。本 study の結果は未確定。
+Status: `completed` — 予測・採点を完了（失敗 0）。**両手法とも改善し、学習 loss も両方上昇した**（事前予測どおり、反証条件は不成立）。ReGSI **+0.3422 dB**、CCNet5D **+0.6963 dB**。公平化した順位では `cinr_real`（study_075、1.6625 dB）は **2位から3位へ下がる**。
 
 ## 目的
 
@@ -79,6 +79,69 @@ CCNet5D が 1.6625 dB を超えれば `cinr_real` は 3 位に下がる。**ど�
 [study_075 の採用判断](../study_075_forge_random_shot50_gather_excluded/decisions.md) は変わらない。**
 あれは手法内部の A/B（同一手法・同一 mask で学習視野だけを変えた +1.3029 dB）で成立しており、
 順位に依存しない。本 study は順位を正しくするために走らせる。
+
+## 結果
+
+生成元 [run](../../runs/study_076_forge_random_shot50_aligned_baselines/20261110T030856201743Z_fd810e6bcb8c)、
+[採用図表・CSV](../../results/study_076_forge_random_shot50_aligned_baselines/20261110T073000Z_fd810e6bcb8c_analysis)。
+`dirty_worktree: false`、`total_runs: 2`、両手法 `test_scoring_calls: 1`、
+runtime は ReGSI 15337.37 s / CCNet5D 6560.64 s。入力10成果物は study_069 / 072 / 075 と byte 一致、
+パラメータ数は study_069 の記録と完全一致（regsi 346,885 / ccnet5d 363,292）。
+run は `episode_kind: random_whole_ffid` と `inner_mask_unit: source_station` を diagnostics に記録している。
+
+### A/B（study_069 との差は学習視野の1行だけ）
+
+| 手法 | clean_target SNR (dB) | | 差 | relMSE | | 差 | 学習 loss | | 差 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| | 069 | **076** | | 069 | **076** | | 069 | 076 | |
+| ReGSI | 2.5702 | **2.9124** | **+0.3422** | 0.6191 | **0.5892** | **−0.0299** | 0.1568 | 0.1990 | +0.0422 |
+| CCNet5D | 1.2157 | **1.9120** | **+0.6963** | 0.7898 | **0.6983** | **−0.0915** | 0.2051 | 0.2724 | +0.0673 |
+
+**両手法で学習 loss が上がり、test が改善した。** study_075 の `cinr_real`（0.2043 → 0.2444、
+test +1.3029 dB）と同じ符号であり、3手法すべてで同一の機構が確認された。
+
+### shot 支持別（clean_target、96 test shot は3 run で同一）
+
+| 手法 | shot_support | shot 数 | study_069 | **study_076** | paired 差 | 改善した shot |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| ReGSI | internal | 85 | 2.6557 | **3.0404** | **+0.3847** | 77 / 85 |
+| ReGSI | edge | 11 | 1.9188 | **1.9317** | +0.0129 | 5 / 11 |
+| CCNet5D | internal | 85 | 1.2602 | **1.9772** | **+0.7170** | 79 / 85 |
+| CCNet5D | edge | 11 | 0.8755 | **1.4152** | **+0.5397** | 8 / 11 |
+
+ReGSI の edge shot はほぼ動かない（+0.0129、11 本中 5 本のみ改善）。edge では片側しか観測支持がなく、
+gather 単位 episode が学習時に奪う情報の代替が内側ほど得られないためと整合する。
+CCNet5D は edge でも +0.5397 改善した。
+
+### 公平化した順位（同一 mask・同一 test 集合・同一予算、clean_target）
+
+| 手法 | 学習視野 | mean trace SNR (dB) | relMSE |
+| --- | --- | ---: | ---: |
+| ReGSI（提案法、study_076） | 整合済み | **2.9124** | 0.5892 |
+| CCNet5D（study_076） | 整合済み | **1.9120** | 0.6983 |
+| cinr_real（study_075） | 整合済み | **1.6625** | 0.7490 |
+| DRR（study_069） | 学習なし | 1.0033 | 0.8192 |
+| POCS（study_069） | 学習なし | 0.7105 | 0.8901 |
+| profile NeRSI（study_069） | 観測を読まない | approximately 0 | 1.0000 |
+
+**`cinr_real` は2位から3位へ下がった。** CCNet5D が 0.2495 dB 上回る。
+neural-implicit の代表手法は古典手法2つを上回るが、学習型 baseline 2つには届かない。
+
+本 study 内の paired 対比（96 shot、clean_target）: ReGSI − CCNet5D は平均 **+1.0006 dB**、
+中央値 +0.9138、ReGSI が **91 / 96 shot** で上回る（internal 83/85、edge 8/11）。
+
+### 事前の予測との関係
+
+| 予測 | 結果 |
+| --- | --- |
+| 両手法とも改善する | **的中**（+0.3422 / +0.6963 dB） |
+| 学習 loss は両手法で上がる | **的中**（+0.0422 / +0.0673） |
+| 改善幅は予測しない | — |
+| 反証条件（どちらも改善しない） | **不成立** |
+
+改善幅は**出発点の逆順**になった: `cinr_real` +1.3029（0.3596 から）> CCNet5D +0.6963（1.2157 から）
+> ReGSI +0.3422（2.5702 から）。不一致に壊されていた度合いが大きい手法ほど修正の利得が大きく、
+機構の説明と整合する。
 
 ## 予算の逸脱（1件、事前に開示する）
 

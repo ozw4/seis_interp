@@ -1,0 +1,13 @@
+method_id,population,shot_support,shot_count,equal_weight_shot_mean_mean_trace_snr_db,equal_weight_shot_mean_masked_trace_relative_mse
+regsi_real,clean_target,all,96,2.913368650347774,0.5891229279950908
+ccnet5d_grid,clean_target,all,96,1.9127735258226302,0.6981699572422384
+regsi_real,clean_target,internal,85,3.040403292606133,0.571419696251187
+ccnet5d_grid,clean_target,internal,85,1.9771709856396753,0.6884767244079328
+regsi_real,clean_target,edge,11,1.9317373238059035,0.725920627834347
+ccnet5d_grid,clean_target,edge,11,1.415156790872737,0.7730722109618725
+regsi_real,all_eligible,all,96,2.9269441439125985,0.5888390065684465
+ccnet5d_grid,all_eligible,all,96,1.9208078777300817,0.6979366563530082
+regsi_real,all_eligible,internal,85,3.0529441554737606,0.5712510032058031
+ccnet5d_grid,all_eligible,internal,85,1.98497323864192,0.6882986357770505
+regsi_real,all_eligible,edge,11,1.9533076909399816,0.7247463052797815
+ccnet5d_grid,all_eligible,edge,11,1.4249846343204182,0.7724122698944978

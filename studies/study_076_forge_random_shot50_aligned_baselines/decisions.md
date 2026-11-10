@@ -52,3 +52,52 @@ CCNet5D では patch 内の pseudo-target を station 単位にする。いず�
   整合が必要なのは本 study の2手法だけである。
 - 1 mask・1 model seed の記述的比較である。事前登録した cluster bootstrap の対比
   （`evaluation/cross_study_method_contrast.py`）はまだ pipeline として走らせていない。
+
+## 2026-11-10 — 結果: 不一致は観測を読む手法一般の欠陥だった
+
+**Status:** 公平化は完了。以後 whole-shot mask の比較は本 study の順位を正本とする。
+
+**Decision:** 学習と test の文脈不一致は `cinr_real` 固有ではなく、**観測を読んで学習する手法一般の欠陥**
+だった。3手法すべてが同一の修正から改善し、3手法すべてで学習 loss が上がりながら test が改善した。
+
+| 手法 | 修正前 | 修正後 | 差 | 学習 loss |
+|---|---:|---:|---:|---|
+| `cinr_real`（study_072 → 075） | 0.3596 | **1.6625** | **+1.3029** | 0.2043 → 0.2444 |
+| CCNet5D（study_069 → 076） | 1.2157 | **1.9120** | **+0.6963** | 0.2051 → 0.2724 |
+| ReGSI（study_069 → 076） | 2.5702 | **2.9124** | **+0.3422** | 0.1568 → 0.1990 |
+
+改善幅は出発点の逆順である。不一致に壊されていた度合いが大きい手法ほど利得が大きく、
+「test に存在しない文脈への適合を取り除く」という機構の説明と整合する。
+事前に記録した2つの予測（両手法改善・学習 loss 上昇）はどちらも的中し、反証条件は成立しなかった。
+
+**順位の訂正:** 公平化した順位は
+ReGSI 2.9124 > CCNet5D 1.9120 > `cinr_real` 1.6625 > DRR 1.0033 > POCS 0.7105 > profile NeRSI approximately 0。
+**`cinr_real` は study_075 時点の2位から3位へ下がった**（CCNet5D が 0.2495 dB 上回る）。
+これは不公平を取り除いた結果であり、study_075 の順位は 2026-11-10 の開示どおり使わない。
+
+**論文に書くこと:**
+
+- neural-implicit の代表手法（`cinr_real`）は whole-shot 欠損で**古典手法2つを上回るが、
+  学習型 baseline 2つには届かない**。random-trace mask（study_071）での 7 手法中3位と整合する。
+- 提案法 ReGSI の優位は公平化後も残る。本 study 内の paired 対比では 96 shot のうち
+  **91 shot** で CCNet5D を上回り（平均 +1.0006 dB、中央値 +0.9138）、internal 83/85、edge 8/11。
+- **比較手法の学習視野を mask family に揃えることは、比較の前提条件として報告する。**
+  揃えないと CCNet5D を 0.70 dB、ReGSI を 0.34 dB 不当に低く見せる。提案法の優位を
+  過大に見せる方向の誤りなので、これを開示せずに study_069 の数字を使うことはしない。
+- 経緯（072 の誤診 → 075 の修正 → 075 の不公平の自己開示 → 076 の公平化で自分の順位が下がる）を
+  そのまま書く。順位が下がる結果を出す測定を自分で走らせたことが、他の数字の信頼性の根拠になる。
+
+**残る非対称性（開示する）:**
+
+- `inner_mask_fraction` は study_067 の random-trace grid が選んだ値のままで、**3手法いずれも
+  shot50 で再調整していない**。この点は対称である。
+- 学習時の可視密度は手法ごとに少し違う。`cinr_real` は query の gather 1 個だけを除くので
+  観測 96 gather 中 95 個が見える。ReGSI は 24 gather を隠すので 72 個（edge 19.606 対 test 19.973）、
+  CCNet5D は patch 内の約 25 % の station を隠す。いずれも test より**少ない**向き（良性）だが同一ではない。
+  完全に揃えるには leave-one-shot-out episode が必要で、それは batch 内の shot 多様性を失う
+  （1 episode が 1 gather の 256 query だけになる）ため別 study の対象とする。
+- ReGSI の edge shot はほぼ改善しない（+0.0129、11 本中 5 本）。edge では片側支持しかなく、
+  gather 単位 episode が奪う情報の代替が得にくい。edge に限れば trace 単位 episode のほうが
+  良い可能性があり、mask family ではなく shot 支持に応じた学習視野は未検証である。
+- 1 mask・1 model seed・記述的比較である。事前登録した cluster bootstrap の対比
+  （`evaluation/cross_study_method_contrast.py`）は pipeline 未実装で、CI も Holm 補正も付いていない。

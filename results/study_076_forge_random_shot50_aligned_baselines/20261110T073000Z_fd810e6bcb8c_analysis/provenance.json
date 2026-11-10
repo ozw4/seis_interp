@@ -1,0 +1,129 @@
+{
+  "study_id": "study_076_forge_random_shot50_aligned_baselines",
+  "run": "runs/study_076_forge_random_shot50_aligned_baselines/20261110T030856201743Z_fd810e6bcb8c",
+  "experiment_hash": "11118a27be4e818b2cdaf9d0ce9d701db7268d5cf9677674f6bb8d1e3177850c",
+  "render_source_sha256": "dbd7254d190d6cf6b0b21f96f5ac73a56837bcd6e30131b61aa3b2bc19e6b492",
+  "input_hashes": {
+    "input/gather_selection.json": "3528522e716ffb8925fd338a7711d7f2614ddcb9230bd5f3f01fc7684df34cfa",
+    "input/grid_geometry.parquet": "d5a625d5910af8acb151e734cfb4df5373bc9e8e5de81e7e2645f8a36a469776",
+    "input/manifest.parquet": "87567a64fbbd6bf16ee6644711e2847979afcb2fd4a7f910e7732a7c8b2002cf",
+    "input/mask_counts.json": "c0629b021f650b32dbcccad2c43355190b194e55317cf521b8ac45897f648ee4",
+    "input/observed_waveforms.npy": "e5f09f0f874bde5233e8d2a990b54283e1d3a63cce4511ab6d6a77eac059cedc",
+    "input/partition.parquet": "ad2d5db09ef78b5531f9caa2002fd7e7a6b46954de4c12f6c6c8c642b0c12d45",
+    "input/raw_input_hashes.json": "93fe4a2be4350c0fa3de74a6ffaaf36edc51391783cb4ba89f5bb45a38d8adbc",
+    "input/real_geometry.parquet": "f5225c4e3e3690a3194aec285e8ca942951cfdd2f3e27ba0abe596a1ac78a02d",
+    "input/trace_scales.parquet": "544643b82e4113c074c1c62b400a4de6d3158c242eb2a3e8469524b458059937",
+    "input/waveforms.npy": "ed3e78c982de7bff0bdca3f7c8e6c114d59299e4dc464de8de0af408b476cf23"
+  },
+  "mask": {
+    "mask_id": "random_whole_shot50_seed7302",
+    "mask_family": "random_shot",
+    "mask_seed": 7302,
+    "algorithm": "sha256_rank_per_source_line",
+    "by_line": [
+      {
+        "source_grid_line": 0,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 1,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 2,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4095,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 3,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 4,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 5,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      }
+    ],
+    "observed_shot_count": 96,
+    "observed_trace_count": 24575,
+    "test_shot_count": 96,
+    "test_trace_count": 24576,
+    "eligible_trace_missing_fraction": 0.5000101727330064,
+    "natural_missing_cell_count": 1
+  },
+  "selected_gathers": {
+    "edge": 92,
+    "internal": 79
+  },
+  "selection_rule": "geometry only: central line, central missing point and missing edge",
+  "fixed_settings": {
+    "regsi_real": {
+      "candidate_id": "a05_b04",
+      "base": "studies/study_067_forge_c3_common_grid/forge/regsi_real.yaml",
+      "grid": "studies/study_067_forge_c3_common_grid/grid.yaml",
+      "selection_table": "results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv",
+      "selection": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/regsi_real_selection.json",
+      "changes_from_selected": [
+        "training.episode_kind: random_whole_ffid"
+      ]
+    },
+    "ccnet5d_grid": {
+      "candidate_id": "a02_b05",
+      "base": "studies/study_067_forge_c3_common_grid/forge/ccnet5d_grid.yaml",
+      "grid": "studies/study_067_forge_c3_common_grid/grid.yaml",
+      "selection_table": "results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis/forge/selection.csv",
+      "selection": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/workers/ccnet5d_grid_selection.json",
+      "changes_from_selected": [
+        "patches.inner_mask_unit: source_station"
+      ]
+    }
+  },
+  "method_artifacts": {
+    "regsi_real": {
+      "status": "completed",
+      "manifest_sha256": "f53a48758c008251769a91983761402f3aa982fe0ef4fc9441ef299d15236d25",
+      "prediction.npy": "85f89786b5b36992132d778cc783b810a0b6fcd2aee3e63d32566a859d5e3e90",
+      "cell_ids.npy": "087ed105e4f51db28a564a695ff7b5d80af66a6e5950e77004510d88b827d4a2",
+      "config.resolved.yaml": "f021c15233d7105abf7c0ff22a242986cc3ff8e7147be75944be068a2cbbac13"
+    },
+    "ccnet5d_grid": {
+      "status": "completed",
+      "manifest_sha256": "ee875aee1487264bb2e5532f17ca34f5a94c3e61dac130e3e3112545fae1d130",
+      "prediction.npy": "985e21ba670d465ccda9e6c75b861739a7f64f064912d2ae861d19af6a7456be",
+      "cell_ids.npy": "087ed105e4f51db28a564a695ff7b5d80af66a6e5950e77004510d88b827d4a2",
+      "config.resolved.yaml": "2bdf0e8cea2de26625733e40b592115160a8ba80cd0bffe837e1bc64ea7dd3a4"
+    }
+  },
+  "display_clip": 0.010219396427273958,
+  "artifacts": {
+    "acquisition_mask.png": "160edd48160f3f2e68b3e19ed5ca2db946534db3b730c78a4ae5132fcf66a045",
+    "gather_edge.png": "8804d03a32bc97b9c826862939e32befde20f27a0152471598f78ed46a012e8e",
+    "gather_internal.png": "f6e32f679577f742c51e2a2f4ab5ae713e29b2b365655ac84b91e894313a80ec",
+    "outcomes.json": "3970bcbcb70c5cf9163ef61b853a17447a213657e042246350e7bad1e20fb37f",
+    "paired_shot_differences.csv": "6121dbb26a8f086bbff862c990a53c5ad20e72b2086dd4785c313a779f24242e",
+    "per_shot.csv": "1f186fc7d0d504e39fde4bc4a2a3092218bab4931bd22177a6d33decbb72bfa7",
+    "shot_equal_weight.csv": "efdd83d2a3703a4548e27552035b46524fac94df1bb2357177735cdac4dd4d29",
+    "shot_support.csv": "28c550ad1596ecdaea0d5f7af333a309cf1807d7cab18b8557f3725ee9d5b912",
+    "summary.csv": "e5ec93a48f3d41c3ab4d1778a26fcacfada5009daf914f9eb33aaa68fae97c88"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "all_methods_completed": true,
+  "methods": {
+    "regsi_real": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-10T07:25:15.907330+00:00",
+      "scored_at": "2026-11-10T07:25:17.574959+00:00"
+    },
+    "ccnet5d_grid": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-10T04:58:59.154339+00:00",
+      "scored_at": "2026-11-10T07:25:18.575890+00:00"
+    }
+  }
+}
