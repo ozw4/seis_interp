@@ -1,0 +1,74 @@
+{
+  "created_at": "2026-11-10T23:27:03.401141+00:00",
+  "experiment": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge",
+  "study_id": "study_067_forge_c3_common_grid",
+  "dataset_id": "forge_2017",
+  "display_seed": 7321,
+  "post_hoc_secondary_metric": true,
+  "used_for_selection": false,
+  "new_inference": false,
+  "window_rule": "t < intercept_s + offset / velocity_m_per_s, declared from observed traces only and never from a first-break pick",
+  "window": {
+    "intercept_s": 0.22,
+    "velocity_m_per_s": 5500.0
+  },
+  "minimum_window_samples": 16,
+  "acceptance_rule": "recomputed whole-trace SNR reproduces each run's saved per-trace scores within 1e-06 dB",
+  "zero_prediction_caveat": "a zero prediction leaks nothing and scores best on pre_energy_ratio; read it beside post_snr_db",
+  "methods": [
+    {
+      "method": "regsi_real",
+      "prediction": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/regsi_real/evaluation/seed_7321",
+      "prediction_sha256": "5b0fbcdda36db783edd5d5973ed9405aee535e53d9f5c1e8eb68cd3386bcbc84",
+      "trace_count": 35880,
+      "max_abs_snr_db_difference": 0.0,
+      "window_samples_min": 55,
+      "window_samples_median": 95.0,
+      "window_samples_max": 158
+    },
+    {
+      "method": "ccnet5d_grid",
+      "prediction": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/ccnet5d_grid/evaluation/seed_7321",
+      "prediction_sha256": "28c6ffeef6d3ecaf05dbe8667974618f4b423013ef974efba966432541381622",
+      "trace_count": 35880,
+      "max_abs_snr_db_difference": 0.0,
+      "window_samples_min": 55,
+      "window_samples_median": 95.0,
+      "window_samples_max": 158
+    },
+    {
+      "method": "nersi_profile",
+      "prediction": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/nersi_profile/evaluation/seed_7321",
+      "prediction_sha256": "896cc874c19917e92db7a2af6c4a632d0f72c6f173955ff405c983bba3193618",
+      "trace_count": 35880,
+      "max_abs_snr_db_difference": 0.0,
+      "window_samples_min": 55,
+      "window_samples_median": 95.0,
+      "window_samples_max": 158
+    },
+    {
+      "method": "pocs_grid",
+      "prediction": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/pocs_grid/evaluation/seed_7321",
+      "prediction_sha256": "8a97c154b0b4f9791d09664a88e1dacdd17de15db67e5a1189bb2c760359c4c7",
+      "trace_count": 35880,
+      "max_abs_snr_db_difference": 0.0,
+      "window_samples_min": 55,
+      "window_samples_median": 95.0,
+      "window_samples_max": 158
+    },
+    {
+      "method": "drr_grid",
+      "prediction": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/drr_grid/evaluation/seed_7321",
+      "prediction_sha256": "6fe43c122a3d21f4792c933588385e07d99396cceaac22aea5527bbe8709f2c6",
+      "trace_count": 35880,
+      "max_abs_snr_db_difference": 0.0,
+      "window_samples_min": 55,
+      "window_samples_median": 95.0,
+      "window_samples_max": 158
+    }
+  ],
+  "artifacts": {
+    "per_trace.parquet": "ba858c7ebd5c2e68dee3add590f982bcdbd3b591abd3b7028ef414e6408c8e87",
+    "summary.csv": "2e0d30fa086168c9de22bc7b053732e5368cf52d004c4cd0b2afe67166f869e4"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "created_at": "2026-11-10T23:27:37.265140+00:00",
+  "experiment": "runs/study_071_forge_c3_context_field/20261109T042809568788Z_766f4f10a666_traces",
+  "study_id": "study_071_forge_c3_context_field",
+  "dataset_id": "seg_c3_na",
+  "display_seed": 7321,
+  "post_hoc_secondary_metric": true,
+  "used_for_selection": false,
+  "new_inference": false,
+  "window_rule": "t < intercept_s + offset / velocity_m_per_s, declared from observed traces only and never from a first-break pick",
+  "window": {
+    "intercept_s": 0.25,
+    "velocity_m_per_s": 7000.0
+  },
+  "minimum_window_samples": 16,
+  "acceptance_rule": "recomputed whole-trace SNR reproduces each run's saved per-trace scores within 1e-06 dB",
+  "zero_prediction_caveat": "a zero prediction leaks nothing and scores best on pre_energy_ratio; read it beside post_snr_db",
+  "methods": [
+    {
+      "method": "cinr_real",
+      "prediction": "runs/study_071_forge_c3_context_field/20261109T042809568788Z_766f4f10a666_traces/method_runs/cinr_real/evaluation/seed_7321",
+      "prediction_sha256": "23f9e4075facdf0ca1afa67007be1d2300d2674bec53d2d47f9e6a234141fdb5",
+      "trace_count": 107479,
+      "max_abs_snr_db_difference": 0.0,
+      "window_samples_min": 44,
+      "window_samples_median": 54.0,
+      "window_samples_max": 66
+    }
+  ],
+  "artifacts": {
+    "per_trace.parquet": "399aad47f416a1fca6383f2d3b9589231c99128504e61607a438b614175f3f33",
+    "summary.csv": "2adcd6ef2ccd0f1c080e81b231587a4fa8a33075672379b2061cd64ac6c1eac6"
+  }
+}

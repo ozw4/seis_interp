@@ -1,0 +1,34 @@
+{
+  "created_at": "2026-11-10T23:26:55.599668+00:00",
+  "experiment": "runs/study_075_forge_random_shot50_gather_excluded/20261110T020859184225Z_aecab8752d88",
+  "study_id": "study_075_forge_random_shot50_gather_excluded",
+  "dataset_id": "forge_2017",
+  "display_seed": null,
+  "post_hoc_secondary_metric": true,
+  "used_for_selection": false,
+  "new_inference": false,
+  "window_rule": "t < intercept_s + offset / velocity_m_per_s, declared from observed traces only and never from a first-break pick",
+  "window": {
+    "intercept_s": 0.22,
+    "velocity_m_per_s": 5500.0
+  },
+  "minimum_window_samples": 16,
+  "acceptance_rule": "recomputed whole-trace SNR reproduces each run's saved per-trace scores within 1e-06 dB",
+  "zero_prediction_caveat": "a zero prediction leaks nothing and scores best on pre_energy_ratio; read it beside post_snr_db",
+  "methods": [
+    {
+      "method": "cinr_real",
+      "prediction": "runs/study_075_forge_random_shot50_gather_excluded/20261110T020859184225Z_aecab8752d88/method_runs/cinr_real",
+      "prediction_sha256": "35bdc4c3c34ac19ad5b36efe35c698bd973d06d12313ecf5d55dd1d8c44acb1b",
+      "trace_count": 24576,
+      "max_abs_snr_db_difference": 0.0,
+      "window_samples_min": 55,
+      "window_samples_median": 95.0,
+      "window_samples_max": 158
+    }
+  ],
+  "artifacts": {
+    "per_trace.parquet": "fe0945021f17b2310515da1c17b09d31da8ac269c147d037da5075a75c519e72",
+    "summary.csv": "83ce5b2ce55c50741482754443aaf67484bdbfc69564a2be2e6c435b1a08b22c"
+  }
+}
