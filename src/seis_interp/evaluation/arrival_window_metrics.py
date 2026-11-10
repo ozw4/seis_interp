@@ -12,8 +12,13 @@ is a straight line under the measured arrival curve, so every sample it selects
 precedes the arrival. The constants come from observed traces only -- the model's
 own input -- with a margin, and they are recorded with every result.
 
-A zero prediction leaks nothing, so the leakage ratio alone cannot rank methods.
-Read it beside the post-arrival SNR, never on its own.
+The headline number is the amplitude a method invented before the arrival: the RMS
+of its own prediction inside the window, averaged over traces with no weighting. It
+is in the data's units, it stays defined when the reference window is silent, and it
+is read beside the reference's own pre-arrival amplitude on the same traces.
+
+A zero prediction invents nothing, so this number alone cannot rank methods. Read it
+beside the post-arrival SNR, never on its own.
 """
 
 from numbers import Integral, Real
@@ -69,12 +74,13 @@ def arrival_window_ends(
 
 
 def windowed_waveform_columns(prediction, target, window_ends):
-    """Pre-arrival leakage and post-arrival fidelity for matching trace arrays.
+    """Pre-arrival amplitude and post-arrival fidelity for matching trace arrays.
 
-    ``pre_energy_ratio`` divides by the whole trace's reference energy, so it stays
-    defined when the reference is silent before the arrival, which is the usual case
-    for synthetic data. ``pre_excess_ratio`` divides by the reference's own
-    pre-arrival energy instead, and is undefined exactly where that energy is zero.
+    ``pre_prediction_rms`` is the invented amplitude and ``pre_target_rms`` the real
+    one, both in the data's units and both defined even where the reference window is
+    silent. The ratios are kept for reference: ``pre_energy_ratio`` divides by the
+    whole trace's reference energy and ``pre_excess_ratio`` by the reference's own
+    pre-arrival energy, which is undefined exactly where that energy is zero.
     """
     p, y = np.asarray(prediction, dtype=np.float64), np.asarray(target, dtype=np.float64)
     if p.shape != y.shape or p.ndim != 2 or not np.isfinite(p).all() or not np.isfinite(y).all():
@@ -90,12 +96,20 @@ def windowed_waveform_columns(prediction, target, window_ends):
     target_energy = np.square(y).sum(axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):
         post_snr = 10 * (np.log10(post_target) - np.log10(post_error))
+    trace_rms = np.sqrt(target_energy / y.shape[1])
     return {
         "window_samples": ends,
         "pre_prediction_energy": pre_prediction,
         "pre_target_energy": pre_target,
         "post_target_energy": post_target,
         "post_error_energy": post_error,
+        # The amplitude the method invented before the arrival, and the amplitude that is
+        # really there, in the same physical units. Averaging these over traces needs no
+        # weighting rule, and both stay defined when the reference window is silent.
+        "pre_prediction_rms": np.sqrt(pre_prediction / ends),
+        "pre_target_rms": np.sqrt(pre_target / ends),
+        "pre_prediction_rms_over_trace_rms": _ratio(np.sqrt(pre_prediction / ends), trace_rms),
+        "pre_target_rms_over_trace_rms": _ratio(np.sqrt(pre_target / ends), trace_rms),
         "pre_energy_ratio": _ratio(pre_prediction, target_energy),
         "pre_target_share": _ratio(pre_target, target_energy),
         "pre_excess_ratio": _ratio(pre_prediction, pre_target),

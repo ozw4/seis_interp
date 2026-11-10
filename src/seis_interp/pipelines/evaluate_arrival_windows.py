@@ -158,24 +158,17 @@ def summarize(table, population):
         "trace_count": int(len(rows)),
         "mean_post_snr_db": float(rows.post_snr_db.mean()),
         "median_post_snr_db": float(rows.post_snr_db.median()),
-        # Mean of the per-trace ratio, matching the studies' masked_trace_relative_mse,
-        # with the pooled ratio beside it because the two weight traces differently.
+        # Mean of the per-trace ratio, matching the studies' masked_trace_relative_mse.
         "mean_post_relative_mse": float(rows.post_relative_mse.mean()),
-        "pooled_post_relative_mse": float(
-            rows.post_error_energy.sum() / rows.post_target_energy.sum()
+        # The invented pre-arrival amplitude, averaged over traces with no weighting,
+        # beside the amplitude that is really there on the same traces.
+        "mean_pre_prediction_rms": float(rows.pre_prediction_rms.mean()),
+        "mean_pre_target_rms": float(rows.pre_target_rms.mean()),
+        "mean_pre_prediction_rms_over_trace_rms": _statistic(
+            rows.pre_prediction_rms_over_trace_rms, "mean"
         ),
-        "mean_pre_energy_ratio": _statistic(rows.pre_energy_ratio, "mean"),
-        "median_pre_energy_ratio": _statistic(rows.pre_energy_ratio, "median"),
-        "median_pre_excess_ratio": _statistic(rows.pre_excess_ratio, "median"),
-        "median_pre_target_share": _statistic(rows.pre_target_share, "median"),
-        # Synthetic data can be exactly silent before the arrival, which leaves the
-        # excess ratio undefined; the share of whole-trace energy stays defined there.
-        "pooled_pre_excess_ratio": _safe_ratio(
-            rows.pre_prediction_energy.sum(), rows.pre_target_energy.sum()
-        ),
-        "pooled_pre_energy_ratio": _safe_ratio(
-            rows.pre_prediction_energy.sum(),
-            rows.post_target_energy.sum() + rows.pre_target_energy.sum(),
+        "mean_pre_target_rms_over_trace_rms": _statistic(
+            rows.pre_target_rms_over_trace_rms, "mean"
         ),
     }
 

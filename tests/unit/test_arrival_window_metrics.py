@@ -98,6 +98,33 @@ def test_the_split_separates_leakage_from_a_missed_signal():
     assert whole["error_energy"][0] == pytest.approx(columns["pre_prediction_energy"][0])
 
 
+def test_the_invented_amplitude_is_a_plain_rms_in_the_data_units():
+    """The headline number: what the method put there, with no weighting rule."""
+    target, prediction = _split_case()
+    ends = np.full(2, 20, dtype=np.int64)
+    columns = windowed_waveform_columns(prediction, target, ends)
+    # The leaking trace holds a constant 0.5 across its twenty pre-arrival samples.
+    assert columns["pre_prediction_rms"].tolist() == [0.5, 0.0]
+    assert columns["pre_target_rms"].tolist() == [0.0, 0.0]
+    # Normalizing by the trace's own RMS keeps the same ordering without the units.
+    trace_rms = np.sqrt(np.square(target).sum(axis=1) / target.shape[1])
+    assert columns["pre_prediction_rms_over_trace_rms"][0] == pytest.approx(0.5 / trace_rms[0])
+    assert columns["pre_prediction_rms_over_trace_rms"][1] == 0.0
+
+
+def test_the_invented_amplitude_averages_without_a_weighting_rule():
+    """A loud trace and a quiet one contribute equally to the reported mean."""
+    target = np.zeros((2, 40))
+    target[:, 20:] = 1.0
+    target[0] *= 100.0
+    prediction = np.array(target)
+    prediction[0, :20] = 2.0
+    prediction[1, :20] = 4.0
+    columns = windowed_waveform_columns(prediction, target, np.full(2, 20, dtype=np.int64))
+    assert columns["pre_prediction_rms"].tolist() == [2.0, 4.0]
+    assert float(np.mean(columns["pre_prediction_rms"])) == pytest.approx(3.0)
+
+
 def test_a_silent_reference_window_leaves_the_excess_ratio_undefined():
     """Synthetic data is exactly silent before the arrival; the share stays defined."""
     target, prediction = _split_case()
@@ -134,6 +161,10 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
             "post_target_energy": [4.0, 4.0, 4.0],
             "pre_prediction_energy": [1.0, 1.0, 50.0],
             "pre_target_energy": [2.0, 2.0, 2.0],
+            "pre_prediction_rms": [1.0, 2.0, 50.0],
+            "pre_target_rms": [3.0, 3.0, 3.0],
+            "pre_prediction_rms_over_trace_rms": [0.1, 0.2, 5.0],
+            "pre_target_rms_over_trace_rms": [0.3, 0.3, 0.3],
             "pre_energy_ratio": [0.1, 0.3, 9.0],
             "pre_excess_ratio": [0.5, 0.5, 25.0],
             "pre_target_share": [0.01, 0.01, 0.01],
@@ -146,5 +177,7 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
     assert summary["mean_post_snr_db"] == pytest.approx(2.0)
     # Mean of the per-trace ratio, as the studies report masked_trace_relative_mse.
     assert summary["mean_post_relative_mse"] == pytest.approx(0.5)
-    assert summary["pooled_post_relative_mse"] == pytest.approx(0.5)
-    assert summary["pooled_pre_excess_ratio"] == pytest.approx(0.5)
+    # The invented amplitude is a plain unweighted mean over the test traces.
+    assert summary["mean_pre_prediction_rms"] == pytest.approx(1.5)
+    assert summary["mean_pre_target_rms"] == pytest.approx(3.0)
+    assert summary["mean_pre_prediction_rms_over_trace_rms"] == pytest.approx(0.15)
