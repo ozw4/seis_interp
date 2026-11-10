@@ -9,11 +9,15 @@ import yaml
 
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.pipelines.export_common_grid_gathers import export_common_grid_gathers
+from seis_interp.pipelines.export_field_grid_gathers import shared_partition
 from seis_interp.visualization.common_grid_gathers import (
     DISPLAY_METHODS,
+    FIELD_DISPLAY_METHODS,
+    FIELD_METHOD_TITLES,
     PANEL_TITLES,
     central_sections,
     completed_section_panels,
+    panel_titles,
     pooled_reference_clip,
 )
 
@@ -195,3 +199,61 @@ def test_export_rejects_mismatched_inputs(tmp_path, damage, message):
         np.save(path, np.load(path) + 1)
     with pytest.raises(ValueError, match=message):
         export(tmp_path, experiment)
+
+
+def test_the_field_panel_order_replaces_only_the_neural_implicit_method():
+    """The figure keeps its five columns; cinr_real takes NeRSI's place in the middle."""
+    replaced = tuple(
+        "cinr_real" if method == "nersi_profile" else method for method in DISPLAY_METHODS
+    )
+    assert replaced == FIELD_DISPLAY_METHODS
+    assert panel_titles() == PANEL_TITLES
+    titles = panel_titles(FIELD_METHOD_TITLES)
+    assert titles[4] == "cINR" and titles[9] == "Residual\n(cINR)"
+    assert [titles[i] for i in (0, 1, 2, 3, 5, 6)] == [PANEL_TITLES[i] for i in (0, 1, 2, 3, 5, 6)]
+    with pytest.raises(ValueError, match="exactly five methods"):
+        panel_titles(FIELD_METHOD_TITLES[:4])
+
+
+def test_a_declared_display_order_changes_which_predictions_are_drawn():
+    """The default must stay study_067's order so its committed figure still reproduces."""
+    rng = np.random.default_rng(3)
+    reference = rng.standard_normal((2, 3))
+    observed = np.array([True, False])
+    values = {method: rng.standard_normal((2, 3)) for method in DISPLAY_METHODS}
+    field = {
+        ("cinr_real" if method == "nersi_profile" else method): array
+        for method, array in values.items()
+    }
+    default = completed_section_panels(reference, observed, values, normalization="physical")
+    renamed = completed_section_panels(
+        reference,
+        observed,
+        field,
+        normalization="physical",
+        display_methods=FIELD_DISPLAY_METHODS,
+    )
+    for left, right in zip(default, renamed, strict=True):
+        np.testing.assert_array_equal(left, right)
+    with pytest.raises(ValueError, match="display order"):
+        completed_section_panels(
+            reference,
+            observed,
+            values,
+            normalization="physical",
+            display_methods=FIELD_DISPLAY_METHODS,
+        )
+
+
+def test_contributing_runs_must_share_the_displayed_partition(tmp_path):
+    """Panels from different runs are only the same traces if the partition is identical."""
+    runs = []
+    for index, payload in enumerate((b"same", b"same", b"other")):
+        run = tmp_path / f"run{index}" / "input" / "seed_7321"
+        run.mkdir(parents=True)
+        (run / "partition.parquet").write_bytes(payload)
+        runs.append(tmp_path / f"run{index}")
+    digests = shared_partition(runs[:2], 7321)
+    assert len(set(digests.values())) == 1 and len(digests) == 2
+    with pytest.raises(ValueError, match="disagree on the displayed partition"):
+        shared_partition(runs, 7321)

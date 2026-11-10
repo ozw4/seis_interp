@@ -12,12 +12,25 @@ LABELS = {
 # The proposed method is shown last, as in the earlier five-method figures.
 DISPLAY_METHODS = ("pocs_grid", "drr_grid", "nersi_profile", "ccnet5d_grid", "regsi_real")
 METHOD_TITLES = ("POCS", "DRR", "NeRSI", "CCNet-5D", "ReGSI")
-PANEL_TITLES = (
-    "Reference",
-    "Masked\ninput",
-    *METHOD_TITLES,
-    *(f"Residual\n({title})" for title in METHOD_TITLES),
-)
+# The neural-implicit panel reads observed traces instead of fitting weights alone.
+FIELD_DISPLAY_METHODS = ("pocs_grid", "drr_grid", "cinr_real", "ccnet5d_grid", "regsi_real")
+FIELD_METHOD_TITLES = ("POCS", "DRR", "cINR", "CCNet-5D", "ReGSI")
+
+
+def panel_titles(method_titles=METHOD_TITLES):
+    """Row titles for one five-method layout: inputs, predictions, then residuals."""
+    titles = tuple(method_titles)
+    if len(titles) != 5:
+        raise ValueError("the publication layout shows exactly five methods")
+    return (
+        "Reference",
+        "Masked\ninput",
+        *titles,
+        *(f"Residual\n({title})" for title in titles),
+    )
+
+
+PANEL_TITLES = panel_titles()
 SECTION_AXES = {"c3": (3, 1, 0), "forge": (3, 1, 0, 2)}
 
 
@@ -47,7 +60,9 @@ def central_sections(cell_ids, spatial_shape, axes):
     return sections
 
 
-def completed_section_panels(reference, observed, predictions, *, normalization):
+def completed_section_panels(
+    reference, observed, predictions, *, normalization, display_methods=DISPLAY_METHODS
+):
     """Reference, masked input, completed predictions, then reference minus completion.
 
     Arrays are [trace, sample] for one section. Observed traces keep the
@@ -57,8 +72,9 @@ def completed_section_panels(reference, observed, predictions, *, normalization)
     """
     if normalization not in {"physical", "trace_rms"}:
         raise ValueError("normalization must be physical or trace_rms")
-    if tuple(predictions) != DISPLAY_METHODS:
-        raise ValueError(f"predictions must follow the display order {DISPLAY_METHODS}")
+    display_methods = tuple(display_methods)
+    if tuple(predictions) != display_methods:
+        raise ValueError(f"predictions must follow the display order {display_methods}")
     reference = np.asarray(reference, dtype=np.float64)
     observed = np.asarray(observed, dtype=bool)
     if reference.ndim != 2 or observed.shape != (len(reference),):
@@ -73,7 +89,7 @@ def completed_section_panels(reference, observed, predictions, *, normalization)
     completed = [
         np.where(observed[:, None], reference, np.asarray(predictions[method], dtype=np.float64))
         / scale
-        for method in DISPLAY_METHODS
+        for method in display_methods
     ]
     if not all(np.isfinite(values).all() for values in completed):
         raise ValueError("hidden traces need finite predictions")
