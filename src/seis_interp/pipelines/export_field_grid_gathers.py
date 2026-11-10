@@ -41,7 +41,13 @@ from seis_interp.visualization.common_grid_gathers import (
     panel_titles,
     pooled_reference_clip,
 )
-from seis_interp.visualization.publication_sections import create_publication_section
+from seis_interp.visualization.publication_sections import (
+    ROW_LAYOUTS,
+    create_publication_section,
+)
+
+# Two rows without residuals, so each gather is drawn about twice as large.
+LAYOUT = "3-4"
 
 CODE = (
     "src/seis_interp/visualization/common_grid_gathers.py",
@@ -105,6 +111,7 @@ def export_dataset(repo, experiments, dataset, seed, output, dpi):
                     {method: predictions[method][rows] for method in FIELD_DISPLAY_METHODS},
                     normalization=normalization,
                     display_methods=FIELD_DISPLAY_METHODS,
+                    residuals=False,
                 )
             )
         clips[normalization] = pooled_reference_clip(panel_sets)
@@ -114,8 +121,8 @@ def export_dataset(repo, experiments, dataset, seed, output, dpi):
                 time_s=time[keep],
                 spatial_label=LABELS[section["varying_axis"]],
                 clip=clips[normalization],
-                panel_titles=panel_titles(FIELD_METHOD_TITLES),
-                layout="2-5-5",
+                panel_titles=panel_titles(FIELD_METHOD_TITLES, residuals=False),
+                layout=LAYOUT,
                 show_colorbar=False,
                 font_family=FONT_FAMILY,
             )
@@ -164,14 +171,14 @@ def export_field_grid_gathers(repo, experiments, output, *, seed=7321, dpi=1200)
         "new_inference": False,
         "new_test_scoring": False,
         "panel_method_order": list(FIELD_DISPLAY_METHODS),
-        "panel_titles": list(panel_titles(FIELD_METHOD_TITLES)),
+        "panel_titles": list(panel_titles(FIELD_METHOD_TITLES, residuals=False)),
         "replaces": {
             "figure": "results/study_067_forge_c3_common_grid/"
             "20261104T011853Z_35d86916bcc7_gathers",
             "panel": "nersi_profile replaced by cinr_real",
         },
-        "residual_rule": "reference minus completed prediction; observed traces are copied "
-        "from the reference, so their residual is zero",
+        "residual_rule": "not drawn; this figure shows the reference, the masked input and "
+        "the five completed predictions in two rows",
         "masked_input_rule": "the seed's stored observed waveforms, checked against the reference",
         "amplitude_rule": "saved physical predictions; FORGE carries the registered per-trace "
         "oracle RMS",
@@ -180,9 +187,9 @@ def export_field_grid_gathers(repo, experiments, output, *, seed=7321, dpi=1200)
         "clip_rule": "pooled full-duration reference 99th percentile over the dataset's sections",
         "acceptance_rule": f"displayed arrays reproduce each run's saved per-trace SNR within "
         f"{SNR_TOLERANCE_DB} dB",
-        "layout": [2, 5, 5],
+        "layout": list(ROW_LAYOUTS[LAYOUT]),
         "width_mm": 178,
-        "height_mm": 142,
+        "height_mm": 140,
         "dpi": dpi,
         "font_family": FONT_FAMILY,
         "cmap": "seismic",

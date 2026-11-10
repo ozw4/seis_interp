@@ -17,8 +17,12 @@ FIELD_DISPLAY_METHODS = ("pocs_grid", "drr_grid", "cinr_real", "ccnet5d_grid", "
 FIELD_METHOD_TITLES = ("POCS", "DRR", "cINR", "CCNet-5D", "ReGSI")
 
 
-def panel_titles(method_titles=METHOD_TITLES):
-    """Row titles for one five-method layout: inputs, predictions, then residuals."""
+def panel_titles(method_titles=METHOD_TITLES, *, residuals=True):
+    """Row titles for one five-method layout: inputs, predictions, then residuals.
+
+    Without residuals the figure keeps the same panels in the same order, minus the
+    residual row, so the seven remaining panels fit two rows at nearly twice the area.
+    """
     titles = tuple(method_titles)
     if len(titles) != 5:
         raise ValueError("the publication layout shows exactly five methods")
@@ -26,7 +30,7 @@ def panel_titles(method_titles=METHOD_TITLES):
         "Reference",
         "Masked\ninput",
         *titles,
-        *(f"Residual\n({title})" for title in titles),
+        *((f"Residual\n({title})" for title in titles) if residuals else ()),
     )
 
 
@@ -61,7 +65,13 @@ def central_sections(cell_ids, spatial_shape, axes):
 
 
 def completed_section_panels(
-    reference, observed, predictions, *, normalization, display_methods=DISPLAY_METHODS
+    reference,
+    observed,
+    predictions,
+    *,
+    normalization,
+    display_methods=DISPLAY_METHODS,
+    residuals=True,
 ):
     """Reference, masked input, completed predictions, then reference minus completion.
 
@@ -97,7 +107,7 @@ def completed_section_panels(
         truth.T,
         np.where(observed[:, None], truth, 0.0).T,
         *(values.T for values in completed),
-        *((truth - values).T for values in completed),
+        *(((truth - values).T for values in completed) if residuals else ()),
     ]
 
 

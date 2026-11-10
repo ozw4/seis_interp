@@ -9,6 +9,10 @@ profile NeRSI から `cinr_real`（[study_071](../../../studies/study_071_forge_
 （3 seed 平均 0.3126 dB、relMSE 0.9426）、`cinr_real` は両 dataset で床を満たしました
 （C3 14.2516 dB / FORGE 1.4558 dB）。
 
+> **後続版あり**: 残差行を外して7パネルを2行に並べ、パネル1つあたりの面積を約2倍にした
+> [20261110T085000Z_gathers_two_row](../20261110T085000Z_gathers_two_row/README.md) が現行版です。
+> 本図は残差を見るときに参照します。描いている予測・数値・出どころは両者で同一です。
+
 ## パネルの出どころ
 
 4手法は study_067 の本番 run、`cinr_real` は study_071 の本番 run から読みます。

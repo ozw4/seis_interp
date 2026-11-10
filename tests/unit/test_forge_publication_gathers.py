@@ -1,5 +1,9 @@
 """Fixed geometry, common gain, completed observed traces and residual polarity."""
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -52,3 +56,45 @@ def test_panels_preserve_mask_prediction_gain_and_reference_minus_prediction(mod
         np.testing.assert_array_equal(predictions[method], originals[method])
     assert clip == pytest.approx(np.percentile(np.abs(target), 99))
     assert prepared[0]["observed_count"] == 1 and prepared[0]["test_count"] == 2
+
+
+def test_the_two_row_layout_draws_seven_panels_without_residuals():
+    """Seven panels in rows of three and four, so each gather gets about twice the area."""
+    from seis_interp.visualization.publication_sections import (
+        ROW_LAYOUTS,
+        create_publication_section,
+    )
+
+    assert ROW_LAYOUTS["3-4"] == (3, 4)
+    panels = [np.random.default_rng(i).standard_normal((20, 8)) for i in range(7)]
+    figure = create_publication_section(
+        panels,
+        time_s=np.linspace(0, 4, 20),
+        spatial_label="Source point\nindex",
+        clip=1.0,
+        panel_titles=tuple("abcdefg"),
+        layout="3-4",
+        show_colorbar=False,
+    )
+    figure.canvas.draw()
+    axes = [axis for axis in figure.axes if axis.get_images()]
+    assert len(axes) == 7
+    # The second row sits entirely below the first, and the first row carries no x labels,
+    # because every top-row panel has a bottom-row panel sharing its column.
+    tops = [axis.get_position().y0 for axis in axes]
+    assert min(tops[:3]) > max(tops[3:])
+    labelled = [any(label.get_visible() for label in axis.get_xticklabels()) for axis in axes]
+    assert labelled == [False, False, False, True, True, True, True]
+    width, height = figure.get_size_inches()
+    assert round(width * 25.4) == 178 and round(height * 25.4) == 140
+    plt.close(figure)
+
+
+def test_the_two_row_layout_requires_its_own_panel_count():
+    from seis_interp.visualization.publication_sections import create_publication_section
+
+    panels = [np.zeros((4, 3)) for _ in range(6)]
+    with pytest.raises(ValueError, match="row counts"):
+        create_publication_section(
+            panels, time_s=np.linspace(0, 1, 4), spatial_label="x", clip=1.0, layout="3-4"
+        )

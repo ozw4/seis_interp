@@ -257,3 +257,21 @@ def test_contributing_runs_must_share_the_displayed_partition(tmp_path):
     assert len(set(digests.values())) == 1 and len(digests) == 2
     with pytest.raises(ValueError, match="disagree on the displayed partition"):
         shared_partition(runs, 7321)
+
+
+def test_dropping_residuals_keeps_the_predictions_and_their_order():
+    """The seven remaining panels are the first seven of the twelve, unchanged."""
+    rng = np.random.default_rng(11)
+    reference = rng.standard_normal((3, 4))
+    observed = np.array([True, False, False])
+    values = {method: rng.standard_normal((3, 4)) for method in DISPLAY_METHODS}
+    full = completed_section_panels(reference, observed, values, normalization="physical")
+    without = completed_section_panels(
+        reference, observed, values, normalization="physical", residuals=False
+    )
+    assert len(full) == 12 and len(without) == 7
+    for left, right in zip(full[:7], without, strict=True):
+        np.testing.assert_array_equal(left, right)
+    titles = panel_titles(residuals=False)
+    assert len(titles) == 7 and titles == PANEL_TITLES[:7]
+    assert all("Residual" not in title for title in titles)

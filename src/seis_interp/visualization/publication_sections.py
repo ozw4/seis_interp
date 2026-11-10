@@ -24,6 +24,10 @@ FIGURE_STYLE = {
 }
 
 
+# Row sizes of the named layouts; "grid" fills equal rows from the panel count instead.
+ROW_LAYOUTS = {"2-5-5": (2, 5, 5), "2-6-6": (2, 6, 6), "3-4": (3, 4)}
+
+
 def create_publication_section(
     panels: Sequence[np.ndarray],
     *,
@@ -46,15 +50,11 @@ def create_publication_section(
 
     if display not in {"image", "wiggle"}:
         raise ValueError("display must be image or wiggle")
-    if (
-        layout not in {"grid", "2-5-5", "2-6-6"}
-        or (layout == "2-5-5" and len(panels) != 12)
-        or (layout == "2-6-6" and len(panels) != 14)
-    ):
-        raise ValueError("layout must be grid, 2-5-5 with twelve panels, or 2-6-6 with fourteen")
-    if not panels or len(panels) % 2:
+    if layout != "grid" and (layout not in ROW_LAYOUTS or len(panels) != sum(ROW_LAYOUTS[layout])):
+        raise ValueError(f"layout must be grid or one of {sorted(ROW_LAYOUTS)} with its row counts")
+    if not panels or (layout == "grid" and len(panels) % 2):
         raise ValueError("panels must contain a nonempty even number of sections")
-    if columns not in {2, 6} or len(panels) % columns:
+    if layout == "grid" and (columns not in {2, 6} or len(panels) % columns):
         raise ValueError("columns must be 2 or 6 and divide the panel count")
     if panel_titles is not None and len(panel_titles) != len(panels):
         raise ValueError("panel_titles must match the number of panels")
@@ -68,7 +68,41 @@ def create_publication_section(
         raise ValueError("time_s must match the sections and contain at least two samples")
     rows = len(panels) // columns
     with mpl.rc_context({**FIGURE_STYLE, "font.family": font_family, "pdf.fonttype": 42}):
-        if layout in {"2-5-5", "2-6-6"}:
+        if layout == "3-4":
+            # Two rows without residuals: each gather gets about twice the area of the
+            # three-row layout, which is what makes individual events legible in print.
+            figure = plt.figure(figsize=(178 / 25.4, 140 / 25.4))
+            width = max(ROW_LAYOUTS[layout])
+            grid = figure.add_gridspec(
+                len(ROW_LAYOUTS[layout]),
+                1,
+                left=0.055,
+                right=0.995,
+                # The two-line "Masked input" title is drawn above its axes box, so the
+                # top margin must leave room for two lines or it is clipped.
+                top=0.920,
+                bottom=0.090,
+                hspace=0.17,
+            )
+            plot_axes = []
+            for row, count in enumerate(ROW_LAYOUTS[layout]):
+                row_grid = grid[row].subgridspec(1, width, wspace=0.18)
+                for column in range(count):
+                    first = plot_axes[0] if plot_axes else None
+                    plot_axes.append(
+                        figure.add_subplot(row_grid[column], sharex=first, sharey=first)
+                    )
+            top_row = ROW_LAYOUTS[layout][0]
+            y_label_indices = {0, top_row}
+            # A top-row panel with no panel beneath it carries its own spatial axis.
+            x_label_indices = set(range(top_row, len(panels))) | {
+                column for column in range(ROW_LAYOUTS[layout][1], top_row)
+            }
+            for index, axis in enumerate(plot_axes):
+                axis.tick_params(
+                    labelleft=index in y_label_indices, labelbottom=index in x_label_indices
+                )
+        elif layout in {"2-5-5", "2-6-6"}:
             method_count = 5 if layout == "2-5-5" else 6
             figure = plt.figure(figsize=(178 / 25.4, 142 / 25.4))
             grid = figure.add_gridspec(
@@ -107,8 +141,8 @@ def create_publication_section(
             plot_axes = list(axes.flat)
             y_label_indices = set(range(0, len(panels), columns))
             x_label_indices = set(range(len(panels) - columns, len(panels)))
-        if layout in {"2-5-5", "2-6-6"}:
-            pass  # The nested grids above own this layout's margins.
+        if layout != "grid":
+            pass  # The nested grids above own these layouts' margins.
         elif columns == 6 and display == "image" and not show_colorbar:
             figure.subplots_adjust(
                 left=0.05, right=0.995, top=0.91, bottom=0.15, hspace=0.36, wspace=0.28
