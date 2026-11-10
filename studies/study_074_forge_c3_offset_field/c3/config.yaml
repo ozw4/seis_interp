@@ -1,0 +1,78 @@
+study_id: study_074_forge_c3_offset_field
+dataset_id: seg_c3_na
+candidate_id: c3_shot18_ry18
+axis_order:
+- source_grid_line
+- source_grid_point
+- receiver_grid_line
+- receiver_grid_point
+spatial_shape:
+- 16
+- 32
+- 8
+- 32
+eligible_trace_count: 131072
+natural_missing_cell_count: 0
+time_sample_count: 384
+sample_interval_us: 8000
+mask_id: c3_random80_regions
+mask_study_id: study_062_c3_region_grid
+mask_family: random_trace
+missing_fraction: 0.8
+mask_seed: 620701
+test_trace_count: 104858
+observed_trace_count: 26214
+model_seed: 7301
+preprocessing:
+  dtype: float32
+  amplitude_scaling: observed_global_rms
+  trace_rms: false
+  agc: false
+  bandpass: null
+  mute: null
+  spatial_interpolation: false
+  alignment: null
+matched_training:
+  max_steps: 50000
+  learning_rate: 0.001
+  loss_traces_per_update: 64
+  parameter_count_target: 363269
+  parameter_count_tolerance: 0.05
+selection:
+  metric: masked_trace_relative_mse
+  tie_break: configuration_id
+  checkpoint: fixed_final_ema
+  ema_decay: 0.999
+trace_split:
+  search_seed: 620702
+  evaluation_seeds:
+  - 7321
+  - 7322
+  - 7323
+validation_holdout:
+  fraction: 0.1
+  mask_id: c3_random80_validation_v1
+  mask_seed: 620702
+methods:
+- cinr_real
+validation_study_id: study_063_c3_trace_grid
+training_loss: masked_trace_mse
+cuda_execution:
+  admission_margin_gib: 2
+  context_allowance_gib: 2
+  device_total_memory_gib:
+    cuda:0: 93.08
+    cuda:1: 93.08
+  minimum_free_memory_gib:
+    cinr_real: 4
+  global_admission: true
+  devices:
+  - cuda:0
+  - cuda:1
+  startup_timeout_seconds: 60
+common_grid:
+  path: ../grid.yaml
+  sha256: 192a65bc667337380c022850a9b5e7635f3978a6fe9c39ff2cfe014b25db3db4
+method_execution:
+  cinr_real:
+    parallel_candidates: 4

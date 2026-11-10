@@ -119,6 +119,8 @@ Numbered studies are listed in ascending ID order. Gaps in the numbering (for ex
 
 - [study_073_forge_random_shot50_physical_neighbors](study_073_forge_random_shot50_physical_neighbors/README.md): completed — 不採用。study_072 から1行（`context.distance: physical`）だけの A/B で、 clean_target は −0.1684 dB / relMSE +0.0648 の劣化。学習 loss はほぼ同一（0.2038 対 0.2043）なので 差は汎化だけに現れ、劣化は edge shot に集中する（−0.1023 → −0.8687 dB）。近傍の不一致率も edge shot で 最大（集合完全一致 internal 83.88 % 対 edge 56.46 %）。launch 前に記録した「改善を予想しない」は的中。 `context.distance` の既定は `index` のまま維持する。
 
+- [study_074_forge_c3_offset_field](study_074_forge_c3_offset_field/README.md): prepared — study_071 の条件付き field に log-offset 座標（`log10(max(offset_m, 1 m)) / 4`）を加える。測定された支配項に当てる: FORGE は最短オフセット quintile だけが崩れ（相関 0.309 / relMSE 0.973、他 quintile は 0.546–0.563 / 0.698–0.733）、そこが target エネルギーの 99.3 % と誤差エネルギーの 99.6 % を占める。原因は index 格子の順位付けが offset に盲目で、近傍の offset 差が絶対値一定（94–98 m）ゆえ相対差が短オフセットで6倍（0.384 対 0.064）になること。axis_a は順位付けでの offset 軸の重み（0 の列が入力だけの効果を、傾向が近傍選択の効果を測る）。差分予測（FORGE 改善・C3 中立）と反証条件を launch 前に `evaluation.yaml` へ記録。結果は未確定。
+
 ## Scratch workspaces
 
 `study_all_ffid_temp` and `study_temp` are not numbered studies and are not immutable research records. They are overwriteable, throwaway workflows for informal runs and are excluded from the formal study index above. [`study_all_ffid_temp/README.md`](study_all_ffid_temp/README.md) describes its workspace; `study_temp` has no README.

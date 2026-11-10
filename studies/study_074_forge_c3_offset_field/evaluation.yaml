@@ -1,0 +1,177 @@
+# Analysis-only configuration. grid.yaml/configs/method YAMLs are launch-frozen.
+# Every contrast is exploratory and post hoc, outside the registered families of
+# studies 067, 070 and 071. The offset families isolate the one change this study
+# makes; `prediction` records the differential expectation and its falsifier
+# before any study_074 value is read.
+role: exploratory_post_hoc_outside_study_067_registered_families
+bootstrap:
+  seed: 670703
+  resamples: 10000
+  interval: percentile_95
+  p_value: null_centred_two_sided_plus_one
+  weights: multinomial_shared_across_seeds_methods_contrasts_and_metrics_per_dataset
+cluster_column: source_cell
+experiments:
+  c3: null
+  forge: null
+datasets:
+  c3:
+    source_cell_count: 512
+    primary_population: all_eligible
+    amplitude: observed_global_rms_physical_predictions
+  forge:
+    source_cell_count: 192
+    primary_population: clean_target
+    amplitude: per_trace_oracle_test_rms
+selection:
+  stage: S1
+  metric: masked_trace_relative_mse
+  tie_break: candidate_id
+  diverged: rank_last
+floor:
+  domain: s1_validation_best_of_25
+  metric: mean_trace_snr_db
+  c3: 10.0
+  forge: 0.4
+zero_predictor_gate:
+  loss_over_L0_max: 0.95
+  output_rms_over_target_rms_min: 0.2
+  updates:
+  - 901
+  - 1000
+left:
+  method: cinr_real
+  label: cinr_real_074
+  experiments:
+    c3: null
+    forge: null
+contrasts:
+  holm_families:
+    offset_axis_snr:
+      contrast: cinr_real_074_minus_cinr_real_071
+      metric: snr_db
+    offset_axis_relmse:
+      contrast: cinr_real_074_minus_cinr_real_071
+      metric: relative_mse
+    proposed_vs_field_snr:
+      contrast: regsi_real_minus_cinr_real_074
+      metric: snr_db
+    proposed_vs_field_relmse:
+      contrast: regsi_real_minus_cinr_real_074
+      metric: relative_mse
+  descriptive:
+  - cinr_real_074_minus_nersi_profile
+  - cinr_real_074_minus_inr_real
+  - cinr_real_074_minus_ccnet5d_grid
+  - cinr_real_074_minus_pocs_grid
+  - cinr_real_074_minus_drr_grid
+partition_identity: assert_study_074_seed_partitions_hash_equal_study_067
+metrics:
+  snr_db: 10 * (log10(target_energy) - log10(error_energy)); no clipping or epsilon
+  primary: equal_weight_mean_of_three_seed_test_mean_trace_snr_db
+  seed_dispersion: sample_sd_ddof_1
+  relative_mse: mean(error_energy / target_energy); zero target uses sample_count
+    denominator
+  global_nmse: sum(error_energy) / sum(target_energy)
+  global_snr_db: -10 * log10(global_nmse)
+  median_correlation: median_of_defined_centred_per_trace_Pearson_correlations
+  trace_snr_quantiles:
+  - 10
+  - 50
+  - 90
+  fraction_below_0_db: mean(trace_snr_db < 0)
+  prediction_energy: sum_over_time(prediction ** 2); saved_physical_prediction
+  idw_scale_k_i: exp(IDW(log(observed_trace_RMS))) / oracle_trace_RMS
+  idw_prediction: float32(saved_physical_prediction * idw_scale_k_i)
+  scale_invariant_relative_mse: per_trace_least_squares_scalar_times_prediction_vs_target
+idw:
+  geometry: projected_grid
+  radius: 2
+  power: 2.0
+  distance: physical
+  restoration: multiply_once
+sensitivities:
+  paired_t: seed_level_95_percent_df_2
+  validation_free: exclude_union_of_all_S1_validation_trace_ids_of_studies_067_070_071_and_074
+  ema_shadow: saved_validation_and_test_metrics_where_present
+  multiplicity: descriptive_no_additional_adjustment
+search_diagnostics:
+  expected_best_of_k: empirical_with_replacement; retain_all_diverged_probability_separately
+  winners_curse: S1_cluster_bootstrap_in_bag_selection_and_out_of_bag_evaluation
+extra_pilot_score_sources: []
+right:
+  sources:
+    study_067:
+      methods:
+      - regsi_real
+      - ccnet5d_grid
+      - nersi_profile
+      - pocs_grid
+      - drr_grid
+      experiments:
+        c3:
+          path: runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces
+          sha256: 719a0d5e4b171250b69b24b247796c02ea58c34762d7572bd3a00a27f20a8cbd
+        forge:
+          path: runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge
+          sha256: c2105a777af4bcda8214d09515d452fd0eb4171cd1d5035833ee567f098e0fc2
+      analysis:
+        path: results/study_067_forge_c3_common_grid/20261103T231944Z_ba805bd26f6a_analysis
+        manifest_sha256: 802471006c88127f513ba53fffc13414756d30597b17c841984798b19edaccb0
+        selection_c3_sha256: 820b72216a3a69b0e1f1bdd3a360650eb4ca61120bf095829ab3ef9f6a6ce40e
+        selection_forge_sha256: 8c7bb288eefae671830b0031872f0b538d285b97103de965799a545656fb814f
+      grid: studies/study_067_forge_c3_common_grid/grid.yaml
+      grid_sha256: 1a48bb2532c52353b535e828286b769bc49115487b316d5e05374f4034690098
+      evaluation: studies/study_067_forge_c3_common_grid/evaluation.yaml
+      evaluation_sha256: 3c76742dea34f85b0317d2778f02c46bb32fe5c387ee27d180bedd31833f4ed0
+    study_070:
+      methods:
+      - inr_real
+      experiments:
+        c3:
+          path: runs/study_070_forge_c3_trace_field/20261109T024714931416Z_63414473e4b2_traces
+          sha256: 398d50340664c4ba0029fff42789289dfb4c5462d594f6a9a8af059a96864652
+        forge:
+          path: runs/study_070_forge_c3_trace_field/20261109T024720614852Z_63414473e4b2_forge
+          sha256: 23e6ea35e8865f54a27cbc109409be25c097a786935a03258ba5cc99eb490e8d
+      evaluation: studies/study_070_forge_c3_trace_field/evaluation.yaml
+      evaluation_sha256: cc250b5f1167073b58fd381b4847567c8d1fa7e09eef36edaa69aa2673e00ac0
+      grid: studies/study_070_forge_c3_trace_field/grid.yaml
+      grid_sha256: 67ba671a7fe290324f7831b5fed5cbf278ff018b6812963e4a7c5efd1b1bffa6
+    study_071:
+      methods:
+      - cinr_real
+      label: cinr_real_071
+      experiments:
+        c3:
+          path: runs/study_071_forge_c3_context_field/20261109T042809568788Z_766f4f10a666_traces
+          sha256: 818c3e00e0ba6f37ed8b40115d18ebbbc342261fbbd8975482e262c5255b365c
+        forge:
+          path: runs/study_071_forge_c3_context_field/20261109T042814452404Z_766f4f10a666_forge
+          sha256: 50ac76c59bd11acff176ccaf9a7ef26ebaacf78703ebf814aaef9c85c9b0f8d7
+      evaluation: studies/study_071_forge_c3_context_field/evaluation.yaml
+      evaluation_sha256: b89a6b8ffb6502f48a033ff1a0eb00fefa7fd3086341d28f3f931dd7cf9373de
+      grid: studies/study_071_forge_c3_context_field/grid.yaml
+      grid_sha256: 8bdc6371567dd676708642aa56bcf2cc5019b393006024032996d05897990f5f
+prediction:
+  declared_before: any_study_074_validation_or_test_value_is_read
+  forge: 'improves: 2.69 decades of offset and a measured short-offset failure'
+  c3: 'neutral: 0.44 decades of offset, flat skill across offset, no energy concentration'
+  falsifier: an equal gain on both datasets refutes the offset mechanism
+  measured_motivation:
+    forge_short_offset_quintile:
+      median_correlation: 0.309
+      mean_relative_mse: 0.973
+    forge_other_quintiles:
+      median_correlation: 0.546-0.563
+      mean_relative_mse: 0.698-0.733
+    forge_top_energy_decile_share:
+      target_energy: 0.993
+      error_energy: 0.996
+    forge_neighbour_offset_gap:
+      absolute_m: 94-98
+      relative_short: 0.384
+      relative_long: 0.064
+    c3_offset_quintiles:
+      median_correlation: 0.982-0.984
+      mean_relative_mse: 0.053-0.062
