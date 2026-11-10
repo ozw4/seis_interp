@@ -35,18 +35,28 @@ def warm_coordinates(model, shape, device, *, reporter=None):
         progress("prediction warm-up complete (coordinates)")
 
 
+def context_field_warmup_inputs(model, shape, device):
+    """Zero query, context and context-coordinate tensors of the field's own widths.
+
+    The coordinate width comes from the model, not from a constant here, so a field
+    that reads a log-offset axis warms up on the shapes it actually consumes.
+    """
+    batch, context, time_count = shape
+    features = model.encoding.input_features
+    return (
+        torch.zeros((batch, features), device=device),
+        torch.zeros((batch, context, time_count), device=device),
+        torch.zeros((batch, context, features), device=device),
+    )
+
+
 def warm_context_field(model, shape, device, *, reporter=None):
     """``shape`` is ``(batch, context, time)``; the field also reads a query coordinate."""
     if torch.device(device).type != "cuda":
         return
-    batch, context, time_count = shape
     progress = PhaseProgress(reporter)
     with prediction_mode(model, device):
-        model(
-            torch.zeros((batch, 4), device=device),
-            torch.zeros((batch, context, time_count), device=device),
-            torch.zeros((batch, context, 4), device=device),
-        )
+        model(*context_field_warmup_inputs(model, shape, device))
         torch.cuda.synchronize(device)
         progress("prediction warm-up complete (context field)")
 

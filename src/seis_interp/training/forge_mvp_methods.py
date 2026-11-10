@@ -1069,7 +1069,7 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
     if distance == "index":
         ranking = coordinates
         if features == 5:
-            ranking = np.column_stack((coordinates[:, :4], coordinates[:, 4] * offset_weight))
+            ranking = np.column_stack((coordinates[:, :-1], coordinates[:, -1] * offset_weight))
     elif distance == "physical":
         if features != 4:
             raise ValueError("the physical ranking reads the four station coordinates only")

@@ -83,7 +83,7 @@ class TraceContextField(nn.Module):
         )
 
     def forward(self, coordinates, context_values, context_coordinates):
-        """``(batch, 4)`` and ``(batch, context, …)`` to ``(batch, time_sample_count)``."""
+        """``(batch, features)`` and ``(batch, context, …)`` to ``(batch, time_sample_count)``."""
         if coordinates.ndim != 2 or context_values.ndim != 3 or context_coordinates.ndim != 3:
             raise ValueError(
                 "expected (batch, features), (batch, context, time), (batch, context, features)"

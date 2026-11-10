@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from seis_interp.models.trace_context_field import TraceContextField
+from seis_interp.training.prediction_warmup import context_field_warmup_inputs
 
 TARGET = 363269
 TIME = 24
@@ -141,3 +142,20 @@ def test_rejected_shapes_and_arguments(overrides, arguments, message):
     }[arguments]
     with pytest.raises(ValueError, match=message):
         model(*broken)
+
+
+@pytest.mark.parametrize("features", [4, 5])
+def test_the_warm_up_inputs_match_the_declared_coordinate_width(features):
+    """The CUDA warm-up allocates the shapes the field consumes, not a fixed four.
+
+    The warm-up itself returns early off CUDA, so only this shape contract is
+    reachable in a CPU test; it is the contract that matters.
+    """
+    model = _field(input_features=features)
+    shape = (3, 2, TIME)
+    coordinates, values, context = context_field_warmup_inputs(model, shape, "cpu")
+    assert coordinates.shape == (3, features)
+    assert values.shape == (3, 2, TIME)
+    assert context.shape == (3, 2, features)
+    # the real forward must accept them
+    assert model(coordinates, values, context).shape == (3, TIME)
