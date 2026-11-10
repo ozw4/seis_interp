@@ -1,0 +1,11 @@
+{
+  "all_methods_completed": true,
+  "methods": {
+    "cinr_real": {
+      "status": "completed",
+      "failure_reason": null,
+      "prediction_finalized_at": "2026-11-10T02:33:47.438040+00:00",
+      "scored_at": "2026-11-10T02:33:48.825649+00:00"
+    }
+  }
+}

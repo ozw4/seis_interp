@@ -2,6 +2,8 @@
 
 Status: `completed` — 予測・採点を完了（失敗 0）。clean_target の relMSE は 1.0005 で、同一 mask の study_069 では ReGSI・CCNet5D・DRR・POCS の下、profile NeRSI の上。study_071 の同設定（random trace 70% で relMSE 0.7679）から大きく後退した。
 
+> **後続による訂正（2026-11-10）**: 本 study の後退の原因を「gather 内近傍という情報の欠落」と帰属した判断は誤りだった。真の原因は学習と test の文脈不一致で、[study_075](../study_075_forge_random_shot50_gather_excluded/README.md) は手法設定の1行（`context.training_exclusion: source`）だけを変えて同一 mask で **1.6625 dB / relMSE 0.7490**（CCNet5D・DRR・POCS の上、6 手法中 2 位）を得た。本 README の測定値と幾何測定はそのまま有効だが、因果の帰属と「採用は random trace mask に限る」という記述は [decisions.md](decisions.md) の2026-11-10 節で撤回している。
+
 ## 目的
 
 study_071 で選ばれた条件付き implicit field の設定を、各 source line 内で半数の shot をランダムに観測する

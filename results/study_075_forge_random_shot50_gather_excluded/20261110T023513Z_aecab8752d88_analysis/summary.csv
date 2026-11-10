@@ -1,0 +1,3 @@
+method_id,status,failure_reason,runtime_seconds,peak_cpu_rss_bytes,peak_cuda_allocated_bytes,peak_cuda_reserved_bytes,population,trace_count,masked_trace_relative_mse,mean_trace_snr_db,mean_trace_snr_status,trace_snr_trace_count,trace_snr_positive_infinity_count,trace_snr_negative_infinity_count,trace_snr_undefined_count
+cinr_real,completed,NA,1467.8621051610098,3143131136,7166976512,7671382016,clean_target,24397,0.7490424249861358,1.662493460832573,finite,24397,0,0,0
+cinr_real,completed,NA,1467.8621051610098,3143131136,7166976512,7671382016,all_eligible,24576,0.7479107415706068,1.680389779358725,finite,24576,0,0,0

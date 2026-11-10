@@ -1,0 +1,112 @@
+{
+  "study_id": "study_075_forge_random_shot50_gather_excluded",
+  "run": "runs/study_075_forge_random_shot50_gather_excluded/20261110T020859184225Z_aecab8752d88",
+  "experiment_hash": "3b0d1a87a75e14b2c41969ebaf65bbb6a26fdfbfa71538712bac2ad598015218",
+  "render_source_sha256": "dbd7254d190d6cf6b0b21f96f5ac73a56837bcd6e30131b61aa3b2bc19e6b492",
+  "input_hashes": {
+    "input/gather_selection.json": "3528522e716ffb8925fd338a7711d7f2614ddcb9230bd5f3f01fc7684df34cfa",
+    "input/grid_geometry.parquet": "d5a625d5910af8acb151e734cfb4df5373bc9e8e5de81e7e2645f8a36a469776",
+    "input/manifest.parquet": "87567a64fbbd6bf16ee6644711e2847979afcb2fd4a7f910e7732a7c8b2002cf",
+    "input/mask_counts.json": "c0629b021f650b32dbcccad2c43355190b194e55317cf521b8ac45897f648ee4",
+    "input/observed_waveforms.npy": "e5f09f0f874bde5233e8d2a990b54283e1d3a63cce4511ab6d6a77eac059cedc",
+    "input/partition.parquet": "ad2d5db09ef78b5531f9caa2002fd7e7a6b46954de4c12f6c6c8c642b0c12d45",
+    "input/raw_input_hashes.json": "93fe4a2be4350c0fa3de74a6ffaaf36edc51391783cb4ba89f5bb45a38d8adbc",
+    "input/real_geometry.parquet": "f5225c4e3e3690a3194aec285e8ca942951cfdd2f3e27ba0abe596a1ac78a02d",
+    "input/trace_scales.parquet": "544643b82e4113c074c1c62b400a4de6d3158c242eb2a3e8469524b458059937",
+    "input/waveforms.npy": "ed3e78c982de7bff0bdca3f7c8e6c114d59299e4dc464de8de0af408b476cf23"
+  },
+  "mask": {
+    "mask_id": "random_whole_shot50_seed7302",
+    "mask_family": "random_shot",
+    "mask_seed": 7302,
+    "algorithm": "sha256_rank_per_source_line",
+    "by_line": [
+      {
+        "source_grid_line": 0,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 1,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 2,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4095,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 3,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 4,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      },
+      {
+        "source_grid_line": 5,
+        "observed_shot_count": 16,
+        "observed_trace_count": 4096,
+        "test_shot_count": 16,
+        "test_trace_count": 4096
+      }
+    ],
+    "observed_shot_count": 96,
+    "observed_trace_count": 24575,
+    "test_shot_count": 96,
+    "test_trace_count": 24576,
+    "eligible_trace_missing_fraction": 0.5000101727330064,
+    "natural_missing_cell_count": 1
+  },
+  "selected_gathers": {
+    "edge": 92,
+    "internal": 79
+  },
+  "selection_rule": "geometry only: central line, central missing point and missing edge",
+  "fixed_settings": {
+    "cinr_real": {
+      "candidate_id": "a05_b01",
+      "base": "studies/study_071_forge_c3_context_field/forge/cinr_real.yaml",
+      "grid": "studies/study_071_forge_c3_context_field/grid.yaml",
+      "selection_table": "runs/study_071_forge_c3_context_field/20261109T042814452404Z_766f4f10a666_forge/workers/cinr_real_summary.csv",
+      "selection": "runs/study_071_forge_c3_context_field/20261109T042814452404Z_766f4f10a666_forge/workers/cinr_real_selection.json",
+      "changes_from_selected": [
+        "context.training_exclusion: source"
+      ]
+    }
+  },
+  "method_artifacts": {
+    "cinr_real": {
+      "status": "completed",
+      "manifest_sha256": "8fa4274630baf6b28ebbb072be7a6e05666516e26586d8923bcdf253ee603469",
+      "prediction.npy": "35bdc4c3c34ac19ad5b36efe35c698bd973d06d12313ecf5d55dd1d8c44acb1b",
+      "cell_ids.npy": "087ed105e4f51db28a564a695ff7b5d80af66a6e5950e77004510d88b827d4a2",
+      "config.resolved.yaml": "7c8eb68706f4e23562f199045d3ad53a247d12bebab43f493575697bd5807ee4"
+    }
+  },
+  "display_clip": 0.010219396427273958,
+  "artifacts": {
+    "acquisition_mask.png": "160edd48160f3f2e68b3e19ed5ca2db946534db3b730c78a4ae5132fcf66a045",
+    "gather_edge.png": "0f6a00b3ccebf3eb05b40885a3d13de770941951b2e8a693738081ab0360b989",
+    "gather_internal.png": "0e5acde39b7055451fdd58e2090a727a80bd83ec675a4813dd0d3ea0b7a8d537",
+    "outcomes.json": "aa3e18fd34ff19d7d02cc4ad39d28a46f60596cafa0d9a2d70764c86d9acb9bb",
+    "paired_shot_differences.csv": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "per_shot.csv": "48277ab03bdad176fae95527c1df6ea0e3fb46c8d19d9f4b9a34b035bbc0ae18",
+    "shot_equal_weight.csv": "73003dea365c1e46345586f77ced8faa85f5b436b32b9d2c58d90a089aa49ac8",
+    "shot_support.csv": "940b6db2194fb6a0e1088b76a793eac27846b1e73de27f99409dfe63eaf854cd",
+    "summary.csv": "91d1599c091420af8b347d8d26b8f88b0f165a96d1f7539f0b93a8d7c7c793ff"
+  }
+}
