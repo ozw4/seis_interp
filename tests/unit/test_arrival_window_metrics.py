@@ -153,27 +153,30 @@ def test_the_declared_windows_cover_both_datasets():
 
 def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
     """A grid run also predicts its validation traces, which took part in selection."""
+    # Three test traces so the median is an element, plus one validation trace that the
+    # summary must ignore: it took part in selection.
     table = pd.DataFrame(
         {
-            "post_snr_db": [1.0, 3.0, 100.0],
-            "post_relative_mse": [0.4, 0.6, 0.0],
-            "post_error_energy": [1.0, 3.0, 0.0],
-            "post_target_energy": [4.0, 4.0, 4.0],
-            "pre_prediction_energy": [1.0, 1.0, 50.0],
-            "pre_target_energy": [2.0, 2.0, 2.0],
-            "pre_prediction_rms": [1.0, 2.0, 50.0],
-            "pre_target_rms": [3.0, 3.0, 3.0],
-            "pre_prediction_rms_over_trace_rms": [0.1, 0.2, 5.0],
-            "pre_target_rms_over_trace_rms": [0.3, 0.3, 0.3],
-            "pre_energy_ratio": [0.1, 0.3, 9.0],
-            "pre_excess_ratio": [0.5, 0.5, 25.0],
-            "pre_target_share": [0.01, 0.01, 0.01],
-            "clean_target": [True, True, True],
-            "scored_domain": ["test", "test", "validation"],
+            "post_snr_db": [1.0, 2.0, 3.0, 100.0],
+            "post_relative_mse": [0.4, 0.5, 0.6, 0.0],
+            "post_error_energy": [1.0, 2.0, 3.0, 0.0],
+            "post_target_energy": [4.0, 4.0, 4.0, 4.0],
+            "pre_prediction_energy": [1.0, 1.0, 1.0, 50.0],
+            "pre_target_energy": [2.0, 2.0, 2.0, 2.0],
+            "pre_prediction_rms": [1.0, 1.5, 2.0, 50.0],
+            "pre_target_rms": [3.0, 3.0, 3.0, 3.0],
+            "pre_amplitude_ratio": [0.2, 0.25, 0.3, 9.0],
+            "pre_excess_ratio": [0.04, 0.0625, 0.09, 81.0],
+            "pre_prediction_rms_over_trace_rms": [0.1, 0.15, 0.2, 5.0],
+            "pre_target_rms_over_trace_rms": [0.3, 0.3, 0.3, 0.3],
+            "pre_energy_ratio": [0.1, 0.2, 0.3, 9.0],
+            "pre_target_share": [0.01, 0.01, 0.01, 0.01],
+            "clean_target": [True, True, True, True],
+            "scored_domain": ["test", "test", "test", "validation"],
         }
     )
     summary = summarize(table, "clean_target")
-    assert summary["trace_count"] == 2
+    assert summary["trace_count"] == 3
     assert summary["mean_post_snr_db"] == pytest.approx(2.0)
     # Mean of the per-trace ratio, as the studies report masked_trace_relative_mse.
     assert summary["mean_post_relative_mse"] == pytest.approx(0.5)
@@ -183,3 +186,10 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
     assert summary["median_pre_target_rms"] == pytest.approx(3.0)
     assert summary["median_pre_prediction_rms_over_trace_rms"] == pytest.approx(0.15)
     assert summary["mean_pre_prediction_rms"] == pytest.approx(1.5)
+    # The per-trace ratio's median, not the ratio of the two medians: those differ.
+    assert summary["median_pre_amplitude_ratio"] == pytest.approx(0.25)
+    assert summary["median_pre_prediction_rms"] / summary["median_pre_target_rms"] == (
+        pytest.approx(0.5)
+    )
+    # The energy form is its square, because the median commutes with squaring a ratio.
+    assert summary["median_pre_excess_ratio"] == pytest.approx(0.25**2)

@@ -113,6 +113,9 @@ def windowed_waveform_columns(prediction, target, window_ends):
         # weighting rule, and both stay defined when the reference window is silent.
         "pre_prediction_rms": np.sqrt(pre_prediction / ends),
         "pre_target_rms": np.sqrt(pre_target / ends),
+        # The per-trace ratio to the real amplitude. Summarize this, not the ratio of two
+        # medians: those come from different traces and disagree by tens of percent.
+        "pre_amplitude_ratio": _ratio(np.sqrt(pre_prediction), np.sqrt(pre_target)),
         "pre_prediction_rms_over_trace_rms": _ratio(np.sqrt(pre_prediction / ends), trace_rms),
         "pre_target_rms_over_trace_rms": _ratio(np.sqrt(pre_target / ends), trace_rms),
         "pre_energy_ratio": _ratio(pre_prediction, target_energy),

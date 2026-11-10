@@ -166,6 +166,13 @@ def summarize(table, population):
         # their ratio says how skewed this population is.
         "median_pre_prediction_rms": float(rows.pre_prediction_rms.median()),
         "median_pre_target_rms": float(rows.pre_target_rms.median()),
+        # The typical trace's share of the real pre-arrival amplitude, and the energy form
+        # of the same per-trace ratio, whose square root this equals.
+        "median_pre_amplitude_ratio": _statistic(rows.pre_amplitude_ratio, "median"),
+        "median_pre_excess_ratio": _statistic(rows.pre_excess_ratio, "median"),
+        "pooled_pre_excess_ratio": _safe_ratio(
+            rows.pre_prediction_energy.sum(), rows.pre_target_energy.sum()
+        ),
         "median_pre_prediction_rms_over_trace_rms": _statistic(
             rows.pre_prediction_rms_over_trace_rms, "median"
         ),
