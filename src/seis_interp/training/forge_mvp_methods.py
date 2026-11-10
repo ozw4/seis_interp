@@ -1051,14 +1051,27 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
 
     Each update draws ``training.batch_size`` complete observed traces as queries and
     reads ``context.neighbor_count`` other observed traces as their context, so a query
-    is never reconstructed from its own amplitudes. A neighbourhood follows the four
-    normalized local coordinates alone and is selected once, before any fitting.
+    is never reconstructed from its own amplitudes. A neighbourhood is selected once,
+    before any fitting, by ``context.distance``: ``index`` ranks on the four normalized
+    local coordinates the field reads, and ``physical`` ranks on the source and receiver
+    station positions in metres, so near follows the acquisition geometry rather than the
+    number of indices on an axis. The field always reads the normalized local
+    coordinates; only the ranking changes.
     """
     columns = [
         f"{role}_{axis}_continuous" for role in ("source", "receiver") for axis in ("line", "point")
     ]
     table = inputs.geometry.set_index("cell_id")
     coordinates = table[columns].to_numpy() / np.maximum(np.asarray(inputs.spatial_shape) - 1, 1)
+    distance = config["context"].get("distance", "index")
+    if distance == "index":
+        ranking = coordinates
+    elif distance == "physical":
+        ranking = table[
+            [f"{role}_{axis}_m" for role in ("source", "receiver") for axis in ("x", "y")]
+        ].to_numpy()
+    else:
+        raise ValueError("context.distance must be index or physical")
     positions = {int(cell): i for i, cell in enumerate(table.index)}
     observed_rows = np.array([positions[int(cell)] for cell in inputs.observed_cells])
     query_rows = np.array([positions[int(cell)] for cell in inputs.test_cells])
@@ -1066,9 +1079,9 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
     count = config["context"]["neighbor_count"]
     progress = PhaseProgress(reporter)
     started = perf_counter()
-    observed_context = nearest_observed_positions(coordinates, observed_rows, observed_rows, count)
+    observed_context = nearest_observed_positions(ranking, observed_rows, observed_rows, count)
     progress("observed neighbourhoods selected")
-    query_context = nearest_observed_positions(coordinates, observed_rows, query_rows, count)
+    query_context = nearest_observed_positions(ranking, observed_rows, query_rows, count)
     progress("query neighbourhoods selected")
     neighbor_seconds = perf_counter() - started
     observed_coordinates = torch.from_numpy(coordinates[observed_rows].astype(np.float32)).to(
@@ -1161,6 +1174,7 @@ def _fit_context_field(model, inputs, config, reporter, decays, snapshot_updates
     records = {
         "training_end": _training_end(device),
         "context_neighbor_count": count,
+        "context_distance": distance,
         "runtime_neighbor_selection_seconds": neighbor_seconds,
         **warm_memory,
         **_reserved_memory(device, "before_prediction"),

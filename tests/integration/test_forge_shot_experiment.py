@@ -441,3 +441,33 @@ def test_random_support_identifies_boundary_runs_and_internal_gaps():
     assert not support.loc[1, "endpoint_shot"]
     assert support.loc[4, "missing_gap_shot_count"] == 3
     assert support.loc[4, "nearest_observed_point_distance"] == 2
+
+
+def test_the_physical_neighbour_study_changes_one_declared_condition():
+    """study_073 is study_072's setting with the neighbour ranking declared physical."""
+    repo = Path(__file__).resolve().parents[2]
+    previous = repo / "studies/study_072_forge_random_shot50_context_field"
+    study = repo / "studies/study_073_forge_random_shot50_physical_neighbors"
+    before = yaml.safe_load((previous / "cinr_real.yaml").read_text())
+    after = yaml.safe_load((study / "cinr_real.yaml").read_text())
+    assert after == {**before, "context": {**before["context"], "distance": "physical"}}
+    assert before["context"].get("distance", "index") == "index"
+
+    contract = yaml.safe_load((study / "config.yaml").read_text())
+    earlier = yaml.safe_load((previous / "config.yaml").read_text())
+    assert contract["methods"] == ["cinr_real"]
+    assert contract["mask_study_id"] == earlier["mask_study_id"] == "study_069_forge_random_shot50"
+    assert contract["interpolation_mask"] == earlier["interpolation_mask"]
+    assert contract["fixed_settings"]["cinr_real"]["changes_from_selected"] == [
+        "context.distance: physical"
+    ]
+    for key in ("candidate_id", "base", "grid", "selection", "selection_table"):
+        assert (
+            contract["fixed_settings"]["cinr_real"][key]
+            == earlier["fixed_settings"]["cinr_real"][key]
+        )
+    sources = yaml.safe_load((study / "inputs.yaml").read_text())
+    assert "c3_selections" not in sources
+    for name, digest in sources["selection_hashes"].items():
+        assert sha256_file(repo / name) == digest
+    assert contract["validation_holdout"] is None and contract["workflow"]["total_runs"] == 1

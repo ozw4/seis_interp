@@ -151,12 +151,15 @@ def validate_field_method_config(config, contract, *, loss_name="masked_trace_re
     if context is not None:
         neighbors = context.get("neighbor_count")
         if (
-            set(context) != {"neighbor_count"}
+            not set(context) <= {"neighbor_count", "distance"}
+            or "neighbor_count" not in context
             or isinstance(neighbors, bool)
             or not isinstance(neighbors, int)
             or neighbors < 1
         ):
             raise ValueError("context.neighbor_count must be a positive integer")
+        if context.get("distance", "index") not in ("index", "physical"):
+            raise ValueError("context.distance must be index or physical")
     if "matched_training" in contract:
         validate_matched_training(
             {name: config}, contract["matched_training"], contract["observed_trace_count"]
