@@ -166,6 +166,11 @@ def summarize(table, population):
         # their ratio says how skewed this population is.
         "median_pre_prediction_rms": float(rows.pre_prediction_rms.median()),
         "median_pre_target_rms": float(rows.pre_target_rms.median()),
+        # How much of the pre-arrival part is predictable at all, and whether that
+        # correlation is spread through the window or sits at its end.
+        "median_pre_correlation": _statistic(rows.pre_correlation, "median"),
+        "median_pre_early_correlation": _statistic(rows.pre_early_correlation, "median"),
+        "median_pre_late_correlation": _statistic(rows.pre_late_correlation, "median"),
         # Did predicting the pre-arrival part help? Exactly 1 is what a zero prediction
         # scores, so below 1 is a real gain and above 1 is injected noise.
         "median_pre_relative_mse": _statistic(rows.pre_relative_mse, "median"),

@@ -111,6 +111,10 @@ def windowed_waveform_columns(prediction, target, window_ends):
     with np.errstate(divide="ignore", invalid="ignore"):
         post_snr = 10 * (np.log10(post_target) - np.log10(post_error))
     trace_rms = np.sqrt(target_energy / y.shape[1])
+    # Is any of the pre-arrival part actually predictable? Correlation inside the window
+    # answers that directly, and splitting the window in half separates a real
+    # correlation, which is spread through it, from an arrival clipped at its end.
+    middle = np.arange(y.shape[1])[None, :] < (ends // 2)[:, None]
     return {
         "window_samples": ends,
         "pre_prediction_energy": pre_prediction,
@@ -121,6 +125,9 @@ def windowed_waveform_columns(prediction, target, window_ends):
         # means the method found something real; above 1 means it injected what was not.
         "pre_error_energy": pre_error,
         "pre_relative_mse": _ratio(pre_error, pre_target),
+        "pre_correlation": _window_correlation(p, y, before),
+        "pre_early_correlation": _window_correlation(p, y, before & middle),
+        "pre_late_correlation": _window_correlation(p, y, before & ~middle),
         "post_target_energy": post_target,
         "post_error_energy": post_error,
         # The amplitude the method invented before the arrival, and the amplitude that is
@@ -141,6 +148,13 @@ def windowed_waveform_columns(prediction, target, window_ends):
         "post_relative_mse": post_error / np.where(post_target > 0, post_target, y.shape[1] - ends),
         "post_snr_db": post_snr,
     }
+
+
+def _window_correlation(prediction, target, mask):
+    """Uncentred correlation of the two arrays inside the mask, per trace."""
+    p, y = np.where(mask, prediction, 0.0), np.where(mask, target, 0.0)
+    norm = np.linalg.norm(p, axis=1) * np.linalg.norm(y, axis=1)
+    return np.divide((p * y).sum(axis=1), norm, out=np.full(len(y), np.nan), where=norm > 0)
 
 
 def _ratio(numerator, denominator):

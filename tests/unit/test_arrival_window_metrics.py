@@ -183,6 +183,9 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
             "pre_target_energy": [2.0, 2.0, 2.0, 2.0],
             "pre_error_energy": [1.0, 2.0, 3.0, 40.0],
             "pre_relative_mse": [0.5, 1.0, 1.5, 20.0],
+            "pre_correlation": [0.05, 0.10, 0.15, 0.9],
+            "pre_early_correlation": [0.04, 0.08, 0.12, 0.9],
+            "pre_late_correlation": [0.06, 0.12, 0.18, 0.9],
             "pre_prediction_rms": [1.0, 1.5, 2.0, 50.0],
             "pre_target_rms": [3.0, 3.0, 3.0, 3.0],
             "pre_amplitude_ratio": [0.2, 0.25, 0.3, 9.0],
@@ -210,8 +213,30 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
     assert summary["median_pre_amplitude_ratio"] == pytest.approx(0.25)
     # One is the zero predictor's score, so the median says the typical trace broke even.
     assert summary["median_pre_relative_mse"] == pytest.approx(1.0)
+    assert summary["median_pre_correlation"] == pytest.approx(0.10)
+    assert summary["median_pre_early_correlation"] == pytest.approx(0.08)
+    assert summary["median_pre_late_correlation"] == pytest.approx(0.12)
     assert summary["median_pre_prediction_rms"] / summary["median_pre_target_rms"] == (
         pytest.approx(0.5)
     )
     # The energy form is its square, because the median commutes with squaring a ratio.
     assert summary["median_pre_excess_ratio"] == pytest.approx(0.25**2)
+
+
+def test_a_clipped_arrival_shows_up_in_the_late_half_of_the_window():
+    """The split tells an arrival at the window's end from a correlation spread through it."""
+    rng = np.random.default_rng(23)
+    target = rng.standard_normal((200, 40))
+    ends = np.full(len(target), 20, dtype=np.int64)
+    # An event the window failed to exclude sits in its late half and nowhere else.
+    clipped = np.zeros_like(target)
+    clipped[:, 10:20] = target[:, 10:20]
+    late = windowed_waveform_columns(clipped, target, ends)
+    assert np.nanmedian(late["pre_late_correlation"]) == pytest.approx(1.0)
+    # Nothing was predicted in the early half, so its correlation is undefined, not zero.
+    assert np.isnan(late["pre_early_correlation"]).all()
+    # A weak correlation spread through the window looks different in the two halves.
+    spread = 0.2 * target + rng.standard_normal(target.shape)
+    even = windowed_waveform_columns(spread, target, ends)
+    early = np.nanmedian(even["pre_early_correlation"])
+    assert early > 0 and 0.5 < np.nanmedian(even["pre_late_correlation"]) / early < 2.0
