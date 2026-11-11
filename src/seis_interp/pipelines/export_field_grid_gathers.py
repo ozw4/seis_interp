@@ -21,6 +21,7 @@ import pandas as pd
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import write_json
 from seis_interp.data.study067_analysis_inputs import read_yaml, require_output_directory
+from seis_interp.evaluation.arrival_window_metrics import ARRIVAL_WINDOWS, MEASURED_ARRIVALS
 from seis_interp.pipelines.export_common_grid_gathers import (
     CODE_ROOT,
     FONT_FAMILY,
@@ -71,7 +72,55 @@ def shared_partition(runs, seed):
     return digests
 
 
-def export_dataset(repo, experiments, dataset, seed, output, dpi):
+# This module names datasets the way the figure does; the windows are keyed by dataset_id.
+DATASET_IDS = {"c3": "seg_c3_na", "forge": "forge_2017"}
+
+
+def section_offsets(experiment, dataset, cells):
+    """Source-receiver distance of each displayed cell, from the run's own geometry."""
+    name = "geometry.parquet" if dataset == "c3" else "real_geometry.parquet"
+    table = pd.read_parquet(experiment / "input" / name, columns=["cell_id", "offset_m"])
+    return table.set_index("cell_id", verify_integrity=True).offset_m.reindex(cells).to_numpy()
+
+
+def draw_arrival_window(figure, offsets, dataset):
+    """Overlay the declared window end and the measured arrival on every image panel.
+
+    Both are straight lines in ``t = intercept + offset / velocity``, so in a gather
+    they follow the offsets of the displayed traces. Drawing them together shows the
+    margin the declared window leaves, which is the whole reason it can be trusted
+    without reading a waveform.
+    """
+    window = ARRIVAL_WINDOWS[DATASET_IDS[dataset]]
+    arrival = MEASURED_ARRIVALS[DATASET_IDS[dataset]]
+    position = np.arange(len(offsets))
+    curves = (
+        (window, "k", "solid", 1.0, "Declared window end"),
+        (arrival, "0.35", (0, (4, 2)), 0.8, "Measured arrival"),
+    )
+    axes = [axis for axis in figure.axes if axis.get_images()]
+    for index, axis in enumerate(axes):
+        for line, color, style, width, label in curves:
+            axis.plot(
+                position,
+                line["intercept_s"] + offsets / line["velocity_m_per_s"],
+                color=color,
+                linestyle=style,
+                linewidth=width,
+                label=label if index == 0 else None,
+            )
+    axes[0].legend(
+        loc="lower left",
+        fontsize=6,
+        frameon=True,
+        framealpha=0.85,
+        borderpad=0.3,
+        handlelength=1.6,
+        borderaxespad=0.2,
+    )
+
+
+def export_dataset(repo, experiments, dataset, seed, output, dpi, show_window=False):
     """One dataset's sections, with each method's panel loaded from its own run."""
     if tuple(experiments) != FIELD_DISPLAY_METHODS:
         raise ValueError(f"experiments must follow the display order {FIELD_DISPLAY_METHODS}")
@@ -126,6 +175,10 @@ def export_dataset(repo, experiments, dataset, seed, output, dpi):
                 show_colorbar=False,
                 font_family=FONT_FAMILY,
             )
+            if show_window:
+                draw_arrival_window(
+                    figure, section_offsets(host, dataset, section["cell_ids"]), dataset
+                )
             for extension in ("png", "pdf"):
                 path = output / f"gather_{section['varying_axis']}_{normalization}.{extension}"
                 figure.savefig(path, dpi=dpi, facecolor="white")
@@ -152,7 +205,7 @@ def export_dataset(repo, experiments, dataset, seed, output, dpi):
     }
 
 
-def export_field_grid_gathers(repo, experiments, output, *, seed=7321, dpi=1200):
+def export_field_grid_gathers(repo, experiments, output, *, seed=7321, dpi=1200, show_window=False):
     """Write both datasets' figures and one manifest describing every displayed rule."""
     repo = Path(repo).resolve()
     if set(experiments) != set(NORMALIZATIONS):
@@ -170,6 +223,9 @@ def export_field_grid_gathers(repo, experiments, output, *, seed=7321, dpi=1200)
         "visualization_only": True,
         "new_inference": False,
         "new_test_scoring": False,
+        "arrival_window_overlay": (
+            {"declared": ARRIVAL_WINDOWS, "measured": MEASURED_ARRIVALS} if show_window else None
+        ),
         "panel_method_order": list(FIELD_DISPLAY_METHODS),
         "panel_titles": list(panel_titles(FIELD_METHOD_TITLES, residuals=False)),
         "replaces": {
@@ -200,7 +256,7 @@ def export_field_grid_gathers(repo, experiments, output, *, seed=7321, dpi=1200)
     }
     for dataset in sorted(experiments):
         manifest["datasets"][dataset] = export_dataset(
-            repo, experiments[dataset], dataset, seed, output / dataset, dpi
+            repo, experiments[dataset], dataset, seed, output / dataset, dpi, show_window
         )
     manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
     write_json(output / "manifest.json", manifest)

@@ -47,6 +47,11 @@ ARRIVAL_WINDOWS = {
     "forge_2017": {"intercept_s": 0.22, "velocity_m_per_s": 5500.0},
     "seg_c3_na": {"intercept_s": 0.25, "velocity_m_per_s": 7000.0},
 }
+# What was measured, kept as data so a figure can draw the margin the window leaves.
+MEASURED_ARRIVALS = {
+    "forge_2017": {"intercept_s": 0.314, "velocity_m_per_s": 3865.0},
+    "seg_c3_na": {"intercept_s": 0.375, "velocity_m_per_s": 5227.0},
+}
 MINIMUM_WINDOW_SAMPLES = 16
 
 

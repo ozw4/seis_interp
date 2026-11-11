@@ -275,3 +275,32 @@ def test_dropping_residuals_keeps_the_predictions_and_their_order():
     titles = panel_titles(residuals=False)
     assert len(titles) == 7 and titles == PANEL_TITLES[:7]
     assert all("Residual" not in title for title in titles)
+
+
+def test_the_window_overlay_draws_both_lines_on_every_panel():
+    """The declared window must be visibly above the measured arrival at every offset."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from seis_interp.evaluation.arrival_window_metrics import (
+        ARRIVAL_WINDOWS,
+        MEASURED_ARRIVALS,
+    )
+    from seis_interp.pipelines.export_field_grid_gathers import draw_arrival_window
+
+    figure, axes = plt.subplots(1, 3)
+    for axis in axes:
+        axis.imshow(np.zeros((4, 8)))
+    offsets = np.array([0.0, 1000.0, 2265.0])
+    draw_arrival_window(figure, offsets, "forge")
+    for axis in axes:
+        window, arrival = (line.get_ydata() for line in axis.get_lines())
+        assert (window < arrival).all()
+    declared, measured = ARRIVAL_WINDOWS["forge_2017"], MEASURED_ARRIVALS["forge_2017"]
+    assert declared["intercept_s"] < measured["intercept_s"]
+    # A faster declared velocity shortens the window, which is the safe direction.
+    assert declared["velocity_m_per_s"] > measured["velocity_m_per_s"]
+    assert axes[0].get_legend() is not None and axes[1].get_legend() is None
+    plt.close(figure)

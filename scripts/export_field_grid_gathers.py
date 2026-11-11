@@ -19,6 +19,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=7321)
     parser.add_argument("--dpi", type=int, default=1200)
+    parser.add_argument(
+        "--show-window",
+        action="store_true",
+        help="overlay the declared pre-arrival window and the measured arrival",
+    )
     args = parser.parse_args()
     experiments = {
         dataset: {
@@ -30,7 +35,16 @@ def main():
             ("forge", args.forge, args.forge_field),
         )
     }
-    print(export_field_grid_gathers(ROOT, experiments, args.output, seed=args.seed, dpi=args.dpi))
+    print(
+        export_field_grid_gathers(
+            ROOT,
+            experiments,
+            args.output,
+            seed=args.seed,
+            dpi=args.dpi,
+            show_window=args.show_window,
+        )
+    )
 
 
 if __name__ == "__main__":
