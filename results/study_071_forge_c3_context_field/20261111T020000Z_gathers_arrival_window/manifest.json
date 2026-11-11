@@ -1,0 +1,496 @@
+{
+  "created_at": "2026-11-11T04:12:52.406794+00:00",
+  "git_commit": "e87a2498992f4bfc64716c6cecfe624beeb2f3e5",
+  "worktree_changes": [
+    " M src/seis_interp/evaluation/arrival_window_metrics.py",
+    " M src/seis_interp/pipelines/export_field_grid_gathers.py",
+    " M tests/unit/test_common_grid_gathers.py"
+  ],
+  "display_seed": 7321,
+  "selection_basis": "registered selected cell, seed 7321, geometry-only central sections",
+  "visualization_only": true,
+  "new_inference": false,
+  "new_test_scoring": false,
+  "arrival_window_overlay": {
+    "declared": {
+      "forge_2017": {
+        "intercept_s": 0.22,
+        "velocity_m_per_s": 5500.0
+      },
+      "seg_c3_na": {
+        "intercept_s": 0.25,
+        "velocity_m_per_s": 7000.0
+      }
+    },
+    "clean_edge_ratio": 1.05,
+    "edge_samples": 10,
+    "floor_samples": 25,
+    "envelope_rise_fit_not_drawn": {
+      "forge_2017": {
+        "intercept_s": 0.314,
+        "velocity_m_per_s": 3865.0
+      },
+      "seg_c3_na": {
+        "intercept_s": 0.375,
+        "velocity_m_per_s": 5227.0
+      }
+    }
+  },
+  "panel_method_order": [
+    "pocs_grid",
+    "drr_grid",
+    "cinr_real",
+    "ccnet5d_grid",
+    "regsi_real"
+  ],
+  "panel_titles": [
+    "Reference",
+    "Masked\ninput",
+    "POCS",
+    "DRR",
+    "cINR",
+    "CCNet-5D",
+    "ReGSI"
+  ],
+  "replaces": {
+    "figure": "results/study_067_forge_c3_common_grid/20261104T011853Z_35d86916bcc7_gathers",
+    "panel": "nersi_profile replaced by cinr_real"
+  },
+  "residual_rule": "not drawn; this figure shows the reference, the masked input and the five completed predictions in two rows",
+  "masked_input_rule": "the seed's stored observed waveforms, checked against the reference",
+  "amplitude_rule": "saved physical predictions; FORGE carries the registered per-trace oracle RMS",
+  "trace_rms_normalization": "every panel divided by the full-duration reference RMS per trace, dividing by one where that RMS is zero",
+  "clip_rule": "pooled full-duration reference 99th percentile over the dataset's sections",
+  "acceptance_rule": "displayed arrays reproduce each run's saved per-trace SNR within 1e-06 dB",
+  "layout": [
+    3,
+    4
+  ],
+  "width_mm": 178,
+  "height_mm": 140,
+  "dpi": 1200,
+  "font_family": "DejaVu Sans",
+  "cmap": "seismic",
+  "interpolation": null,
+  "colorbar": false,
+  "datasets": {
+    "c3": {
+      "host_experiment": "runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces",
+      "contract_sha256": "7e74db1748510a67d86b29421f3a04680f473fab8baa7e94c23d1638367bfb81",
+      "partition_sha256": "33203b1a31f0c04d0237ea5725e42dca84513b0b4b8a8fee9a0dceed88f50404",
+      "contributing_run_partition_sha256": {
+        "/workspace/runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces": "33203b1a31f0c04d0237ea5725e42dca84513b0b4b8a8fee9a0dceed88f50404",
+        "/workspace/runs/study_071_forge_c3_context_field/20261109T042809568788Z_766f4f10a666_traces": "33203b1a31f0c04d0237ea5725e42dca84513b0b4b8a8fee9a0dceed88f50404"
+      },
+      "spatial_shape": [
+        16,
+        32,
+        8,
+        32
+      ],
+      "time_range_s": [
+        0.0,
+        3.064
+      ],
+      "sample_interval_s": 0.008,
+      "reference_traces_read_for_display": 78,
+      "sections": [
+        {
+          "varying_axis": "receiver_grid_point",
+          "fixed_local_indices": {
+            "source_grid_line": 8,
+            "source_grid_point": 16,
+            "receiver_grid_line": 4
+          },
+          "cell_ids": [
+            69760,
+            69761,
+            69762,
+            69763,
+            69764,
+            69765,
+            69766,
+            69767,
+            69768,
+            69769,
+            69770,
+            69771,
+            69772,
+            69773,
+            69774,
+            69775,
+            69776,
+            69777,
+            69778,
+            69779,
+            69780,
+            69781,
+            69782,
+            69783,
+            69784,
+            69785,
+            69786,
+            69787,
+            69788,
+            69789,
+            69790,
+            69791
+          ],
+          "role_counts": {
+            "test": 25,
+            "train": 5,
+            "validation": 2
+          },
+          "non_clean_target_count": 0
+        },
+        {
+          "varying_axis": "source_grid_point",
+          "fixed_local_indices": {
+            "source_grid_line": 8,
+            "receiver_grid_line": 4,
+            "receiver_grid_point": 16
+          },
+          "cell_ids": [
+            65680,
+            65936,
+            66192,
+            66448,
+            66704,
+            66960,
+            67216,
+            67472,
+            67728,
+            67984,
+            68240,
+            68496,
+            68752,
+            69008,
+            69264,
+            69520,
+            69776,
+            70032,
+            70288,
+            70544,
+            70800,
+            71056,
+            71312,
+            71568,
+            71824,
+            72080,
+            72336,
+            72592,
+            72848,
+            73104,
+            73360,
+            73616
+          ],
+          "role_counts": {
+            "test": 23,
+            "train": 9
+          },
+          "non_clean_target_count": 0
+        },
+        {
+          "varying_axis": "source_grid_line",
+          "fixed_local_indices": {
+            "source_grid_point": 16,
+            "receiver_grid_line": 4,
+            "receiver_grid_point": 16
+          },
+          "cell_ids": [
+            4240,
+            12432,
+            20624,
+            28816,
+            37008,
+            45200,
+            53392,
+            61584,
+            69776,
+            77968,
+            86160,
+            94352,
+            102544,
+            110736,
+            118928,
+            127120
+          ],
+          "role_counts": {
+            "test": 14,
+            "train": 2
+          },
+          "non_clean_target_count": 0
+        }
+      ],
+      "methods": {
+        "pocs_grid": {
+          "candidate_id": "a01_b05",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces/method_runs/pocs_grid/evaluation/seed_7321",
+          "prediction_sha256": "201b9ce9276bcd37f0fe7b7a4694e87ad9459aef6533e861cf6a22d221da6348",
+          "manifest_sha256": "2f15e9defc8042cdefcdd4c8481cb3ac5046dd0e929d199c1fb3d661e7803292"
+        },
+        "drr_grid": {
+          "candidate_id": "a05_b03",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces/method_runs/drr_grid/evaluation/seed_7321",
+          "prediction_sha256": "0e2e4f0c20a74d4bd00d694999cde270fac14e2d9cb6a55bfa0a571cc2a2c43e",
+          "manifest_sha256": "0aef889b400fc3d722992a5b903bad1586ced75374bd428beceb55cea855e9d2"
+        },
+        "cinr_real": {
+          "candidate_id": "a03_b04",
+          "run": "runs/study_071_forge_c3_context_field/20261109T042809568788Z_766f4f10a666_traces/method_runs/cinr_real/evaluation/seed_7321",
+          "prediction_sha256": "23f9e4075facdf0ca1afa67007be1d2300d2674bec53d2d47f9e6a234141fdb5",
+          "manifest_sha256": "86b42e5fbc9f44af01af45e4cc3a75092eadc6524666e6ca11fd07270db6a54a"
+        },
+        "ccnet5d_grid": {
+          "candidate_id": "a05_b02",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces/method_runs/ccnet5d_grid/evaluation/seed_7321",
+          "prediction_sha256": "8daa99effd75d236133bbf6e944e638900ef7fcfc607899be629a6b6fc73f2ad",
+          "manifest_sha256": "ac71e5818278dd4b5fb0fc3e9f2b8ef2f93124e71930404e247331a34c446bb6"
+        },
+        "regsi_real": {
+          "candidate_id": "a02_b05",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110740093298Z_5ad36bdb74fd_traces/method_runs/regsi_real/evaluation/seed_7321",
+          "prediction_sha256": "b9a5ca248f09a9070b78794b961afd1d1e7971e70ec5810d0f8fee8fde0a4576",
+          "manifest_sha256": "9ea62e6462e268e69c182e21aab4b5a476fd3b718792abaab5df43566c91d025"
+        }
+      },
+      "clip": {
+        "physical": 45.82632507324229
+      },
+      "artifacts": {
+        "c3/gather_receiver_grid_point_physical.png": "14bc8c82cb2d2d1d51eda006392d3f5cd36478a042d8cc58d6a1faca41b64a6f",
+        "c3/gather_receiver_grid_point_physical.pdf": "f3352620425fcd566f7413b8e110491a77431f2261da5c31c842cbc642e9cd4b",
+        "c3/gather_source_grid_point_physical.png": "490d9ae42e89d65bde845984653c7fbb56df38b5d129c7f84d01ad3b52638d74",
+        "c3/gather_source_grid_point_physical.pdf": "b74d008e6d3a410b88b5a5b77e4459234ff2ce22ba471044bb2be46628c6e16f",
+        "c3/gather_source_grid_line_physical.png": "71c818845650ff595aa4a4bd219c50f8d31c881dfa6da09075e62f6622af11ad",
+        "c3/gather_source_grid_line_physical.pdf": "ca4cba9e13b8473ae67e26704754bbb86a6be7c7555ad54910415803a70dba81"
+      }
+    },
+    "forge": {
+      "host_experiment": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge",
+      "contract_sha256": "9e27bde0ac5a8acc4f5e30ca3f1e853d6d2b654b0439f9a307e3b2264b1a8611",
+      "partition_sha256": "7268920da8a03620fe0893a2b5aa4a49bcdd518408cd95aafad2177df0af53b5",
+      "contributing_run_partition_sha256": {
+        "/workspace/runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge": "7268920da8a03620fe0893a2b5aa4a49bcdd518408cd95aafad2177df0af53b5",
+        "/workspace/runs/study_071_forge_c3_context_field/20261109T042814452404Z_766f4f10a666_forge": "7268920da8a03620fe0893a2b5aa4a49bcdd518408cd95aafad2177df0af53b5"
+      },
+      "spatial_shape": [
+        6,
+        32,
+        8,
+        32
+      ],
+      "time_range_s": [
+        0.0,
+        4.0
+      ],
+      "sample_interval_s": 0.004,
+      "reference_traces_read_for_display": 75,
+      "sections": [
+        {
+          "varying_axis": "receiver_grid_point",
+          "fixed_local_indices": {
+            "source_grid_line": 3,
+            "source_grid_point": 16,
+            "receiver_grid_line": 4
+          },
+          "cell_ids": [
+            28800,
+            28801,
+            28802,
+            28803,
+            28804,
+            28805,
+            28806,
+            28807,
+            28808,
+            28809,
+            28810,
+            28811,
+            28812,
+            28813,
+            28814,
+            28815,
+            28816,
+            28817,
+            28818,
+            28819,
+            28820,
+            28821,
+            28822,
+            28823,
+            28824,
+            28825,
+            28826,
+            28827,
+            28828,
+            28829,
+            28830,
+            28831
+          ],
+          "role_counts": {
+            "test": 27,
+            "validation": 3,
+            "train": 2
+          },
+          "non_clean_target_count": 0
+        },
+        {
+          "varying_axis": "source_grid_point",
+          "fixed_local_indices": {
+            "source_grid_line": 3,
+            "receiver_grid_line": 4,
+            "receiver_grid_point": 16
+          },
+          "cell_ids": [
+            24720,
+            24976,
+            25232,
+            25488,
+            25744,
+            26000,
+            26256,
+            26512,
+            26768,
+            27024,
+            27280,
+            27536,
+            27792,
+            28048,
+            28304,
+            28560,
+            28816,
+            29072,
+            29328,
+            29584,
+            29840,
+            30096,
+            30352,
+            30608,
+            30864,
+            31120,
+            31376,
+            31632,
+            31888,
+            32144,
+            32400,
+            32656
+          ],
+          "role_counts": {
+            "test": 24,
+            "train": 8
+          },
+          "non_clean_target_count": 0
+        },
+        {
+          "varying_axis": "source_grid_line",
+          "fixed_local_indices": {
+            "source_grid_point": 16,
+            "receiver_grid_line": 4,
+            "receiver_grid_point": 16
+          },
+          "cell_ids": [
+            4240,
+            12432,
+            20624,
+            28816,
+            37008,
+            45200
+          ],
+          "role_counts": {
+            "test": 5,
+            "train": 1
+          },
+          "non_clean_target_count": 0
+        },
+        {
+          "varying_axis": "receiver_grid_line",
+          "fixed_local_indices": {
+            "source_grid_line": 3,
+            "source_grid_point": 16,
+            "receiver_grid_point": 16
+          },
+          "cell_ids": [
+            28688,
+            28720,
+            28752,
+            28784,
+            28816,
+            28848,
+            28880,
+            28912
+          ],
+          "role_counts": {
+            "test": 5,
+            "train": 3
+          },
+          "non_clean_target_count": 0
+        }
+      ],
+      "methods": {
+        "pocs_grid": {
+          "candidate_id": "a04_b01",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/pocs_grid/evaluation/seed_7321",
+          "prediction_sha256": "8a97c154b0b4f9791d09664a88e1dacdd17de15db67e5a1189bb2c760359c4c7",
+          "manifest_sha256": "19180f044f160b0ccc998ecbeccaedb0cce5744c78a423d8ce95b3a97d26298b"
+        },
+        "drr_grid": {
+          "candidate_id": "a03_b02",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/drr_grid/evaluation/seed_7321",
+          "prediction_sha256": "6fe43c122a3d21f4792c933588385e07d99396cceaac22aea5527bbe8709f2c6",
+          "manifest_sha256": "a604d9e48ceb69f7b7bb14589b80988a5ced1be069cc45f8182fc179ff399c7e"
+        },
+        "cinr_real": {
+          "candidate_id": "a05_b01",
+          "run": "runs/study_071_forge_c3_context_field/20261109T042814452404Z_766f4f10a666_forge/method_runs/cinr_real/evaluation/seed_7321",
+          "prediction_sha256": "2efadaa1eecd6abfb681f3d3ba9f85ecef801eb962b7bcc7e153f16323cb167e",
+          "manifest_sha256": "025e6c22c141731d7b9f6d7ad79d226a2f87c149e37841eca4196d0014346814"
+        },
+        "ccnet5d_grid": {
+          "candidate_id": "a02_b05",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/ccnet5d_grid/evaluation/seed_7321",
+          "prediction_sha256": "28c6ffeef6d3ecaf05dbe8667974618f4b423013ef974efba966432541381622",
+          "manifest_sha256": "e65aaff1c7d0b14bb8b43521d68dbd3f82b0354fa690b70385b6b2ff35ebd0e3"
+        },
+        "regsi_real": {
+          "candidate_id": "a05_b04",
+          "run": "runs/study_067_forge_c3_common_grid/20261024T110745841828Z_5ad36bdb74fd_forge/method_runs/regsi_real/evaluation/seed_7321",
+          "prediction_sha256": "5b0fbcdda36db783edd5d5973ed9405aee535e53d9f5c1e8eb68cd3386bcbc84",
+          "manifest_sha256": "18a54596f5e28002a587390e0fdbbc2efde42fe647c95d9fc640eaa0d2af9d68"
+        }
+      },
+      "clip": {
+        "physical": 0.016461837925016865,
+        "trace_rms": 3.8358081205499297
+      },
+      "artifacts": {
+        "forge/gather_receiver_grid_point_physical.png": "684f708b27bb31677830f9f3d590a7356b7b84bb77fffbf357822f706cd9ecff",
+        "forge/gather_receiver_grid_point_physical.pdf": "789d01a54ae04e50e38f15aa8e23f5ceb4b77fe2ea638043a6ddacb465d45b6e",
+        "forge/gather_source_grid_point_physical.png": "a727908da08455625f0d9dde328d9b88deeb74b97955466eed0e5e4ac8f8a83b",
+        "forge/gather_source_grid_point_physical.pdf": "4ba30c65550a0539f20e3fe752183082bd37a0d7cefed993d30af5eaaad828af",
+        "forge/gather_source_grid_line_physical.png": "44244430364dd1b4495c5207274ddab15b34f3d1579079e7c9d493575696fbd9",
+        "forge/gather_source_grid_line_physical.pdf": "ba145dfaf26c0feee8b0358c08a036f83f942fad66e9868fc5a1f6de410b614c",
+        "forge/gather_receiver_grid_line_physical.png": "21385e01a662d6e3fb080a196df5e97c8cdb01f9fcfc9cd8b0faf2006a1fd761",
+        "forge/gather_receiver_grid_line_physical.pdf": "8783310138823616abe7c8e29ce4bb735952350e3508e06434027d50c76e8d9a",
+        "forge/gather_receiver_grid_point_trace_rms.png": "b74e284619763bb008cf6b5330cecdd1e1b67d950b1ca78b2670f4af6b94ad33",
+        "forge/gather_receiver_grid_point_trace_rms.pdf": "1561f39d3a5924927345fa7188142fc6f3cef3d695f010d5aeb43916c627a8e0",
+        "forge/gather_source_grid_point_trace_rms.png": "dbf4eff6cff36bd73c1e14999d06aec2a17cc8fef70698fdff64476f8622f2ed",
+        "forge/gather_source_grid_point_trace_rms.pdf": "2d60783c3200058fc12b53a8c27c1ed7cdb4bd5d3c5c5fe39ef45b8a1698eeb6",
+        "forge/gather_source_grid_line_trace_rms.png": "2533b70d351809a6b61b7c6351d2a3094cd79267beff993aa13ee792f2f2450c",
+        "forge/gather_source_grid_line_trace_rms.pdf": "da5805d34275f6ba550941438ace10ee72063bb67e1d32eb5d09184546dade17",
+        "forge/gather_receiver_grid_line_trace_rms.png": "e60f2e45376defdd15b993927f2c5d9678c0b9900862e030da20e1c51b98e202",
+        "forge/gather_receiver_grid_line_trace_rms.pdf": "40a87f68fddd3a25890329692c5f27f3205dbc6815ac36e336e2d99cd8ae6713"
+      }
+    }
+  },
+  "code_sha256": {
+    "src/seis_interp/visualization/common_grid_gathers.py": "56003ee89118dc96e07641d37313260284f76fc74265418e54ede7986f9e5867",
+    "src/seis_interp/visualization/publication_sections.py": "60249ac482baf6ad6aa9ad416fb45a9dd431f6b5c14adb8897140d6d699dc845",
+    "src/seis_interp/pipelines/export_common_grid_gathers.py": "5900b33df68e57b3433984f26154a47a88f9bf518b140f90fd0493d2f54630c0",
+    "src/seis_interp/pipelines/export_field_grid_gathers.py": "cfe90b35f99dc6380a974381a13acf4c7f0dd66e57586034db09c0fa171f92e7",
+    "src/seis_interp/data/study067_analysis_inputs.py": "aefc7a7f6ccaaa0311e82c754f976e4dc63215b02374dbba22f6baa5912cd676",
+    "src/seis_interp/evaluation/study067_trace_metrics.py": "007adbd9ed2a174021128dc76082e43e73f356231d75127e6d698c2c18e8ea1d",
+    "scripts/export_field_grid_gathers.py": "8ca5249169b6d509baeded71b1ab84dd1d68abe31a7105b84331d51334313b64"
+  },
+  "completed_at": "2026-11-11T04:13:53.661047+00:00"
+}

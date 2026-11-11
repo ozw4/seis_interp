@@ -277,30 +277,54 @@ def test_dropping_residuals_keeps_the_predictions_and_their_order():
     assert all("Residual" not in title for title in titles)
 
 
-def test_the_window_overlay_draws_both_lines_on_every_panel():
-    """The declared window must be visibly above the measured arrival at every offset."""
+def test_the_window_overlay_marks_where_the_window_ends_on_the_rising_limb():
+    """The line is drawn red exactly where the reference says the window is not clean."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from seis_interp.evaluation.arrival_window_metrics import (
-        ARRIVAL_WINDOWS,
-        MEASURED_ARRIVALS,
+    from seis_interp.evaluation.arrival_window_metrics import CLEAN_EDGE_RATIO
+    from seis_interp.pipelines.export_field_grid_gathers import (
+        draw_arrival_window,
+        window_edge_quality,
     )
-    from seis_interp.pipelines.export_field_grid_gathers import draw_arrival_window
 
-    figure, axes = plt.subplots(1, 3)
+    # Two traces: one quiet to the end of its window, one ramping up inside it.
+    reference = np.ones((2, 200)) * 0.1
+    reference[1, 40:] *= np.linspace(1.0, 6.0, 160)
+    ends = np.array([60, 60])
+    ratio = window_edge_quality(reference, ends)
+    assert ratio[0] == pytest.approx(1.0) and ratio[1] > CLEAN_EDGE_RATIO
+
+    figure, axes = plt.subplots(1, 2)
     for axis in axes:
-        axis.imshow(np.zeros((4, 8)))
-    offsets = np.array([0.0, 1000.0, 2265.0])
-    draw_arrival_window(figure, offsets, "forge")
+        axis.imshow(np.zeros((4, 2)))
+    draw_arrival_window(figure, np.array([100.0, 200.0]), "forge", reference, 0.004)
     for axis in axes:
-        window, arrival = (line.get_ydata() for line in axis.get_lines())
-        assert (window < arrival).all()
-    declared, measured = ARRIVAL_WINDOWS["forge_2017"], MEASURED_ARRIVALS["forge_2017"]
-    assert declared["intercept_s"] < measured["intercept_s"]
-    # A faster declared velocity shortens the window, which is the safe direction.
-    assert declared["velocity_m_per_s"] > measured["velocity_m_per_s"]
+        clean, limb = (line.get_ydata() for line in axis.get_lines())
+        assert np.isfinite(clean[0]) and np.isnan(clean[1])
+        assert np.isnan(limb[0]) and np.isfinite(limb[1])
     assert axes[0].get_legend() is not None and axes[1].get_legend() is None
+    plt.close(figure)
+
+
+def test_a_silent_reference_leaves_the_window_line_clean():
+    """Synthetic data has no floor to rise above, so nothing is marked contaminated."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from seis_interp.pipelines.export_field_grid_gathers import (
+        draw_arrival_window,
+        window_edge_quality,
+    )
+
+    reference = np.zeros((2, 200))
+    assert np.isnan(window_edge_quality(reference, np.array([60, 60]))).all()
+    figure, axis = plt.subplots()
+    axis.imshow(np.zeros((4, 2)))
+    draw_arrival_window(figure, np.array([100.0, 200.0]), "c3", reference, 0.008)
+    assert len(axis.get_lines()) == 1
     plt.close(figure)

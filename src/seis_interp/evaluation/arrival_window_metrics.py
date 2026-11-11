@@ -47,11 +47,17 @@ ARRIVAL_WINDOWS = {
     "forge_2017": {"intercept_s": 0.22, "velocity_m_per_s": 5500.0},
     "seg_c3_na": {"intercept_s": 0.25, "velocity_m_per_s": 7000.0},
 }
-# What was measured, kept as data so a figure can draw the margin the window leaves.
-MEASURED_ARRIVALS = {
+# Where the median envelope first reaches three times its early level. This is a point
+# part way up the arrival's rising limb, not its onset: the onset cannot be fitted on
+# FORGE because the mid-offset traces have no flat floor to leave. Kept for provenance,
+# since the declared windows above were originally calibrated against it.
+MEASURED_ENVELOPE_RISE = {
     "forge_2017": {"intercept_s": 0.314, "velocity_m_per_s": 3865.0},
     "seg_c3_na": {"intercept_s": 0.375, "velocity_m_per_s": 5227.0},
 }
+# Above this, the window's last samples are louder than the trace's earliest ones, so
+# the window ends on the rising limb rather than on the quiet floor.
+CLEAN_EDGE_RATIO = 1.05
 MINIMUM_WINDOW_SAMPLES = 16
 # Window-quality diagnostic: the trace's earliest samples stand for its quiet floor, and
 # the last samples of the window are where an arrival would first show up.

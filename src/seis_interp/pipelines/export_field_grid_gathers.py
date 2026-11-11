@@ -21,7 +21,13 @@ import pandas as pd
 from seis_interp.data.forge_headers import sha256_file
 from seis_interp.data.forge_mvp_artifacts import write_json
 from seis_interp.data.study067_analysis_inputs import read_yaml, require_output_directory
-from seis_interp.evaluation.arrival_window_metrics import ARRIVAL_WINDOWS, MEASURED_ARRIVALS
+from seis_interp.evaluation.arrival_window_metrics import (
+    ARRIVAL_WINDOWS,
+    CLEAN_EDGE_RATIO,
+    EDGE_SAMPLES,
+    FLOOR_SAMPLES,
+    MEASURED_ENVELOPE_RISE,
+)
 from seis_interp.pipelines.export_common_grid_gathers import (
     CODE_ROOT,
     FONT_FAMILY,
@@ -83,41 +89,77 @@ def section_offsets(experiment, dataset, cells):
     return table.set_index("cell_id", verify_integrity=True).offset_m.reindex(cells).to_numpy()
 
 
-def draw_arrival_window(figure, offsets, dataset):
-    """Overlay the declared window end and the measured arrival on every image panel.
+def window_edge_quality(reference, ends):
+    """Per trace, the window's last samples against its earliest ones, from the reference.
 
-    Both are straight lines in ``t = intercept + offset / velocity``, so in a gather
-    they follow the offsets of the displayed traces. Drawing them together shows the
-    margin the declared window leaves, which is the whole reason it can be trusted
-    without reading a waveform.
+    Near one the window ends on the quiet floor; above ``CLEAN_EDGE_RATIO`` it ends on
+    the arrival's rising limb and the window is not signal-free there.
+    """
+    reference = np.asarray(reference, dtype=np.float64)
+    index = np.arange(reference.shape[1])[None, :]
+    edge = (index >= np.maximum(ends - EDGE_SAMPLES, 0)[:, None]) & (index < ends[:, None])
+    count = edge.sum(axis=1)
+    loud = np.sqrt(
+        np.divide(
+            np.square(np.where(edge, reference, 0.0)).sum(axis=1),
+            count,
+            out=np.full(len(reference), np.nan),
+            where=count > 0,
+        )
+    )
+    floor = np.sqrt(np.mean(np.square(reference[:, :FLOOR_SAMPLES]), axis=1))
+    return np.divide(loud, floor, out=np.full(len(reference), np.nan), where=floor > 0)
+
+
+def draw_arrival_window(figure, offsets, dataset, reference, sample_interval_s):
+    """Overlay the declared window end, coloured by whether it lands on the quiet floor.
+
+    Drawing a fitted arrival curve beside it would overstate what was measured: on
+    FORGE the mid-offset traces never reach a flat floor, so no onset can be fitted
+    there. What can be measured is whether the window's own end is still at the
+    trace's early level, and that is what the colour shows.
     """
     window = ARRIVAL_WINDOWS[DATASET_IDS[dataset]]
-    arrival = MEASURED_ARRIVALS[DATASET_IDS[dataset]]
+    end_s = window["intercept_s"] + offsets / window["velocity_m_per_s"]
+    ends = np.floor(end_s / sample_interval_s).astype(np.int64)
+    ratio = window_edge_quality(reference, ends)
+    # A silent reference, as in synthetic data, leaves the ratio undefined and clean.
+    contaminated = np.where(np.isnan(ratio), False, ratio > CLEAN_EDGE_RATIO)
     position = np.arange(len(offsets))
-    curves = (
-        (window, "k", "solid", 1.0, "Declared window end"),
-        (arrival, "0.35", (0, (4, 2)), 0.8, "Measured arrival"),
+    series = (
+        (np.where(contaminated, np.nan, end_s), "k", 1.0, "Window end, on the quiet floor"),
+        (
+            np.where(contaminated, end_s, np.nan),
+            "#c81e1e",
+            1.6,
+            "Window end, on the rising limb",
+        ),
     )
     axes = [axis for axis in figure.axes if axis.get_images()]
     for index, axis in enumerate(axes):
-        for line, color, style, width, label in curves:
-            axis.plot(
-                position,
-                line["intercept_s"] + offsets / line["velocity_m_per_s"],
-                color=color,
-                linestyle=style,
-                linewidth=width,
-                label=label if index == 0 else None,
-            )
-    axes[0].legend(
-        loc="lower left",
-        fontsize=6,
-        frameon=True,
-        framealpha=0.85,
-        borderpad=0.3,
-        handlelength=1.6,
-        borderaxespad=0.2,
-    )
+        for curve, color, width, label in series:
+            if np.isfinite(curve).any():
+                axis.plot(
+                    position,
+                    curve,
+                    color=color,
+                    linewidth=width,
+                    label=label if index == 0 else None,
+                    solid_capstyle="butt",
+                )
+    handles, labels = axes[0].get_legend_handles_labels()
+    if handles:
+        axes[0].legend(
+            handles,
+            labels,
+            loc="lower left",
+            fontsize=6,
+            frameon=True,
+            framealpha=0.85,
+            borderpad=0.3,
+            handlelength=1.6,
+            borderaxespad=0.2,
+        )
 
 
 def export_dataset(repo, experiments, dataset, seed, output, dpi, show_window=False):
@@ -165,6 +207,7 @@ def export_dataset(repo, experiments, dataset, seed, output, dpi, show_window=Fa
             )
         clips[normalization] = pooled_reference_clip(panel_sets)
         for section, panels in zip(sections, panel_sets, strict=True):
+            section_rows = lookup.get_indexer(section["cell_ids"])
             figure = create_publication_section(
                 [panel[keep] for panel in panels],
                 time_s=time[keep],
@@ -177,7 +220,12 @@ def export_dataset(repo, experiments, dataset, seed, output, dpi, show_window=Fa
             )
             if show_window:
                 draw_arrival_window(
-                    figure, section_offsets(host, dataset, section["cell_ids"]), dataset
+                    figure,
+                    section_offsets(host, dataset, section["cell_ids"]),
+                    dataset,
+                    # Uncropped in time: the window end is an index into the full trace.
+                    reference[section_rows],
+                    contract["sample_interval_us"] / 1e6,
                 )
             for extension in ("png", "pdf"):
                 path = output / f"gather_{section['varying_axis']}_{normalization}.{extension}"
@@ -224,7 +272,15 @@ def export_field_grid_gathers(repo, experiments, output, *, seed=7321, dpi=1200,
         "new_inference": False,
         "new_test_scoring": False,
         "arrival_window_overlay": (
-            {"declared": ARRIVAL_WINDOWS, "measured": MEASURED_ARRIVALS} if show_window else None
+            {
+                "declared": ARRIVAL_WINDOWS,
+                "clean_edge_ratio": CLEAN_EDGE_RATIO,
+                "edge_samples": EDGE_SAMPLES,
+                "floor_samples": FLOOR_SAMPLES,
+                "envelope_rise_fit_not_drawn": MEASURED_ENVELOPE_RISE,
+            }
+            if show_window
+            else None
         ),
         "panel_method_order": list(FIELD_DISPLAY_METHODS),
         "panel_titles": list(panel_titles(FIELD_METHOD_TITLES, residuals=False)),
