@@ -191,6 +191,9 @@ def summarize(table, population, stratum=None):
         # their ratio says how skewed this population is.
         "median_pre_prediction_rms": float(rows.pre_prediction_rms.median()),
         "median_pre_target_rms": float(rows.pre_target_rms.median()),
+        # Reference-only, so identical across methods: near one the window ends on the
+        # quiet floor, well above one it ends on the arrival's rising limb.
+        "median_window_edge_over_floor": _statistic(rows.window_edge_over_floor, "median"),
         # How much of the pre-arrival part is predictable at all, and whether that
         # correlation is spread through the window or sits at its end.
         "median_pre_correlation": _statistic(rows.pre_correlation, "median"),

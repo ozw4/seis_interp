@@ -183,6 +183,7 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
             "pre_target_energy": [2.0, 2.0, 2.0, 2.0],
             "pre_error_energy": [1.0, 2.0, 3.0, 40.0],
             "pre_relative_mse": [0.5, 1.0, 1.5, 20.0],
+            "window_edge_over_floor": [0.9, 1.0, 1.1, 8.0],
             "pre_correlation": [0.05, 0.10, 0.15, 0.9],
             "pre_early_correlation": [0.04, 0.08, 0.12, 0.9],
             "pre_late_correlation": [0.06, 0.12, 0.18, 0.9],
@@ -213,6 +214,7 @@ def test_the_summary_reads_test_traces_only_and_matches_the_study_aggregation():
     assert summary["median_pre_amplitude_ratio"] == pytest.approx(0.25)
     # One is the zero predictor's score, so the median says the typical trace broke even.
     assert summary["median_pre_relative_mse"] == pytest.approx(1.0)
+    assert summary["median_window_edge_over_floor"] == pytest.approx(1.0)
     assert summary["median_pre_correlation"] == pytest.approx(0.10)
     assert summary["median_pre_early_correlation"] == pytest.approx(0.08)
     assert summary["median_pre_late_correlation"] == pytest.approx(0.12)
@@ -258,3 +260,19 @@ def test_the_window_shift_moves_every_end_by_the_declared_samples():
         arrival_window_ends(offsets, shift_samples=-50, **settings)
     with pytest.raises(ValueError, match="shift_samples must be an integer"):
         arrival_window_ends(offsets, shift_samples=-1.5, **settings)
+
+
+def test_the_window_quality_diagnostic_sees_a_rising_limb():
+    """Reference-only check that says whether the window ends on the quiet floor."""
+    quiet = np.ones((2, 80)) * 0.1
+    ends = np.full(2, 60, dtype=np.int64)
+    flat = windowed_waveform_columns(np.zeros_like(quiet), quiet, ends)
+    np.testing.assert_allclose(flat["window_edge_over_floor"], 1.0)
+    # A trace whose amplitude ramps up before the window ends reads well above one.
+    rising = quiet.copy()
+    rising[:, 40:] *= np.linspace(1.0, 4.0, 40)
+    ramped = windowed_waveform_columns(np.zeros_like(rising), rising, ends)
+    assert (ramped["window_edge_over_floor"] > 2.0).all()
+    # A silent reference leaves it undefined rather than infinite.
+    silent = windowed_waveform_columns(np.zeros((2, 80)), np.zeros((2, 80)), ends)
+    assert np.isnan(silent["window_edge_over_floor"]).all()

@@ -53,6 +53,10 @@ MEASURED_ARRIVALS = {
     "seg_c3_na": {"intercept_s": 0.375, "velocity_m_per_s": 5227.0},
 }
 MINIMUM_WINDOW_SAMPLES = 16
+# Window-quality diagnostic: the trace's earliest samples stand for its quiet floor, and
+# the last samples of the window are where an arrival would first show up.
+FLOOR_SAMPLES = 25
+EDGE_SAMPLES = 10
 
 
 def arrival_window_ends(
@@ -125,6 +129,22 @@ def windowed_waveform_columns(prediction, target, window_ends):
     with np.errstate(divide="ignore", invalid="ignore"):
         post_snr = 10 * (np.log10(post_target) - np.log10(post_error))
     trace_rms = np.sqrt(target_energy / y.shape[1])
+    # Window quality, from the reference alone: the level at the window's end against the
+    # trace's earliest samples. Near one the window ends on the quiet floor; well above
+    # one it ends on the arrival's rising limb and is not signal-free.
+    floor = np.sqrt(np.mean(np.square(y[:, :FLOOR_SAMPLES]), axis=1))
+    edge_mask = before & (
+        np.arange(y.shape[1])[None, :] >= np.maximum(ends - EDGE_SAMPLES, 0)[:, None]
+    )
+    edge_count = edge_mask.sum(axis=1)
+    edge = np.sqrt(
+        np.divide(
+            np.square(np.where(edge_mask, y, 0.0)).sum(axis=1),
+            edge_count,
+            out=np.full(len(y), np.nan),
+            where=edge_count > 0,
+        )
+    )
     # Is any of the pre-arrival part actually predictable? Correlation inside the window
     # answers that directly, and splitting the window in half separates a real
     # correlation, which is spread through it, from an arrival clipped at its end.
@@ -139,6 +159,7 @@ def windowed_waveform_columns(prediction, target, window_ends):
         # means the method found something real; above 1 means it injected what was not.
         "pre_error_energy": pre_error,
         "pre_relative_mse": _ratio(pre_error, pre_target),
+        "window_edge_over_floor": _ratio(edge, floor),
         "pre_correlation": _window_correlation(p, y, before),
         "pre_early_correlation": _window_correlation(p, y, before & middle),
         "pre_late_correlation": _window_correlation(p, y, before & ~middle),

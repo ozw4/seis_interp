@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-11-11T01:14:24.909456+00:00",
+  "created_at": "2026-11-11T01:23:01.832746+00:00",
   "experiment": "runs/study_075_forge_random_shot50_gather_excluded/20261110T020859184225Z_aecab8752d88",
   "study_id": "study_075_forge_random_shot50_gather_excluded",
   "dataset_id": "forge_2017",
@@ -29,7 +29,7 @@
     }
   ],
   "artifacts": {
-    "per_trace.parquet": "08aa544e3c2dbd23b8a5d2b9768961eedcd40cb1b73fd50ad537e965804d02e3",
-    "summary.csv": "a259efef49b48e44d9a3eee50df3c43cf0769ec8d44dc7f9ddfc66b0a454501b"
+    "per_trace.parquet": "067e6547bd987fb446d94c4e600e46204f58a997e86e4b80f9441775999ad0e5",
+    "summary.csv": "3944c6c8bd19df2708e7ff5968e6b217952f7b42182958bfe3daaffa62b6f200"
   }
 }
