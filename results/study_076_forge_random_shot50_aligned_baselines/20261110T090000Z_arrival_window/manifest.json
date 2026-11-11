@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-11-11T00:43:25.473620+00:00",
+  "created_at": "2026-11-11T01:14:28.850913+00:00",
   "experiment": "runs/study_076_forge_random_shot50_aligned_baselines/20261110T030856201743Z_fd810e6bcb8c",
   "study_id": "study_076_forge_random_shot50_aligned_baselines",
   "dataset_id": "forge_2017",
@@ -12,6 +12,7 @@
     "intercept_s": 0.22,
     "velocity_m_per_s": 5500.0
   },
+  "window_shift_samples": 0,
   "minimum_window_samples": 16,
   "acceptance_rule": "recomputed whole-trace SNR reproduces each run's saved per-trace scores within 1e-06 dB",
   "zero_prediction_caveat": "a zero prediction leaks nothing and scores best on pre_energy_ratio; read it beside post_snr_db",
@@ -38,7 +39,7 @@
     }
   ],
   "artifacts": {
-    "per_trace.parquet": "5c446cda5f35cc80131abacd67a9d82f6ec8785bbfa52a2386cb2ceea492365f",
-    "summary.csv": "bf2e5c81ba0a8a08a4a774d8865dd93936669daf72b9ae4b2949bc23efda1f24"
+    "per_trace.parquet": "1bf808c6b1e5ec4376afe2b453e3ae346ee47b344b39538c9add1afff0b82085",
+    "summary.csv": "546c76f54ccae131bba7b0d641d9f176ecbcb3a456633347fc42fdf8882fd5a3"
   }
 }

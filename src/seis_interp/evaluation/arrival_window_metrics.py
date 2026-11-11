@@ -63,12 +63,17 @@ def arrival_window_ends(
     sample_interval_s,
     sample_count,
     minimum_samples=MINIMUM_WINDOW_SAMPLES,
+    shift_samples=0,
 ):
     """One past the last pre-arrival sample of each trace, from geometry alone.
 
     Raises rather than silently shortening: a declared window that cannot give every
     trace ``minimum_samples`` is the wrong window for this geometry, and a window that
     swallows a trace leaves nothing to score after it.
+
+    ``shift_samples`` moves every window end by a fixed number of samples, negative
+    being earlier. It exists for the sensitivity check: if a conclusion survives pulling
+    the window back from the arrival, the arrival was not leaking into it.
     """
     offsets = np.asarray(offsets, dtype=np.float64)
     if offsets.ndim != 1 or not len(offsets) or not np.isfinite(offsets).all():
@@ -80,7 +85,11 @@ def arrival_window_ends(
     sample_interval_s = _positive_float(sample_interval_s, "sample_interval_s")
     sample_count = _positive_integer(sample_count, "sample_count")
     minimum_samples = _positive_integer(minimum_samples, "minimum_samples")
-    ends = np.floor((intercept_s + offsets / velocity_m_per_s) / sample_interval_s).astype(np.int64)
+    if isinstance(shift_samples, bool) or not isinstance(shift_samples, Integral):
+        raise ValueError("shift_samples must be an integer")
+    ends = np.floor((intercept_s + offsets / velocity_m_per_s) / sample_interval_s).astype(
+        np.int64
+    ) + int(shift_samples)
     if ends.min() < minimum_samples:
         raise ValueError(
             f"the declared window gives {ends.min()} samples to the shortest trace, "

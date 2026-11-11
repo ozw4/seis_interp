@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-11-11T00:43:22.478313+00:00",
+  "created_at": "2026-11-11T01:14:24.909456+00:00",
   "experiment": "runs/study_075_forge_random_shot50_gather_excluded/20261110T020859184225Z_aecab8752d88",
   "study_id": "study_075_forge_random_shot50_gather_excluded",
   "dataset_id": "forge_2017",
@@ -12,6 +12,7 @@
     "intercept_s": 0.22,
     "velocity_m_per_s": 5500.0
   },
+  "window_shift_samples": 0,
   "minimum_window_samples": 16,
   "acceptance_rule": "recomputed whole-trace SNR reproduces each run's saved per-trace scores within 1e-06 dB",
   "zero_prediction_caveat": "a zero prediction leaks nothing and scores best on pre_energy_ratio; read it beside post_snr_db",
@@ -28,7 +29,7 @@
     }
   ],
   "artifacts": {
-    "per_trace.parquet": "1530bad457d2f626ef2c1d0851e67c41d43e53ec410d19dc93f4d1d336cafa32",
-    "summary.csv": "e12165464ba2dcd76607281cf9fbf70f7d6c36c3df317c833e93bf2a67ef6781"
+    "per_trace.parquet": "08aa544e3c2dbd23b8a5d2b9768961eedcd40cb1b73fd50ad537e965804d02e3",
+    "summary.csv": "a259efef49b48e44d9a3eee50df3c43cf0769ec8d44dc7f9ddfc66b0a454501b"
   }
 }

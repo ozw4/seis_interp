@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-11-11T00:43:49.286068+00:00",
+  "created_at": "2026-11-11T01:14:55.752127+00:00",
   "experiment": "runs/study_071_forge_c3_context_field/20261109T042809568788Z_766f4f10a666_traces",
   "study_id": "study_071_forge_c3_context_field",
   "dataset_id": "seg_c3_na",
@@ -12,6 +12,7 @@
     "intercept_s": 0.25,
     "velocity_m_per_s": 7000.0
   },
+  "window_shift_samples": 0,
   "minimum_window_samples": 16,
   "acceptance_rule": "recomputed whole-trace SNR reproduces each run's saved per-trace scores within 1e-06 dB",
   "zero_prediction_caveat": "a zero prediction leaks nothing and scores best on pre_energy_ratio; read it beside post_snr_db",
@@ -28,7 +29,7 @@
     }
   ],
   "artifacts": {
-    "per_trace.parquet": "400e6370a3f0360e16e04ee3802a580e96a3dd50c0aa6ddeb8cd5330667df9be",
-    "summary.csv": "e55969368ff1e9b218e8dbf16ca8226afb013bd72e2d2b362826095688b5ea21"
+    "per_trace.parquet": "2690a0415e48303f19b40ff19fd2bd6f7030e3b1b8dd2a049d66eb00cb13186e",
+    "summary.csv": "80e5a3afbe34df5a647fec638858a6c50e858a80563dddc03d421de217a1bc02"
   }
 }

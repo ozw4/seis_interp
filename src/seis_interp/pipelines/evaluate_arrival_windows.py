@@ -81,7 +81,7 @@ def scored_traces(directory):
     return pd.concat(tables, ignore_index=True).set_index("cell_id", verify_integrity=True)
 
 
-def evaluate_method(repo, experiment, contract, method, seed, window):
+def evaluate_method(repo, experiment, contract, method, seed, window, shift=0):
     """Windowed per-trace columns for one method, checked against its saved scores."""
     directory = method_prediction(experiment, method, seed)
     cells = np.load(directory / "cell_ids.npy", allow_pickle=False)
@@ -97,6 +97,7 @@ def evaluate_method(repo, experiment, contract, method, seed, window):
         sample_interval_s=contract["sample_interval_us"] / 1e6,
         sample_count=samples,
         minimum_samples=MINIMUM_WINDOW_SAMPLES,
+        shift_samples=shift,
     )
     saved = scored_traces(directory).reindex(cells)
     rows, checks = [], []
@@ -119,6 +120,7 @@ def evaluate_method(repo, experiment, contract, method, seed, window):
     table = pd.concat(rows, ignore_index=True)
     if saved.clean_target.isna().any():
         raise ValueError(f"{method}: predicted traces are missing from the saved scores")
+    table["offset_m"] = offsets.reindex(cells).to_numpy()
     table["clean_target"] = saved.clean_target.to_numpy().astype(bool)
     table["scored_domain"] = saved.scored_domain.to_numpy()
     difference = float(max(checks))
@@ -145,13 +147,36 @@ def _statistic(values, name):
     return float(getattr(values, name)()) if values.notna().any() else float("nan")
 
 
-def summarize(table, population):
+OFFSET_BINS = 5
+
+
+def offset_strata(table):
+    """The whole population and its offset quintiles, as (label, mask) pairs.
+
+    Offset decides the window length and the amplitude scale, so a conclusion that
+    holds overall can still fail in one band; the quintiles make that visible.
+    """
+    rows = table[table.scored_domain.eq("test")]
+    strata = [("all", pd.Series(True, index=rows.index), "")]
+    if len(rows) >= OFFSET_BINS:
+        edges = rows.offset_m.quantile(np.linspace(0, 1, OFFSET_BINS + 1)).to_numpy()
+        bins = pd.cut(rows.offset_m, edges, labels=False, include_lowest=True, duplicates="drop")
+        for index in sorted(bins.dropna().unique()):
+            inside = bins.eq(index)
+            span = f"{rows.offset_m[inside].min():.0f}-{rows.offset_m[inside].max():.0f} m"
+            strata.append((f"offset_q{int(index) + 1}", inside, span))
+    return strata
+
+
+def summarize(table, population, stratum=None):
     """Equal-weight trace summary of one method on one population.
 
     Only test traces are summarized: a grid run also predicts its validation traces,
     and those took part in selection.
     """
     rows = table[table.scored_domain.eq("test")]
+    if stratum is not None:
+        rows = rows[stratum]
     rows = rows if population == "all_eligible" else rows[rows.clean_target]
     return {
         "population": population,
@@ -174,6 +199,13 @@ def summarize(table, population):
         # Did predicting the pre-arrival part help? Exactly 1 is what a zero prediction
         # scores, so below 1 is a real gain and above 1 is injected noise.
         "median_pre_relative_mse": _statistic(rows.pre_relative_mse, "median"),
+        # The mean is reported because it is asked for, but it is not stable: the
+        # per-trace ratio has a heavy right tail that grows as the window moves into
+        # quieter samples, so the mean moves with the window and the median does not.
+        "mean_pre_relative_mse": _statistic(rows.pre_relative_mse, "mean"),
+        "p99_pre_relative_mse": _statistic(rows.pre_relative_mse, "max")
+        if len(rows) < 100
+        else float(rows.pre_relative_mse.quantile(0.99)),
         "pooled_pre_relative_mse": _safe_ratio(
             rows.pre_error_energy.sum(), rows.pre_target_energy.sum()
         ),
@@ -201,7 +233,7 @@ def summarize(table, population):
     }
 
 
-def evaluate_arrival_windows(repo, experiment, output, *, methods=None, seed=None):
+def evaluate_arrival_windows(repo, experiment, output, *, methods=None, seed=None, shift_samples=0):
     """Write per-trace and summary windowed scores for one run's methods."""
     repo, experiment = Path(repo).resolve(), Path(experiment).resolve()
     output = Path(output).resolve()
@@ -213,11 +245,21 @@ def evaluate_arrival_windows(repo, experiment, output, *, methods=None, seed=Non
     output.mkdir(parents=True, exist_ok=False)
     tables, sources, summaries = [], [], []
     for method in names:
-        table, source = evaluate_method(repo, experiment, contract, method, seed, window)
+        table, source = evaluate_method(
+            repo, experiment, contract, method, seed, window, shift_samples
+        )
         tables.append(table.assign(method_id=method))
         sources.append(source)
-        for population in ("clean_target", "all_eligible"):
-            summaries.append({"method_id": method, **summarize(table, population)})
+        for label, stratum, span in offset_strata(table):
+            for population in ("clean_target", "all_eligible"):
+                summaries.append(
+                    {
+                        "method_id": method,
+                        "offset_stratum": label,
+                        "offset_range": span,
+                        **summarize(table, population, None if label == "all" else stratum),
+                    }
+                )
     pd.concat(tables, ignore_index=True).to_parquet(output / "per_trace.parquet", index=False)
     summary = pd.DataFrame(summaries)
     summary.to_csv(output / "summary.csv", index=False)
@@ -235,6 +277,7 @@ def evaluate_arrival_windows(repo, experiment, output, *, methods=None, seed=Non
             "window_rule": "t < intercept_s + offset / velocity_m_per_s, declared from "
             "observed traces only and never from a first-break pick",
             "window": dict(window),
+            "window_shift_samples": shift_samples,
             "minimum_window_samples": MINIMUM_WINDOW_SAMPLES,
             "acceptance_rule": f"recomputed whole-trace SNR reproduces each run's saved "
             f"per-trace scores within {SNR_TOLERANCE_DB} dB",

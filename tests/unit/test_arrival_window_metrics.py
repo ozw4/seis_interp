@@ -240,3 +240,21 @@ def test_a_clipped_arrival_shows_up_in_the_late_half_of_the_window():
     even = windowed_waveform_columns(spread, target, ends)
     early = np.nanmedian(even["pre_early_correlation"])
     assert early > 0 and 0.5 < np.nanmedian(even["pre_late_correlation"]) / early < 2.0
+
+
+def test_the_window_shift_moves_every_end_by_the_declared_samples():
+    """The sensitivity knob: a negative shift pulls the window back from the arrival."""
+    settings = {
+        "intercept_s": 0.22,
+        "velocity_m_per_s": 5500.0,
+        "sample_interval_s": DT,
+        "sample_count": 1001,
+    }
+    offsets = np.array([0.0, 1100.0, 2200.0])
+    base = arrival_window_ends(offsets, **settings)
+    earlier = arrival_window_ends(offsets, shift_samples=-6, **settings)
+    assert (base - earlier == 6).all()
+    with pytest.raises(ValueError, match="below the required"):
+        arrival_window_ends(offsets, shift_samples=-50, **settings)
+    with pytest.raises(ValueError, match="shift_samples must be an integer"):
+        arrival_window_ends(offsets, shift_samples=-1.5, **settings)
